@@ -163,24 +163,81 @@ must be kept documented so the transitional state does not fossilize.
 
 ---
 
-## ADR-010 — Storage formalization for base images and overlays
+## ADR-010 — Storage: three-level qcow2 chain for system images, raw thin LVs for home
 
-**Status:** Proposed
+**Status:** Accepted (2026) — mechanism resolved by ADR-014
 
-**Question:** Exact mechanism and placement: qcow2 overlays with base image
-backing (current direction) vs overlayfs vs raw thin LVs throughout; where the
-image store lives relative to the thin pool. Current working split: qcow2 root
-overlays for AppVMs, raw thin LVs for persistent home data.
+**Context:** The open question was the exact storage mechanism and placement
+for base images and overlays (qcow2-with-backing vs overlayfs vs raw thin LVs
+throughout) and where the image store sits relative to the LVM thin pool.
+ADR-014 settled the composition model, which determines this.
+
+**Decision:**
+
+- **System images** use a three-level qcow2 backing chain (ADR-014):
+  `foundation.qcow2` (RO) ← `app-<type>.qcow2` (RO, backing = foundation) ←
+  `instance-<name>.qcow2` (RW, backing = app-type). qcow2 over overlayfs for
+  native backing-chain semantics, snapshotting and a clean RO/RW split per
+  layer.
+- **Persistent home data** uses a dedicated **raw thin LV per AppVM instance** —
+  a direct block device, LVM-snapshottable, decoupled from the image chain so
+  it survives foundation/app rebuilds (overlay recycling, ADR-007).
+- **Placement:** the qcow2 image store lives on a filesystem-backed thin LV in
+  `vg0` (e.g. `vg0/images`, ext4, mounted under `/var/lib/katmate/images`)
+  holding foundation, app-type and instance qcow2 files; per-instance home LVs
+  are raw thin LVs in the same pool. Both draw from the single thin pool
+  provisioned by the installer.
+
+**Consequences:**
+
+- Clean separation of immutable system (qcow2 chain) from mutable user data
+  (raw home LV); rebuilds touch only the chain.
+- LVM thin provisioning gives sparse allocation for both the image store and
+  per-instance home LVs.
+- `katmate-update` rebases instance overlays onto a new app-type/foundation
+  without touching home LVs.
 
 ---
 
-## ADR-011 — Base image build pipeline tooling
+## ADR-011 — Base image build pipeline: shell scripts orchestrated by Make
 
-**Status:** Proposed
+**Status:** Accepted (2026)
 
-**Question:** Script vs Makefile vs higher-level tooling (e.g. ansible) for
-reproducible base image builds. Bias per development philosophy: simplest
-thing that is fully scripted and diffable.
+**Context:** ADR-007 makes reproducible base builds mandatory; ADR-014 fixes
+the artifact model (three-level qcow2 chain: foundation ← app-type ←
+instance). The remaining question was tooling. `mkosi` was evaluated: its
+`BaseTrees=` expresses the layer model declaratively and it handles
+partitioning/bootstrap implicitly, but it adds a dependency and ties the build
+to systemd-tooling behavior and release tempo — opacity that runs against
+revisability, which for a TCB is a first-order property (and against the stated
+development philosophy: the simplest fully-scripted, diffable thing).
+
+**Decision:** POSIX/bash build scripts orchestrated by a `Makefile`, one target
+per layer.
+
+- **Foundation:** Debian rootfs via `debootstrap` into a mounted qcow2; custom
+  MicroVM kernel, waypipe 0.11.0 (source build, ADR-008) and vm-agent installed
+  in-image.
+- **App-`<type>` layers:** `qemu-img create -f qcow2 -F qcow2 -b <foundation>`
+  to establish the backing link, then `qemu-nbd` + `chroot` to install the
+  manifest package set, then freeze the overlay read-only — **no flatten**: the backing link to foundation is what keeps the chain three-level and stores foundation once.
+- All mounts/bind-mounts and teardown are explicit, with `trap` cleanup — every
+  command on screen, nothing implicit.
+- **Reproducibility:** apt sources pinned to a `snapshot.debian.org` timestamp
+  and package versions pinned per manifest, so a rebuild from the same inputs
+  yields the same image.
+
+**Consequences:**
+
+- Build dependencies: `qemu-utils`, `util-linux`, `coreutils`, `debootstrap`,
+  `debian-archive-keyring`, `make`. No build-time runtime stack.
+- More lines than a declarative tool, but partitioning, layering and
+  package-install steps are auditable line by line — the intended trade for a
+  TCB.
+- Concession: if nbd/partition wiring becomes painful across multiple layers,
+  `systemd-repart` may be adopted **standalone** for the partitioning step only,
+  leaving the rest of the pipeline explicit. Not the whole of mkosi.
+- Realizes the pipeline that ADR-014 and ADR-010 depend on.
 
 ---
 
@@ -201,3 +258,81 @@ reproducibility principle.
 **Question:** Signature scheme and verification point for base images
 (mandatory if ADR-012 lands on central distribution; useful even for local
 builds as tamper evidence).
+
+---
+
+## ADR-014 — AppVM domain model & three-layer image composition
+
+**Status:** Accepted (2026)
+
+**Context:** The base image (ADR-007) deliberately carries no applications,
+leaving open how applications reach an AppVM and how AppVMs differ from one
+another. The design discussion conflated two separate concerns — what
+*defines* a domain vs. which *applications* it runs. Slicing by application
+(one app = one VM) multiplies VM count, RAM and management surface, against the
+broad-usability goal (ADR-001); Qubes converged on trust-based domains for the
+same reason. ADR-010 (storage mechanism) and ADR-011 (pipeline) cannot be
+specified until this is settled.
+
+**Decision:**
+
+*Two independent axes.* A domain is defined by its **properties** — network
+(none / via NetVM), persistence (persistent / ephemeral), identity (a logged-in
+real identity, or none), disposability — **not** by its application set. The
+application set follows from the domain's purpose.
+
+AppVMs are sliced **by purpose/trust**, not by application. Default domain set:
+
+| Domain | Network | Persistence | Identity | Manifest |
+|---|---|---|---|---|
+| vault | none | persistent | — | `vault` (keepassxc, file manager) |
+| personal | via NetVM | persistent | yes | `web` (firefox-esr, foot, nautilus) |
+| untrusted | via NetVM | persistent † | none | `web` |
+| disposable | via NetVM | ephemeral | none | `web` |
+
+† optional reset to the app-layer on shutdown; see consequences.
+
+Four archetypes, **two manifests** — `personal` / `untrusted` / `disposable`
+share one manifest and differ only in properties, which proves the two axes are
+genuinely independent. Disposable is the single task-bound exception (open this
+PDF, destroy), justified because it is tied to a *task*, not a binary.
+
+*Three layers, realized as a qcow2 backing chain (mechanism in ADR-010):*
+
+| Layer | Contents | Shared by | Rebuild frequency | Owner |
+|---|---|---|---|---|
+| foundation | OS + kernel + waypipe + vm-agent (ADR-007) | all VMs | waypipe/kernel security update | `katmate-update`, automatic |
+| app-layer | package set **per domain type** | all VMs of that type | rare (domain definition change) | manifest in git |
+| overlay | user data | one instance | continuous | user |
+
+Concretely: `foundation.qcow2` (RO) ← `app-<type>.qcow2` (RO, backing =
+foundation) ← `instance-<name>.qcow2` (RW, backing = app-type). Persistent home
+data lives on a separate raw thin LV, decoupled from the chain so it survives
+foundation/app rebuilds. App-layers are **generated** from foundation +
+manifest (ADR-011), never hand-curated.
+
+**Consequences:**
+
+- `katmate-update` tracks a **single** foundation → the automatic update path
+  stays trivial (one rebuild, not N as a multi-base model would need).
+- Customization surface = manifest (packages) + properties. Small and safe
+  enough to later expose as GUI toggles (v0.4 → v1.0).
+- Per-role minimization preserved: a banking domain would carry only a browser,
+  a dev domain only its toolchain.
+- Resolves the **mechanism** in ADR-010 (three-level qcow2 chain + raw thin LVs
+  for home).
+- Shapes ADR-011: the pipeline must build the foundation and each `app-<type>`
+  image reproducibly from defined sources + manifests.
+- Banking as a dedicated domain is a documented option, **not** a default until
+  the broad-user era; for a single security-aware user, banking inside
+  `personal` is sufficient.
+- `untrusted` may optionally reset to its app-layer on shutdown (sits between
+  disposable and personal); left as a per-deployment property, not baked in.
+
+*Customization evolution* (tracks me → power users → broad):
+
+- **me (first release):** two hardcoded manifests + properties in config files
+  edited with `micro`.
+- **power users:** documented manifest format + `katmate-vm create --from
+  <manifest>` CLI.
+- **broad users:** GUI over the same manifest backend.
