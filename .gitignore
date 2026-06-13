@@ -1,7 +1,6 @@
-cat > .gitignore << 'EOF'
+out/
 *.qcow2
 *.img
 *.iso
 install.env
 *.swp
-EOF

@@ -7,6 +7,8 @@ be backfilled from git history.
 ## [0.2.0] — Unreleased (in development)
 
 ### Added
+- AppVM domain model + three-layer image composition (ADR-014, ADR-010)
+- Base image build pipeline skeleton — foundation + app-`<type>`, shell+Make (ADR-011)
 - vm-agent in C: `PING`, `RUN` (whitelist: firefox-esr, foot, nautilus),
   `FILEGET`/`FILEPUT` (path whitelist, size limits), `SHUTDOWN`
 - File transfer over AF_VSOCK

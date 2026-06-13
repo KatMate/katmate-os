@@ -1,0 +1,6 @@
+# web domain (ADR-014)
+# Shared by: personal / untrusted / disposable — they differ only in
+# properties (network/persistence/identity), not in this package set.
+firefox-esr
+foot
+nautilus
