@@ -7,9 +7,14 @@ log() {
   echo -e "\n==> $1"
 }
 
-log "Chroot postinstall"
+die() {
+  echo -e "\nERROR: $1"
+  exit 1
+}
 
+# ---------------------------------------------------------------------------
 log "System basics"
+# ---------------------------------------------------------------------------
 
 hwclock --systohc
 
@@ -25,7 +30,9 @@ systemctl enable systemd-networkd
 systemctl enable systemd-resolved
 systemctl enable iwd
 
+# ---------------------------------------------------------------------------
 log "WiFi config"
+# ---------------------------------------------------------------------------
 
 mkdir -p /var/lib/iwd
 
@@ -49,11 +56,12 @@ UseDefaultInterface=true
 EOF
 
 # IMPORTANT:
-# Do NOT touch /etc/resolv.conf here.
-# Inside arch-chroot it can be bind-mounted or busy.
-# install.sh fixes /mnt/etc/resolv.conf after this script exits.
+# Ne dotikaj se /etc/resolv.conf tukaj.
+# install.sh popravi /mnt/etc/resolv.conf po izhodu iz chroot.
 
+# ---------------------------------------------------------------------------
 log "Locale config"
+# ---------------------------------------------------------------------------
 
 sed -i 's/^#en_US.UTF-8 UTF-8/en_US.UTF-8 UTF-8/' /etc/locale.gen
 sed -i 's/^#sl_SI.UTF-8 UTF-8/sl_SI.UTF-8 UTF-8/' /etc/locale.gen
@@ -75,15 +83,18 @@ LC_TELEPHONE=sl_SI.UTF-8
 LC_MEASUREMENT=sl_SI.UTF-8
 LC_IDENTIFICATION=sl_SI.UTF-8
 EOF
+
 cat >/etc/vconsole.conf <<EOF
 KEYMAP=slovene
 EOF
 
+# ---------------------------------------------------------------------------
 log "Firewall config"
+# ---------------------------------------------------------------------------
 
 cat >/etc/nftables.conf <<'NFT'
 #!/usr/bin/nft -f
-# IPv4/IPv6 Simple & Safe firewall ruleset.
+# Katmate OS — default firewall ruleset
 
 flush ruleset
 
@@ -95,14 +106,17 @@ table inet filter {
         # loopback
         iif lo accept
 
-        # allow established/related
+        # established/related
         ct state established,related accept
 
-        # ping
+        # ICMP
         ip protocol icmp accept
         ip6 nexthdr icmpv6 accept
 
-        # ssh disabled by default
+        # VSOCK — lokalno (host↔guest komunikacija)
+        # vsock nima mrežnih pravil, gre skozi kernel direktno
+
+        # SSH — disabled by default
         # tcp dport 22 accept
     }
 
@@ -121,7 +135,9 @@ NFT
 chmod 600 /etc/nftables.conf
 systemctl enable nftables
 
+# ---------------------------------------------------------------------------
 log "WireGuard / ProtonVPN config"
+# ---------------------------------------------------------------------------
 
 mkdir -p /etc/wireguard
 
@@ -151,25 +167,26 @@ PersistentKeepalive = 25
 WG
 
 chmod 600 /etc/wireguard/proton.conf
-
-# Ne enable-am avtomatsko, da VPN ne zaklene sveže instalacije, če endpoint/DNS/network še ni OK.
-# Če želiš autostart:
-# systemctl enable wg-quick@proton
 systemctl enable wg-quick@proton
 
-log "mkinitcpio"
+# ---------------------------------------------------------------------------
+log "VSOCK module autoload"
+# ---------------------------------------------------------------------------
 
-sed -i 's/^HOOKS=.*/HOOKS=(base udev autodetect keyboard keymap modconf block encrypt filesystems fsck)/' /etc/mkinitcpio.conf
+# AF_VSOCK je edini host↔guest kanal (ADR-003). Modul se mora naložiti ob bootu,
+# sicer /dev/vsock ob naslednjem zagonu ni prisoten.
+echo vhost_vsock > /etc/modules-load.d/katmate-vsock.conf
+
+# ---------------------------------------------------------------------------
+log "mkinitcpio"
+# ---------------------------------------------------------------------------
+
+# HOOKS: encrypt mora biti pred lvm2, lvm2 pred filesystems
+sed -i 's/^HOOKS=.*/HOOKS=(base udev autodetect keyboard keymap modconf block encrypt lvm2 filesystems fsck)/' \
+  /etc/mkinitcpio.conf
 
 mkinitcpio -P
-# systemctl enable wg-quick@proton
 
-log "GRUB config only"
-
-sed -i '/^GRUB_ENABLE_CRYPTODISK=/d' /etc/default/grub
-sed -i '/^GRUB_CMDLINE_LINUX=/d' /etc/default/grub
-
-echo 'GRUB_ENABLE_CRYPTODISK=y' >> /etc/default/grub
-echo "GRUB_CMDLINE_LINUX=\"cryptdevice=UUID=${LUKS_UUID}:cryptroot root=/dev/mapper/cryptroot\"" >> /etc/default/grub
-
+# ---------------------------------------------------------------------------
 log "Postinstall DONE"
+# ---------------------------------------------------------------------------
