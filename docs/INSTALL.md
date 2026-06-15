@@ -27,21 +27,25 @@
      aborts if the pool would be < 8 G
 6. **Partitioning** — GPT: ESP + LUKS partition; `partprobe`.
 7. **Encryption & LVM** — LUKS2 (`cryptlvm`) → `vg0` with `root`, `swap`, and
-   a thin pool (created via metadata + data LV, joined with `lvconvert`).
+   a thin pool (single `lvcreate --type thin-pool -l 100%FREE
+   --poolmetadatasize`, so LVM sizes data + metadata + pmspare together).
 8. **Filesystems & mount** — FAT32 ESP at `/boot`, ext4 root, swap on.
-9. **Pacstrap** — `base linux-hardened linux-hardened-headers linux-firmware
+9. **Mirror refresh** — `ParallelDownloads = 5`; `reflector`
+   (CH/DE/AT, https, sorted by rate) refreshes the mirrorlist before pacstrap,
+   with a static geo-close fallback. Mitigates flaky upstream mirrors.
+10. **Pacstrap** — `base linux-hardened linux-hardened-headers linux-firmware
    <ucode> lvm2 efibootmgr cryptsetup iwd micro sudo nftables wireguard-tools
    qemu-full`.
-10. **Base config** — fstab, hostname, timezone `Europe/Zurich`, wired DHCP
+11. **Base config** — fstab, hostname, timezone `Europe/Zurich`, wired DHCP
     network unit, wheel sudoers.
-11. **Handoff** — writes `/root/install.env`, copies and runs `postinstall.sh`
+12. **Handoff** — writes `/root/install.env`, copies and runs `postinstall.sh`
     inside the chroot.
-12. **resolv.conf fix** — symlinks to `stub-resolv.conf` *after* leaving the
+13. **resolv.conf fix** — symlinks to `stub-resolv.conf` *after* leaving the
     chroot (deliberately not touched inside it).
-13. **systemd-boot** — `bootctl install`; `loader.conf` with `timeout 0`,
+14. **systemd-boot** — `bootctl install`; `loader.conf` with `timeout 0`,
     `editor no`; boot entry with
     `cryptdevice=UUID=<luks>:cryptlvm root=/dev/vg0/root rw quiet loglevel=3`.
-14. **Verification** — asserts EFI binary, boot entry, kernel, initramfs and
+15. **Verification** — asserts EFI binary, boot entry, kernel, initramfs and
     the cryptdevice string exist; prints the boot file tree.
 
 Debugging aid: `KEEP_MOUNTS=yes ./install.sh` leaves `/mnt` mounted for

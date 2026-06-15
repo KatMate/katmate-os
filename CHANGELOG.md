@@ -28,11 +28,19 @@ be backfilled from git history.
   hardened kernel)
 - Guest waypipe: 0.9.2 (Debian package) → 0.11.0 built from source,
   version-locked to host (ADR-008)
+- Installer thin pool: single `lvcreate --type thin-pool -l 100%FREE
+  --poolmetadatasize` instead of manual meta+data LV + `lvconvert` — old path
+  failed with "insufficient free space" (PE rounding + lvconvert pmspare
+  reservation)
+- Installer: `reflector` + `ParallelDownloads = 5` mirror refresh before
+  pacstrap (flaky upstream mirror mitigation)
 
 ### Fixed
 - Waypipe clipboard crash guest↔host: compression negotiation mismatch from
   version skew; build required `bindgen` (lz4/zstd feature gates) and
   `cargo fetch` before meson (`--frozen` wrapper) (ADR-008)
+- Installer reinstall on Dell (Pentium N6000, 119 G NVMe) validated end-to-end:
+  GRUB era → systemd-boot/cryptlvm/linux-hardened/qemu-full
 - Plymouth: password prompt layout (independent sprite centering), throbber
   hidden during password entry, manual zero-padding workaround for scripting
   limitations
