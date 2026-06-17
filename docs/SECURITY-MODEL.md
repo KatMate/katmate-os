@@ -56,7 +56,8 @@ else is assumed breachable.
 ### Host firewall (nftables)
 
 Input policy `drop`; accepted: loopback, established/related, ICMP/ICMPv6.
-Forward policy `drop`. SSH disabled by default (rule present but commented).
+Forward policy `drop`. SSH disabled by default (rule present but commented
+in the installer-provisioned ruleset).
 VSOCK does not traverse netfilter — host↔guest traffic never touches the
 network stack.
 
@@ -97,6 +98,7 @@ waypipe client + installer-provisioned configuration. Kept deliberately small;
 |---|---|---|
 | 1 | **Secrets committed in installer scripts** — WireGuard private key, WiFi SSID+PSK, default user credentials | Critical hygiene gap. The committed WG key is considered burned and must be rotated. Replace with install-time prompts / `wg genkey` generation. v0.2 blocker. |
 | 2 | Hidden SSID + AutoConnect forces clients into active probing — the machine broadcasts the network name everywhere | Switch to a visible SSID; drop `Hidden=true`. |
-| 3 | VPN terminates on the host, contradicting the NetVM target architecture | Transitional by design; migration is part of v0.3 ([ADR-009](DECISIONS.md#adr-009)). |
-| 4 | No base image signing / integrity verification | [ADR-013](DECISIONS.md#adr-013) (Proposed). |
-| 5 | No Secure Boot chain | Consistent with threat model (see above); revisit at v1.0. |
+| 3 | ~~VPN terminates on the host, contradicting the NetVM target architecture~~ | **Resolved (live on MINIS):** WireGuard/ProtonVPN now terminates in NetVM per [ADR-009](DECISIONS.md#adr-009). Host carries no VPN. |
+| 4 | **SSH open on development host** — `tcp dport 22 accept` active on MINIS (dev convenience, not installer default) | Close or gate behind a stricter rule before power-user release. Not present in the installer-provisioned ruleset. |
+| 5 | No base image signing / integrity verification | [ADR-013](DECISIONS.md#adr-013) (Proposed). |
+| 6 | No Secure Boot chain | Consistent with threat model (see above); revisit at v1.0. |

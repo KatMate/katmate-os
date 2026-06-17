@@ -2,7 +2,8 @@
 
 ## Requirements
 
-- x86-64 UEFI machine with VT-x / AMD-V
+- x86-64 UEFI machine with VT-d / AMD-Vi (IOMMU required — VT-x-only platforms
+  not supported per ADR-015)
 - Disk ≥ 32 GB (enforced by the installer)
 - RAM: 8 GB practical minimum (low-end reference class), more for multiple concurrent VMs
 - Arch Linux live ISO environment, WiFi or wired connectivity
@@ -61,8 +62,10 @@ even on failure.
 - Locales: `LANG=en_US.UTF-8`, regional `LC_*` set to `sl_SI.UTF-8`;
   console keymap `slovene`
 - nftables: default-drop ruleset (see [SECURITY-MODEL.md](SECURITY-MODEL.md#controls-by-component)), enabled
-- WireGuard: ProtonVPN profile + `wg-quick@proton` enabled (transitional —
-  target is NetVM, [ADR-009](DECISIONS.md#adr-009))
+- WireGuard: ProtonVPN profile + `wg-quick@proton` enabled (transitional
+  installer default — in production NetVM carries the VPN per [ADR-009](DECISIONS.md#adr-009))
+- `vhost_vsock` module autoload via `/etc/modules-load.d/katmate-vsock.conf`
+  (AF_VSOCK sole host↔guest channel per [ADR-003](DECISIONS.md#adr-003))
 - mkinitcpio: `HOOKS=(base udev autodetect keyboard keymap modconf block
   encrypt lvm2 filesystems fsck)` → `mkinitcpio -P`
 
@@ -79,13 +82,13 @@ even on failure.
 
 | Machine | CPU | RAM | Role |
 |---|---|---|---|
-| MINISFORUM UM870 | Ryzen 7 8745H | 32 GB DDR5 | main development system |
-| MSI Cubi N6000 | Pentium N6000 | 32 GB DDR4 | bare-metal install test target |
-| Acer ES1-633 | Celeron N4000 | 8 GB | low-end reference (alpha floor) |
-| Dell Latitude 3120 | Pentium N6000 | 8 GB | live test target |
+| MINISFORUM UM870 | Ryzen 7 8745H | 32 GB DDR5 | main development system (VT-d) |
+| MSI Cubi N6000 | Pentium N6000 | 32 GB DDR4 | bare-metal install test target (VT-d) |
+| Dell Latitude 3120 | Pentium N6000 | 8 GB | live install test target (VT-d) |
+| Acer ES1-633 | Pentium N4200 | 8 GB | dev scratch / VT-x only (frozen per ADR-015) |
 
 Known hardware limitation: PCI passthrough is problematic on some 2.5 GbE
-adapters.
+adapters; USB-NIC passthrough (r8152) is the working alternative for NetVM.
 
 ## Caveats (current installer state)
 

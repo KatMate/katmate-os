@@ -4,69 +4,112 @@
 > graduate to `docs/`; this file stays short and is regenerated at the end of
 > each working session.
 
-**Last updated:** 2026-06-14
+**Last updated:** 2026-06-17
 **Milestone:** v0.2 (in development)
 
 ## Current focus
 
-Host stack validated on bare metal (Dell) and pipeline skeleton in repo.
-Installer drift (docs vs code) resolved. Next: VM launcher — the Faza 1 gate.
+Merging two parallel development lines onto MINIS/UM870 (the VT-d host):
+1. **MINIS line** — the working compartmentalization stack (netVM, personalVM,
+   segmented networking, host desktop). This is the documented project plus the
+   live system confirmed by direct inspection.
+2. **Acer line** — GUI/desktop layer (Hyprland + CYBRland theme + Plymouth).
+   Inspection completed 2026-06-17; assets to migrate to MINIS.
 
-## Recently resolved
+Direction set: target IOMMU-capable platforms only (VT-d/AMD-Vi); VT-x-only
+frozen (ADR-015). MINIS is primary host and merge target.
 
-- ADR-014 (AppVM domain model + three-layer image composition), ADR-010/011
-  Accepted. Pipeline skeleton in repo: `build/{config,lib,foundation,app-layer}.sh`,
-  `manifests/{web,vault}.list`, `Makefile` (commits c899f37, cf6c079).
-- Host validated on bare metal: LUKS → cryptlvm → vg0 (root/swap/thinpool),
-  linux-hardened, systemd-boot, KVM, vhost_vsock, qemu-full — all confirmed.
-- **Installer sync (commit b1f1ede):** `installer/install.sh` + `postinstall.sh`
-  in git were stale (old GRUB/cryptroot/plain-linux, no lvm2). Replaced with the
-  documented systemd-boot/cryptlvm/linux-hardened/qemu-full versions from project
-  knowledge. Added `vhost_vsock` autoload (`/etc/modules-load.d/katmate-vsock.conf`)
-  — AF_VSOCK is the only host↔guest channel (ADR-003), must load at boot.
-  Now docs = git.
+## Confirmed live state (MINIS/UM870, inspected 2026-06-17)
+
+**Host** (`archlinux`, Arch):
+- Kernel **`linux` 7.0.12-arch1-1** — migration to `linux-hardened` pending
+  (opportunistic, not blocking). While on stock `linux`, `aio=io_uring` works
+  and is in use; `aio=threads` adaptation applies only once hardened lands.
+- Ryzen 7 8745H, ~30 GiB RAM, 12 GiB swap. AMD-Vi present; vfio in use.
+- LUKS2 → `cryptroot` → `vg0`: `root` 100G, `swap` 12G, `vm_pool` thin pool
+  700G (tmeta 88M). In-pool: `vm_personal_home` 40G, `vm_tpl_all_root_golden`
+  30G, `vm_tpl_debian` 10G. Out-of-pool template/root LVs: `vm_tpl_all_root`,
+  `vm_tpl_personal_root`, `vm_tpl_net_root` (+ others).
+- Desktop: **Sway** (dual head DP-3 / HDMI-A-1), kitty, fish, micro.
+  Target: Hyprland + CYBRland (migration from Acer pending).
+- waypipe-client: socket-activated `--user` service, vsock port 1024,
+  multiplexes per peer CID (one `client-conn` per connection).
+- Host nft: input policy drop; `tcp dport 22 accept` is open (dev convenience,
+  not a permanent policy — to be reviewed before power-user release).
+- Bridge `br-personal` carries `tap-personal` (personalVM) + `tap0` (netVM
+  inner leg).
+
+**netVM** (CID 3, Debian 13 trixie, kernel 6.12.69+deb13):
+- Launched as host `--user` service `netVM.service` → `/home/host/net.con`.
+- **q35** machine (not microvm), 1 vCPU, ~1 GiB RAM.
+- **USB-NIC passthrough**: `usb-host vendorid=0x0bda productid=0x8153` (Realtek
+  r8152) → guest `enx00e04c3961b8`, gets `10.3.1.3/24`, default gw `10.3.1.1`.
+- **WireGuard / ProtonVPN** terminates here (`proton` iface `10.2.0.2/32`,
+  wg-quick), NAT masquerade out `proton`, ip_forward=1.
+- Inner segment leg `enp0s4` (virtio via tap0) `10.100.1.1/32`.
+- nft: input drop + wg port 51820; forward limited to segment↔proton.
+- vm-agent runs here (non-GUI: SHUTDOWN, file transfer, control).
+- 9p `hostshare` mount of `/home/host`.
+
+**personalVM** (CID 4, Debian 13 trixie, kernel 6.12.69+deb13):
+- **microvm** machine, 2 vCPU, 4G (hugepages-backed).
+- `eth0` (virtio via tap-personal) `10.100.1.2/32`, gw `10.100.1.1` (netVM
+  inner leg), DNS `10.2.0.1` → routed through netVM/Proton.
+- vm-agent (user service) → waypipe server → firefox-esr tree; logind creates
+  `/run/user/1000` at boot, no interactive login needed.
+- nft empty (relies on netVM for filtering).
+- Disks: vda 10G root (qcow2 overlay), vdb 40G /home (raw LV).
+
+## Confirmed Acer-line assets (inspected 2026-06-17)
+
+**Desktop layer** — to migrate to MINIS:
+- greetd + tuigreet login manager
+- Hyprland 0.55.2 + **CYBRland** theme (`github.com/scherrer-txt/cybrland`)
+  — `~/.config/hypr/{hyprland.conf,theme.conf,vars.conf,plugins/,scripts/}`
+- hypridle, hyprlock, hyprpaper, hyprpicker, pyprland
+- Rofi (launcher, powermenu, clipboard, wallpaper, keybindings, screenshot,
+  emoji scripts)
+- waybar, swaync (notifications)
+- Plymouth "katmate" theme (boot splash) — to transfer alongside Hyprland
+- kitty, yazi, obsidian, fish, micro
+
+**Build pipeline** (already in git):
+- `build/config.sh` — Debian trixie, snapshot pin `20260601T000000Z`,
+  waypipe v0.11.0, bare ext4 on whole NBD device
+- `build/lib.sh` — nbd_connect/mount/chroot helpers, cleanup trap
+
+**Acer hardware note:** N4200 (not N4000 as previously documented), VT-x only
+— confirmed not a target platform post ADR-015.
 
 ## Open problems
 
-1. **Dell still on old GRUB install** from 2026-06-13 (stale scripts). Works,
-   but not aligned. Fix = reinstall from current `installer/` (systemd-boot/
-   cryptlvm/qemu-full). No launcher dependency.
-2. **Suspend/resume failure under `linux-hardened`** (Acer, Intel iGPU): screen
-   off, unresponsive after resume; `mem_sleep` `[deep]`/S3. Next: capture
-   `journalctl -b -1 -k`, compare against stock `linux`.
-3. **Installer secrets** (v0.2 blocker, deliberate dev convenience): WireGuard
-   key, WiFi PSK, credentials — out before opening to power users. Rotate burned
-   WG key; drop `Hidden=true`.
+1. **Desktop migration Acer → MINIS.** CYBRland Hyprland config + Plymouth
+   theme to port; Sway replaced by Hyprland. Requires Hyprland + deps install
+   on MINIS; greetd swap.
+2. **Kernel migration `linux` → `linux-hardened`** on MINIS (opportunistic).
+   Re-validate io_uring/aio on hardened; suspend/resume regression to recheck.
+3. **Installer secrets** (v0.2 blocker): WireGuard key, WiFi PSK, credentials —
+   must be removed before power-user release. Rotate burned WG key; drop
+   `Hidden=true`.
+4. **SSH open on MINIS host** (`tcp dport 22 accept`) — dev convenience, not
+   shipped policy; close or gate before power-user release.
+5. **"Enoch OS"** description string in live `vm-agent.service` (personalVM) —
+   pre-alpha artifact, remove.
 
 ## Next steps
 
-- **VM launcher (Faza 1 gate):** instance overlay on app-web + `-kernel` +
-  AF_VSOCK + waypipe host-side systemd user service. First actual VM from the
-  three-layer chain.
-- Kernel sub-pipeline → `out/linux-image-katmate-microvm-amd64.deb` (hook).
-- vm-agent build → `out/vm-agent` (hook, C, gcc).
-- Reinstall Dell from current installer.
-- `katmate-update` MVP (Faza 2); unblocks RTL8125 passthrough (Faza 3).
+- Port CYBRland desktop layer + Plymouth theme from Acer to MINIS.
+- Resume vm-agent design block (protocol.h source-of-truth for CID/port,
+  `allowed_path` traversal fix, socket/bind/listen error handling).
+- Kernel migration to linux-hardened on MINIS (opportunistic).
+- Secrets removal from installer (v0.2 blocker).
 
-## Deferred (tracked, not now)
+## Notes
 
-- Installer hardening: reflector + ParallelDownloads before pacstrap (mirror
-  "fails first try" pattern, seen 3×); package verification after pacstrap
-  (atomic pacstrap silently dropped qemu once). Own commit, after base is synced.
-- `/dev/vsock` is `root root` not `root kvm` → udev rule, decided with launcher
-  privilege model (user vs root).
-- `vhost_net` autoload → add when NetVM TAP/bridge lands (don't preload now).
-
-## Open questions
-
-ADR-012 (image distribution), ADR-013 (image signing) — still Proposed.
-vm-agent RUN whitelist → per-manifest (vault needs keepassxc, not on current
-global whitelist; Faza 4).
-
-## Session log notes
-
-- 2026-06-14: installer sync (b1f1ede); discovered git installer was 2 generations
-  behind docs (GRUB era). Root cause of yesterday's cryptroot/GRUB confusion:
-  correct systemd-boot scripts lived only in project knowledge, never committed.
-  Acer confirmed clean (LVM-on-LUKS, lvm2 in HOOKS correct). `less` not in Arch
-  base — use `git --no-pager` or install it.
+- Doc reconciliation pass completed 2026-06-17: ARCHITECTURE (networking,
+  desktop, hardware floor), INSTALL (HW matrix N4000→N4200, postinstall VSOCK
+  module), SECURITY-MODEL (VPN gap #3 resolved, SSH gap added), ROADMAP (v0.3
+  networking items moved to live state).
+- vm-agent runs on all domains (GUI and non-GUI) as the general control channel.
+- netVM uses USB-NIC passthrough (r8152), not PCIe RTL8125 — RTL8125 vfio
+  path documented in memory as blocked; live system uses the simpler USB path.

@@ -16,6 +16,9 @@
 - [x] Host kernel → `linux-hardened` (incl. `aio=threads` adaptation)
 - [x] Installer rewrite: systemd-boot, proportional LVM sizing, thin pool
 - [x] Template model designed (immutable base + overlays, ADR-007)
+- [x] NetVM operational — USB-NIC passthrough, WireGuard/ProtonVPN, inner
+      segment routing (live on MINIS/UM870; ADR-009 realized ahead of v0.3)
+- [x] personalVM operational — microvm, hugepages, qcow2 overlay + raw home LV
 - [ ] AppVM domain model + three-layer composition (ADR-014, ADR-010)
 - [ ] `katmate-update` implementation (MVP)
 - [ ] Base image build pipeline — foundation + app-`<type>` images, shell+Make (ADR-011)
@@ -23,17 +26,18 @@
 - [ ] Remove secrets from installer (prompts / `wg genkey`); rotate burned WG key
 - [ ] Power management
 
-## v0.3 — Network isolation
+## v0.3 — Network isolation & first release target
 
 > **First release target** = installer + preconfigured NetVM + default
 > ready-to-run AppVMs ≈ end of v0.3.
 
-- [ ] NetVM (DHCP, DNS, VPN, firewall, routing)
-- [ ] VPN migration host → NetVM (ADR-009)
-- [ ] Default ready-to-run AppVM set (vault / personal / untrusted / disposable) from two manifests (ADR-014)
+- [ ] Default ready-to-run AppVM set (vault / personal / untrusted / disposable)
+      from two manifests (ADR-014)
 - [ ] Installer provisions foundation + app-layers + NetVM + default AppVMs
 - [ ] Disposable VMs
-- [ ] Networking automation
+- [ ] Networking automation (NetVM lifecycle managed by installer/katmate)
+- [ ] VPN migration host → NetVM complete in installer (live on MINIS but not
+      yet installer-integrated)
 
 ## Build order (first release, critical path)
 
@@ -44,11 +48,8 @@ Each step gates the next:
    an instance overlay off each. Realizes ADR-014 + ADR-010.
 2. **`katmate-update` MVP** — host-waypipe vs foundation version detection
    (pacman hook), foundation rebuild + app-layer rebase + overlay recycling.
-   This is the "updater component" currently blocking RTL8125 passthrough.
-3. **NetVM** — one more image from the pipeline with the network role; RTL8125
-   passthrough now unblocked (`LimitMEMLOCK=infinity` drop-in + vfio-pci
-   `net.con`); VPN migration host → NetVM (ADR-009); AppVMs reach the network
-   only via NetVM.
+3. **NetVM installer integration** — NetVM lifecycle automated from installer;
+   USB-NIC or PCIe NIC passthrough; VPN provisioned at install time.
 4. **Default AppVMs** — instantiate the four domains from two manifests +
    properties; per-instance home on raw thin LV; disposable lifecycle.
 5. **Installer integration** — provision the whole set so a fresh install runs.

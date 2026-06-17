@@ -5,7 +5,7 @@
 ```
                           Internet
                              │
-                        [ NetVM ]            target (v0.3) — today: WireGuard on host
+                        [ NetVM ]            USB-NIC (r8152) passthrough; WireGuard/ProtonVPN
                              │
 ┌──────────────────── Host — Arch Linux (linux-hardened) ────────────────────┐
 │  systemd-boot · LUKS2 + LVM · nftables · QEMU/KVM · waypipe · Hyprland     │
@@ -23,7 +23,7 @@ All host↔guest communication crosses explicitly exposed VSOCK channels.
 
 - Arch Linux with the `linux-hardened` kernel ([ADR-004](DECISIONS.md#adr-004)),
   systemd-boot (no menu: `timeout 0`, `editor no` — [ADR-006](DECISIONS.md#adr-006)).
-- Core stack: systemd, systemd-networkd/-resolved, nftables, WireGuard, QEMU/KVM.
+- Core stack: systemd, systemd-networkd/-resolved, nftables, QEMU/KVM.
 - QEMU is currently installed as `qemu-full`; reduction to `qemu-base` is under
   evaluation to shrink the TCB (MicroVM machine type needs no GUI frontends).
 - Operational consequence of the hardened kernel: io_uring is disabled
@@ -49,8 +49,9 @@ for persistent home data.
 
 ## Guest MicroVMs
 
-- Debian stable, minimal userspace, treated as an **appliance**: stability and
-  predictability over freshness ([ADR-002](DECISIONS.md#adr-002), [ADR-005](DECISIONS.md#adr-005)).
+- Debian stable (trixie), minimal userspace, treated as an **appliance**:
+  stability and predictability over freshness
+  ([ADR-002](DECISIONS.md#adr-002), [ADR-005](DECISIONS.md#adr-005)).
 - Custom kernel built from Debian LTS sources
   (`vmlinuz-katmate-microvm-amd64-6.12.x`), MicroVM-optimized config:
   virtio-blk / virtio-net / virtio-vsock, ext4, tmpfs, user namespaces, cgroups.
@@ -135,26 +136,48 @@ Benefits: no X11, no network listener, native Wayland path. Clipboard
 
 ## Networking
 
-- **Current (v0.2):** host-side systemd-networkd/-resolved, nftables with
-  default-drop input policy, WireGuard (ProtonVPN) on the host.
-- **Target (v0.3, [ADR-009](DECISIONS.md#adr-009)):** NetVM as the sole
-  network-facing domain — DHCP, DNS, VPN, firewalling, routing. AppVMs receive
-  connectivity only through the NetVM. Host-side VPN is transitional.
+**Live state (MINIS/UM870, v0.2):** NetVM is operational and is the sole
+network-facing domain — as targeted by [ADR-009](DECISIONS.md#adr-009).
+WireGuard (ProtonVPN) terminates in the NetVM, not on the host.
+
+NetVM topology:
+- **External leg:** USB-NIC passthrough (Realtek r8152, `usb-host`) — physical
+  uplink `10.3.1.3/24`, gw `10.3.1.1`.
+- **VPN:** `wg-quick@proton`, iface `10.2.0.2/32`; NAT masquerade out `proton`;
+  `ip_forward=1`.
+- **Inner segment:** virtio NIC via TAP bridge on host, `10.100.1.1/32`;
+  AppVMs connect here and route all traffic through the VPN.
+- nft: input drop (+ WireGuard port 51820); forward limited to segment↔proton.
+
+AppVMs (e.g. personalVM) have a virtio NIC on the inner segment (`10.100.1.2/32`),
+DNS via `10.2.0.1` (ProtonVPN resolver). No direct host network access.
+
+Note: NetVM currently runs as a **q35** machine (not MicroVM), 1 vCPU, ~1 GiB
+RAM. MicroVM migration is a future cleanup item.
 
 ## Disposable VMs (planned, v0.3)
 
 Created on demand, temporary storage, automatic destruction. Use cases:
 unknown PDFs, suspicious downloads, throwaway browsing sessions.
 
-## Desktop layer (development state)
+## Desktop layer
 
-greetd + tuigreet → Hyprland 0.55.2 (Wayland), Plymouth boot splash
-("katmate" theme), fish shell. Currently configured on development machines
-only; installer integration is planned and will require adding `kms` to the
-mkinitcpio `HOOKS` for Plymouth.
+greetd + tuigreet login manager → Hyprland 0.55.2 (Wayland compositor),
+Plymouth boot splash ("katmate" theme), fish shell.
+
+The Hyprland configuration uses the **CYBRland** theme
+(`github.com/scherrer-txt/cybrland`): teal/cyan accent palette, GeistMono
+Nerd Font, single-monitor layout (eDP-1), animations disabled for performance.
+Supporting tools: hypridle, hyprlock, hyprpaper, hyprpicker, pyprland, Rofi,
+waybar, swaync, kitty, yazi.
+
+Currently configured on the Acer development machine; migration to MINIS
+(primary host) in progress. Installer integration is planned and will require
+adding `kms` to the mkinitcpio `HOOKS` for Plymouth.
 
 ## Target hardware class
 
-x86-64 UEFI with VT-x/AMD-V. Performance floor: Gemini Lake-class
-(Celeron N4000, 8 GB RAM). Full matrix of reference machines:
+x86-64 UEFI with **VT-d / AMD-Vi** (IOMMU required — VT-x-only platforms
+frozen per ADR-015). Performance floor: Apollo Lake-class (Pentium N6000,
+8 GB RAM). Full matrix of reference machines:
 [INSTALL.md](INSTALL.md#tested--reference-hardware).
