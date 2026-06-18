@@ -164,7 +164,7 @@ echo "Razporeditev:"
 echo "  EFI:      512M"
 echo "  vg0-root: ${ROOT_GB}G"
 echo "  vg0-swap: ${SWAP_GB}G"
-echo "  thinpool: ${THINPOOL_GB}G (metadata: ${TMETA_MB}M)"
+echo "  thinpool: ~${THINPOOL_GB}G (data: preostanek 100%FREE, metadata: ${TMETA_MB}M)"
 echo ""
 read -rp "Potrdi razporeditev (yes/no): " CONFIRM
 [[ "$CONFIRM" == "yes" ]] || die "Aborted by user."
@@ -217,13 +217,14 @@ vgcreate vg0 /dev/mapper/cryptlvm
 lvcreate -L "${ROOT_GB}G"  vg0 -n root
 lvcreate -L "${SWAP_GB}G"  vg0 -n swap
 
-# Thin pool: najprej metadata, potem podatkovni LV, združi v thinpool
-lvcreate -L "${TMETA_MB}M" vg0 -n thinpool_meta
-lvcreate -L "${THINPOOL_GB}G" vg0 -n thinpool_data
-lvconvert --yes --type thin-pool \
-          --poolmetadata vg0/thinpool_meta \
-          vg0/thinpool_data
-lvrename vg0/thinpool_data vg0/thinpool
+# Thin pool: LVM naredi VSE naenkrat (data + meta + pmspare) iz preostanka.
+# Ročni meta+data+lvconvert pristop pade, ker lvconvert še interno rezervira
+# pmspare (= velikost meta) → 100%FREE pobere prostor, ki ga pmspare rabi.
+# --poolmetadatasize nastavi meta eksplicitno; -l 100%FREE da pool ves ostanek.
+lvcreate --type thin-pool \
+         -l 100%FREE \
+         --poolmetadatasize "${TMETA_MB}M" \
+         vg0 -n thinpool
 
 # ---------------------------------------------------------------------------
 # Filesystemi
@@ -248,6 +249,33 @@ swapon /dev/vg0/swap
 
 mountpoint -q /mnt      || die "/mnt not mounted"
 mountpoint -q /mnt/boot || die "EFI /boot not mounted"
+
+# ---------------------------------------------------------------------------
+# Mirror refresh — reflector + ParallelDownloads pred pacstrap
+# (fastly mirror nestabilen; brez tega pacstrap pogosto pade prvič)
+# ---------------------------------------------------------------------------
+
+log "Mirrorlist refresh"
+
+# ParallelDownloads pospeši + zniža občutljivost na en slab mirror
+sed -i 's/^#\?ParallelDownloads.*/ParallelDownloads = 5/' /etc/pacman.conf
+grep -q '^ParallelDownloads' /etc/pacman.conf || \
+  echo 'ParallelDownloads = 5' >> /etc/pacman.conf
+
+# reflector: geo-close, https, sveži, sortirani po hitrosti
+if command -v reflector >/dev/null; then
+  reflector --country Switzerland,Germany,Austria \
+            --protocol https --age 12 --sort rate \
+            --save /etc/pacman.d/mirrorlist \
+    || echo "reflector failed, keeping existing mirrorlist"
+else
+  # fallback: ročni geo-close seznam (fastly je danes nestabilen)
+  cat >/etc/pacman.d/mirrorlist <<'MIRR'
+Server = https://mirror.init7.net/archlinux/$repo/os/$arch
+Server = https://geo.mirror.pkgbuild.com/$repo/os/$arch
+Server = https://mirror.pseudoform.org/$repo/os/$arch
+MIRR
+fi
 
 # ---------------------------------------------------------------------------
 # Pacman keyring
