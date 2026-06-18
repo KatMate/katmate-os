@@ -336,3 +336,94 @@ manifest (ADR-011), never hand-curated.
 - **power users:** documented manifest format + `katmate-vm create --from
   <manifest>` CLI.
 - **broad users:** GUI over the same manifest backend.
+
+
+## ADR-015 — VT-d/IOMMU-capable platforms as the sole current target; VT-x-only frozen
+
+**Status:** Accepted (2026-06)
+
+**Context:** Two development lines grew in parallel. The MINIS/UM870 line
+(Ryzen 7 8745H, AMD-Vi) carries the working VM compartmentalization stack:
+netVM with USB-NIC passthrough, WireGuard, segmented routing, plus personalVM
+and the host desktop. The Acer line (Celeron N4000, VT-x only, no IOMMU) was
+started to develop the GUI layer (Hyprland) and grew beyond that into
+additional project logic. PCI/USB device passthrough — the basis of the netVM
+network-facing domain — requires an IOMMU (VT-d on Intel, AMD-Vi on AMD).
+VT-x-only hardware cannot run that model.
+
+**Decision:** The project targets IOMMU-capable platforms (VT-d / AMD-Vi)
+exclusively for the current development phase. MINIS/UM870 is the primary
+development host and the merge target: both development lines converge here.
+The Acer (VT-x-only) line is frozen — its GUI (Hyprland) and remaining logic
+are to be migrated onto MINIS, after which Acer is retired from the active
+reference set. VT-x-only support is not under development and is revisited only
+if the scope changes.
+
+**Consequences:**
+- Reference hardware narrows to IOMMU-capable machines (UM870 primary; MSI Cubi
+  N6000 retained — has VT-d). Acer ES1-633 is out of current scope.
+- Device passthrough (USB r8152 → netVM) becomes a documented, relied-upon
+  capability rather than an experimental edge case.
+- The GUI layer migration (Acer Hyprland → MINIS, which currently runs Sway) is
+  an explicit open work item; the host desktop story is transitional until the
+  merge lands.
+- Supersedes the implicit assumption (earlier reference matrix) that the Gemini
+  Lake / VT-x-only class was a supported performance floor for the current
+  phase.
+
+  
+## ADR-016 — Two desktop profiles: shared visual layer, Sway default + Hyprland optional
+
+**Status:** Accepted (2026) — direction only; see Consequences for build state
+
+**Context:** The desktop layer (greetd / compositor / bar / launcher) sits
+outside the TCB ([SECURITY-MODEL.md](../SECURITY-MODEL.md)) and off the
+isolation critical path ([ROADMAP.md](../ROADMAP.md) step 5), yet it shapes the
+broad-user experience that [ADR-001](DECISIONS.md#adr-001) makes a first-class
+goal. Hyprland (CYBRland config) delivers a richer look — animations, blur,
+glow — but carries an explicit "features over stability" upstream: major
+releases every 1–3 months, frequent config/plugin breaking changes, no
+automatic config migration yet. Porting CYBRland from the Acer reference
+machine to MINIS surfaced exactly this fragility: Acer-specific hardcodes
+(`eDP-1`, `/home/sch`), plugin/ABI drift, and `hyprctl reload` not applying
+changes (only a full session restart does). For a TCB-oriented project whose
+default must be boring and maintainable, a rolling-breakage compositor is a
+poor default — but the richer option has value for users who want it.
+
+**Decision:** Adopt a two-profile model as the **target** desktop
+architecture. Current development builds on the Hyprland profile; the Sway
+profile is a recorded future target, not yet built. Both profiles share a
+single visual layer.
+
+- **Shared, compositor-independent layer:** waybar (config + `style.css` +
+  scripts), rofi, swaync, GTK/Qt theming, palette, fonts. The glow/sij effect
+  lives here (waybar CSS), **not** in the compositor — so it renders
+  identically under either profile.
+- **Sway profile (default, target):** vanilla Sway, no blur / no window
+  animations. Boring, stable; intended as the shipped default for ordinary
+  users.
+- **Hyprland profile (optional):** CYBRland config, full eye-candy (blur,
+  animations, glow). Opt-in — analogous to offering an alternative desktop
+  environment over a common backend (cf. Qubes offering multiple DEs).
+
+Compositor-specific config (workspace bindings, window rules, animations) is
+the only per-profile delta. The "click N → all monitors switch to workspace N"
+pattern is a small script in either compositor, not a built-in of either.
+
+**Consequences:**
+
+- The shared layer is built and tested once; only two thin compositor configs
+  diverge.
+- Hyprland's upstream churn is contained: version-locked like waypipe
+  ([ADR-008](DECISIONS.md#adr-008)), upgraded deliberately rather than rolling,
+  so its breakage never touches the default path.
+- Glow / theming portability is guaranteed by construction (it is CSS,
+  compositor-agnostic).
+- Default user gets stability; power user gets eye-candy; neither forks the
+  visual identity.
+- **Build state:** today only the Hyprland profile exists (CYBRland, ported to
+  MINIS, living in `~/.config/` — not yet in git). The Sway default profile is
+  a documented intention; building it is deferred, not scheduled. This ADR
+  fixes the *direction*, not a delivery date.
+- Installer integration of the desktop layer remains a documented manual step
+  until v1.0 (ROADMAP step 5) — unchanged; this ADR fixes only *which* layer.
