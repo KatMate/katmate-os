@@ -1,0 +1,188 @@
+#!/usr/bin/env fish
+#
+# katmate-cid — dynamic vsock CID allocator for disposable AppVMs (ADR-017)
+#
+# Podukazi (javni):
+#   katmate-cid alloc <name>     dodeli CID iz poola; CID izpiše na stdout
+#   katmate-cid free <cid>       sprosti CID nazaj v pool
+#   katmate-cid list             izpiše surovo stanje poola
+#   katmate-cid reconcile        sprosti zombi vnose (STUB; gl. _is_alive)
+#
+# Garancije (ADR-017):
+#   - sočasnost: flock na ločeni .lock, držan čez cel read→modify→write cikel
+#                (vzorec `flock <lock> <cmd>` — cmd se izvede pod lockom)
+#   - crash med pisanjem: zapis v <pool>.tmp.<pid> + atomaren rename(2)
+#   - monotoni števec: reuse-varnost brez grace timerja
+#
+# Pool format (plain-text; cat ga prebere, micro popravi):
+#   last_allocated = 104
+#   105 disp-a3f1
+#   107 disp-b9c2
+# Prva vrstica je vedno 'last_allocated = N'; ostale so 'CID ime'.
+#
+# Interni podukazi (__locked_*) tečejo ŽE pod lockom — ne kliči jih neposredno.
+
+set -g POOL_DIR  /var/lib/katmate
+set -g POOL_FILE $POOL_DIR/cid-pool
+set -g LOCK_FILE $POOL_DIR/cid-pool.lock
+set -g CID_FLOOR 100
+
+# Dovoli override poti iz okolja — za teste (KATMATE_POOL_DIR).
+if set -q KATMATE_POOL_DIR
+    set POOL_DIR  $KATMATE_POOL_DIR
+    set POOL_FILE $POOL_DIR/cid-pool
+    set LOCK_FILE $POOL_DIR/cid-pool.lock
+end
+
+function _die
+    echo "katmate-cid: $argv" >&2
+    exit 1
+end
+
+# --- pomožne, klicane ŽE pod lockom ---
+
+function _ensure_pool
+    test -d $POOL_DIR; or _die "pool dir $POOL_DIR ne obstaja (ustvari installer/first-run)"
+    if not test -f $POOL_FILE
+        printf 'last_allocated = %d\n' (math $CID_FLOOR - 1) >$POOL_FILE
+    end
+end
+
+# atomaren zapis: stdin -> temp (per-pid) -> fsync -> rename
+function _atomic_write
+    set -l tmp $POOL_FILE.tmp.$fish_pid
+    cat >$tmp
+    command sync $tmp 2>/dev/null
+    mv -f $tmp $POOL_FILE
+end
+
+function _last_allocated
+    string match -rg 'last_allocated\s*=\s*(\d+)' <$POOL_FILE
+end
+
+# vrne zasedene CID-je (po vrsticah "CID ime")
+function _inuse_cids
+    string match -rg '^(\d+)\s' <$POOL_FILE
+end
+
+# --- interni (pod lockom) ---
+
+function __locked_alloc
+    _ensure_pool
+    set -l name $argv[1]
+    set -l content (cat $POOL_FILE)
+    set -l last (_last_allocated)
+    test -n "$last"; or set last (math $CID_FLOOR - 1)
+    set -l inuse (_inuse_cids)
+
+    set -l cid (math max $CID_FLOOR, (math $last + 1))
+    while contains -- $cid $inuse
+        set cid (math $cid + 1)
+    end
+    # wrap ob teoretičnem stropu izpuščen — HW meja udari prej (ADR-017)
+
+    begin
+        printf 'last_allocated = %d\n' $cid
+        for line in $content
+            string match -qr '^\d+\s' -- $line; and echo $line
+        end
+        printf '%d %s\n' $cid $name
+    end | _atomic_write
+
+    echo $cid
+end
+
+function __locked_free
+    _ensure_pool
+    set -l target $argv[1]
+    set -l content (cat $POOL_FILE)
+    set -l last (_last_allocated)
+    set -l found 0
+    begin
+        printf 'last_allocated = %s\n' $last
+        for line in $content
+            set -l m (string match -rg '^(\d+)\s' -- $line)
+            if test -n "$m"; and test "$m" = "$target"
+                set found 1
+                continue
+            end
+            string match -qr '^\d+\s' -- $line; and echo $line
+        end
+    end | _atomic_write
+    test $found -eq 1; or echo "katmate-cid: opozorilo: CID $target ni bil zaseden" >&2
+end
+
+# --- reconcile: DEFINIRAN STUB ---
+#
+# _is_alive($cid, $name) -> exit 0 (živ) / 1 (zombi). Mehanizem je NAMERNO
+# odprt — odvisen od zagonskega modela disposable VM (ročno / systemd template
+# unit / starš-čaka-na-proces), ki še ni odločen. Interface je zaklenjen.
+#
+# Privzeto KONZERVATIVNO: vse obravnava kot žive (nič ne sprosti). Napačno
+# obdržan zombi je le počasen leak; napačno sproščen ŽIV CID pa pomeni dve VM
+# na istem CID-u — zato do odločitve raje leak kot napačna sprostitev.
+function _is_alive
+    # ARGS: $argv[1]=cid  $argv[2]=name
+    # TODO(zagonski-model):
+    #   systemd template:  systemctl --user is-active --quiet katmate-vm@$argv[2]
+    #   starš-lastnik:     test -d /proc/<pid-iz-tabele>
+    return 0
+end
+
+function __locked_reconcile
+    _ensure_pool
+    set -l content (cat $POOL_FILE)
+    set -l last (_last_allocated)
+    set -l freed 0
+    begin
+        printf 'last_allocated = %s\n' $last
+        for line in $content
+            string match -qr '^\d+\s' -- $line; or continue
+            set -l parts (string split -m1 ' ' -- $line)
+            if _is_alive $parts[1] $parts[2]
+                echo $line
+            else
+                set freed (math $freed + 1)
+                echo "katmate-cid: reconcile sprostil zombi CID $parts[1] ($parts[2])" >&2
+            end
+        end
+    end | _atomic_write
+    echo "katmate-cid: reconcile — sproščenih $freed zombi vnosov" >&2
+end
+
+function __locked_list
+    _ensure_pool
+    cat $POOL_FILE
+end
+
+# --- dispatcher ---
+# Javni podukazi se zavijejo v flock; flock zažene self z internim __locked_*.
+# Interni podukazi se izvedejo neposredno (so že pod lockom).
+
+set -l self (status filename)
+set -l cmd $argv[1]
+
+switch "$cmd"
+    # interni — že pod lockom, kliče jih le flock spodaj
+    case '__locked_*'
+        $cmd $argv[2..-1]
+
+    case alloc
+        test -n "$argv[2]"; or _die "alloc zahteva <name>"
+        mkdir -p $POOL_DIR 2>/dev/null
+        flock $LOCK_FILE fish $self __locked_alloc $argv[2]
+    case free
+        test -n "$argv[2]"; or _die "free zahteva <cid>"
+        mkdir -p $POOL_DIR 2>/dev/null
+        flock $LOCK_FILE fish $self __locked_free $argv[2]
+    case reconcile
+        mkdir -p $POOL_DIR 2>/dev/null
+        flock $LOCK_FILE fish $self __locked_reconcile
+    case list
+        mkdir -p $POOL_DIR 2>/dev/null
+        flock $LOCK_FILE fish $self __locked_list
+
+    case '*'
+        echo "uporaba: katmate-cid {alloc <name>|free <cid>|list|reconcile}" >&2
+        exit 2
+end
