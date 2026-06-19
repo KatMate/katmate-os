@@ -394,3 +394,72 @@ hand-curated.
 - **power users:** documented manifest format + `katmate-vm create --from
   <manifest>` CLI.
 - **broad users:** GUI over the same manifest backend.
+
+---
+
+## ADR-015 — VM properties: machine-readable schema (TOML, per-instance)
+
+**Status:** Accepted (2026-06)
+
+**Context:** ADR-014 defines a VM domain by its *properties* (network,
+persistence, identity, disposability) as an abstract model, and ADR-011
+defines the build pipeline that consumes a *manifest* (package set). Between
+them sat no machine-readable layer: properties lived only as a prose table,
+leaving the deploy step (CID assignment, home-LV persistence, nft routing,
+instance-delta lifecycle) without a defined input format. The loosely-
+structured early config style is not typed enough to validate or to map
+deterministically to QEMU arguments.
+
+**Decision:** VM properties are expressed as **one `properties.toml` per
+instance**, separate from the manifest — the two axes of ADR-014 (what
+*defines* a domain vs. which *applications* it runs) stay independent in
+storage as they are in the model.
+
+*Format:* TOML. Human-editable with `micro`, typed (unlike the early
+`key=value` style), comment-friendly (unlike JSON), and parseable from C via a
+single-file library (`tomlc99`) with no build-time runtime stack — consistent
+with the ADR-011 TCB constraint.
+
+*Schema:*
+
+| Key | Type | Values | Required | Default |
+|---|---|---|---|---|
+| `manifest` | string | manifest name (`vault`, `web`) | yes | — |
+| `network` | enum | `none` \| `via-netvm` | yes | — |
+| `persistence` | enum | `persistent` \| `ephemeral` | yes | — |
+| `identity` | bool | — | yes | — |
+| `disposable` | bool | — | yes | — |
+| `cid` | int | fixed 4–8, or from the dynamic pool (≥100) | yes | — |
+| `reset_on_shutdown` | bool | — | no | `false` |
+
+`reset_on_shutdown` exists only for the `untrusted` archetype's optional
+app-layer reset (ADR-014); `vault` / `personal` / `disposable` omit it and
+take the default.
+
+The four default archetypes express as:
+
+| Instance | manifest | network | persistence | identity | disposable | reset_on_shutdown |
+|---|---|---|---|---|---|---|
+| vault | `vault` | `none` | `persistent` | `false` | `false` | — |
+| personal | `web` | `via-netvm` | `persistent` | `true` | `false` | — |
+| untrusted | `web` | `via-netvm` | `persistent` | `false` | `false` | `true` |
+| disposable | `web` | `via-netvm` | `ephemeral` | `false` | `true` | — |
+
+**Consequences:**
+
+- The deploy step (ADR-011 pipeline) reads `properties.toml` and maps
+  deterministically: `cid` → vsock CID; `network` → vsock/routing config + nft
+  rules; `persistence` → whether the raw thin home LV is retained or discarded;
+  `disposable` → instance-delta create/destroy lifecycle;
+  `reset_on_shutdown` → app-layer reset on teardown.
+- This ADR fixes the **format** only. ADR-011 remains the owner of pipeline
+  mechanics; ADR-014 remains the owner of the domain model. Cross-referenced
+  both ways.
+- A lightweight validator (C with `tomlc99`, or fish) can later catch typos
+  before deploy; not required until the schema sees broader use (power-user
+  era, ADR-014 evolution).
+- Customization surface stays manifest + `properties.toml`, both small enough
+  to back a future GUI (ADR-014, v0.4 → v1.0).
+
+**Revision note:** supersedes the loosely-structured early config style for VM
+definition. Manifest format (packages) is specified separately in ADR-011.
