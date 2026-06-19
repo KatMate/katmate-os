@@ -163,81 +163,138 @@ must be kept documented so the transitional state does not fossilize.
 
 ---
 
-## ADR-010 — Storage: three-level qcow2 chain for system images, raw thin LVs for home
+## ADR-010 — Storage: three-level LVM-thin chain for system images, raw thin LVs for home
 
-**Status:** Accepted (2026) — mechanism resolved by ADR-014
+<!-- Abstract vocabulary: foundation / app / instance. Concrete LVM names
+     (all_root, vm_tpl_*_root, vm_personal_overlay.qcow2) live in state.md. -->
 
-**Context:** The open question was the exact storage mechanism and placement
-for base images and overlays (qcow2-with-backing vs overlayfs vs raw thin LVs
-throughout) and where the image store sits relative to the LVM thin pool.
-ADR-014 settled the composition model, which determines this.
+**Status:** Accepted (2026); mechanism revised 2026-06 (was three-level qcow2
+backing chain — see Revision note). Composition model: ADR-014.
+
+**Context:** The open question was the exact storage mechanism for base images
+and overlays (qcow2-with-backing vs overlayfs vs LVM-thin throughout) and where
+the image store sits relative to the LVM thin pool. ADR-014 settled the
+three-layer composition (base → app-type → instance); this ADR fixes the
+mechanism for each layer.
 
 **Decision:**
 
-- **System images** use a three-level qcow2 backing chain (ADR-014):
-  `foundation.qcow2` (RO) ← `app-<type>.qcow2` (RO, backing = foundation) ←
-  `instance-<name>.qcow2` (RW, backing = app-type). qcow2 over overlayfs for
-  native backing-chain semantics, snapshotting and a clean RO/RW split per
-  layer.
+- **System images** use a three-level chain realised on **LVM thin volumes**:
+  `foundation` (thin, RO) ← `app-<type>` (thin **snapshot** of `foundation`,
+  RO-frozen) ← `instance-<name>` (RW delta, qcow2 backing = the app snapshot
+  block device). The two read-only system layers are LVM thin volumes so that
+  reads resolve through the thin pool in a single metadata lookup with no
+  per-block backing-chain walk; the ephemeral writable delta stays qcow2
+  because it is thin, sparse and cheap to discard/recreate per instance.
 - **Persistent home data** uses a dedicated **raw thin LV per AppVM instance** —
   a direct block device, LVM-snapshottable, decoupled from the image chain so
-  it survives foundation/app rebuilds (overlay recycling, ADR-007).
-- **Placement:** the qcow2 image store lives on a filesystem-backed thin LV in
-  `vg0` (e.g. `vg0/images`, ext4, mounted under `/var/lib/katmate/images`)
-  holding foundation, app-type and instance qcow2 files; per-instance home LVs
-  are raw thin LVs in the same pool. Both draw from the single thin pool
-  provisioned by the installer.
+  it survives base/app rebuilds (overlay recycling, ADR-007).
+- **Placement:** all system thin volumes (`foundation`, each `app-<type>`)
+  and per-instance home LVs live in the single thin pool provisioned by the
+  installer. Per-instance qcow2 deltas are small files held alongside the
+  launch config (host filesystem); they back onto the app snapshot block
+  device.
+
+**Why LVM-thin over a pure qcow2 chain (the revision):**
+
+- A thin snapshot shares base blocks through the pool: `foundation` is stored
+  once, every `app-<type>` snapshot adds only its own delta. Same
+  single-foundation property the qcow2 chain promised.
+- Reading an unmodified system block is one thin-pool lookup regardless of
+  layer, versus an L2 lookup at each qcow2 level walking down to the foundation.
+  For the read-mostly, cold-boot-heavy system partition (the browser image is
+  re-read on every cold boot) this is the cheaper path — the design intent.
+- qcow2 is retained exactly where it is ideal: the thin, throwaway, copy-up RW
+  delta.
 
 **Consequences:**
 
-- Clean separation of immutable system (qcow2 chain) from mutable user data
+- Clean separation of immutable system (LVM-thin chain) from mutable user data
   (raw home LV); rebuilds touch only the chain.
-- LVM thin provisioning gives sparse allocation for both the image store and
-  per-instance home LVs.
-- `katmate-update` rebases instance overlays onto a new app-type/foundation
-  without touching home LVs.
+- LVM thin provisioning gives sparse allocation across base, app snapshots and
+  per-instance home LVs from one pool.
+- App-layer build (ADR-011) is `lvcreate --snapshot` of `foundation` → install
+  manifest into the snapshot → `lvchange --permission r` freeze. No nbd/flatten
+  for the layering itself.
+- `katmate-update` rebases: rebuild `foundation`, re-snapshot each app layer,
+  recreate instance deltas; home LVs untouched.
+- Cost vs pure linear RO: a thin snapshot adds a small metadata-indirection
+  read cost over a flat linear LV. Accepted because block sharing across N app
+  layers outweighs it once N > 2; for the present two domains the gain is
+  latent, not yet material.
+
+**Revision note (2026-06):** the original ADR-010 specified a three-level
+**qcow2** backing chain (`foundation.qcow2` ← `app-<type>.qcow2` ←
+`instance.qcow2`) stored on a filesystem-backed thin LV. Live inspection
+confirmed the implemented and intended model is the LVM-thin hybrid above. The
+qcow2-chain wording is superseded; ADR-011 and ADR-014 mechanism references
+update accordingly (the *composition* in ADR-014 — three layers, two manifests,
+RO/RW split — is unchanged; only the per-layer mechanism moves from qcow2 to
+LVM-thin for the two RO layers).
 
 ---
 
 ## ADR-011 — Base image build pipeline: shell scripts orchestrated by Make
 
-**Status:** Accepted (2026)
+**Status:** Accepted (2026); layer mechanism revised 2026-06 to track ADR-010
+(qcow2-chain → LVM-thin). Tooling decision (shell + Make over mkosi) unchanged.
 
 **Context:** ADR-007 makes reproducible base builds mandatory; ADR-014 fixes
-the artifact model (three-level qcow2 chain: foundation ← app-type ←
-instance). The remaining question was tooling. `mkosi` was evaluated: its
-`BaseTrees=` expresses the layer model declaratively and it handles
-partitioning/bootstrap implicitly, but it adds a dependency and ties the build
-to systemd-tooling behavior and release tempo — opacity that runs against
-revisability, which for a TCB is a first-order property (and against the stated
-development philosophy: the simplest fully-scripted, diffable thing).
+the artifact model (three layers: foundation ← app-type ← instance); ADR-010
+fixes the mechanism (LVM-thin for the two RO layers, qcow2 for the RW delta).
+The remaining question was tooling. `mkosi` was evaluated: its `BaseTrees=`
+expresses the layer model declaratively and it handles partitioning/bootstrap
+implicitly, but it adds a dependency and ties the build to systemd-tooling
+behaviour and release tempo — opacity that runs against revisability, which for
+a TCB is a first-order property (and against the stated development philosophy:
+the simplest fully-scripted, diffable thing).
 
 **Decision:** POSIX/bash build scripts orchestrated by a `Makefile`, one target
-per layer.
+per layer. Layers are LVM thin volumes (ADR-010), not qcow2 files.
 
-- **Foundation:** Debian rootfs via `debootstrap` into a mounted qcow2; custom
-  MicroVM kernel, waypipe 0.11.0 (source build, ADR-008) and vm-agent installed
-  in-image.
-- **App-`<type>` layers:** `qemu-img create -f qcow2 -F qcow2 -b <foundation>`
-  to establish the backing link, then `qemu-nbd` + `chroot` to install the
-  manifest package set, then freeze the overlay read-only — **no flatten**: the backing link to foundation is what keeps the chain three-level and stores foundation once.
-- All mounts/bind-mounts and teardown are explicit, with `trap` cleanup — every
-  command on screen, nothing implicit.
+- **Foundation** (`make foundation`): create a thin LV, `debootstrap` a Debian
+  rootfs into it (mount the LV, bootstrap, bind-mount, chroot), install the
+  custom MicroVM kernel, waypipe 0.11.0 (source build, ADR-008) and vm-agent
+  in-image, then `lvchange --permission r` to freeze it read-only. This is the
+  single shared base.
+- **App-`<type>` layers** (`make app-<type>`): `lvcreate --snapshot` of the
+  frozen foundation thin LV (a thin snapshot — shares base blocks through the
+  pool, adds only its own delta), mount it, chroot, install the manifest
+  package set, then `lvchange --permission r` to RO-freeze the snapshot. No
+  nbd, no qemu-img, no flatten — the thin snapshot relationship is what stores
+  the foundation once and keeps the chain three-level.
+- **Instance** (deploy-time, not a build target): `qemu-img create -f qcow2
+  -F raw -b /dev/<vg>/<app-snapshot>` — a thin qcow2 RW delta backing onto the
+  frozen app snapshot block device. Discarded/recreated per instance.
+- All mounts/bind-mounts, snapshot activation and teardown are explicit, with
+  `trap` cleanup — every command on screen, nothing implicit.
 - **Reproducibility:** apt sources pinned to a `snapshot.debian.org` timestamp
   and package versions pinned per manifest, so a rebuild from the same inputs
-  yields the same image.
+  yields the same foundation and app layers.
 
 **Consequences:**
 
-- Build dependencies: `qemu-utils`, `util-linux`, `coreutils`, `debootstrap`,
-  `debian-archive-keyring`, `make`. No build-time runtime stack.
-- More lines than a declarative tool, but partitioning, layering and
+- Build dependencies: `lvm2`, `util-linux`, `coreutils`, `debootstrap`,
+  `debian-archive-keyring`, `make` (plus the waypipe/kernel build toolchain for
+  the foundation step). `qemu-utils` only for the deploy-time delta, not for
+  layering. No build-time runtime stack.
+- More lines than a declarative tool, but bootstrap, snapshot and
   package-install steps are auditable line by line — the intended trade for a
   TCB.
-- Concession: if nbd/partition wiring becomes painful across multiple layers,
-  `systemd-repart` may be adopted **standalone** for the partitioning step only,
-  leaving the rest of the pipeline explicit. Not the whole of mkosi.
+- App-layer rebuild is cheap: drop the old snapshot, re-snapshot the
+  (rebuilt or unchanged) foundation, reinstall the manifest. `katmate-update`
+  drives this on a foundation/waypipe/kernel security update.
+- Per-instance home stays a separate raw thin LV (ADR-010), untouched by
+  foundation/app rebuilds.
 - Realizes the pipeline that ADR-014 and ADR-010 depend on.
+
+**Revision note (2026-06):** the original ADR-011 layered via
+`qemu-img create -f qcow2 -F qcow2 -b <foundation>` + `qemu-nbd` + chroot on
+qcow2 files. With ADR-010 moving the two RO layers to LVM thin volumes, the
+layering mechanism becomes `lvcreate --snapshot` + chroot + `lvchange -pr`.
+qcow2/nbd is no longer used for the build; qcow2 survives only as the
+deploy-time instance delta. The mkosi-vs-shell tooling decision and the
+reproducibility approach are unchanged.
 
 ---
 
@@ -297,7 +354,7 @@ share one manifest and differ only in properties, which proves the two axes are
 genuinely independent. Disposable is the single task-bound exception (open this
 PDF, destroy), justified because it is tied to a *task*, not a binary.
 
-*Three layers, realized as a qcow2 backing chain (mechanism in ADR-010):*
+*Three layers, realized as an LVM-thin chain (mechanism in ADR-010):*
 
 | Layer | Contents | Shared by | Rebuild frequency | Owner |
 |---|---|---|---|---|
@@ -305,11 +362,12 @@ PDF, destroy), justified because it is tied to a *task*, not a binary.
 | app-layer | package set **per domain type** | all VMs of that type | rare (domain definition change) | manifest in git |
 | overlay | user data | one instance | continuous | user |
 
-Concretely: `foundation.qcow2` (RO) ← `app-<type>.qcow2` (RO, backing =
-foundation) ← `instance-<name>.qcow2` (RW, backing = app-type). Persistent home
-data lives on a separate raw thin LV, decoupled from the chain so it survives
-foundation/app rebuilds. App-layers are **generated** from foundation +
-manifest (ADR-011), never hand-curated.
+Concretely (mechanism in ADR-010): `foundation` (LVM thin, RO) ← `app-<type>`
+(LVM thin snapshot of foundation, RO-frozen) ← `instance-<name>` (qcow2 RW delta
+backing onto the app snapshot). Persistent home data lives on a separate raw
+thin LV, decoupled from the chain so it survives foundation/app rebuilds.
+App-layers are **generated** from foundation + manifest (ADR-011), never
+hand-curated.
 
 **Consequences:**
 
@@ -319,8 +377,8 @@ manifest (ADR-011), never hand-curated.
   enough to later expose as GUI toggles (v0.4 → v1.0).
 - Per-role minimization preserved: a banking domain would carry only a browser,
   a dev domain only its toolchain.
-- Resolves the **mechanism** in ADR-010 (three-level qcow2 chain + raw thin LVs
-  for home).
+- Resolves the **mechanism** in ADR-010 (three-level LVM-thin chain + raw thin
+  LVs for home).
 - Shapes ADR-011: the pipeline must build the foundation and each `app-<type>`
   image reproducibly from defined sources + manifests.
 - Banking as a dedicated domain is a documented option, **not** a default until
@@ -336,94 +394,3 @@ manifest (ADR-011), never hand-curated.
 - **power users:** documented manifest format + `katmate-vm create --from
   <manifest>` CLI.
 - **broad users:** GUI over the same manifest backend.
-
-
-## ADR-015 — VT-d/IOMMU-capable platforms as the sole current target; VT-x-only frozen
-
-**Status:** Accepted (2026-06)
-
-**Context:** Two development lines grew in parallel. The MINIS/UM870 line
-(Ryzen 7 8745H, AMD-Vi) carries the working VM compartmentalization stack:
-netVM with USB-NIC passthrough, WireGuard, segmented routing, plus personalVM
-and the host desktop. The Acer line (Celeron N4000, VT-x only, no IOMMU) was
-started to develop the GUI layer (Hyprland) and grew beyond that into
-additional project logic. PCI/USB device passthrough — the basis of the netVM
-network-facing domain — requires an IOMMU (VT-d on Intel, AMD-Vi on AMD).
-VT-x-only hardware cannot run that model.
-
-**Decision:** The project targets IOMMU-capable platforms (VT-d / AMD-Vi)
-exclusively for the current development phase. MINIS/UM870 is the primary
-development host and the merge target: both development lines converge here.
-The Acer (VT-x-only) line is frozen — its GUI (Hyprland) and remaining logic
-are to be migrated onto MINIS, after which Acer is retired from the active
-reference set. VT-x-only support is not under development and is revisited only
-if the scope changes.
-
-**Consequences:**
-- Reference hardware narrows to IOMMU-capable machines (UM870 primary; MSI Cubi
-  N6000 retained — has VT-d). Acer ES1-633 is out of current scope.
-- Device passthrough (USB r8152 → netVM) becomes a documented, relied-upon
-  capability rather than an experimental edge case.
-- The GUI layer migration (Acer Hyprland → MINIS, which currently runs Sway) is
-  an explicit open work item; the host desktop story is transitional until the
-  merge lands.
-- Supersedes the implicit assumption (earlier reference matrix) that the Gemini
-  Lake / VT-x-only class was a supported performance floor for the current
-  phase.
-
-  
-## ADR-016 — Two desktop profiles: shared visual layer, Sway default + Hyprland optional
-
-**Status:** Accepted (2026) — direction only; see Consequences for build state
-
-**Context:** The desktop layer (greetd / compositor / bar / launcher) sits
-outside the TCB ([SECURITY-MODEL.md](../SECURITY-MODEL.md)) and off the
-isolation critical path ([ROADMAP.md](../ROADMAP.md) step 5), yet it shapes the
-broad-user experience that [ADR-001](DECISIONS.md#adr-001) makes a first-class
-goal. Hyprland (CYBRland config) delivers a richer look — animations, blur,
-glow — but carries an explicit "features over stability" upstream: major
-releases every 1–3 months, frequent config/plugin breaking changes, no
-automatic config migration yet. Porting CYBRland from the Acer reference
-machine to MINIS surfaced exactly this fragility: Acer-specific hardcodes
-(`eDP-1`, `/home/sch`), plugin/ABI drift, and `hyprctl reload` not applying
-changes (only a full session restart does). For a TCB-oriented project whose
-default must be boring and maintainable, a rolling-breakage compositor is a
-poor default — but the richer option has value for users who want it.
-
-**Decision:** Adopt a two-profile model as the **target** desktop
-architecture. Current development builds on the Hyprland profile; the Sway
-profile is a recorded future target, not yet built. Both profiles share a
-single visual layer.
-
-- **Shared, compositor-independent layer:** waybar (config + `style.css` +
-  scripts), rofi, swaync, GTK/Qt theming, palette, fonts. The glow/sij effect
-  lives here (waybar CSS), **not** in the compositor — so it renders
-  identically under either profile.
-- **Sway profile (default, target):** vanilla Sway, no blur / no window
-  animations. Boring, stable; intended as the shipped default for ordinary
-  users.
-- **Hyprland profile (optional):** CYBRland config, full eye-candy (blur,
-  animations, glow). Opt-in — analogous to offering an alternative desktop
-  environment over a common backend (cf. Qubes offering multiple DEs).
-
-Compositor-specific config (workspace bindings, window rules, animations) is
-the only per-profile delta. The "click N → all monitors switch to workspace N"
-pattern is a small script in either compositor, not a built-in of either.
-
-**Consequences:**
-
-- The shared layer is built and tested once; only two thin compositor configs
-  diverge.
-- Hyprland's upstream churn is contained: version-locked like waypipe
-  ([ADR-008](DECISIONS.md#adr-008)), upgraded deliberately rather than rolling,
-  so its breakage never touches the default path.
-- Glow / theming portability is guaranteed by construction (it is CSS,
-  compositor-agnostic).
-- Default user gets stability; power user gets eye-candy; neither forks the
-  visual identity.
-- **Build state:** today only the Hyprland profile exists (CYBRland, ported to
-  MINIS, living in `~/.config/` — not yet in git). The Sway default profile is
-  a documented intention; building it is deferred, not scheduled. This ADR
-  fixes the *direction*, not a delivery date.
-- Installer integration of the desktop layer remains a documented manual step
-  until v1.0 (ROADMAP step 5) — unchanged; this ADR fixes only *which* layer.
