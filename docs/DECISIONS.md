@@ -289,7 +289,8 @@ per layer. Layers are LVM thin volumes (ADR-010), not qcow2 files.
 - Realizes the pipeline that ADR-014 and ADR-010 depend on.
 - The deploy-time instance step reads its parameters (`cid`, `network`,
   `persistence`, `disposable`, `reset_on_shutdown`) from the per-instance
-  `properties.toml` (ADR-015).
+  `properties.toml` (ADR-015). When `cid = "auto"`, the CID is allocated from
+  the dynamic pool by the allocator defined in ADR-017.
 
 **Revision note (2026-06):** the original ADR-011 layered via
 `qemu-img create -f qcow2 -F qcow2 -b <foundation>` + `qemu-nbd` + chroot on
@@ -441,12 +442,36 @@ with the ADR-011 TCB constraint.
 | `persistence` | enum | `persistent` \| `ephemeral` | yes | — |
 | `identity` | bool | — | yes | — |
 | `disposable` | bool | — | yes | — |
-| `cid` | int | fixed 4–8, or from the dynamic pool (≥100) | yes | — |
+| `cid` | int \| `"auto"` | fixed 4–8 for static domains, or `"auto"` for pool allocation | yes | — |
 | `reset_on_shutdown` | bool | — | no | `false` |
 
 `reset_on_shutdown` exists only for the `untrusted` archetype's optional
 app-layer reset (ADR-014); `vault` / `personal` / `disposable` omit it and
 take the default.
+
+`cid` carries two opposite meanings depending on the domain. For **static**
+domains (vault, personal, untrusted) it is an *input*: a fixed value in
+4–8, authored in the file, part of the domain's identity. For **disposable**
+domains it is an *output*: the literal string `"auto"` declares "not authored
+here — the deploy step allocates from the dynamic pool (≥100)" per ADR-017.
+A numeric `cid` ≥100 is also accepted (manual/debug pinning), but `"auto"`
+is the norm for disposables. CIDs 0–2 are reserved (hypervisor / local /
+host-loopback); 3 is the NetVM (ADR-009).
+
+*Semantic invariants* (cross-key, derived from the ADR-014 archetypes;
+enforced by the pre-deploy validator, `tools/validate-properties.fish`):
+
+- `disposable = true` ⇒ `persistence = ephemeral` — a disposable's
+  instance-delta is destroyed on shutdown, so persistent home is contradictory
+  (**error**).
+- `reset_on_shutdown = true` is meaningful only with `persistence =
+  persistent`; on an ephemeral domain the whole overlay is discarded anyway,
+  making the app-layer reset redundant (**warning**).
+- `network = none` with `manifest = web` is almost certainly wrong — an
+  offline domain running the web manifest suggests a mis-set `manifest`
+  (should follow the vault pattern) (**warning**).
+- `disposable = true` with `identity = true` is unusual — disposable domains
+  carry no identity by design (**warning**).
 
 The four default archetypes express as:
 
@@ -467,11 +492,148 @@ The four default archetypes express as:
 - This ADR fixes the **format** only. ADR-011 remains the owner of pipeline
   mechanics; ADR-014 remains the owner of the domain model. Cross-referenced
   both ways.
-- A lightweight validator (C with `tomlc99`, or fish) can later catch typos
-  before deploy; not required until the schema sees broader use (power-user
-  era, ADR-014 evolution).
+- A pre-deploy validator (`tools/validate-properties.fish`) checks the schema
+  and the semantic invariants above before deploy; `--strict` promotes warnings
+  to errors for pre-commit / CI use. Fish, dev-time, not part of the TCB. A
+  C/`tomlc99` reimplementation remains an option if validation ever moves into
+  the deploy binary itself.
 - Customization surface stays manifest + `properties.toml`, both small enough
   to back a future GUI (ADR-014, v0.4 → v1.0).
 
 **Revision note:** supersedes the loosely-structured early config style for VM
 definition. Manifest format (packages) is specified separately in ADR-011.
+---
+
+## ADR-016 — Two desktop profiles: shared visual layer, Sway default + Hyprland optional
+
+**Status:** Accepted (2026) — direction only; see Consequences for build state
+
+**Context:** The desktop layer (greetd / compositor / bar / launcher) sits
+outside the TCB ([SECURITY-MODEL.md](../SECURITY-MODEL.md)) and off the
+isolation critical path ([ROADMAP.md](../ROADMAP.md) step 5), yet it shapes the
+broad-user experience that [ADR-001](DECISIONS.md#adr-001) makes a first-class
+goal. Hyprland (CYBRland config) delivers a richer look — animations, blur,
+glow — but carries an explicit "features over stability" upstream: major
+releases every 1–3 months, frequent config/plugin breaking changes, no
+automatic config migration yet. Porting CYBRland from the Acer reference
+machine to MINIS surfaced exactly this fragility: Acer-specific hardcodes
+(`eDP-1`, `/home/sch`), plugin/ABI drift, and `hyprctl reload` not applying
+changes (only a full session restart does). For a TCB-oriented project whose
+default must be boring and maintainable, a rolling-breakage compositor is a
+poor default — but the richer option has value for users who want it.
+
+**Decision:** Adopt a two-profile model as the **target** desktop
+architecture. Current development builds on the Hyprland profile; the Sway
+profile is a recorded future target, not yet built. Both profiles share a
+single visual layer.
+
+- **Shared, compositor-independent layer:** waybar (config + `style.css` +
+  scripts), rofi, swaync, GTK/Qt theming, palette, fonts. The glow/sij effect
+  lives here (waybar CSS), **not** in the compositor — so it renders
+  identically under either profile.
+- **Sway profile (default, target):** vanilla Sway, no blur / no window
+  animations. Boring, stable; intended as the shipped default for ordinary
+  users.
+- **Hyprland profile (optional):** CYBRland config, full eye-candy (blur,
+  animations, glow). Opt-in — analogous to offering an alternative desktop
+  environment over a common backend (cf. Qubes offering multiple DEs).
+
+Compositor-specific config (workspace bindings, window rules, animations) is
+the only per-profile delta. The "click N → all monitors switch to workspace N"
+pattern is a small script in either compositor, not a built-in of either.
+
+**Consequences:**
+
+- The shared layer is built and tested once; only two thin compositor configs
+  diverge.
+- Hyprland's upstream churn is contained: version-locked like waypipe
+  ([ADR-008](DECISIONS.md#adr-008)), upgraded deliberately rather than rolling,
+  so its breakage never touches the default path.
+- Glow / theming portability is guaranteed by construction (it is CSS,
+  compositor-agnostic).
+- Default user gets stability; power user gets eye-candy; neither forks the
+  visual identity.
+- Build state: today only the Hyprland profile exists (CYBRland, ported to
+  MINIS, living in `~/.config/` — not yet in git). The Sway default profile is
+  a documented intention; building it is deferred, not scheduled. This ADR
+  fixes the direction, not a delivery date.
+- Installer integration of the desktop layer remains a documented manual step
+  until v1.0 ([ROADMAP.md](../ROADMAP.md) step 5) — unchanged; this ADR fixes
+  only which layer.
+---
+
+## ADR-017 — Dynamic CID allocation for disposable AppVMs
+
+**Status:** Accepted (2026-06)
+
+**Context:** [ADR-014](DECISIONS.md#adr-014) fixes the disposable domain
+(ephemeral, task-bound, created and destroyed on demand);
+[ADR-015](DECISIONS.md#adr-015) lets a disposable declare `cid = "auto"`
+instead of a static CID. What ADR-015 deliberately does *not* fix is *how* a
+concrete vsock CID is chosen at deploy time and reclaimed at teardown. Three
+points framed the decision:
+
+- The vsock CID space is 32-bit — effectively unbounded for this use. The real
+  ceiling on concurrent disposables is **hardware** (RAM / hugepages), not CID
+  exhaustion. "How big is the pool" was the wrong question; "how many VMs can
+  the host hold" is the right one, and it is a *separate* limit.
+- A CID must be unique across all live VMs at any instant (vsock routing keys
+  on it), allocation must be atomic against concurrent launches, and a
+  reclaimed CID must not be re-handed to a new instance while the previous
+  vsock endpoint is still tearing down (the disposable's whole purpose is
+  isolation — a fast reuse that inherits a half-open connection defeats it).
+- A purely random pick was considered and rejected: randomness does not buy
+  security here (the CID is not a secret and is not externally reachable), does
+  not by itself provide uniqueness (still needs an atomic reservation), and
+  loses the determinism that makes deploys debuggable. What the reuse edge
+  actually needs is *temporal distance* between release and re-use, not
+  unpredictability.
+
+**Decision:**
+
+- **Space:** static domains use fixed CIDs 4–8 (authored in `properties.toml`);
+  the dynamic pool is every CID ≥ 100. CIDs 0–2 are reserved, 3 is the NetVM
+  ([ADR-009](DECISIONS.md#adr-009)). The 100 floor only separates the dynamic
+  pool from the static band; there is no upper bound from CID space.
+- **Policy: monotonically increasing counter** (PID-style), not lowest-free and
+  not random. The allocator hands out `max(100, last_allocated + 1)`, skipping
+  any CID currently marked in use, and wraps back to 100 only on reaching a
+  theoretical ceiling that hardware limits make practically unreachable.
+  Monotonicity gives the reuse-safety property for free: a released CID is not
+  revisited until the counter has cycled through the entire space, by which
+  time the old endpoint is long dead — no grace timer, no randomness needed.
+- **State:** `/var/lib/katmate/cid-pool` holds the last-allocated counter and
+  the table of currently-in-use CIDs. The deploy step reads and writes it under
+  an exclusive lock (`flock` on a separate `cid-pool.lock`, held across the
+  whole read → allocate → write cycle, never just the write).
+- **Reclaim:** on instance teardown the CID is marked free in the table.
+  Because of monotonicity it is not de-facto reusable for a long time anyway.
+- **Crash recovery:** a nasty death (instance or host) leaves a CID marked
+  in-use with no live VM behind it — a slow leak that eventually clogs the
+  table. The allocator reconciles on startup (and may, periodically): compare
+  the in-use table against actually-live instances (running QEMU processes /
+  active vsock endpoints for those CIDs) and free the orphans.
+- **Concurrency ceiling is separate:** the deploy step refuses a new launch
+  when hardware (RAM / hugepages) cannot host another VM. This — not CID
+  allocation — is what bounds the number of concurrent disposables.
+
+**Consequences:**
+
+- `cid = "auto"` in `properties.toml` (ADR-015) routes through this allocator;
+  a numeric pool CID (≥100) bypasses it for manual/debug pinning, at the
+  author's risk of collision (the validator cannot see runtime state).
+- New host-side state and its lifecycle: `/var/lib/katmate/cid-pool` (+ lock)
+  must be created by the installer / first run, and is owned by the deploy
+  tooling (`katmate`), not the user.
+- Two correctness requirements are first-order, not implementation details:
+  the lock must cover the full read-allocate-write cycle (else the collision
+  returns through the back door), and reconcile must run (else the pool leaks).
+  Both are recorded here so they stay solved.
+- Lowest-free and random allocation are explicitly rejected; revisit only if a
+  concrete requirement (e.g. CID stability across reboots for a specific
+  disposable) appears, which would itself contradict the disposable model.
+
+**Cross-reference:** consumes `cid = "auto"` from
+[ADR-015](DECISIONS.md#adr-015); invoked by the deploy-time instance step of
+[ADR-011](DECISIONS.md#adr-011); pool floor and reserved CIDs align with the
+NetVM CID ([ADR-009](DECISIONS.md#adr-009)).
