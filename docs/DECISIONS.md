@@ -287,6 +287,9 @@ per layer. Layers are LVM thin volumes (ADR-010), not qcow2 files.
 - Per-instance home stays a separate raw thin LV (ADR-010), untouched by
   foundation/app rebuilds.
 - Realizes the pipeline that ADR-014 and ADR-010 depend on.
+- The deploy-time instance step reads its parameters (`cid`, `network`,
+  `persistence`, `disposable`, `reset_on_shutdown`) from the per-instance
+  `properties.toml` (ADR-015).
 
 **Revision note (2026-06):** the original ADR-011 layered via
 `qemu-img create -f qcow2 -F qcow2 -b <foundation>` + `qemu-nbd` + chroot on
@@ -295,6 +298,10 @@ layering mechanism becomes `lvcreate --snapshot` + chroot + `lvchange -pr`.
 qcow2/nbd is no longer used for the build; qcow2 survives only as the
 deploy-time instance delta. The mkosi-vs-shell tooling decision and the
 reproducibility approach are unchanged.
+
+**Cross-reference (2026-06):** the deploy-time instance step reads its
+per-instance properties (CID, network, persistence, disposable,
+reset_on_shutdown) from a `properties.toml` whose format is fixed in ADR-015.
 
 ---
 
@@ -374,7 +381,8 @@ hand-curated.
 - `katmate-update` tracks a **single** foundation → the automatic update path
   stays trivial (one rebuild, not N as a multi-base model would need).
 - Customization surface = manifest (packages) + properties. Small and safe
-  enough to later expose as GUI toggles (v0.4 → v1.0).
+  enough to later expose as GUI toggles (v0.4 → v1.0). Properties get a
+  machine-readable per-instance format in ADR-015 (`properties.toml`).
 - Per-role minimization preserved: a banking domain would carry only a browser,
   a dev domain only its toolchain.
 - Resolves the **mechanism** in ADR-010 (three-level LVM-thin chain + raw thin
@@ -394,6 +402,10 @@ hand-curated.
 - **power users:** documented manifest format + `katmate-vm create --from
   <manifest>` CLI.
 - **broad users:** GUI over the same manifest backend.
+
+**Cross-reference (2026-06):** the property axes defined here are given a
+machine-readable, typed format (one `properties.toml` per instance) in ADR-015;
+the manifest format (package set) is specified in ADR-011.
 
 ---
 
