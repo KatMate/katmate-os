@@ -4,7 +4,7 @@
 > graduate to `docs/`; this file stays short and is regenerated at the end of
 > each working session.
 
-**Last updated:** 2026-06-18
+**Last updated:** 2026-06-17
 **Milestone:** v0.2 (in development)
 
 ## Current focus
@@ -14,13 +14,12 @@ Merging two parallel development lines onto MINIS/UM870 (the VT-d host):
    segmented networking, host desktop). This is the documented project plus the
    live system confirmed by direct inspection.
 2. **Acer line** — GUI/desktop layer (Hyprland + CYBRland theme + Plymouth).
-   Hyprland/CYBRland layer now ported to MINIS (2026-06-18); Plymouth theme
-   still pending.
+   Inspection completed 2026-06-17; assets to migrate to MINIS.
 
 Direction set: target IOMMU-capable platforms only (VT-d/AMD-Vi); VT-x-only
 frozen (ADR-015). MINIS is primary host and merge target.
 
-## Confirmed live state (MINIS/UM870, inspected 2026-06-17, desktop 2026-06-18)
+## Confirmed live state (MINIS/UM870, inspected 2026-06-17)
 
 **Host** (`archlinux`, Arch):
 - Kernel **`linux` 7.0.12-arch1-1** — migration to `linux-hardened` pending
@@ -31,9 +30,8 @@ frozen (ADR-015). MINIS is primary host and merge target.
   700G (tmeta 88M). In-pool: `vm_personal_home` 40G, `vm_tpl_all_root_golden`
   30G, `vm_tpl_debian` 10G. Out-of-pool template/root LVs: `vm_tpl_all_root`,
   `vm_tpl_personal_root`, `vm_tpl_net_root` (+ others).
-- Desktop: **Hyprland + CYBRland** (dual head DP-3 / HDMI-A-1), kitty, fish,
-  micro. Sway config retained as fallback — it is the ADR-016 default-profile
-  target (not yet built out).
+- Desktop: **Sway** (dual head DP-3 / HDMI-A-1), kitty, fish, micro.
+  Target: Hyprland + CYBRland (migration from Acer pending).
 - waypipe-client: socket-activated `--user` service, vsock port 1024,
   multiplexes per peer CID (one `client-conn` per connection).
 - Host nft: input policy drop; `tcp dport 22 accept` is open (dev convenience,
@@ -62,39 +60,38 @@ frozen (ADR-015). MINIS is primary host and merge target.
 - nft empty (relies on netVM for filtering).
 - Disks: vda 10G root (qcow2 overlay), vdb 40G /home (raw LV).
 
-**Desktop layer (CYBRland/Hyprland — ported & working 2026-06-18):**
-CYBRland Hyprland config now operational on MINIS dual-head (DP-3 + HDMI-A-1).
-The port was not blocked by blur/shadow/driver/version (all ruled out) but by a
-recurring pattern: **Acer-specific hardcodes that did not survive the move.**
-Fixes applied (all in `~/.config/`):
-- **waybar read the wrong config file** — a hand-made `config` shadowed the
-  CYBRland `config.jsonc` (waybar prefers `config` over `config.jsonc`).
-  Renamed `config` → `config.disabled`.
-- **`config.jsonc` output = `eDP-1`** (Acer's panel, absent on MINIS) — bar
-  rendered to a non-existent monitor. Removed `output` line → bar on both heads.
-- **persistent-workspaces bound to `eDP-1`** → `"*"` (workspaces 1–4 on both
-  bars).
-- **`/home/sch` hardcoded paths** (CYBRland author) in `modules.jsonc`
-  brightness scripts → `sed` to `/home/host`.
-- **volume module** — event-driven `pulseaudio` module raced wireplumber at
-  start (empty until clicked). Replaced with `custom/volume` polling
-  `wpctl get-volume` (interval 2s, U+F028 glyph, `pavucontrol` on left-click,
-  `wpctl set-mute` on right-click, scroll for volume). Installed `jq`,
-  `wireplumber`, `pavucontrol`.
-- **dropped laptop-only modules** (battery, bluetooth, custom/brightness) —
-  MINIS is a desktop; these had no data source.
-- Desktop config lives **only in `~/.config/`** — not yet in git.
-- Known quirk: `hyprctl reload` does not fully apply changes here; only a full
-  TTY session restart does. waybar autostart wired in `hypr/hyprland.conf`
-  (`$bar = waybar`) + `hypr/scripts/services`.
-- **Decision: ADR-016** — two desktop profiles, shared visual layer, Sway
-  default + Hyprland optional. Current build: Hyprland. Sway profile: recorded
-  target, not built, not next step.
+## Disk model (live vs target)
+
+**Live (inspected 2026-06-19, MINIS):** two-level, not yet the target chain.
+
+- `vm_tpl_all_root` (31G), `vm_tpl_personal_root` / `vm_tpl_net_root` /
+  `vm_tpl_work_root` (10G each): **linear** LVs, RO-frozen (`-ri`, `blockdev
+  --getro` = 1), **out of pool**, no snapshot/origin relation between them —
+  current app layers are standalone hard-copies, not snapshots of a base.
+- `vm_tpl_all_root_golden` (30G): the only **thin** RO base
+  (`Vri`, in `vm_pool`), currently **detached** — not the origin of any live
+  app layer.
+- Per-VM RW delta: `vm_personal_overlay.qcow2` (backing =
+  `/dev/vg0/vm_tpl_personal_root`, format raw, ~2.78G used),
+  `vm_net_overlay.qcow2` (backing = `vm_tpl_net_root`, ~182M).
+- Per-VM home: raw thin LV in `vm_pool` (`vm_personal_home` 40G;
+  `vm_work_home` 40G linear, out of pool).
+
+So the live read path is **linear RO LV ← qcow2 delta** — fastest possible
+system read (single device-map lookup, no qcow2 chain walk under the OS),
+which is why it was built this way for the two current domains.
+
+**Target (ADR-010, revised):** three-level LVM-thin chain:
+`all_root` (thin, RO base) ← `app-<type>_root` (thin **snapshot** of
+`all_root`, RO-frozen) ← per-instance qcow2 RW delta. Moves block sharing
+across N app layers into the pool (one base stored once) at the cost of a
+small thin-metadata indirection on reads — worth it once N > 2 domains.
+The thin-snapshot link base→app is **not yet implemented**; see Open
+problems.
 
 ## Confirmed Acer-line assets (inspected 2026-06-17)
 
-**Desktop layer** — ported to MINIS 2026-06-18 (Hyprland/CYBRland working;
-Plymouth still pending):
+**Desktop layer** — to migrate to MINIS:
 - greetd + tuigreet login manager
 - Hyprland 0.55.2 + **CYBRland** theme (`github.com/scherrer-txt/cybrland`)
   — `~/.config/hypr/{hyprland.conf,theme.conf,vars.conf,plugins/,scripts/}`
@@ -102,7 +99,7 @@ Plymouth still pending):
 - Rofi (launcher, powermenu, clipboard, wallpaper, keybindings, screenshot,
   emoji scripts)
 - waybar, swaync (notifications)
-- Plymouth "katmate" theme (boot splash) — **still to transfer**
+- Plymouth "katmate" theme (boot splash) — to transfer alongside Hyprland
 - kitty, yazi, obsidian, fish, micro
 
 **Build pipeline** (already in git):
@@ -115,9 +112,9 @@ Plymouth still pending):
 
 ## Open problems
 
-1. **Desktop config not in git.** CYBRland/Hyprland desktop layer is live on
-   MINIS but lives only in `~/.config/`. Bring the shared visual layer into the
-   repo. Plymouth theme port still pending. (Migration itself: done — ADR-016.)
+1. **Desktop migration Acer → MINIS.** CYBRland Hyprland config + Plymouth
+   theme to port; Sway replaced by Hyprland. Requires Hyprland + deps install
+   on MINIS; greetd swap.
 2. **Kernel migration `linux` → `linux-hardened`** on MINIS (opportunistic).
    Re-validate io_uring/aio on hardened; suspend/resume regression to recheck.
 3. **Installer secrets** (v0.2 blocker): WireGuard key, WiFi PSK, credentials —
@@ -127,13 +124,15 @@ Plymouth still pending):
    shipped policy; close or gate before power-user release.
 5. **"Enoch OS"** description string in live `vm-agent.service` (personalVM) —
    pre-alpha artifact, remove.
-6. **Acer-hardcode sweep** across remaining CYBRland configs (rofi / hypr /
-   hyprlock): `grep -rn 'eDP-1\|/home/sch' ~/.config/` — catch them all at once
-   rather than one per session.
+6. **Disk model not at target** (ADR-010): app layers are standalone linear RO
+   hard-copies, not thin snapshots of `all_root`; `all_root_golden` thin base
+   is detached. Target is `lvcreate --snapshot` base→app + RO freeze
+   (ADR-011). Migration: rebuild base as thin `all_root`, re-create each app
+   layer as a frozen thin snapshot, re-point qcow2 deltas. Home LVs untouched.
 
 ## Next steps
 
-- Plymouth theme port (Acer → MINIS); bring desktop config into git.
+- Port CYBRland desktop layer + Plymouth theme from Acer to MINIS.
 - Resume vm-agent design block (protocol.h source-of-truth for CID/port,
   `allowed_path` traversal fix, socket/bind/listen error handling).
 - Kernel migration to linux-hardened on MINIS (opportunistic).
@@ -148,6 +147,3 @@ Plymouth still pending):
 - vm-agent runs on all domains (GUI and non-GUI) as the general control channel.
 - netVM uses USB-NIC passthrough (r8152), not PCIe RTL8125 — RTL8125 vfio
   path documented in memory as blocked; live system uses the simpler USB path.
-- Desktop: two-profile model decided (ADR-016). "click N → all monitors to
-  workspace N" still needs a script (per-monitor by default in both
-  compositors).
