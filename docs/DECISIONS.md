@@ -135,10 +135,26 @@ The version skew produced a compression negotiation mismatch
 clipboard operations.
 
 **Decision:** The guest builds waypipe from source, pinned to the host
-version. Build gotchas (recorded so they stay solved): waypipe ≥ 0.11 is
-partly Rust; `bindgen` is required or the lz4/zstd feature gates silently
-resolve to `false`; the build wrapper passes `--frozen`, so `cargo fetch` must
-run before `meson setup`. Recipe lives in
+version, inside the foundation chroot so it links against the foundation's own
+libraries. Build gotchas (each cost a failed build on 2026-06-20, recorded so
+they stay solved):
+
+1. waypipe ≥ 0.11 is partly Rust — the build needs `cargo` + `rustc` +
+   `bindgen` (meson errors out without `bindgen`).
+2. The `with_lz4` / `with_zstd` features default to `auto`, which can silently
+   build with `lz4: false`. Force `-Dwith_lz4=enabled -Dwith_zstd=enabled` so a
+   missing lib fails loudly rather than yielding a binary that cannot talk to
+   the host.
+3. The `wrap-gbm` Cargo workspace member's `build.rs` calls `pkg-config gbm`
+   and panics if absent — even with `-Dwith_gbm=disabled`. Install `libgbm-dev`
+   to satisfy it; the feature stays off in the final binary.
+4. The build wrapper passes `--frozen`, so `cargo fetch` must run before
+   `meson setup` (else "attempting to make an HTTP request, but --frozen was
+   specified").
+5. The host runs waypipe with `-c lz4`; a guest binary with `lz4: false` drops
+   the vsock connection — the reason features are forced in (2).
+
+Recipe lives in
 [ARCHITECTURE.md](ARCHITECTURE.md#guest-waypipe-build-part-of-the-base-image-pipeline).
 
 **Consequences:** Waypipe becomes a version-locked base image component;
@@ -268,9 +284,13 @@ per layer. Layers are LVM thin volumes (ADR-010), not qcow2 files.
   frozen app snapshot block device. Discarded/recreated per instance.
 - All mounts/bind-mounts, snapshot activation and teardown are explicit, with
   `trap` cleanup — every command on screen, nothing implicit.
-- **Reproducibility:** apt sources pinned to a `snapshot.debian.org` timestamp
-  and package versions pinned per manifest, so a rebuild from the same inputs
-  yields the same foundation and app layers.
+- **Reproducibility (deferred — see note):** the intent is apt sources pinned
+  to a `snapshot.debian.org` timestamp and package versions pinned per
+  manifest, so a rebuild from the same inputs yields the same foundation and
+  app layers. This is **not yet applied**: the first foundation (2026-06-20) is
+  built with a plain `debootstrap trixie` against current packages. The pin is
+  added only once a rebuild pipeline (`katmate-update`) exists, where
+  determinism actually matters.
 
 **Consequences:**
 
@@ -303,6 +323,17 @@ reproducibility approach are unchanged.
 **Cross-reference (2026-06):** the deploy-time instance step reads its
 per-instance properties (CID, network, persistence, disposable,
 reset_on_shutdown) from a `properties.toml` whose format is fixed in ADR-015.
+
+**Build note (2026-06-20):** the first `foundation` was built and frozen on
+MINIS (`vg0/vm_tpl_foundation`, 10G thin, RO): `debootstrap trixie` + vm-agent
++ waypipe 0.11.0 (source, `lz4`/`zstd` on), toolchain purged before freeze.
+The thin-snapshot base→app mechanism was proven separately the same day (the
+earlier blocker was the LVM `activation skip` flag on thin snapshots, cleared
+with `lvchange -K -ay`, not anything architectural). The apt-pin reproducibility
+clause above is deliberately deferred: a plain `debootstrap` against current
+packages is used, and the RO-frozen image is itself the effective pin until a
+rebuild pipeline makes determinism meaningful. Kernel, waypipe and vm-agent are
+already baked outside apt.
 
 ---
 

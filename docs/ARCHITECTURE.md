@@ -28,7 +28,9 @@ All host↔guest communication crosses explicitly exposed VSOCK channels.
   evaluation to shrink the TCB (MicroVM machine type needs no GUI frontends).
 - Operational consequence of the hardened kernel: io_uring is disabled
   (`kernel.io_uring_disabled = 2`), so VM launch scripts use `aio=threads`
-  instead of `aio=io_uring`.
+  instead of `aio=io_uring`. (Live MINIS still runs stock `linux`, where
+  `aio=io_uring` is active; the `aio=threads` switch lands with the hardened
+  migration.)
 
 ### Storage layout
 
@@ -40,12 +42,14 @@ GPT
             ├── root      ext4, 15% of disk (clamped 20–60 G)  → /
             ├── swap      sized = RAM
             └── thinpool  remainder (metadata 1%, clamped 64M–1G)
-                          → VM storage (base images, overlays, persistent data)
+                          → VM storage (foundation, app snapshots,
+                            instance deltas, persistent home LVs)
 ```
 
-Current direction for VM storage (formalization pending, [ADR-010](DECISIONS.md#adr-010)):
-qcow2 root overlays for AppVMs backed by the immutable base image; raw thin LVs
-for persistent home data.
+VM storage uses a three-level LVM-thin chain for system images and raw thin LVs
+for persistent home ([ADR-010](DECISIONS.md#adr-010)): `foundation` (thin, RO)
+← `app-<type>` (thin snapshot of foundation, RO-frozen) ← per-instance qcow2 RW
+delta. See **Base image & template model** below.
 
 ## Guest MicroVMs
 
@@ -56,55 +60,105 @@ for persistent home data.
   (`vmlinuz-katmate-microvm-amd64-6.12.x`), MicroVM-optimized config:
   virtio-blk / virtio-net / virtio-vsock, ext4, tmpfs, user namespaces, cgroups.
   Goals: fast direct kernel boot, low memory footprint, minimal attack surface.
+- The kernel is **monolithic** — the listed subsystems are builtin, with no
+  loadable modules. It is passed to QEMU via `-kernel` at launch and does
+  **not** live inside the guest rootfs; the foundation image therefore carries
+  no kernel and no `/lib/modules` tree.
 
 ## Base image & template model
 
-([ADR-007](DECISIONS.md#adr-007))
+([ADR-007](DECISIONS.md#adr-007), [ADR-010](DECISIONS.md#adr-010),
+[ADR-011](DECISIONS.md#adr-011))
+
+The base is an **LVM thin volume** (`foundation`), not a `.img` file. AppVM
+system layers are thin snapshots of it; user data is a separate RW delta.
 
 ```
-katmate-base-YYYYMMDD.img        immutable, versioned, shared read-only
-  ├── Debian stable userspace (minimal)
-  ├── custom MicroVM kernel (Debian LTS sources)
-  ├── waypipe X.Y.Z  — version-locked to host
+foundation                        thin LV, RO-frozen, shared by all AppVMs
+  ├── Debian stable userspace (minimal, debootstrap)
+  ├── waypipe X.Y.Z  — version-locked to host, source build
   └── vm-agent
+        ▲
+        │ lvcreate --snapshot  (thin snapshot, RO-frozen, + manifest packages)
+        │
+  app-<type>                      e.g. app-personal, app-net, app-work
+        ▲
+        │ qemu-img create -f qcow2 -F raw -b <app-snapshot>
+        │
+  instance                        per-VM qcow2 RW delta (system)
+                                  + separate raw thin LV (persistent /home)
 
-AppVM  =  base image (RO)  +  appvm-<name> overlay (RW, user data only)
+custom MicroVM kernel             external to the image, passed via -kernel
 ```
 
 | Component | Lives in |
 |---|---|
-| OS, kernel, waypipe, vm-agent | base image |
-| Application data, configuration, documents | overlay |
+| OS userspace, waypipe, vm-agent | foundation (thin, RO) |
+| Per-type application package set | app-`<type>` thin snapshot (RO) |
+| System RW changes (ephemeral) | instance qcow2 delta |
+| Application data, documents | raw thin home LV (RW, persistent) |
+| Custom MicroVM kernel | host filesystem, passed via `-kernel` |
 
 Update flow:
 
 1. Host updates waypipe (pacman) → pacman hook triggers `katmate-update`.
-2. `katmate-update` compares host waypipe version against the active base image.
-3. On mismatch: rebuild `katmate-base-YYYYMMDD+1.img`, recycle AppVM overlays
-   onto the new base. The user gets a notification — no action required.
-4. Debian LTS kernel security patch → rebuild guest kernel → included in the
-   next base image release.
+2. `katmate-update` compares host waypipe version against the active foundation.
+3. On mismatch: rebuild `foundation`, re-snapshot each `app-<type>`, recreate
+   instance deltas onto the new snapshots. Home LVs untouched. The user gets a
+   notification — no action required.
+4. Debian LTS kernel security patch → rebuild guest kernel → shipped as the new
+   external `-kernel` for the next foundation release.
 
-Principles: immutability, reproducibility (base rebuilt from defined sources,
-never hand-edited), strict system/data separation, user transparency, minimal TCB.
+Principles: immutability, reproducibility (foundation rebuilt from defined
+sources, never hand-edited), strict system/data separation, user transparency,
+minimal TCB.
 
 ### Guest waypipe build (part of the base image pipeline)
 
 Waypipe in the guest is built from source and pinned to the host version
-([ADR-008](DECISIONS.md#adr-008)):
+([ADR-008](DECISIONS.md#adr-008)). Built inside the foundation chroot so it
+links against the foundation's own (trixie) libraries.
 
 ```
-apt install -y meson ninja-build libwayland-dev pkg-config liblz4-dev \
-               libzstd-dev git libgbm-dev cargo bindgen
+apt install -y git meson ninja-build gcc pkg-config \
+               libwayland-dev liblz4-dev libzstd-dev libgbm-dev \
+               cargo rustc bindgen
 git clone https://gitlab.freedesktop.org/mstoeckl/waypipe.git
 cd waypipe && git checkout v0.11.0
-cargo fetch --manifest-path Cargo.toml      # required: build wrapper uses --frozen
-meson setup build && ninja -C build && ninja -C build install
+cargo fetch                                  # build wrapper passes --frozen
+meson setup build -Dbuildtype=release \
+      -Dwith_lz4=enabled -Dwith_zstd=enabled \
+      -Dwith_gbm=disabled -Dwith_dmabuf=disabled -Dwith_video=disabled
+ninja -C build && ninja -C build install
+waypipe --version          # expect: lz4: true, zstd: true
 ```
 
-`bindgen` is mandatory — without it the lz4/zstd feature gates resolve to
-`false` and compression negotiation with the host fails. Expected result:
-`lz4: true, zstd: true`.
+Build gotchas (each cost a failed build, recorded so they stay solved):
+
+1. **Not pure C since ≥ 0.11** — the build needs `cargo` + `rustc` +
+   `bindgen`. Without `bindgen`, meson errors out (`Program 'bindgen' not
+   found`).
+2. **Compression features must be explicit.** `with_lz4` / `with_zstd` default
+   to `auto`, which can silently resolve to a build with `lz4: false`. Force
+   them to `enabled` so a missing lib fails loudly instead of producing a
+   binary that cannot talk to the host.
+3. **gbm wrapper is compiled unconditionally.** Even with
+   `-Dwith_gbm=disabled`, the `wrap-gbm` Cargo workspace member's `build.rs`
+   calls `pkg-config gbm` and panics if absent. Install `libgbm-dev` to satisfy
+   it; the feature stays off in the final binary (confirmed via
+   `waypipe --version` and `ldd` — no gbm linkage).
+4. **`cargo fetch` before `ninja`.** The compile wrapper runs cargo with
+   `--frozen`, so crates must already be in the local cache or the build fails
+   with "attempting to make an HTTP request, but --frozen was specified".
+5. **Host/guest lz4 must match.** The host runs waypipe with `-c lz4`; if the
+   guest binary has `lz4: false`, the vsock connection drops. This is the whole
+   reason features are forced in step 2.
+
+The build toolchain (gcc, cargo, rustc, bindgen, meson, ninja, `*-dev`) is
+purged + `autoremove`d before the foundation is RO-frozen, so the immutable
+base carries runtime libs only (libzstd1, liblz4-1, libgcc-s1, libc6,
+libxxhash0) and no compiler. Verify with `ldd` after purge; a missing runtime
+lib means reinstalling the non-`-dev` variant before freeze.
 
 ## Communication
 
@@ -114,7 +168,8 @@ network path to the host control plane.
 
 ### VM agent
 
-Minimal command channel, implemented in C. Commands:
+Minimal command channel, implemented in C (Rust rewrite planned while the
+codebase is still small). Commands:
 
 | Command | Purpose |
 |---|---|
@@ -158,7 +213,8 @@ RAM. MicroVM migration is a future cleanup item.
 ## Disposable VMs (planned, v0.3)
 
 Created on demand, temporary storage, automatic destruction. Use cases:
-unknown PDFs, suspicious downloads, throwaway browsing sessions.
+unknown PDFs, suspicious downloads, throwaway browsing sessions. CID allocated
+dynamically from the pool ([ADR-017](DECISIONS.md#adr-017)).
 
 ## Desktop layer
 
@@ -171,9 +227,12 @@ Nerd Font, single-monitor layout (eDP-1), animations disabled for performance.
 Supporting tools: hypridle, hyprlock, hyprpaper, hyprpicker, pyprland, Rofi,
 waybar, swaync, kitty, yazi.
 
-Currently configured on the Acer development machine; migration to MINIS
-(primary host) in progress. Installer integration is planned and will require
-adding `kms` to the mkinitcpio `HOOKS` for Plymouth.
+Two-profile model ([ADR-016](DECISIONS.md#adr-016)): a shared visual layer with
+**Sway** as the stable default and **Hyprland/CYBRland** as the optional
+profile. MINIS currently runs Sway (dual head DP-3 / HDMI-A-1); the CYBRland
+Hyprland layer is configured on the Acer dev machine and migration to MINIS is
+in progress. Installer integration will require adding `kms` to the mkinitcpio
+`HOOKS` for Plymouth.
 
 ## Target hardware class
 
