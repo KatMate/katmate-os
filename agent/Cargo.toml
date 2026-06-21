@@ -1,0 +1,15 @@
+[package]
+name = "vm-agent"
+version = "0.1.0"
+edition = "2021"
+
+# Minimal TCB: only libc for raw VSOCK syscalls. No async, no tokio.
+[dependencies]
+libc = "0.2"
+
+# Smaller, simpler binary for the foundation image.
+[profile.release]
+opt-level = "s"
+lto = true
+panic = "abort"
+strip = true

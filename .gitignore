@@ -4,3 +4,4 @@ out/
 *.iso
 install.env
 *.swp
+agent/target/
