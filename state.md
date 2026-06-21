@@ -4,7 +4,7 @@
 > graduate to `docs/`; this file stays short and is regenerated at the end of
 > each working session.
 
-**Last updated:** 2026-06-20
+**Last updated:** 2026-06-21
 **Milestone:** v0.2 (in development)
 
 ## Current focus
@@ -19,9 +19,15 @@ Merging two parallel development lines onto MINIS/UM870 (the VT-d host):
 Direction set: target IOMMU-capable platforms only (VT-d/AMD-Vi); VT-x-only
 frozen (ADR-015). MINIS is primary host and merge target.
 
-Active build work (2026-06-20): the storage chain. The thin-snapshot mechanism
-is proven and the `foundation` thin LV is built and frozen on MINIS; next is
-the first `app-<type>` thin snapshot from it.
+Active build work (2026-06-21): the storage chain is **proven end-to-end with a
+live VM**. The first `app-<type>` (`vm_app_web`) is built, manifest-installed and
+frozen; a qcow2 instance delta backs onto it; a real guest booted through the
+full chain (root mounted via the app-snapshot UUID, systemd reached
+`graphical.target`, login prompt). Open problem #6 closed at the live-VM level.
+Next: wire waypipe+vm-agent for a GUI instance, then migrate the live AppVMs
+(personal/net) off the old linear roots onto the new foundation chain. Naming
+convention set: new chain uses `vm_app_<type>` (vs. the old-generation
+`vm_tpl_*_root`).
 
 ## Confirmed live state (MINIS/UM870, inspected 2026-06-17 — 2026-06-20)
 
@@ -32,7 +38,9 @@ the first `app-<type>` thin snapshot from it.
 - Ryzen 7 8745H, ~30 GiB RAM, 12 GiB swap. AMD-Vi present; vfio in use.
 - LUKS2 → `cryptroot` → `vg0`: `root` 100G, `swap` 12G, `vm_pool` thin pool
   700G (tmeta 88M). In-pool: `vm_personal_home` 40G, `vm_tpl_all_root_golden`
-  30G, `vm_tpl_foundation` 10G (new thin RO base, see Disk model). Out-of-pool
+  30G, `vm_tpl_foundation` 10G (new thin RO base, see Disk model),
+  `vm_app_web` (thin snapshot of foundation, RO-frozen, ~31% delta ≈ 3.1G;
+  first app-layer, 2026-06-21). Out-of-pool
   template/root LVs: `vm_tpl_all_root`, `vm_tpl_personal_root`,
   `vm_tpl_net_root` (+ others). `vm_tpl_debian` removed (stale per-base-OS
   experiment, predated the architecture work).
@@ -107,11 +115,42 @@ model, not yet re-pointed onto the new foundation.
 - Per-VM home: raw thin LV in `vm_pool` (`vm_personal_home` 40G;
   `vm_work_home` 40G linear, out of pool).
 
-So the live read path is still **linear RO LV ← qcow2 delta**. The target
-chain `foundation (thin RO) ← app-<type> (thin snapshot RO) ← qcow2 delta`
-(ADR-010) is now mechanism-proven and base-built; the remaining work is to cut
-the first real `app-<type>` snapshot from `vm_tpl_foundation`, install its
-manifest, freeze it, and re-point a qcow2 instance onto it.
+**First app-layer built + chain proven live (2026-06-21, MINIS):**
+`vg0/vm_app_web` — thin snapshot of `vm_tpl_foundation`, RO-frozen
+(`Vri-a-tz-k`). Built per ADR-011: `lvcreate -s` (no `--size` — thin snapshot
+inherits the pool) → `lvchange -K -ay` → mount → `apt-get install
+--no-install-recommends firefox-esr foot nautilus` (= `web.list` manifest) →
+`apt-get clean` → `lvchange -p r`. Delta ≈ 31% (~3.1G) — shares foundation
+blocks, adds only its own. Instance delta:
+`/var/lib/katmate/instances/test_web.qcow2` (`qemu-img create -f qcow2 -F raw
+-b /dev/vg0/vm_app_web`). A real microvm guest (CID 5, no net/home, gold boot)
+mounted root through the full chain — `EXT4-fs (vda): mounted filesystem
+b224b147-…` matches `vm_app_web`'s UUID — and reached `graphical.target` + login
+prompt in <2s. The target chain `foundation (thin RO) ← app-<type> (thin
+snapshot RO) ← qcow2 delta` (ADR-010) is now **proven with a live VM**, not just
+the mechanism.
+
+**Launch invariant (confirmed 2026-06-21):** an RO-frozen thin LV keeps the
+skip-activation `k` flag permanently; its device node is released on
+deactivation and does NOT re-activate by itself. `lvchange -K -ay <lv>` is
+mandatory before every instance boot (on both the app-layer AND the
+foundation), or `/dev/vg0/<lv>` is missing and qemu-img/QEMU fails with
+"Could not open backing image". Launch logic (`.con` / future katmate code)
+must call `-K -ay` before launch. Almost certainly part of the Feb/Mar blocker.
+
+`/var/lib/katmate/` was created this session (was absent — installer
+prerequisite for the CID pool, now seeded by the first instance).
+
+**Note (manifest iteration):** nautilus pulled in `udisks2` + `gvfs`. In a
+MicroVM appliance udisks2 is likely dead weight (no removable devices; 9p
+hostshare goes through qemu/fstab, not udisks2) and it auto-started at boot
+(`udisks2.service - Disk Manager`). After a GUI boot test, if nautilus works
+without it, add `systemctl disable udisks2` to the app-layer build (disable,
+not purge — it is a nautilus dependency).
+
+So the **older** live AppVMs (personal/net) still read **linear RO LV ← qcow2
+delta**; re-pointing them onto the new foundation chain is the remaining
+migration.
 
 ## Confirmed Acer-line assets (inspected 2026-06-17)
 
@@ -149,19 +188,25 @@ manifest, freeze it, and re-point a qcow2 instance onto it.
    (restrict to `iif enp1s0 ip saddr 10.3.1.0/24`, handle 9) but not applied.
 5. **"Enoch OS"** description string in live `vm-agent.service` (personalVM) —
    pre-alpha artifact, remove.
-6. **Disk model not yet re-pointed at target (mechanism RESOLVED 2026-06-20).**
-   The thin-snapshot base→app link is proven and the thin `foundation` is built
-   and frozen (`vm_tpl_foundation`). What remains is migration, not mechanism:
-   cut each `app-<type>` as a frozen thin snapshot of the foundation, install
-   its manifest, re-point the qcow2 deltas off the old standalone linear roots.
-   Home LVs untouched.
+6. **Disk model migration (chain RESOLVED end-to-end 2026-06-21).** The full
+   chain `foundation ← app-<type> ← qcow2 instance` is proven with a live
+   booting VM (`vm_app_web` + `test_web.qcow2`). What remains is pure migration:
+   cut the remaining `app-<type>` snapshots (vault — blocked on per-manifest RUN
+   whitelist; see vault.list), and re-point the live personal/net qcow2 deltas
+   off the old standalone linear roots onto the new app-layers. Home LVs
+   untouched.
 
 ## Next steps
 
-- Cut the first `app-<type>` thin snapshot from `vm_tpl_foundation`
-  (`lvcreate --snapshot` → `lvchange -K -ay` → mount → manifest install →
-  `lvchange -p r` → `qemu-img create -F raw -b`), boot a real instance, and
-  validate the full chain end to end with a live VM.
+- GUI instance test: boot `test_web` with tap network + vm-agent + waypipe
+  (CID + tap leg like personalVM) and confirm firefox renders on the MINIS
+  desktop through waypipe-over-VSOCK. Then run the udisks2-disable check.
+- `/home` cleanup: migrate the three live overlays
+  (`vm_personal_overlay.qcow2`, `vm_net_overlay.qcow2`, the stale
+  `vm_work_overlay.qcow2` — Mar 8, dead) out of `/home/host` into
+  `/var/lib/katmate/instances/`; this also re-homes the launch layout.
+- Re-point live personal/net deltas onto the new foundation/app-layer chain
+  (off the old `vm_tpl_*_root` linear roots).
 - Port CYBRland desktop layer + Plymouth theme from Acer to MINIS.
 - Resume vm-agent design block (protocol.h source-of-truth for CID/port,
   `allowed_path` traversal fix, socket/bind/listen error handling). Separately:
