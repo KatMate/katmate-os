@@ -4,7 +4,7 @@
 > graduate to `docs/`; this file stays short and is regenerated at the end of
 > each working session.
 
-**Last updated:** 2026-06-21
+**Last updated:** 2026-06-21 (evening — GUI chain proven end-to-end)
 **Milestone:** v0.2 (in development)
 
 ## Current focus
@@ -19,15 +19,19 @@ Merging two parallel development lines onto MINIS/UM870 (the VT-d host):
 Direction set: target IOMMU-capable platforms only (VT-d/AMD-Vi); VT-x-only
 frozen (ADR-015). MINIS is primary host and merge target.
 
-Active build work (2026-06-21): the storage chain is **proven end-to-end with a
-live VM**. The first `app-<type>` (`vm_app_web`) is built, manifest-installed and
-frozen; a qcow2 instance delta backs onto it; a real guest booted through the
-full chain (root mounted via the app-snapshot UUID, systemd reached
-`graphical.target`, login prompt). Open problem #6 closed at the live-VM level.
-Next: wire waypipe+vm-agent for a GUI instance, then migrate the live AppVMs
-(personal/net) off the old linear roots onto the new foundation chain. Naming
-convention set: new chain uses `vm_app_<type>` (vs. the old-generation
-`vm_tpl_*_root`).
+Active build work (2026-06-21): the **full GUI chain is proven end-to-end,
+live**. The first `app-<type>` (`vm_app_web`) is built, manifest-installed and
+frozen; a qcow2 instance delta backs onto it; a real guest (CID 5) booted
+through the full chain on the **custom microvm kernel 6.12.87** (vsock builtin),
+and `nautilus` rendered on the host Hyprland desktop through
+waypipe-over-VSOCK, running as non-root user 1000. Open problem #6 and the GUI
+trust-boundary mechanism are both closed at the live-VM level — this is the
+first complete vertical slice of the appliance model, from LVM thin snapshot to
+a GUI window on screen. Next: bake the missing build steps (user 1000,
+vm-agent as a systemd **user** unit) so the chain runs unattended, then migrate
+the live AppVMs (personal/net) off the old linear roots onto the new foundation
+chain. Naming convention set: new chain uses `vm_app_<type>` (vs. the
+old-generation `vm_tpl_*_root`).
 
 ## Confirmed live state (MINIS/UM870, inspected 2026-06-17 — 2026-06-20)
 
@@ -44,8 +48,18 @@ convention set: new chain uses `vm_app_<type>` (vs. the old-generation
   template/root LVs: `vm_tpl_all_root`, `vm_tpl_personal_root`,
   `vm_tpl_net_root` (+ others). `vm_tpl_debian` removed (stale per-base-OS
   experiment, predated the architecture work).
-- Desktop: **Sway** (dual head DP-3 / HDMI-A-1), kitty, fish, micro.
-  Target: Hyprland + CYBRland (migration from Acer pending).
+- Desktop: **Hyprland** in use (dual head DP-3 / HDMI-A-1), kitty, fish, micro.
+  (CYBRland theme + Plymouth port from Acer still pending.)
+- **Custom microvm kernel deployed to MINIS (2026-06-21):**
+  `/home/host/katmate-kernels/vmlinuz-katmate-microvm-amd64-6.12.87` (+ its
+  `config-…`), copied from Acer over the support NIC (scp to `10.3.1.170`).
+  Monolithic, no `/lib/modules`; passed to QEMU via `-kernel`, **no initrd**.
+  Config confirmed: `VIRTIO_VSOCKETS=y`, `VIRTIO_MMIO[_CMDLINE_DEVICES]=y`,
+  `NET_9P_VIRTIO=y`, `EXT4_FS=y`. Missing (rebuild TODO): `HW_RANDOM_VIRTIO`
+  (virtio-rng driver — launch uses `-device virtio-rng-device`; without it
+  `getrandom` may block at boot) and `SECURITY_LANDLOCK` (Tracker logged
+  "Could not get landlock supported ABI" — landlock is a wanted sandbox
+  primitive for a security OS).
 - waypipe-client: socket-activated `--user` service, vsock port 1024,
   multiplexes per peer CID (one `client-conn` per connection). Host waypipe
   runs with `-c lz4`.
@@ -130,6 +144,41 @@ prompt in <2s. The target chain `foundation (thin RO) ← app-<type> (thin
 snapshot RO) ← qcow2 delta` (ADR-010) is now **proven with a live VM**, not just
 the mechanism.
 
+**GUI chain proven end-to-end, live (2026-06-21, MINIS/Hyprland):** the same
+`vm_app_web` instance (CID 5), rebooted on the custom microvm kernel 6.12.87,
+ran `nautilus` and **rendered it on the host Hyprland desktop** through the full
+stack: `foundation (thin RO) ← vm_app_web (thin snap RO) ← test_web.qcow2 (RW
+delta)` → microvm kernel (`VIRTIO_VSOCKETS` builtin) → vm-agent (vsock control,
+port 1025) → waypipe 0.11.0 server (guest, `lz4:true`) → vsock → waypipe client
+(host, port 1024, `-c lz4`) → Hyprland. This validates the project's central
+architectural claim — waypipe-over-VSOCK as the GUI trust boundary, the parallel
+to Qubes' gui-daemon. Diagnostic path to get here: the stock Debian
+`6.12.69+deb13` kernel (modular, needs `/lib/modules`, absent in the
+module-less foundation) gave vsock-connect **timeout**; swapping to the
+monolithic 6.12.87 (vsock builtin) gave **connection reset** (transport up, no
+listener) → started vm-agent → `PING` returned `OK`.
+
+**GUI launch invariant — app MUST run as non-root user 1000 in a real session
+(confirmed 2026-06-21):** nautilus (and GTK apps generally) refuse to run as
+root; even with a display they exit. The working non-root launch pattern, with
+a fresh user and a session bus:
+```
+useradd -m -u 1000 user
+mkdir -p /run/user/1000 && chown user:user /run/user/1000 && chmod 700 /run/user/1000
+cd /home/user
+runuser -u user -- env XDG_RUNTIME_DIR=/run/user/1000 \
+  dbus-run-session -- waypipe --vsock --socket 1024 server -- nautilus
+```
+Notes: `dbus-run-session` supplies the session/a11y bus (otherwise Tracker
+times out and a11y bus is missing — non-fatal but noisy); `cd` into a dir the
+user can access (waypipe writes its socket in cwd, else `EACCES`);
+waypipe ≥0.11 self-resolves the host CID, so `--socket 1024` needs no `2:`
+prefix. In production this env (`XDG_RUNTIME_DIR`, session bus) comes from the
+vm-agent **systemd user unit** under uid 1000 — exactly the personalVM model
+(`logind` creates `/run/user/1000` at boot, no interactive login). The foundation
+ships the vm-agent binary but **not** the user account or the user unit yet —
+both are app-layer build TODOs.
+
 **Launch invariant (confirmed 2026-06-21):** an RO-frozen thin LV keeps the
 skip-activation `k` flag permanently; its device node is released on
 deactivation and does NOT re-activate by itself. `lvchange -K -ay <lv>` is
@@ -138,15 +187,25 @@ foundation), or `/dev/vg0/<lv>` is missing and qemu-img/QEMU fails with
 "Could not open backing image". Launch logic (`.con` / future katmate code)
 must call `-K -ay` before launch. Almost certainly part of the Feb/Mar blocker.
 
+**Host-side ownership note:** `/var/lib/katmate/instances/` was created root-owned
+(seeded by the first instance); QEMU runs as `host`, so the qcow2 delta needed
+`chown host:host`. Activated thin LV device nodes (`/dev/vg0/vm_app_web`) come up
+`host:host 0660` in this session, so no `disk`-group membership was needed.
+Proper ownership policy (which user/group owns instance deltas vs. device nodes)
+to be settled with the launch daemon — same privilege-split question as
+`lvchange` (root) vs. QEMU (host): see `ExecStartPre=+` approach below.
+
 `/var/lib/katmate/` was created this session (was absent — installer
 prerequisite for the CID pool, now seeded by the first instance).
 
 **Note (manifest iteration):** nautilus pulled in `udisks2` + `gvfs`. In a
 MicroVM appliance udisks2 is likely dead weight (no removable devices; 9p
 hostshare goes through qemu/fstab, not udisks2) and it auto-started at boot
-(`udisks2.service - Disk Manager`). After a GUI boot test, if nautilus works
-without it, add `systemctl disable udisks2` to the app-layer build (disable,
-not purge — it is a nautilus dependency).
+(`udisks2.service - Disk Manager`). The GUI render test (2026-06-21) confirmed
+nautilus opens and is usable; the final check — confirm it lists the 9p
+hostshare with udisks2 stopped — is still open, after which add
+`systemctl disable udisks2` to the app-layer build (disable, not purge — it is a
+nautilus dependency).
 
 So the **older** live AppVMs (personal/net) still read **linear RO LV ← qcow2
 delta**; re-pointing them onto the new foundation chain is the remaining
@@ -188,19 +247,37 @@ migration.
    (restrict to `iif enp1s0 ip saddr 10.3.1.0/24`, handle 9) but not applied.
 5. **"Enoch OS"** description string in live `vm-agent.service` (personalVM) —
    pre-alpha artifact, remove.
-6. **Disk model migration (chain RESOLVED end-to-end 2026-06-21).** The full
-   chain `foundation ← app-<type> ← qcow2 instance` is proven with a live
-   booting VM (`vm_app_web` + `test_web.qcow2`). What remains is pure migration:
-   cut the remaining `app-<type>` snapshots (vault — blocked on per-manifest RUN
+6. **Disk model + GUI chain (RESOLVED end-to-end 2026-06-21).** The full chain
+   `foundation ← app-<type> ← qcow2 instance` is proven with a live booting VM
+   (`vm_app_web` + `test_web.qcow2`), **and** GUI forwarding through it is proven
+   (nautilus rendered on host Hyprland via waypipe-over-VSOCK, non-root). What
+   remains is build hardening + migration: bake user 1000 + vm-agent user unit
+   into the app-layer (so the chain runs unattended, not by hand), cut the
+   remaining `app-<type>` snapshots (vault — blocked on per-manifest RUN
    whitelist; see vault.list), and re-point the live personal/net qcow2 deltas
    off the old standalone linear roots onto the new app-layers. Home LVs
    untouched.
 
 ## Next steps
 
-- GUI instance test: boot `test_web` with tap network + vm-agent + waypipe
-  (CID + tap leg like personalVM) and confirm firefox renders on the MINIS
-  desktop through waypipe-over-VSOCK. Then run the udisks2-disable check.
+- **App-layer build hardening (unblocks unattended GUI launch):** add user 1000
+  to the foundation/app-layer build, and ship vm-agent as a systemd **user**
+  unit under uid 1000 carrying `XDG_RUNTIME_DIR` + a session bus
+  (`dbus-run-session` or `Environment=`), mirroring personalVM. Re-freeze
+  `vm_app_web` after. This is what makes `RUN <app>` work without the manual
+  `runuser`/`dbus-run-session` dance.
+- **Kernel rebuild (6.12.87 → next):** add `CONFIG_HW_RANDOM_VIRTIO=y` and
+  `CONFIG_SECURITY_LANDLOCK=y`; keep the confirmed builtins
+  (`VIRTIO_VSOCKETS`, `VIRTIO_MMIO`, `NET_9P_VIRTIO`, `EXT4_FS`).
+- **Launch daemon / privilege split:** fold the activation + tap setup into the
+  AppVM systemd unit. `ExecStartPre=+/usr/local/bin/katmate-activate <foundation>
+  <app>` runs `lvchange -K -ay` as root (the `+` prefix overrides `User=`),
+  `ExecStart=` runs QEMU as `host`. Create `tap-<type>` on `br-personal`
+  declaratively (systemd-networkd `.netdev`/`.network`) rather than by hand. A
+  shared `katmate-foundation.service` (oneshot) activates the foundation once;
+  each AppVM `Requires=` it + its own app-layer `ExecStartPre=+`.
+- udisks2-disable check (stop udisks2, confirm nautilus still lists 9p
+  hostshare), then bake `systemctl disable udisks2` into the app-layer build.
 - `/home` cleanup: migrate the three live overlays
   (`vm_personal_overlay.qcow2`, `vm_net_overlay.qcow2`, the stale
   `vm_work_overlay.qcow2` — Mar 8, dead) out of `/home/host` into
@@ -231,6 +308,9 @@ migration.
   path documented in memory as blocked; live system uses the simpler USB path.
 - Custom MicroVM kernel is monolithic (virtio-blk/net/vsock, ext4, tmpfs all
   builtin, no loadable modules): it is passed to QEMU via `-kernel` at launch
-  and does **not** live inside the foundation rootfs. Confirmed 2026-06-20:
-  `katmate-kernels/` holds only `vmlinuz-…-6.12.87` + its `config-…`, no
-  modules artifact.
+  and does **not** live inside the foundation rootfs. The module-less design is
+  why the stock Debian kernel (modular vsock, needs `/lib/modules`) failed in
+  the foundation and the monolithic 6.12.87 succeeded — `-kernel` carries no
+  modules. **Deployed to MINIS 2026-06-21**:
+  `/home/host/katmate-kernels/vmlinuz-katmate-microvm-amd64-6.12.87` + `config-…`
+  (built on Acer 2026-05-14, copied over support NIC). Boot uses no initrd.
