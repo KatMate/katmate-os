@@ -11,6 +11,9 @@
 ## v0.2 — Core plumbing 🔧 (current)
 
 - [x] vm-agent in C (PING, RUN, FILEGET, FILEPUT, SHUTDOWN)
+- [x] vm-agent rewritten in Rust — versioned binary protocol, bounds-checked
+      framing, posix_spawn, atomic FILEPUT, traversal-safe paths (ADR-018);
+      live-host validation pending
 - [x] File transfer over VSOCK
 - [x] Waypipe version lock — guest 0.11.0 from source, clipboard functional
 - [x] Host kernel → `linux-hardened` (incl. `aio=threads` adaptation)

@@ -28,6 +28,15 @@ be backfilled from git history.
   hardened kernel)
 - Guest waypipe: 0.9.2 (Debian package) → 0.11.0 built from source,
   version-locked to host (ADR-008)
+- vm-agent rewritten C → Rust (`std` + `libc` only, no async runtime): the
+  text line-protocol becomes a versioned little-endian length-prefixed binary
+  frame (PROTOCOL_VERSION 1), with all length fields validated against limits
+  before allocation; `posix_spawn` replaces fork-then-work; `SIGCHLD=SIG_IGN`
+  for kernel-side zombie reaping; FILEPUT is atomic (temp + fsync + rename);
+  path confinement is traversal-safe without `canonicalize`; debug logging is
+  stripped from release builds via `cfg!(debug_assertions)`. The C agent is
+  retained in `agent/` as reference until the Rust binary is validated on a
+  live host (ADR-018)
 - Installer thin pool: single `lvcreate --type thin-pool -l 100%FREE
   --poolmetadatasize` instead of manual meta+data LV + `lvconvert` — old path
   failed with "insufficient free space" (PE rounding + lvconvert pmspare
