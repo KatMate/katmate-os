@@ -20,6 +20,11 @@ be backfilled from git history.
 - Desktop layer on development machines: greetd/tuigreet, Hyprland 0.55.2,
   Plymouth "katmate" theme (spinner, split password prompt sprites), pacman
   hook for Hyprland plugin rebuilds — not yet installer-integrated
+- Host-side `ping-client` (`katmate-build/ping-client/`, Rust, raw AF_VSOCK
+  syscalls): sends a PROTOCOL_VERSION 1 PING frame over vsock and validates the
+  response; used to confirm Rust vm-agent wire compatibility on a live guest.
+  Encodes the frame inline (explicit wire constants) pending promotion of
+  `protocol.rs` to a shared `katmate-protocol` crate with a client-side encoder.
 
 ### Changed
 - Bootloader: GRUB → systemd-boot (`timeout 0`, `editor no`) (ADR-006)
@@ -34,9 +39,11 @@ be backfilled from git history.
   before allocation; `posix_spawn` replaces fork-then-work; `SIGCHLD=SIG_IGN`
   for kernel-side zombie reaping; FILEPUT is atomic (temp + fsync + rename);
   path confinement is traversal-safe without `canonicalize`; debug logging is
-  stripped from release builds via `cfg!(debug_assertions)`. The C agent is
-  retained in `agent/` as reference until the Rust binary is validated on a
-  live host (ADR-018)
+  stripped from release builds via `cfg!(debug_assertions)`; committed as
+  `01b70e9` (ADR-018). Binary validated live on a real guest (2026-06-22): PING
+  round-trip confirmed clean v1 OK frame (version=0x01 status=0x00
+  payload_len=0) via ping-client → CID 5 port 1025. Foundation re-freeze
+  pending. The C agent is retained in `agent/` as reference.
 - Installer thin pool: single `lvcreate --type thin-pool -l 100%FREE
   --poolmetadatasize` instead of manual meta+data LV + `lvconvert` — old path
   failed with "insufficient free space" (PE rounding + lvconvert pmspare

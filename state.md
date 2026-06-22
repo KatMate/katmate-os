@@ -5,7 +5,7 @@
 > each working session. Detailed proofs and command sequences live in git
 > history and the ADRs — this file references them rather than repeating them.
 
-**Last updated:** 2026-06-22 (vm-agent rewritten C → Rust, committed)
+**Last updated:** 2026-06-22 (vm-agent Rust ABI + binary protocol validated live)
 **Milestone:** v0.2 (in development)
 
 ## Current focus
@@ -19,7 +19,8 @@ vm_app_web (thin snapshot RO) ← qcow2 delta` → custom microvm kernel → vm-
 1000. This validated the central architectural claim (waypipe-over-VSOCK as the
 GUI trust boundary). Details and diagnostic path: git `9526091` and earlier.
 
-vm-agent has since been rewritten C → Rust (2026-06-22, see below).
+vm-agent has been rewritten C → Rust (2026-06-22, ADR-018) and the Rust binary
+has since been validated live on a real guest (2026-06-22, see below).
 
 Direction: target IOMMU-capable platforms only (VT-d/AMD-Vi); VT-x-only frozen
 (ADR-015). MINIS is primary host and merge target. Acer-line desktop assets
@@ -44,7 +45,7 @@ Direction: target IOMMU-capable platforms only (VT-d/AMD-Vi); VT-x-only frozen
   pre-foundation linear-root model — re-pointing is the remaining migration.
   Full inventory + build recipes: git history, ADR-010/011/014.
 
-## vm-agent: Rust rewrite (2026-06-22, ADR-018)
+## vm-agent: Rust rewrite + live validation (2026-06-22, ADR-018)
 
 Rewritten C → Rust (`std` + `libc` only, no async runtime). The text
 line-protocol is replaced by a versioned little-endian length-prefixed binary
@@ -55,12 +56,25 @@ atomic FILEPUT (temp + fsync + rename); traversal-safe path confinement without
 `cfg!(debug_assertions)`. Synchronous, single-client by design.
 
 - Committed as `01b70e9` under `agent/`; the C agent (`agent/vm-agent.c`) is
-  kept as reference until the Rust binary is validated on a live host.
+  kept as reference until foundation re-freeze bakes in the Rust binary.
 - Two intentional dead-code warnings (`write_ok_payload`, `read_raw`) — API
   surface for the planned streaming path and host-side client.
-- **Not yet deployed:** the frozen foundation still ships the **C** binary.
-  Building the Rust binary into the foundation + re-freeze + live `PING`/`RUN`
-  validation is an open item (Next steps).
+- **Validated live (2026-06-22):** Rust binary (trixie-chroot build, dynamically
+  linked against trixie glibc) deployed via qcow2 delta shadow (validate-first;
+  foundation C binary untouched). Host-side `ping-client` (`bin/ping-client`,
+  Rust, raw AF_VSOCK syscalls) sent a PROTOCOL_VERSION 1 PING frame to CID 5
+  port 1025; agent returned `version=0x01 status=0x00 payload_len=0` — clean
+  v1 OK frame. ABI confirmed, binary protocol confirmed, vsock transport
+  confirmed. Foundation re-freeze is the remaining step before `RUN` validation.
+- **Build toolchain:** trixie debootstrap chroot at
+  `/home/host/katmate-build/trixie-build/` (reusable); Rust binary at
+  `/home/host/katmate-build/agent/target/release/vm-agent`; host ping-client at
+  `/home/host/katmate-build/ping-client/target/release/ping-client`.
+- **Protocol note:** `protocol.rs` is agent-side only (request decoder +
+  response encoder). Host-side request encoder is missing — `ping-client`
+  encodes the frame inline with explicit wire constants. Promotion to shared
+  `katmate-protocol` crate requires adding a client-side encoder to
+  `protocol.rs` first. This is the natural follow-up once `RUN` is validated.
 
 ## Open problems
 
@@ -81,12 +95,13 @@ atomic FILEPUT (temp + fsync + rename); traversal-safe path confinement without
 
 ## Next steps
 
-- **vm-agent deploy/validate:** build the Rust binary into the foundation,
-  re-freeze, live-validate (`PING`/`RUN`) on a real guest. Follow-ups: FILEPUT
-  streaming (currently buffers the payload in memory), the `vm-power-helper`
-  security story, and a binary host-side client speaking the same frame (the
-  protocol module is structured for promotion to a shared `katmate-protocol`
-  crate once that client exists).
+- **vm-agent foundation re-freeze:** bake trixie-chroot Rust binary into the
+  foundation image, re-freeze `vm_tpl_foundation`. Prerequisite for all
+  subsequent steps. Binary is ready at
+  `/home/host/katmate-build/agent/target/release/vm-agent`.
+- **RUN validation:** after foundation re-freeze, validate `Cmd::Run` through
+  the new agent — waypipe port 1024, user 1000 + dbus-run-session (recipe: git
+  `9526091`). This closes the Rust agent validation loop completely.
 - **App-layer build hardening (unblocks unattended GUI launch):** bake user
   1000 + vm-agent as a systemd **user** unit (carrying `XDG_RUNTIME_DIR` +
   session bus) into the app-layer build, mirroring personalVM; re-freeze
@@ -95,6 +110,9 @@ atomic FILEPUT (temp + fsync + rename); traversal-safe path confinement without
 - **Kernel rebuild (6.12.87 → next):** add `CONFIG_HW_RANDOM_VIRTIO=y` and
   `CONFIG_SECURITY_LANDLOCK=y`; keep confirmed builtins (`VIRTIO_VSOCKETS`,
   `VIRTIO_MMIO`, `NET_9P_VIRTIO`, `EXT4_FS`).
+- **`katmate-protocol` crate:** add client-side request encoder to `protocol.rs`
+  (currently agent-side only); promote to shared crate; replace inline wire
+  constants in `ping-client` with `use katmate_protocol::*`.
 - **Launch daemon / privilege split:** fold activation + tap setup into the
   AppVM systemd unit (`ExecStartPre=+` runs `lvchange -K -ay` as root, QEMU as
   `host`); declarative `tap-<type>` on `br-personal`; shared
@@ -126,3 +144,6 @@ atomic FILEPUT (temp + fsync + rename); traversal-safe path confinement without
 - **Abstract vs concrete naming:** ADRs use `foundation`/`app`/`instance`;
   concrete LVM names (`vm_tpl_foundation`, `vm_app_web`) only here and in live
   inspection.
+- **trixie build chroot:** reusable at `/home/host/katmate-build/trixie-build/`
+  on MINIS. Bind-mount sequence before use: `/dev`, `/proc`, `/sys`, copy
+  `resolv.conf`. `rustc 1.85.0` confirmed present.
