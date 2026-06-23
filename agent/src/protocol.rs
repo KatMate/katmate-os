@@ -6,7 +6,10 @@
 //! layout, and the encode/decode routines all live here so that, once
 //! a binary host-side client exists, this file can be promoted to a
 //! shared `katmate-protocol` crate without a refactor — both daemons
-//! would then link the same encoder/decoder.
+//! would then link the same encoder/decoder. As of 2026-06-23 that
+//! client exists (`ping-client`), and both halves of the codec now
+//! live here: the agent uses read_request + write_response, the client
+//! uses write_request + read_response.
 //!
 //! Wire format (PROTOCOL v1, little-endian, daemon-to-daemon):
 //!
@@ -110,6 +113,21 @@ impl Cmd {
             other => Err(AgentError::UnknownCommand(other)),
         }
     }
+
+    /// Map a command back to its on-wire byte. The inverse of from_u8.
+    /// Deliberately NOT the enum discriminant: `Cmd::Ping as u8` is 0,
+    /// but the wire value is 0x01, so the mapping is written out by
+    /// hand. Required by the host-side client to encode requests; the
+    /// agent never calls it.
+    pub fn to_u8(self) -> u8 {
+        match self {
+            Cmd::Ping => 0x01,
+            Cmd::Run => 0x02,
+            Cmd::FileGet => 0x03,
+            Cmd::FilePut => 0x04,
+            Cmd::Shutdown => 0x05,
+        }
+    }
 }
 
 // --- decoded request -----------------------------------------------
@@ -132,6 +150,17 @@ impl Request {
         let raw = self.args.get(i).ok_or(AgentError::MissingArgument(i))?;
         std::str::from_utf8(raw).map_err(|_| AgentError::InvalidArgumentEncoding(i))
     }
+}
+
+// --- decoded response (client side) --------------------------------
+
+/// A decoded response. The client cares about `status` (OK / ERR) and,
+/// for FILEGET, the returned `payload`. The mirror of the agent's
+/// write_response.
+#[derive(Debug)]
+pub struct Response {
+    pub status: u8,
+    pub payload: Vec<u8>,
 }
 
 // --- low-level fixed-size reads ------------------------------------
@@ -212,7 +241,7 @@ fn read_u64(fd: RawFd) -> Result<u64> {
     Ok(u64::from_le_bytes(b))
 }
 
-// --- request decoding ----------------------------------------------
+// --- request decoding (agent side) ---------------------------------
 
 /// Read and decode one request from `fd`. Validates the version, the
 /// command, and every length field against the configured limits
@@ -267,7 +296,7 @@ pub fn read_request(fd: RawFd) -> Result<Request> {
     Ok(Request { cmd, args, payload })
 }
 
-// --- response encoding ---------------------------------------------
+// --- response encoding (agent side) --------------------------------
 
 /// Write an OK response with no payload.
 pub fn write_ok(fd: RawFd) -> Result<()> {
@@ -328,4 +357,72 @@ pub fn write_raw(fd: RawFd, buf: &[u8]) -> Result<()> {
 /// FILEPUT payload to disk in chunks). Thin wrapper over read_exact.
 pub fn read_raw(fd: RawFd, buf: &mut [u8]) -> Result<()> {
     read_exact(fd, buf)
+}
+
+// --- client-side codec (request encoding / response decoding) ------
+// The mirror image of read_request + write_response above. The agent
+// binary links but does not call these (hence #[allow(dead_code)] —
+// the same treatment the streaming helpers get until wired); the
+// host-side client uses them to talk to the agent. Keeping both halves
+// in one module is exactly what lets this file graduate to a shared
+// `katmate-protocol` crate: in a library crate `pub` items do not fire
+// dead_code, so the attributes below simply become unnecessary.
+
+/// Encode a request into a single owned buffer. Pure and infallible:
+/// the wire format is a fixed header plus length-prefixed fields, and
+/// every *validation* lives on the decode side (read_request), where
+/// an untrusted peer sits on the other end. Kept separate from
+/// write_request so it can be unit-tested without a socket.
+#[allow(dead_code)]
+pub fn encode_request(cmd: Cmd, args: &[&[u8]], payload: &[u8]) -> Vec<u8> {
+    let mut buf = Vec::with_capacity(1 + 1 + 1 + 8 + payload.len());
+    buf.push(PROTOCOL_VERSION);
+    buf.push(cmd.to_u8());
+    buf.push(args.len() as u8);
+    buf.extend_from_slice(&(payload.len() as u64).to_le_bytes());
+    for arg in args {
+        buf.extend_from_slice(&(arg.len() as u32).to_le_bytes());
+        buf.extend_from_slice(arg);
+    }
+    buf.extend_from_slice(payload);
+    buf
+}
+
+/// Encode and send a request on `fd`. The symmetric counterpart to the
+/// agent's read_request.
+#[allow(dead_code)]
+pub fn write_request(fd: RawFd, cmd: Cmd, args: &[&[u8]], payload: &[u8]) -> Result<()> {
+    write_all(fd, &encode_request(cmd, args, payload))
+}
+
+/// Read and decode one response from `fd`. The symmetric counterpart
+/// to the agent's write_response: it validates the version and bounds
+/// the payload length against MAX_FILE_SIZE before allocating, exactly
+/// as read_request does for the request direction.
+#[allow(dead_code)]
+pub fn read_response(fd: RawFd) -> Result<Response> {
+    let version = read_u8(fd)?;
+    if version != PROTOCOL_VERSION {
+        return Err(AgentError::VersionMismatch {
+            got: version,
+            expected: PROTOCOL_VERSION,
+        });
+    }
+
+    let status = read_u8(fd)?;
+
+    let payload_len = read_u64(fd)?;
+    if payload_len > MAX_FILE_SIZE {
+        return Err(AgentError::PayloadTooLarge(payload_len));
+    }
+
+    let payload = if payload_len > 0 {
+        let mut p = vec![0u8; payload_len as usize];
+        read_exact(fd, &mut p)?;
+        p
+    } else {
+        Vec::new()
+    };
+
+    Ok(Response { status, payload })
 }
