@@ -188,3 +188,11 @@ by init (isolated under `#ifdef DEV_HOSTSHARE` for later if ever needed).
 - **Abstract vs concrete naming:** ADRs use `foundation`/`app`/`instance`;
   concrete LVM names (`vm_tpl_foundation`, `vm_app_web`) only here and in live
   inspection.
+- **Source of truth = Acer `~/katmate-os/` git repo.** MINIS
+  `katmate-build/{agent,ping-client}/` are build copies — source is always
+  synced FROM the repo (scp from Acer, or git pull), never edited on MINIS and
+  left to diverge. (Today's "what is where" confusion came from editing on MINIS
+  and hand-syncing back.) MINIS `katmate-build/trixie-build/` is the build
+  chroot (compile the agent against trixie glibc); `katmate-kernels/` holds the
+  live custom kernel on both machines. Git lives ONLY on Acer
+  (`/home/winterbox/katmate-os/.git`); MINIS has no git.
