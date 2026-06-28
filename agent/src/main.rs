@@ -13,10 +13,10 @@
 //!   * std + libc only. VSOCK has no std abstraction, so the listener
 //!     uses raw syscalls; every `unsafe` block notes the invariant it
 //!     upholds.
-//!   * Children (waypipe for RUN, the power helper for SHUTDOWN) are
-//!     started with posix_spawn — argv is built in the parent before the
-//!     call, avoiding the not-async-signal-safe work-after-fork pattern
-//!     of the original C agent.
+//!   * Children (waypipe for RUN) are started with posix_spawn — argv
+//!     is built in the parent before the call, avoiding the
+//!     not-async-signal-safe work-after-fork pattern of the original C
+//!     agent.
 //!   * Zombies are reaped by the kernel: SIGCHLD is set to SIG_IGN once
 //!     at startup, so finished children are auto-reaped without a
 //!     handler or explicit waitpid.
@@ -25,6 +25,11 @@
 //!     so it costs nothing — and leaks nothing — in the shipped image.
 //!     Structured error logging stays in all builds, but only fires on
 //!     an actual error, never on the hot path.
+//!
+//! SHUTDOWN is NOT performed by the agent: it is uid 1000 and cannot
+//! call reboot(2). Instead it asks PID 1 (katmate-init) — the single
+//! root process in the guest — over a local Unix socket. This replaces
+//! the former setuid power-helper, removing that root binary entirely.
 
 mod config;
 mod error;
@@ -230,18 +235,84 @@ fn handle_fileput(fd: RawFd, req: &Request) -> Result<()> {
     protocol::write_ok(fd)
 }
 
-/// SHUTDOWN → OK, then power the VM off via the helper.
+/// SHUTDOWN → OK, then ask PID 1 (katmate-init) to power the VM off.
 fn handle_shutdown(fd: RawFd) -> Result<()> {
-    // Reply before spawning, as the original did: the host gets its
+    // Reply before signalling, as the original did: the host gets its
     // acknowledgement even though the VM is about to go down.
     protocol::write_ok(fd)?;
 
-    let argv = [protocol::POWER_HELPER];
-    match spawn(&argv) {
-        Ok(pid) => log_debug!("SHUTDOWN spawned helper pid {pid}"),
-        Err(e) => log_error("SHUTDOWN spawn", &e),
+    // We are uid 1000 and cannot call reboot(2). Delegate to init over
+    // its control socket. Best-effort: if it fails we log it, but the
+    // host already has its ack, and a stuck VM can still be killed by
+    // the host as a last resort.
+    if let Err(e) = signal_init_shutdown() {
+        log_error("SHUTDOWN signal init", &e);
     }
     Ok(())
+}
+
+// --- shutdown delegation to PID 1 ----------------------------------
+
+/// Connect to katmate-init's control socket and send the SHUTDOWN
+/// token. The socket is AF_UNIX/SOCK_SEQPACKET (matching init's
+/// listener); init verifies our peer credentials (uid 1000) before
+/// acting. We use raw syscalls for symmetry with the VSOCK listener and
+/// to avoid depending on UnixStream's SEQPACKET support.
+fn signal_init_shutdown() -> Result<()> {
+    // SAFETY: standard socket creation; result checked immediately.
+    let sock = unsafe { libc::socket(libc::AF_UNIX, libc::SOCK_SEQPACKET, 0) };
+    if sock < 0 {
+        return Err(AgentError::Io(std::io::Error::last_os_error()));
+    }
+
+    // Build the sockaddr_un for INIT_SOCK.
+    let mut addr: libc::sockaddr_un = unsafe { std::mem::zeroed() };
+    addr.sun_family = libc::AF_UNIX as libc::sa_family_t;
+
+    let path = protocol::INIT_SOCK.as_bytes();
+    if path.len() >= addr.sun_path.len() {
+        // SAFETY: sock is a valid fd we own.
+        unsafe { libc::close(sock) };
+        return Err(AgentError::Rejected("init socket path too long"));
+    }
+    for (i, &b) in path.iter().enumerate() {
+        addr.sun_path[i] = b as libc::c_char;
+    }
+
+    // SAFETY: addr is a fully initialised sockaddr_un; size matches.
+    let rc = unsafe {
+        libc::connect(
+            sock,
+            &addr as *const libc::sockaddr_un as *const libc::sockaddr,
+            std::mem::size_of::<libc::sockaddr_un>() as libc::socklen_t,
+        )
+    };
+    if rc < 0 {
+        let err = std::io::Error::last_os_error();
+        // SAFETY: sock is a valid fd we own.
+        unsafe { libc::close(sock) };
+        return Err(AgentError::Io(err));
+    }
+
+    // Send the command token as a single SEQPACKET message.
+    // SAFETY: SHUTDOWN_CMD is a valid, owned byte slice; sock is open.
+    let n = unsafe {
+        libc::send(
+            sock,
+            protocol::SHUTDOWN_CMD.as_ptr() as *const libc::c_void,
+            protocol::SHUTDOWN_CMD.len(),
+            0,
+        )
+    };
+    let result = if n < 0 {
+        Err(AgentError::Io(std::io::Error::last_os_error()))
+    } else {
+        Ok(())
+    };
+
+    // SAFETY: sock is a valid fd we own; closed exactly once here.
+    unsafe { libc::close(sock) };
+    result
 }
 
 // --- child spawning (posix_spawn) ----------------------------------

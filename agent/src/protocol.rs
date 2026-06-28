@@ -86,8 +86,16 @@ pub const WHITELIST: &[&str] = &["firefox-esr", "foot", "nautilus"];
 /// ".." components (see the path guard in main.rs).
 pub const HOME_PREFIX: &str = "/home/user/";
 
-/// Power helper invoked by SHUTDOWN.
-pub const POWER_HELPER: &str = "/usr/local/sbin/vm-power-helper";
+/// Unix socket on which PID 1 (katmate-init) listens for privileged
+/// requests. SHUTDOWN is delegated here rather than to a setuid helper:
+/// the agent is uid 1000 and cannot call reboot(2), so it asks init —
+/// the single root process in the guest — to power the VM off. This
+/// must match INIT_SOCK in katmate-init.c. The socket is SOCK_SEQPACKET.
+pub const INIT_SOCK: &str = "/run/katmate-init.sock";
+
+/// Command token the agent writes to INIT_SOCK to request power-off.
+/// init matches this prefix and triggers reboot(RB_AUTOBOOT).
+pub const SHUTDOWN_CMD: &[u8] = b"SHUTDOWN";
 
 // --- commands -------------------------------------------------------
 

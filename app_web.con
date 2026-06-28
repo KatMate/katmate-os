@@ -1,0 +1,102 @@
+#!/usr/bin/env fish
+#
+# app_web.con -- launch an app_web MicroVM appliance instance.
+#
+# Tri-layer backing chain (read-only base + writable delta):
+#   vm_tpl_foundation (thin RO)  <-  vm_app_web (thin snap RO)  <-  <delta>.qcow2
+#
+# Differs from the personal.con dev artefact in the ways that matter for a
+# real appliance:
+#   * custom monolithic MicroVM kernel, NO initrd (-kernel direct boot)
+#   * no ACPI (acpi=off -> keeps qboot, smallest firmware surface)
+#   * no network (app_web gets connectivity via netVM later, not directly)
+#   * -no-reboot + reboot=t  -> katmate-init's reboot(RB_AUTOBOOT) triple-faults
+#     and QEMU exits cleanly (no ACPI power path exists)
+#   * vda = qcow2 root delta, vdb = persistent /home rw LV
+#
+# LVM launch invariant (the Feb/Mar blocker): RO-frozen thin LVs keep the
+# skip-activation 'k' flag and do NOT auto-activate. Both the app layer AND
+# the foundation must be activated with -K -ay before QEMU can open the
+# backing chain, on EVERY boot -- not just the first.
+
+# ---- parameters (edit per instance) ---------------------------------------
+
+set INSTANCE   test_web                 # delta basename in INSTANCES_DIR
+set CID        5                        # guest VSOCK CID (>=4, fixed AppVM range)
+set MEM        4G
+set SMP        2
+
+set KERNEL     /home/host/katmate-kernels/vmlinuz-katmate-microvm-amd64-6.12.87
+
+set VG         vg0
+set LV_FOUND   vm_tpl_foundation        # foundation thin LV (RO base)
+set LV_APP     vm_app_web               # app-layer thin snapshot (RO)
+set LV_HOME    vm_app_web_home          # persistent rw /home LV
+
+set INSTANCES_DIR /var/lib/katmate/instances
+set DELTA      $INSTANCES_DIR/$INSTANCE.qcow2
+
+# ---- pre-flight: activate the RO backing chain ----------------------------
+# Both layers, every boot. qemu/qemu-img fail with "Could not open backing
+# image" if either device node is absent.
+
+echo "[app_web] activating backing chain ($LV_FOUND, $LV_APP)"
+sudo lvchange -K -ay $VG/$LV_FOUND; or begin
+    echo "[app_web] FATAL: cannot activate $VG/$LV_FOUND" >&2; exit 1
+end
+sudo lvchange -K -ay $VG/$LV_APP; or begin
+    echo "[app_web] FATAL: cannot activate $VG/$LV_APP" >&2; exit 1
+end
+# Persistent /home LV (regular LV; activate to be safe).
+sudo lvchange -ay $VG/$LV_HOME; or begin
+    echo "[app_web] FATAL: cannot activate $VG/$LV_HOME" >&2; exit 1
+end
+
+# ---- sanity checks --------------------------------------------------------
+
+if not test -e $DELTA
+    echo "[app_web] FATAL: delta not found: $DELTA" >&2
+    echo "          create it with:" >&2
+    echo "          qemu-img create -f qcow2 -F raw -b /dev/$VG/$LV_APP $DELTA 10G" >&2
+    exit 1
+end
+if not test -e $KERNEL
+    echo "[app_web] FATAL: kernel not found: $KERNEL" >&2
+    exit 1
+end
+
+# ---- launch ---------------------------------------------------------------
+# Note: 'quiet' deliberately omitted from -append during bring-up so the
+# katmate-init console log is visible on ttyS0. Add it once stable.
+
+echo "[app_web] launching instance '$INSTANCE' (CID $CID)"
+
+qemu-system-x86_64 \
+  -enable-kvm \
+  -machine microvm,accel=kvm,acpi=off,pit=off,pic=off,rtc=off,memory-backend=mem \
+  -cpu host \
+  -smp $SMP \
+  -nographic \
+  -nodefaults \
+  -no-user-config \
+  -no-reboot \
+  -serial mon:stdio \
+  \
+  -object memory-backend-file,id=mem,size=$MEM,mem-path=/dev/hugepages,share=on \
+  \
+  -kernel $KERNEL \
+  -append "root=/dev/vda rw rootfstype=ext4 console=ttyS0 reboot=t" \
+  \
+  -object iothread,id=iothread0 \
+  -drive file=$DELTA,if=none,id=disk0,format=qcow2,cache=none,aio=io_uring \
+  -device virtio-blk-device,drive=disk0,iothread=iothread0 \
+  -drive file=/dev/$VG/$LV_HOME,if=none,id=disk1,format=raw,cache=none,aio=io_uring \
+  -device virtio-blk-device,drive=disk1,iothread=iothread0 \
+  \
+  -device virtio-rng-device \
+  -device vhost-vsock-device,guest-cid=$CID \
+  \
+  -sandbox on,obsolete=deny,elevateprivileges=deny,spawn=deny
+
+# QEMU exits here when the guest triple-faults (reboot=t + -no-reboot).
+echo "[app_web] instance '$INSTANCE' exited"

@@ -8,12 +8,17 @@
 //! and the symlinks go away — nothing else changes.
 //!
 //! Usage:
-//!   ping-client ping <cid> [port]
-//!   ping-client run  <cid> <app> [port]
+//!   ping-client ping     <cid> [port]
+//!   ping-client run      <cid> <app> [port]
+//!   ping-client shutdown <cid> [port]
 //!
 //! `port` defaults to the agent control port (1025). `app` must be on
 //! the agent's launch whitelist (firefox-esr / foot / nautilus); a
 //! rejected app comes back as a clean ERR response, not a hang.
+//!
+//! SHUTDOWN acks with OK and the agent then asks PID 1 (katmate-init)
+//! to power the VM off; QEMU (started with -no-reboot) exits shortly
+//! after the OK is received.
 
 #[allow(dead_code)] // agent-side half of the codec is unused here
 mod error;
@@ -44,6 +49,7 @@ fn main() {
             }
             (Cmd::Run, Some(args[3].clone()), 4)
         }
+        "shutdown" => (Cmd::Shutdown, None, 3),
         _ => usage(),
     };
 
@@ -55,7 +61,7 @@ fn main() {
     let fd = vsock_connect(cid, port);
     eprintln!("connected: cid={cid} port={port}");
 
-    // RUN carries one argument (the app name); PING carries none.
+    // RUN carries one argument (the app name); PING / SHUTDOWN carry none.
     let owned_args: Vec<&[u8]> = match &app {
         Some(a) => vec![a.as_bytes()],
         None => Vec::new(),
@@ -76,8 +82,8 @@ fn main() {
                 label,
                 resp.payload.len()
             );
-            // FILEGET would carry a body; ping/run do not. Print it if
-            // it happens to be text, for convenience.
+            // FILEGET would carry a body; ping/run/shutdown do not. Print
+            // it if it happens to be text, for convenience.
             if !resp.payload.is_empty() {
                 if let Ok(s) = std::str::from_utf8(&resp.payload) {
                     println!("payload: {s}");
@@ -128,8 +134,9 @@ fn parse_or_die(s: &str, what: &str) -> u32 {
 
 fn usage() -> ! {
     eprintln!("usage:");
-    eprintln!("  ping-client ping <cid> [port]");
-    eprintln!("  ping-client run  <cid> <app> [port]");
+    eprintln!("  ping-client ping     <cid> [port]");
+    eprintln!("  ping-client run      <cid> <app> [port]");
+    eprintln!("  ping-client shutdown <cid> [port]");
     exit(2);
 }
 
