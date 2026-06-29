@@ -74,8 +74,14 @@ lv_thin_create "$FOUNDATION_LV" "$FOUNDATION_SIZE"
 
 log "Activate $FOUNDATION_LV (-K -ay) + mkfs.ext4 (bare, whole-device)"
 lv_activate "$FOUNDATION_LV"
-mkfs.ext4 -q -L katmate-foundation "/dev/$VG/$FOUNDATION_LV"
-mount_root "$FOUNDATION_LV" "$MNT"
+mkfs.ext4 -q -L katmate-found "/dev/$VG/$FOUNDATION_LV"
+# Mount ONLY the bare ext4 here. The pseudo-filesystems (/proc /sys /dev) are
+# mounted AFTER debootstrap — on a fresh fs those mount points do not exist yet
+# (debootstrap creates them). mount_root() in lib.sh does both at once, which is
+# correct for app-layer.sh (it mounts an already-debootstrapped snapshot) but
+# wrong for a from-scratch foundation, so we stage the mounts manually here.
+mount "/dev/$VG/$FOUNDATION_LV" "$MNT"
+MOUNTED="$MNT"               # arm cleanup's umount_root
 
 # ---- 2. debootstrap trixie --------------------------------------------------
 # ADR-011 build note: SNAPSHOT pin is DEFERRED — plain trixie against current
@@ -83,6 +89,13 @@ mount_root "$FOUNDATION_LV" "$MNT"
 # so no Acquire::Check-Valid-Until override is needed.)
 log "debootstrap $DEBIAN_SUITE ($ARCH)"
 debootstrap --arch="$ARCH" --variant=minbase "$DEBIAN_SUITE" "$MNT"
+
+# Now the rootfs has /proc /sys /dev — mount the pseudo-filesystems for chroot.
+log "Mount pseudo-filesystems for chroot"
+mount -t proc  proc "$MNT/proc"
+mount -t sysfs sys  "$MNT/sys"
+mount --rbind  /dev "$MNT/dev"
+mount --make-rslave "$MNT/dev"
 
 cat >"$MNT/etc/apt/sources.list" <<EOF
 deb http://deb.debian.org/debian $DEBIAN_SUITE main
