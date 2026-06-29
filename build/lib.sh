@@ -1,40 +1,49 @@
-# Katmate OS — build pipeline helpers (ADR-011)
+# Katmate OS — build pipeline helpers (ADR-011, LVM-thin per ADR-010 rev 2026-06)
 # Sourced by foundation.sh and app-layer.sh. Not executed directly.
 #
-# Guests use direct kernel boot (ADR-005), so images carry a BARE ext4
-# filesystem on the whole device — no partition table, no ESP. nbd therefore
-# exposes the filesystem directly at $NBD (e.g. /dev/nbd0), not $NBD'p1'.
+# Guests use direct kernel boot (ADR-005): a BARE ext4 filesystem on the whole
+# device — no partition table, no ESP. The app-layer is an LVM thin SNAPSHOT of
+# the frozen foundation; we mount the LV block device directly (/dev/$VG/$lv),
+# there is no nbd and no qcow2 in the layering path (qcow2 survives only as the
+# deploy-time per-instance RW delta — not built here).
 
 log() { echo -e "\n==> $*"; }
 die() { echo -e "\nERROR: $*" >&2; exit 1; }
 
 require_root() {
-  [[ $EUID -eq 0 ]] || die "Must run as root (nbd/mount/chroot). Use: sudo make <target>"
+  [[ $EUID -eq 0 ]] || die "Must run as root (lvm/mount/chroot). Use: sudo make <target>"
 }
 
-# state for cleanup()
-NBD_CONNECTED=""
-MOUNTED=""
+# --- state for cleanup() -----------------------------------------------------
+MOUNTED=""          # mountpoint of the app-layer root, if mounted
+ACTIVE_LV=""        # vg/lv we activated and must deactivate on cleanup
+SNAP_CREATED=""     # vg/lv of a snapshot we created (for failure rollback)
+FREEZE_DONE=""      # set once the snapshot is RO-frozen (then we do NOT remove it)
 
-nbd_connect() {
-  local img="$1"
-  modprobe nbd max_part=8
-  qemu-nbd --connect="$NBD" "$img"
-  NBD_CONNECTED="$NBD"
+# Create a thin snapshot of the frozen foundation. Snapshot originates WRITABLE
+# (Vwi) — required so the manifest can be installed before the RO-freeze.
+# Proven command (no --size, no -T: origin is already a thin LV):
+#     lvcreate -s --name <snap> <vg>/<origin>
+lv_snapshot_create() {
+  local snap="$1" origin="$2"      # bare LV names
+  lvcreate -s --name "$snap" "$VG/$origin"
+  SNAP_CREATED="$VG/$snap"
+}
+
+# RO-frozen thin LVs (and fresh thin snapshots) carry the skip-activation 'k'
+# flag; the device node does NOT appear without an explicit -K -ay. Mandatory
+# before mount, exactly as the app_web.con launcher does in pre-flight.
+lv_activate() {
+  local lv="$1"                    # bare LV name
+  lvchange -K -ay "$VG/$lv"
+  ACTIVE_LV="$VG/$lv"
   udevadm settle 2>/dev/null || true
-  sleep 1
-}
-
-nbd_disconnect() {
-  [[ -n "$NBD_CONNECTED" ]] || return 0
-  qemu-nbd --disconnect "$NBD_CONNECTED" >/dev/null 2>&1 || true
-  NBD_CONNECTED=""
 }
 
 # Mount whole-device bare ext4 + pseudo-filesystems for chroot.
 mount_root() {
-  local mnt="$1"
-  mount "$NBD" "$mnt"
+  local lv="$1" mnt="$2"           # bare LV name, mountpoint
+  mount "/dev/$VG/$lv" "$mnt"
   MOUNTED="$mnt"
   mount -t proc  proc "$mnt/proc"
   mount -t sysfs sys  "$mnt/sys"
@@ -48,10 +57,31 @@ umount_root() {
   MOUNTED=""
 }
 
-# trap target — safe to call multiple times, runs in reverse dependency order.
+lv_deactivate() {
+  [[ -n "$ACTIVE_LV" ]] || return 0
+  lvchange -an "$ACTIVE_LV" 2>/dev/null || true
+  ACTIVE_LV=""
+}
+
+# RO-freeze the snapshot. Proven: lvchange -p r (= --permission r).
+lv_freeze() {
+  local lv="$1"
+  lvchange --permission r "$VG/$lv"
+  FREEZE_DONE=1
+}
+
+# trap target — safe to call multiple times, reverse dependency order.
+# If we created a snapshot but did NOT reach the freeze, the build failed
+# mid-way: remove the half-built snapshot so a re-run starts clean.
 cleanup() {
   umount_root
-  nbd_disconnect
+  lv_deactivate
+  if [[ -n "$SNAP_CREATED" && -z "$FREEZE_DONE" ]]; then
+    log "Build did not complete — removing half-built snapshot $SNAP_CREATED"
+    lvchange -an "$SNAP_CREATED" 2>/dev/null || true
+    lvremove -f "$SNAP_CREATED" 2>/dev/null || true
+  fi
+  SNAP_CREATED=""
 }
 
 # Run a command inside the chroot with a sane non-interactive apt env.

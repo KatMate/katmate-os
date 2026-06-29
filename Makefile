@@ -1,44 +1,45 @@
-# Katmate OS — base image build pipeline (ADR-011)
+# Katmate OS — base image build pipeline (ADR-011, LVM-thin per ADR-010 rev 2026-06)
 #
-# Requires root for nbd/mount/chroot. Run with sudo:
-#     sudo make foundation      # build out/foundation.qcow2
-#     sudo make apps            # build all app-<type> overlays
-#     sudo make                 # = apps (foundation built first as a prerequisite)
-#     make clean                # remove build outputs (no root needed)
+# Layers are LVM thin volumes, NOT files. App-layers are RO-frozen thin
+# snapshots of the foundation. Requires root for lvm/mount/chroot:
+#     sudo make foundation        # build + freeze vg0/vm_tpl_foundation
+#     sudo make app-web           # build + freeze vg0/vm_app_web
+#     sudo make app-vault         # build + freeze vg0/vm_app_vault
+#     sudo make apps              # all app-<type> layers
+#     make clean                  # remove app-layer LVs (root needed in practice)
 #
-# External prerequisites (placed in out/ by their own sub-pipelines, not built here):
+# Targets are .PHONY: LVs are not files, so Make cannot stat a timestamp.
+# Each app-layer build refuses to clobber an existing LV — rebuild = drop first.
+#
+# External prerequisites for the FOUNDATION step only (not the app-layers),
+# placed in out/ by their own sub-pipelines:
 #     out/linux-image-katmate-microvm-amd64.deb   (custom MicroVM kernel, ADR-005)
-#     out/vm-agent                                 (compiled vm-agent binary)
-
+#     out/vm-agent                                 (Rust vm-agent binary, ADR-018)
 SHELL := /bin/bash
 BUILD := build
 OUT   := out
-
 KERNEL_DEB := $(OUT)/linux-image-katmate-microvm-amd64.deb
 VM_AGENT   := $(OUT)/vm-agent
 
-FOUNDATION := $(OUT)/foundation.qcow2
 APP_TYPES  := web vault
-APP_IMAGES := $(addprefix $(OUT)/app-,$(addsuffix .qcow2,$(APP_TYPES)))
+APP_TARGETS := $(addprefix app-,$(APP_TYPES))
 
-COMMON := $(BUILD)/config.sh $(BUILD)/lib.sh
-
-.PHONY: all foundation apps clean
+.PHONY: all foundation apps clean $(APP_TARGETS)
 
 all: apps
 
-foundation: $(FOUNDATION)
-
-apps: $(APP_IMAGES)
-
-$(FOUNDATION): $(BUILD)/foundation.sh $(COMMON) $(KERNEL_DEB) $(VM_AGENT)
+foundation: $(BUILD)/foundation.sh $(KERNEL_DEB) $(VM_AGENT)
 	$(BUILD)/foundation.sh
 
-# each app overlay depends on the foundation and its own manifest
-$(OUT)/app-%.qcow2: $(BUILD)/app-layer.sh $(COMMON) manifests/%.list $(FOUNDATION)
+apps: $(APP_TARGETS)
+
+# app-<type> : RO-frozen thin snapshot vm_app_<type> of the foundation.
+# Needs only the foundation LV + its manifest — NOT the kernel or vm-agent
+# (those are baked into the foundation).
+$(APP_TARGETS): app-%: $(BUILD)/app-layer.sh manifests/%.list
 	$(BUILD)/app-layer.sh $*
 
-# clear, guided failures for the two external hooks
+# clear, guided failure for the kernel hook (foundation step only)
 $(KERNEL_DEB):
 	@echo "MISSING: $@"; \
 	echo "  Build the MicroVM kernel (Debian LTS sources + katmate-microvm config, ADR-005)"; \
@@ -46,11 +47,22 @@ $(KERNEL_DEB):
 	echo "  TODO: dedicated kernel build sub-pipeline."; \
 	exit 1
 
+# vm-agent is Rust now (ADR-018); copy the compiled binary here for the
+# foundation build. (App-layers do not use it.)
 $(VM_AGENT):
 	@echo "MISSING: $@"; \
-	echo "  Build ../vm-agent (C) and copy the binary here, e.g.:"; \
-	echo "    gcc -O2 -Wall -o $(VM_AGENT) ../vm-agent/vm-agent.c"; \
+	echo "  Build the Rust vm-agent and copy the binary here, e.g. from agent/:"; \
+	echo "    cargo build --release && cp target/release/vm-agent $(VM_AGENT)"; \
 	exit 1
 
+# Remove app-layer LVs (foundation is left intact). Deactivate first because
+# RO-frozen thin LVs may need it; ignore absence.
 clean:
-	rm -f $(FOUNDATION) $(OUT)/app-*.qcow2 $(OUT)/vmlinuz-katmate-microvm
+	@for t in $(APP_TYPES); do \
+	  lv=vg0/vm_app_$$t; \
+	  if lvs $$lv >/dev/null 2>&1; then \
+	    echo "Removing $$lv"; \
+	    lvchange -an $$lv 2>/dev/null || true; \
+	    lvremove -f $$lv; \
+	  fi; \
+	done
