@@ -30,6 +30,16 @@ lv_snapshot_create() {
   SNAP_CREATED="$VG/$snap"
 }
 
+# Create a fresh thin LV in the pool (the foundation base). Originates WRITABLE
+# so debootstrap + the manifest install can run before the RO-freeze. Unlike a
+# thin snapshot, this needs the pool (-T $VG/$POOL) and a virtual size (-V).
+#     lvcreate -T $VG/$POOL -V <size> --name <lv>
+lv_thin_create() {
+  local lv="$1" size="$2"          # bare LV name, e.g. 8G
+  lvcreate -T "$VG/$POOL" -V "$size" --name "$lv"
+  SNAP_CREATED="$VG/$lv"           # reuse the failure-rollback slot
+}
+
 # RO-frozen thin LVs (and fresh thin snapshots) carry the skip-activation 'k'
 # flag; the device node does NOT appear without an explicit -K -ay. Mandatory
 # before mount, exactly as the app_web.con launcher does in pre-flight.

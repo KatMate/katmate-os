@@ -29,3 +29,5 @@ MANIFESTS="$ROOT_DIR/manifests"
 # app-layer. App-layer builds need neither the kernel nor vm-agent.
 KERNEL_DEB="$OUT/linux-image-katmate-microvm-${ARCH}.deb"   # foundation only (ADR-005)
 VM_AGENT_BIN="$OUT/vm-agent"                                # foundation only (Rust, ADR-018)
+INIT_SRC="$ROOT_DIR/init/katmate-init.c"
+INIT_BIN="$OUT/katmate-init"
