@@ -27,7 +27,11 @@ MANIFESTS="$ROOT_DIR/manifests"
 # --- external artifacts (foundation step only — produced by sub-pipelines) ---
 # vm-agent is now Rust (ADR-018) and is baked into the FOUNDATION, not the
 # app-layer. App-layer builds need neither the kernel nor vm-agent.
-KERNEL_DEB="$OUT/linux-image-katmate-microvm-${ARCH}.deb"   # foundation only (ADR-005)
+
+KERNEL_VERSION="6.12.87"                                              # custom MicroVM kernel (ADR-005)
+KERNEL_VMLINUZ="$OUT/vmlinuz-katmate-microvm-${ARCH}-${KERNEL_VERSION}"  # external -kernel, NOT .deb (ARCHITECTURE.md update-flow §4)
+KERNEL_SRC_DIR="${KERNEL_SRC_DIR:-$HOME/katmate-kernels}"             # Makefile copies vmlinuz from here into OUT
+
 VM_AGENT_BIN="$OUT/vm-agent"                                # foundation only (Rust, ADR-018)
 INIT_SRC="$ROOT_DIR/init/katmate-init.c"
 INIT_BIN="$OUT/katmate-init"

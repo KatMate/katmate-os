@@ -47,9 +47,10 @@ if lvs "$VG/$FOUNDATION_LV" >/dev/null 2>&1; then
        sudo lvchange -an $VG/$FOUNDATION_LV && sudo lvremove -f $VG/$FOUNDATION_LV"
 fi
 
-[[ -f "$KERNEL_DEB" ]] || die "Missing kernel package: $KERNEL_DEB
+[[ -f "$KERNEL_VMLINUZ" ]] || die "Missing kernel: $KERNEL_VMLINUZ
   Build the MicroVM kernel (Debian LTS sources + katmate-microvm config, ADR-005)
-  and place the linux-image .deb at that path. (kernel sub-pipeline = separate TODO)"
+  and place the vmlinuz at that path, or: cp \$KERNEL_SRC_DIR/vmlinuz-... \$KERNEL_VMLINUZ
+  (Makefile copies it from $KERNEL_SRC_DIR/. No .deb: the host boots it via -kernel.)"
 [[ -f "$VM_AGENT_BIN" ]] || die "Missing vm-agent binary: $VM_AGENT_BIN
   Build the Rust vm-agent and copy it here (ADR-018):
     (cd agent && cargo build --release && cp target/release/vm-agent $VM_AGENT_BIN)"
@@ -111,14 +112,13 @@ chroot_run "$MNT" apt-get install -y \
   libgtk-3-0 \
   foot nautilus
 
-# ---- 4. custom MicroVM kernel (.deb) ----------------------------------------
-# Lands vmlinuz under /boot; the launcher passes it via -kernel from the host
-# (no initrd: virtio-blk + ext4 are builtin =y). dpkg works during the build;
-# apt/dpkg stay in the image (removing them is a later minimal-TCB task).
-log "Custom MicroVM kernel"
-cp "$KERNEL_DEB" "$MNT/tmp/kernel.deb"
-chroot_run "$MNT" dpkg -i /tmp/kernel.deb || chroot_run "$MNT" apt-get -y -f install
-rm -f "$MNT/tmp/kernel.deb"
+# ---- 4. custom MicroVM kernel — NOT installed into the image ----------------
+# The host boots the kernel via -kernel $KERNEL (see app_web.con): monolithic,
+# no initrd, no /lib/modules. So there is nothing to install in the guest — no
+# .deb, no dpkg, no update-initramfs. The vmlinuz lives outside the image, in
+# out/ (placed by the Makefile from $KERNEL_SRC_DIR), and the launcher points
+# at it. This step is intentionally a no-op kept for build-order clarity.
+log "Custom MicroVM kernel: host-side -kernel boot, nothing to install in image"
 
 # ---- 5. waypipe from source, version-locked (ADR-008) -----------------------
 # Build deps installed -> used -> PURGED (must not ship in the foundation).
@@ -166,12 +166,10 @@ log "Bake user 'user' (uid/gid 1000)"
 chroot_run "$MNT" groupadd -g 1000 user 2>/dev/null || true
 chroot_run "$MNT" useradd  -u 1000 -g 1000 -m -s /bin/bash user 2>/dev/null || true
 
-# ---- 8. extract vmlinuz for host-side direct kernel boot --------------------
-log "Extract vmlinuz for host -kernel boot"
-cp "$MNT"/boot/vmlinuz-* "$OUT/vmlinuz-katmate-microvm" 2>/dev/null \
-  || die "No vmlinuz in image /boot — check kernel package"
-# No initrd: virtio-blk + ext4 are builtin (=y) and root=/dev/vda. If a future
-# kernel uses modules, extract the initrd here too.
+# ---- 8. (kernel vmlinuz already lives in out/ — no extraction needed) -------
+# Old qcow2/nbd pipeline extracted vmlinuz from the image's /boot. With the
+# host-side -kernel boot the vmlinuz is an INPUT (out/), not an output, so
+# there is nothing to extract here.
 
 # ---- 9. finalize: cleanup, unmount, RO-freeze -------------------------------
 log "Cleanup (apt cache, lists, resolv.conf)"
@@ -190,6 +188,6 @@ trap - EXIT
 rmdir "$MNT" 2>/dev/null || true
 
 log "$FOUNDATION_LV ready: RO-frozen thin foundation."
-log "vmlinuz extracted to $OUT/vmlinuz-katmate-microvm (copy to host kernels dir)."
 log "Next: sudo make app-web / sudo make app-vault (thin snapshots of this LV)."
 log "Reminder: 'lvchange -K -ay $VG/$FOUNDATION_LV' is required before each boot."
+log "Kernel boots host-side via -kernel ($KERNEL_VMLINUZ); not in the image."

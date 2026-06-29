@@ -18,9 +18,10 @@
 SHELL := /bin/bash
 BUILD := build
 OUT   := out
-KERNEL_DEB := $(OUT)/linux-image-katmate-microvm-amd64.deb
+KERNEL_VERSION := 6.12.87
+KERNEL_VMLINUZ := $(OUT)/vmlinuz-katmate-microvm-amd64-$(KERNEL_VERSION)
+KERNEL_SRC_DIR ?= $(HOME)/katmate-kernels
 VM_AGENT   := $(OUT)/vm-agent
-
 APP_TYPES  := web vault
 APP_TARGETS := $(addprefix app-,$(APP_TYPES))
 
@@ -28,7 +29,7 @@ APP_TARGETS := $(addprefix app-,$(APP_TYPES))
 
 all: apps
 
-foundation: $(BUILD)/foundation.sh $(KERNEL_DEB) $(VM_AGENT)
+foundation: $(BUILD)/foundation.sh $(KERNEL_VMLINUZ) $(VM_AGENT)
 	$(BUILD)/foundation.sh
 
 apps: $(APP_TARGETS)
@@ -40,12 +41,18 @@ $(APP_TARGETS): app-%: $(BUILD)/app-layer.sh manifests/%.list
 	$(BUILD)/app-layer.sh $*
 
 # clear, guided failure for the kernel hook (foundation step only)
-$(KERNEL_DEB):
-	@echo "MISSING: $@"; \
-	echo "  Build the MicroVM kernel (Debian LTS sources + katmate-microvm config, ADR-005)"; \
-	echo "  and place the linux-image .deb at the path above."; \
-	echo "  TODO: dedicated kernel build sub-pipeline."; \
-	exit 1
+$(KERNEL_VMLINUZ):
+	@if [ -f "$(KERNEL_SRC_DIR)/$(notdir $(KERNEL_VMLINUZ))" ]; then \
+	  mkdir -p $(OUT); \
+	  cp "$(KERNEL_SRC_DIR)/$(notdir $(KERNEL_VMLINUZ))" "$@"; \
+	  echo "Copied kernel: $@"; \
+	else \
+	  echo "MISSING: $@"; \
+	  echo "  Custom MicroVM kernel (ADR-005). Expected source:"; \
+	  echo "    $(KERNEL_SRC_DIR)/$(notdir $(KERNEL_VMLINUZ))"; \
+	  echo "  Build it or set KERNEL_SRC_DIR=/path make foundation"; \
+	  exit 1; \
+	fi
 
 # vm-agent is Rust now (ADR-018); copy the compiled binary here for the
 # foundation build. (App-layers do not use it.)
