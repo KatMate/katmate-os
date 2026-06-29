@@ -5,25 +5,75 @@
 > each working session. Detailed proofs and command sequences live in git
 > history and the ADRs — this file references them rather than repeating them.
 
-**Last updated:** 2026-06-29 (app-layer build pipeline migrated to LVM-thin and proven: `make app-web` + `make app-vault` from manifests; build order step 1 closed)
+**Last updated:** 2026-06-29 (evening) — **`make foundation` from scratch proven**: first fully-scripted foundation built, booted, and PING-validated. Build-order step 2 closed.
 **Milestone:** v0.2 (in development)
 
 ## Current focus
 
-App-layer appliance vertical slice is **proven end-to-end on live MINIS
-hardware** (2026-06-27), and the build pipeline that produces app-layers is now
-a **reproducible `make app-<type>` target** rather than a manual procedure
-(2026-06-29). Remaining work shifts to building the foundation from scratch
-(`make foundation`), `katmate-update`, and migrating the live AppVMs onto the
-foundation chain.
+The **entire build chain is now scripted and proven from nothing**: a single
+`make foundation` builds the shared base from scratch (debootstrap → base →
+waypipe-from-source → bake init/agent/user → freeze), then `make app-web` /
+`make app-vault` snapshot it, and an instance boots end-to-end. The old hand-built
+`vm_tpl_foundation` (Apr-13 systemd image — the source of much earlier confusion)
+is **replaced** by a clean systemd-free foundation. Remaining work shifts to
+`katmate-update`, the disposable-VM launch model, and migrating the live AppVMs
+onto the foundation chain.
 
-The full slice as proven on `vm_app_web` (CID 5):
+The full slice, re-proven on a freshly-scripted foundation (`vm_app_web`, CID 5):
 `foundation (thin RO) ← vm_app_web (thin snap RO) ← qcow2 delta` → custom
-microvm kernel `6.12.87` → **katmate-init (PID 1)** → **vm-agent (uid 1000)** →
-waypipe-over-VSOCK → host Hyprland. systemd is gone from the guest entirely.
+microvm kernel `6.12.87` (external `-kernel`) → **katmate-init (PID 1)** →
+**vm-agent (uid 1000)** → VSOCK control channel (PING `status=0x00 OK`). systemd
+is baked nowhere into the boot path (the binary still ships in the image as dead
+mass — a later minimal-TCB purge). GUI RUN deferred only because the host was
+locked (hyprlock), not for any pipeline reason.
 
 Direction unchanged: IOMMU-capable platforms only (VT-d/AMD-Vi); VT-x-only
 frozen (ADR-015). MINIS is primary host and merge target.
+
+## Proven this session (2026-06-29 evening) — `make foundation` from scratch
+
+`build/foundation.sh` migrated from the pre-revision **qcow2/nbd** mechanism to
+**LVM-thin**, matching `app-layer.sh`. The script now builds and freezes
+`vg0/vm_tpl_foundation` from nothing and codifies the real procedure (no longer
+diverges from live state — the old script still installed systemd + a vm-agent
+systemd unit, which was the pre-06-27 plan, not reality).
+
+- **Kernel as external vmlinuz, NOT `.deb`.** Dropped the `.deb`/dpkg/initrd
+  detour (meaningless under monolithic `-kernel` boot with no `/lib/modules`).
+  `config.sh`: `KERNEL_DEB` → `KERNEL_VMLINUZ`; `Makefile` copies the vmlinuz
+  from `KERNEL_SRC_DIR` (hardcoded `/home/host/katmate-kernels`, MINIS is the
+  only build host) into `out/`. Aligns with ARCHITECTURE.md update-flow §4
+  (kernel rides as the external `-kernel`, not in-image).
+- **systemd out, katmate-init in (in the RO base).** foundation.sh compiles
+  `init/katmate-init.c` static and bakes it to `/sbin/init` (per the init header:
+  "bake to /sbin/init; no init= cmdline needed"). This is what the Apr-13 image
+  never did — its `/sbin/init` was still a systemd symlink, which is why every
+  layer booted systemd until now.
+- **waypipe 0.11 from source + purge build-deps** (carried over from old script,
+  ADR-008). Validated live: `waypipe --version` → `lz4: true, zstd: true`.
+- **user 1000 via direct passwd/group/shadow write** — `useradd`/`passwd` are
+  NOT in the minbase image, so the first build silently skipped the account
+  (`|| true` swallowed "command not found"). Now written directly to the account
+  files (no tooling, smaller TCB; locked `!*` password; `/home/user` is the
+  per-instance rw LV, not created here).
+- **Mount ordering fix:** pseudo-fs (`/proc`/`/sys`/`/dev`) must mount AFTER
+  debootstrap (a fresh ext4 has no such dirs yet). `lib.sh:mount_root` does both
+  at once (correct for app-layer.sh, which mounts an already-bootstrapped snap);
+  foundation.sh stages the mounts manually.
+- **`lib.sh`** — added `lv_thin_create` (`lvcreate -T pool -V size`) beside
+  `lv_snapshot_create`; reuses the same `SNAP_CREATED` rollback slot, so
+  `cleanup()` is unchanged. Mid-build failure removes the half-built LV.
+
+**Validated live:** `/sbin/init` = static ELF (not systemd symlink); waypipe
+lz4+zstd true; vm-agent + waypipe at `/usr/local/bin`; `user:x:1000:1000:...` in
+passwd. Boot log: `Run /sbin/init as init process` → `[katmate-init] starting
+(pid 1)` → `[katmate-init] vm-agent launched as uid 1000 (pid 60)`. `ping-client
+ping 5` → `status=0x00 (OK)`. **ROADMAP build-order step 2 closed.**
+
+> NOTE: flaky `deb.debian.org` (fastly) timeouts hit `libicu76` mid-install
+> twice during bring-up — retry cleared it. This is the standing argument for the
+> deferred `snapshot.debian.org` pin (ADR-011) once `katmate-update` makes
+> determinism matter.
 
 ## Proven this session (2026-06-29) — app-layer build pipeline on LVM-thin
 
@@ -66,7 +116,7 @@ The whole app-layer hardening slice, validated against `ping-client`:
   root (vda) re-mounted RO → `reboot(RB_AUTOBOOT)` → triple-fault →
   QEMU (`-no-reboot`) exits cleanly. No hard kill.
 
-### Architecture decided + implemented this session (ADR-worthy, not yet written)
+### Architecture decided 2026-06-27 (ADR-worthy, not yet written)
 
 **systemd removed from the microvm guest.** The guest's only root process is a
 custom statically-linked ANSI C `katmate-init` as PID 1. The earlier plan
@@ -101,7 +151,7 @@ agent's FILEGET/FILEPUT over the VSOCK control channel (Qubes-`qvm-copy` style,
 not a shared folder). 9p hostshare is dev-only and deliberately **not** mounted
 by init (isolated under `#ifdef DEV_HOSTSHARE` for later if ever needed).
 
-### Files changed this session (live on MINIS; commit on Acer pending)
+### Files changed 2026-06-27 (committed to Codeberg)
 
 - `init/katmate-init.c` — new. ~330 lines static ANSI C. Compiles clean
   (`-Wall -Wextra`), also under `-DUSE_DBUS_SESSION`.
@@ -119,7 +169,11 @@ by init (isolated under `#ifdef DEV_HOSTSHARE` for later if ever needed).
 - **Host** (Arch): Ryzen 7 8745H, AMD-Vi + vfio. `vg0`: `root` 100G, `swap`
   12G, `vm_pool` thin pool. Custom microvm kernel `6.12.87` at
   `/home/host/katmate-kernels/` (monolithic, `-kernel`, no initrd). nft input
-  drop; SSH open (dev, Open problem #4).
+  drop; SSH open (dev, Open problem #4). Host is on a SI IP in LJ, direct (the
+  host's own apt/debootstrap traffic does NOT route through netVM/ProtonVPN).
+- **foundation** (`vm_tpl_foundation`, thin RO): **rebuilt from scratch this
+  session** via `make foundation` — clean, systemd-free, init/agent/waypipe/user
+  baked in. The old Apr-13 hand-built systemd image is gone.
 - **netVM** (CID 3, Debian trixie, q35): USB-NIC passthrough (r8152),
   WireGuard/ProtonVPN, inner-segment routing. Runs independently of app_web.
 - **personalVM** (CID 4, Debian trixie, microvm): still on the **old**
@@ -153,38 +207,40 @@ by init (isolated under `#ifdef DEV_HOSTSHARE` for later if ever needed).
    bitmap checksum` from `ext4lazyinit` during boot. Cosmetic on a disposable
    delta, but suggests the `vm_app_web` base may want a clean `e2fsck` (likely
    residue from a r/w bake cycle closed by hard-kill, not clean unmount).
-6. Disk model + GUI chain + shutdown are **resolved** end-to-end. What remains
-   is generalisation + migration, not the mechanism.
+6. Disk model + GUI chain + shutdown + **scripted foundation/app build** are
+   **resolved** end-to-end. What remains is `katmate-update` + migration +
+   installer, not the build mechanism.
 
 ## Next steps
 
-- **Commit this session's work on Acer** (MINIS has no git): the four changed
-  files + new `katmate-init.c`. GPG-signed (`commit.gpgsign` not global — set
-  it). Write the ADR for "systemd out of guest / custom init / init-socket
-  shutdown / vm-power-helper removed" (next number after the last committed
-  ADR — verify with `grep -n '^## ADR-' DECISIONS.md`; snapshot shows ADR-017,
-  but ADR-018 (Rust rewrite) may already be on Codeberg).
-- **`make foundation` from scratch (build-order step 2 prerequisite):** the
-  app-`<type>` pipeline now scripts against the *existing* frozen
-  `vm_tpl_foundation`. Next is scripting the foundation build itself —
-  debootstrap trixie + custom kernel install + waypipe 0.11 source build +
-  Rust vm-agent, then `lvchange --permission r`. Needs `out/vm-agent`
-  (`cargo build --release`) and the kernel `.deb` hooks satisfied.
+- **`state.md` + docs reconcile / ADR for foundation migration** — this session's
+  `foundation.sh` rewrite (LVM-thin, kernel-as-vmlinuz, systemd-out, init-baked,
+  direct-passwd) is committed to Codeberg but not yet written up as an ADR. Also
+  worth: an ARCHITECTURE.md **diagram set** (storage chain, VSOCK ports, CID
+  domains, boot chain, trust boundary) — agreed as a good next artefact while the
+  whole chain is fresh.
+- **Re-instantiate `app_web` on the new foundation** for the GUI RUN test: fresh
+  delta (`qemu-img create -f qcow2 -F raw -b /dev/vg0/vm_app_web <delta> 10G`),
+  then `ping-client run 5 nautilus` once the host is unlocked (deferred tonight
+  only because of the hyprlock issue, Open problem #2).
 - **dbus-run-session decision:** nautilus rendered without it this session, so
   it stays off. The wrapper is prepared in `katmate-init.c` under
-  `-DUSE_DBUS_SESSION` (agent launched under one session bus) — enable ONLY if
-  a future app shows Tracker/a11y timeouts.
+  `-DUSE_DBUS_SESSION` — enable ONLY if a future app shows Tracker/a11y timeouts.
 - **Kernel rebuild (6.12.87 → next):** add `CONFIG_HW_RANDOM_VIRTIO=y` (guest
   has `virtio-rng-device`; without the driver `getrandom` may block at boot)
   and `CONFIG_SECURITY_LANDLOCK=y`. Keep confirmed builtins (`VIRTIO_VSOCKETS`,
   `VIRTIO_MMIO`, `NET_9P_VIRTIO`, `EXT4_FS`); no ACPI by design.
+- **`katmate-update` tool:** the reproducible-rebuild driver — compares host
+  waypipe vs active foundation, rebuilds foundation + re-snapshots app-layers on
+  mismatch. Only once this exists does the `snapshot.debian.org` apt pin matter.
+- **Disposable-VM launch model** decision: unblocks `katmate-cid` `_is_alive` +
+  reconcile (CID ≥100 dynamic pool).
 - **Launch daemon / privilege split:** fold the launcher's `lvchange -K -ay`
   activation into a proper unit / katmate launch code (`ExecStartPre=+` as root,
   QEMU as `host`); shared `katmate-foundation.service` oneshot.
-- **`katmate-cid` allocator:** reconcile the stub + `_is_alive` await with the
-  disposable-VM launch model (CID ≥100 dynamic pool).
 - **Migrate live AppVMs** (personal/net) off the old systemd-user / linear-root
   model onto the init+foundation chain.
+- **systemd purge from foundation** (minimal-TCB): the binary still ships unused.
 - **udisks2 check:** confirm nautilus works with udisks2 disabled, then bake
   `systemctl disable udisks2` into the app-layer build.
 - **FILEPUT streaming** (currently buffers payload in memory); promote
@@ -223,7 +279,13 @@ by init (isolated under `#ifdef DEV_HOSTSHARE` for later if ever needed).
   VM first; do NOT kill the unrelated netVM/CID-3 QEMU).
 - **Custom microvm kernel** is monolithic, passed via `-kernel` (no initrd, no
   `/lib/modules`); this is why the stock modular Debian kernel failed and
-  6.12.87 (vsock builtin) succeeded.
+  6.12.87 (vsock builtin) succeeded. Delivered as an external vmlinuz (NOT a
+  `.deb` in the image) — ARCHITECTURE.md update-flow §4.
+- **foundation build (from scratch) gotchas:** (a) pseudo-fs mount AFTER
+  debootstrap, never before (fresh ext4 has no `/proc` etc.); (b) ext4 label
+  ≤16 chars (`katmate-found`); (c) no `useradd`/`passwd` in minbase — write the
+  user directly to `/etc/passwd`+`group`+`shadow`; (d) `$(HOME)` under `sudo` is
+  `/root`, so `KERNEL_SRC_DIR` is hardcoded to `/home/host/katmate-kernels`.
 - **Abstract vs concrete naming:** ADRs use `foundation`/`app`/`instance`;
   concrete LVM names (`vm_tpl_foundation`, `vm_app_web`) only here and in live
   inspection.
