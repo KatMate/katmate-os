@@ -174,10 +174,24 @@ install -Dm0755 "$INIT_BIN" "$MNT/sbin/init"
 # ---- 7. bake user 1000 ------------------------------------------------------
 # katmate-init hardcodes uid 1000 (no NSS lookup), but the account must exist
 # for file ownership / XDG_RUNTIME_DIR. /home itself is the per-instance rw LV
-# mounted by init at boot; here we only need the passwd/group entry.
-log "Bake user 'user' (uid/gid 1000)"
-chroot_run "$MNT" groupadd -g 1000 user 2>/dev/null || true
-chroot_run "$MNT" useradd  -u 1000 -g 1000 -m -s /bin/bash user 2>/dev/null || true
+# mounted by init at boot; here we only need the passwd/group/shadow entry.
+#
+# Written DIRECTLY to the account files — no useradd/groupadd (the passwd pkg is
+# not in the minbase image, and direct write needs no tooling, keeping the TCB
+# minimal). No password set (locked '*'); login is not used — init drops to the
+# uid directly. /home/user is NOT created here (it is the per-instance rw LV
+# that init mounts at boot).
+log "Bake user 'user' (uid/gid 1000) — direct passwd/group/shadow write"
+if ! grep -q '^user:' "$MNT/etc/passwd"; then
+  echo 'user:x:1000:1000:Katmate user:/home/user:/bin/bash' >> "$MNT/etc/passwd"
+fi
+if ! grep -q '^user:' "$MNT/etc/group"; then
+  echo 'user:x:1000:' >> "$MNT/etc/group"
+fi
+if ! grep -q '^user:' "$MNT/etc/shadow"; then
+  # locked account (no usable password); !* = no login via password
+  echo 'user:!*:20000:0:99999:7:::' >> "$MNT/etc/shadow"
+fi
 
 # ---- 8. (kernel vmlinuz already lives in out/ — no extraction needed) -------
 # Old qcow2/nbd pipeline extracted vmlinuz from the image's /boot. With the
