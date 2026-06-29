@@ -5,17 +5,19 @@
 > each working session. Detailed proofs and command sequences live in git
 > history and the ADRs — this file references them rather than repeating them.
 
-**Last updated:** 2026-06-27 (app-layer hardening proven end-to-end: custom init + Rust agent shutdown + render, live on MINIS)
+**Last updated:** 2026-06-29 (app-layer build pipeline migrated to LVM-thin and proven: `make app-web` + `make app-vault` from manifests; build order step 1 closed)
 **Milestone:** v0.2 (in development)
 
 ## Current focus
 
-App-layer appliance vertical slice is now **proven end-to-end on live MINIS
-hardware** (2026-06-27): boot → render → shutdown, all three phases validated
-with the new stack. Remaining work shifts to generalising the app-layer pattern
-to other domain types and migrating the live AppVMs onto the foundation chain.
+App-layer appliance vertical slice is **proven end-to-end on live MINIS
+hardware** (2026-06-27), and the build pipeline that produces app-layers is now
+a **reproducible `make app-<type>` target** rather than a manual procedure
+(2026-06-29). Remaining work shifts to building the foundation from scratch
+(`make foundation`), `katmate-update`, and migrating the live AppVMs onto the
+foundation chain.
 
-The full slice as proven today on `vm_app_web` (CID 5):
+The full slice as proven on `vm_app_web` (CID 5):
 `foundation (thin RO) ← vm_app_web (thin snap RO) ← qcow2 delta` → custom
 microvm kernel `6.12.87` → **katmate-init (PID 1)** → **vm-agent (uid 1000)** →
 waypipe-over-VSOCK → host Hyprland. systemd is gone from the guest entirely.
@@ -23,7 +25,35 @@ waypipe-over-VSOCK → host Hyprland. systemd is gone from the guest entirely.
 Direction unchanged: IOMMU-capable platforms only (VT-d/AMD-Vi); VT-x-only
 frozen (ADR-015). MINIS is primary host and merge target.
 
-## Proven this session (2026-06-27) — live on MINIS, CID 5
+## Proven this session (2026-06-29) — app-layer build pipeline on LVM-thin
+
+Migrated `build/` pipeline + `Makefile` from the pre-revision qcow2/nbd
+mechanism to the LVM-thin mechanism (ADR-010 rev 2026-06). The scripts now
+codify the proven manual procedure instead of diverging from it.
+
+- **`build/app-layer.sh`** — `qemu-img create -f qcow2 -b foundation.qcow2`
+  + `nbd_connect` replaced by `lvcreate -s --name vm_app_<type>
+  vg0/vm_tpl_foundation` → `lvchange -K -ay` → mount LV directly → chroot apt
+  install → umount → `lvchange --permission r` freeze. Refuses to clobber an
+  existing app-layer; `cleanup` trap removes a half-built snapshot on mid-build
+  failure (`SNAP_CREATED`/`FREEZE_DONE` state).
+- **`build/lib.sh`** — nbd helpers replaced by `lv_snapshot_create` /
+  `lv_activate` (`-K -ay`) / `lv_freeze` (`-p r`) / `lv_deactivate`.
+- **`build/config.sh`** — nbd/qcow2 paths dropped; `VG`/`POOL`/`FOUNDATION_LV`/
+  `APP_LV_PREFIX` added. `SNAPSHOT` apt-pin retained but explicitly DEFERRED and
+  unused (per ADR-011 build note).
+- **`Makefile`** — `.qcow2` file targets → `.PHONY app-<type>` targets (LVs have
+  no timestamp); vm-agent hook fixed from `gcc vm-agent.c` to Rust `cargo build`
+  (foundation step only — app-layers need neither kernel nor agent).
+- Scripts marked executable in git (`update-index --chmod=+x`) so rsync carries
+  mode 755 (the `Permission denied` that bit once is fixed at source).
+
+**Gate passed:** `make app-web` (rebuilt) and `make app-vault` (new) both
+produce `Vri-a-tz-k` thin snapshots of `vm_tpl_foundation`. Two manifest axes
+validated (web = network/ephemeral-capable; vault = offline/persistent). ADR-014
+dual axes realized; **ROADMAP build-order step 1 closed.**
+
+## Proven earlier (2026-06-27) — live on MINIS, CID 5
 
 The whole app-layer hardening slice, validated against `ping-client`:
 
@@ -99,6 +129,11 @@ by init (isolated under `#ifdef DEV_HOSTSHARE` for later if ever needed).
   RO) ← `/var/lib/katmate/instances/test_web.qcow2`. `/home` =
   `vm_app_web_home` (10G ext4 raw LV, created this session, `/home/user` owned
   1000:1000). init + Rust vm-agent + user 1000 baked in.
+- **app_vault** (build-only): `vm_app_vault` thin snap RO of `vm_tpl_foundation`,
+  built via `make app-vault` (2026-06-29; keepassxc/foot/nautilus). NOT yet
+  instantiated — no qcow2 delta, no home LV, no CID, never booted. Gate for the
+  app-layer pipeline (second manifest axis: offline/persistent), not a running
+  appliance. keepassxc still off the vm-agent RUN whitelist (Faza 4 blocker).
 - **Disk chain**: three-level LVM-thin chain proven live and now exercised
   through a full boot/render/shutdown cycle.
 
@@ -129,8 +164,12 @@ by init (isolated under `#ifdef DEV_HOSTSHARE` for later if ever needed).
   shutdown / vm-power-helper removed" (next number after the last committed
   ADR — verify with `grep -n '^## ADR-' DECISIONS.md`; snapshot shows ADR-017,
   but ADR-018 (Rust rewrite) may already be on Codeberg).
-- **Generalise the app-layer pattern:** `app-<type>` thin snapshot from
-  `vm_tpl_foundation` — `vm_app_web` is done; next is templating other domains.
+- **`make foundation` from scratch (build-order step 2 prerequisite):** the
+  app-`<type>` pipeline now scripts against the *existing* frozen
+  `vm_tpl_foundation`. Next is scripting the foundation build itself —
+  debootstrap trixie + custom kernel install + waypipe 0.11 source build +
+  Rust vm-agent, then `lvchange --permission r`. Needs `out/vm-agent`
+  (`cargo build --release`) and the kernel `.deb` hooks satisfied.
 - **dbus-run-session decision:** nautilus rendered without it this session, so
   it stays off. The wrapper is prepared in `katmate-init.c` under
   `-DUSE_DBUS_SESSION` (agent launched under one session bus) — enable ONLY if
