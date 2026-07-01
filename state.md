@@ -5,7 +5,7 @@
 > each working session. Detailed proofs and command sequences live in git
 > history and the ADRs — this file references them rather than repeating them.
 
-**Last updated:** 2026-06-29 (evening) — **`make foundation` from scratch proven**: first fully-scripted foundation built, booted, and PING-validated. Build-order step 2 closed.
+**Last updated:** 2026-07-01 (morning) — **kernel rebuild proven live**: three flags (`HW_RANDOM_VIRTIO`, `SECURITY_LANDLOCK`, `SND_ALOOP`) built into `6.12.87` and validated end-to-end on a live `vm_app_web` boot + GUI RUN. Kernel now built on MINIS.
 **Milestone:** v0.2 (in development)
 
 ## Current focus
@@ -24,11 +24,49 @@ The full slice, re-proven on a freshly-scripted foundation (`vm_app_web`, CID 5)
 microvm kernel `6.12.87` (external `-kernel`) → **katmate-init (PID 1)** →
 **vm-agent (uid 1000)** → VSOCK control channel (PING `status=0x00 OK`). systemd
 is baked nowhere into the boot path (the binary still ships in the image as dead
-mass — a later minimal-TCB purge). GUI RUN deferred only because the host was
-locked (hyprlock), not for any pipeline reason.
+mass — a later minimal-TCB purge). GUI RUN (nautilus over waypipe) re-proven on
+the three-flag `6.12.87` kernel on 2026-07-01.
 
 Direction unchanged: IOMMU-capable platforms only (VT-d/AMD-Vi); VT-x-only
 frozen (ADR-015). MINIS is primary host and merge target.
+
+## Proven this session (2026-07-01) — kernel rebuild, three flags, live-validated
+
+Added three config flags to the monolithic microvm kernel `6.12.87` and proved
+all three on a live `vm_app_web` boot (CID 5) + GUI RUN. This closes the kernel
+technical debt carried since the `make foundation` work.
+
+- **Flags (all `=y`, monolithic — never `=m`):**
+  - `CONFIG_HW_RANDOM_VIRTIO=y` — the guest already had `-device
+    virtio-rng-device` but no driver, so `getrandom` could block at boot. Now
+    paired: device + driver.
+  - `CONFIG_SECURITY_LANDLOCK=y` — eliminates the Tracker landlock-ABI warning
+    and gives the desired sandboxing primitive. `landlock` was already listed in
+    `CONFIG_LSM=` but inert until the code was built in; `CONFIG_LSM` needed no
+    edit.
+  - `CONFIG_SND_ALOOP=y` — proactive, for the future audio path 3 (snd-aloop +
+    thin C daemon → VSOCK 1026 → PipeWire host-side). Audio itself not built yet.
+- **Live boot proof (dmesg on ttyS0):**
+  - `random: crng init done` @ 10 ms — no getrandom block.
+  - `LSM: initializing lsm=capability,landlock,selinux` + `landlock: Up and
+    running.`
+  - `ALSA device list: #0: Loopback 1` — snd-aloop registers.
+  - Boot chain unchanged: `Run /sbin/init` → `[katmate-init] starting (pid 1)`
+    → `vm-agent launched as uid 1000`.
+- **Landlock user-space proof:** `ping-client run 5 nautilus` → `status=0x00
+  (OK)`, nautilus rendered on host Hyprland, and — the key result — the Tracker
+  landlock-ABI warning that used to print on ttyS0 is **gone** (absence = pass).
+- **Version carries `-dirty`** (`6.12.87-dirty`): the rsync'd source tree is not
+  a clean git checkout. Cosmetic; functionally correct. Clean up when the kernel
+  source is set up as a proper git checkout on MINIS. Archive filename kept as
+  `vmlinuz-katmate-microvm-amd64-6.12.87` (no `-dirty` in the name) but `uname
+  -r` in the guest reports `-dirty`.
+- **Build migrated to MINIS.** Source tree rsync'd Acer → MINIS
+  (`~/src/kernel/linux-6.12.y/`); built with `make -j16` on the Ryzen after the
+  Acer (N4200, passive) thermal-shut-down twice mid-build at ~34 °C ambient (LJ
+  heatwave), corrupting object files. This is NOT a project migration — git +
+  GPG signing + source-of-truth stay on Acer. New vmlinuz + config archived to
+  `/home/host/katmate-kernels/` on MINIS.
 
 ## Proven this session (2026-06-29 evening) — `make foundation` from scratch
 
@@ -219,17 +257,12 @@ by init (isolated under `#ifdef DEV_HOSTSHARE` for later if ever needed).
   worth: an ARCHITECTURE.md **diagram set** (storage chain, VSOCK ports, CID
   domains, boot chain, trust boundary) — agreed as a good next artefact while the
   whole chain is fresh.
-- **Re-instantiate `app_web` on the new foundation** for the GUI RUN test: fresh
-  delta (`qemu-img create -f qcow2 -F raw -b /dev/vg0/vm_app_web <delta> 10G`),
-  then `ping-client run 5 nautilus` once the host is unlocked (deferred tonight
-  only because of the hyprlock issue, Open problem #2).
+- **GUI RUN on the new kernel — DONE 2026-07-01.** `ping-client run 5 nautilus`
+  rendered on host Hyprland with the three-flag `6.12.87` kernel; landlock
+  warning gone. (Superseded the earlier hyprlock-deferred test.)
 - **dbus-run-session decision:** nautilus rendered without it this session, so
   it stays off. The wrapper is prepared in `katmate-init.c` under
   `-DUSE_DBUS_SESSION` — enable ONLY if a future app shows Tracker/a11y timeouts.
-- **Kernel rebuild (6.12.87 → next):** add `CONFIG_HW_RANDOM_VIRTIO=y` (guest
-  has `virtio-rng-device`; without the driver `getrandom` may block at boot)
-  and `CONFIG_SECURITY_LANDLOCK=y`. Keep confirmed builtins (`VIRTIO_VSOCKETS`,
-  `VIRTIO_MMIO`, `NET_9P_VIRTIO`, `EXT4_FS`); no ACPI by design.
 - **`katmate-update` tool:** the reproducible-rebuild driver — compares host
   waypipe vs active foundation, rebuilds foundation + re-snapshots app-layers on
   mismatch. Only once this exists does the `snapshot.debian.org` apt pin matter.
@@ -281,6 +314,19 @@ by init (isolated under `#ifdef DEV_HOSTSHARE` for later if ever needed).
   `/lib/modules`); this is why the stock modular Debian kernel failed and
   6.12.87 (vsock builtin) succeeded. Delivered as an external vmlinuz (NOT a
   `.deb` in the image) — ARCHITECTURE.md update-flow §4.
+- **Never rsync a kernel *build* tree with broad `--exclude` patterns.**
+  `--exclude='vmlinux.*'` matches the SOURCE `vmlinux.lds.S` (and `.lds.h`), not
+  just the `vmlinux.*` artefacts — dropping it makes the build fail with `No rule
+  to make target 'arch/x86/kernel/vmlinux.lds'` even after `make mrproper` (the
+  generator input is simply absent). Interrupted builds (e.g. thermal shutdown)
+  also leave truncated `.o` files that pass make's timestamp check but fail at
+  link with `ld: member ... is not an object`. Robust pattern for moving the
+  tree to a build host: `git clone`/`git archive` a clean source + copy only
+  `.config` — git knows source from artefact; broad rsync excludes do not.
+- **Kernel build host is MINIS (Ryzen), not Acer.** The N4200 thermally shuts
+  down under a full `-j` kernel build in summer ambient; use `-j16` on MINIS.
+  Source tree at `~/src/kernel/linux-6.12.y/` on both; treat Acer's as the
+  reference, MINIS's as a build copy (same source-of-truth rule as the agent).
 - **foundation build (from scratch) gotchas:** (a) pseudo-fs mount AFTER
   debootstrap, never before (fresh ext4 has no `/proc` etc.); (b) ext4 label
   ≤16 chars (`katmate-found`); (c) no `useradd`/`passwd` in minbase — write the

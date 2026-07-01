@@ -668,106 +668,93 @@ points framed the decision:
 [ADR-015](DECISIONS.md#adr-015); invoked by the deploy-time instance step of
 [ADR-011](DECISIONS.md#adr-011); pool floor and reserved CIDs align with the
 NetVM CID ([ADR-009](DECISIONS.md#adr-009)).
-## ADR-018 — vm-agent: Rust rewrite and a versioned binary control protocol
 
-**Status:** Accepted (2026)
+## ADR-018 — Foundation build: LVM-thin from scratch, external-vmlinuz kernel, systemd-free init
 
-**Context:** The original vm-agent (ADR-003 control channel) was a ~330-line C
-program with a line-oriented, whitespace-split text protocol. Three weaknesses
-made it unsuitable as a long-term foundation component: the text protocol could
-not carry paths containing spaces, newlines or NUL bytes and had no framing
-discipline; lengths were parsed with `atol()` and trusted without bounds, so a
-malformed or hostile request could drive an unbounded allocation; and several
-syscall return values (socket/bind/listen, writes) and child reaping were
-unchecked. The agent is part of the immutable foundation image (ADR-007) and
-runs on every domain (ADR-003), so its robustness is part of the host↔guest
-trust story. A binary host-side client daemon is planned, which removes the
-earlier reason to keep the protocol shell-friendly.
+**Status:** Accepted (2026-06 / 2026-07); realizes the pipeline of
+[ADR-011](DECISIONS.md#adr-011) and the storage mechanism of
+[ADR-010](DECISIONS.md#adr-010).
 
-**Decision:** Rewrite vm-agent in Rust, `std` + `libc` only — no async runtime,
-no `vsock` crate — keeping the TCB small and the raw VSOCK syscalls visible.
-The wire protocol becomes a versioned, little-endian, length-prefixed binary
-frame (specified below) that is the single source of truth for both the guest
-agent and the future host client. The agent stays synchronous and
-single-client: the control channel has exactly one peer (the host), and one
-connection is served to completion before the next is accepted.
+**Context:** [ADR-011](DECISIONS.md#adr-011) fixed *that* the foundation is
+built by shell scripts orchestrated by Make; [ADR-010](DECISIONS.md#adr-010)
+fixed the three-level LVM-thin storage chain. What neither pinned was the
+concrete build mechanism for the foundation itself, nor several decisions that
+only surfaced once the script was written against live hardware. The
+pre-revision `foundation.sh` had drifted from reality in three ways, each of
+which this ADR settles:
 
-Key sub-decisions:
+- It built the base into a **qcow2 image over an NBD device**, a mechanism
+  ADR-010 rev-2026-06 already replaced with LVM-thin everywhere else
+  (`app-layer.sh`). The foundation script was the last holdout, so the codebase
+  described a procedure no longer used.
+- It shipped the guest kernel as a **`.deb` unpacked into the image**, with the
+  dpkg/initrd machinery that implies. Under the monolithic `-kernel` direct
+  boot ([ADR-005](DECISIONS.md#adr-005)) there is no `/lib/modules` and no
+  initrd, so an in-image kernel package is dead weight that is never consulted
+  at boot.
+- Its `/sbin/init` was still a **systemd symlink**. The Apr-13 hand-built image
+  inherited this and every layer therefore booted systemd, contradicting the
+  2026-06-27 decision to remove systemd from the guest entirely (previously an
+  unwritten "ADR-worthy" note in `state.md`).
 
-- **Little-endian, not network byte order.** All target architectures
-  (x86-64, aarch64, riscv64) are little-endian, and VSOCK is host↔guest on the
-  same physical CPU, so big-endian would mean a byte-swap on every length field
-  for no portability gain. Encoded explicitly via `to_le_bytes`/`from_le_bytes`,
-  so the code stays correct on a big-endian host if one ever appears.
-- **One-byte protocol version in every frame.** A version mismatch is rejected
-  rather than silently misparsed — relevant once the foundation image and the
-  host client are updated independently (`katmate-update`).
-- **Bounds checked before allocation.** `MAX_ARGC` (8), `MAX_ARG_LEN` (4 KiB)
-  and `MAX_FILE_SIZE` (100 MiB) are validated as the fixed header and each
-  length prefix are read; an over-limit field yields an error response, never
-  an allocation. This is the core hardening over the C agent.
-- **Children via `posix_spawn`, not fork-then-work.** waypipe (RUN) and the
-  power helper (SHUTDOWN) are launched with `posix_spawnp`; all argv marshalling
-  happens in the parent, eliminating the non-async-signal-safe
-  allocation-after-fork pattern of the C version. The child inherits the agent's
-  environment (so `WAYLAND_DISPLAY` / `XDG_RUNTIME_DIR` come from the systemd
-  unit, not hardcoded).
-- **Zombies reaped by the kernel.** `SIGCHLD` is set to `SIG_IGN` at startup;
-  finished children are auto-reaped without a handler or `waitpid`. RUN/SHUTDOWN
-  are fire-and-forget, so a child exit status is not needed.
-- **Path confinement is traversal-safe without `canonicalize`.** A path must
-  start with `/home/user/` and contain no `..` component. This holds for
-  not-yet-existing FILEPUT targets, which `canonicalize` (which requires the
-  path to exist) could not check.
-- **FILEPUT is atomic.** The payload is written to a `<path>.vm-agent.partial`
-  temp file, `fsync`-ed, then `rename`-d into place, so a failed transfer never
-  leaves a partial file.
-- **Debug logging is compile-time gated.** A `log_debug!` macro behind
-  `cfg!(debug_assertions)` logs the RUN environment, argv and (via inherited
-  child stderr) waypipe diagnostics in debug builds, and is stripped entirely
-  from release builds — no runtime cost and no information leak in the shipped
-  image. Structured error logging (`AgentError` → journal) remains in all builds
-  but only fires on an error path.
-- **Transport parameters from the environment.** `CONTROL_PORT`, `HOST_CID` and
-  `VSOCK_PORT` (the waypipe GUI port) are read from the unit's environment with
-  the protocol defaults as fallback. The control port (default 1025) and the
-  waypipe port (default 1024) are two distinct, purposeful ports.
+A fourth point is a packaging fact, not drift: `debootstrap --variant=minbase`
+ships **neither `useradd` nor `passwd`**, so any account creation that relies on
+them silently no-ops (a `|| true` had been swallowing "command not found").
 
-**Wire format (PROTOCOL_VERSION 0x01, little-endian):**
+**Decision:** `foundation.sh` builds and freezes `foundation` (concrete:
+`vg0/vm_tpl_foundation`) from nothing, and is the single source of the
+procedure — no step exists only as a live-state artefact that the script fails
+to reproduce.
 
-```
-REQUEST
-  u8    version        0x01
-  u8    cmd            0x01 PING  0x02 RUN  0x03 FILEGET
-                       0x04 FILEPUT  0x05 SHUTDOWN
-  u8    argc           number of arguments (<= MAX_ARGC = 8)
-  u64   payload_len    trailing payload size (<= MAX_FILE_SIZE)
-  repeated argc times:
-    u32 arg_len        argument length (<= MAX_ARG_LEN = 4096)
-    u8  arg[arg_len]   raw bytes; space / newline / NUL permitted
-  u8    payload[payload_len]   present iff payload_len > 0 (FILEPUT body)
+- **Storage mechanism: LVM-thin throughout, matching the app layer.**
+  debootstrap writes directly onto a thin LV (no partition table, so the guest
+  boots `root=/dev/vda`, never `vda1`). Build → mount LV → chroot → bake → RO
+  freeze (`lvchange -p r`). The rollback trap removes a half-built LV on
+  mid-build failure. This makes the foundation and app-type builds share one
+  mechanism and one `lib.sh`.
+- **Kernel rides as an external vmlinuz, not in the image.** The `.deb`/dpkg/
+  initrd path is dropped. `config.sh` carries `KERNEL_VMLINUZ` (not
+  `KERNEL_DEB`); the Makefile copies the monolithic vmlinuz from the build
+  host's kernel archive into the output. This is the same kernel-delivery model
+  as the update flow (ARCHITECTURE.md §4): the kernel is versioned and shipped
+  as the external `-kernel`, decoupled from the RO rootfs it boots.
+- **systemd is absent from the boot path.** `foundation.sh` compiles
+  `init/katmate-init.c` static and bakes it to `/sbin/init` — no `init=` cmdline
+  needed. The systemd binary may still physically ship in the image as inert
+  mass until a later minimal-TCB purge, but nothing in the boot path invokes it.
+  The guest's only root process is the custom PID 1; building anything on
+  systemd would be future regression work, since systemd is slated to leave the
+  appliance entirely (this supersedes the pre-06-22 plan to ship vm-agent as a
+  systemd **user** unit).
+- **User 1000 is written directly to the account files.** Because minbase has
+  no `useradd`/`passwd`, `foundation.sh` writes `/etc/passwd`, `/etc/group`, and
+  `/etc/shadow` by hand (locked `!*` password; no login). This needs no tooling
+  in the image, keeps the TCB smaller, and — unlike the old `|| true` path —
+  fails loudly if it goes wrong. `/home/user` is the per-instance rw LV, not
+  created at foundation-build time.
 
-RESPONSE
-  u8    version        0x01
-  u8    status         0x00 OK  0x01 ERR
-  u64   payload_len    response payload size (<= MAX_FILE_SIZE; 0 if none)
-  u8    payload[payload_len]   present iff payload_len > 0 (FILEGET body)
-```
+**Consequences:**
 
-The reader consumes the fixed header first, validates the version, command and
-every length against the limits, and only then reads variable-length data. The
-client never learns *why* a request failed (it sees only OK/ERR); the reason is
-recorded in the agent's journal.
+- The build chain is reproducible from nothing: `make foundation` →
+  `make app-<type>` → instance boots end-to-end, all off one mechanism.
+  Validated live: static-ELF `/sbin/init`, waypipe `lz4:true zstd:true`, user
+  1000 in passwd, `[katmate-init] starting (pid 1)` → `vm-agent launched as uid
+  1000`, PING `status=0x00 OK`.
+- The kernel and the rootfs version independently. A guest-kernel security
+  rebuild ships as a new external vmlinuz without rebuilding the foundation
+  image, and vice versa.
+- Removing systemd from the boot path is now structural, not incidental: the
+  image cannot silently regress to booting systemd because `/sbin/init` is the
+  baked binary, not a redirectable symlink. The remaining systemd binary is a
+  minimal-TCB cleanup item, not a correctness issue.
+- Build-host coupling: the kernel archive path is build-host-specific
+  (`$(HOME)` under `sudo` resolves to `/root`, so the path is hardcoded rather
+  than derived). The kernel build itself is not part of this pipeline — it is a
+  separate, manually-run step whose output this pipeline consumes.
 
-**Consequences:** The host-side client must be a binary speaker of this exact
-frame — fish/shell can no longer drive the agent directly, which is acceptable
-given the planned host daemon. The protocol module (`protocol.rs`) holds the
-constants and the encode/decode routines together so it can be promoted to a
-shared `katmate-protocol` crate once the host client exists, with both daemons
-linking the same codec; until then it lives in the agent. The foundation build
-gains a Rust toolchain requirement for vm-agent (already present for waypipe
-≥ 0.11, ADR-008), and the toolchain is purged before the RO freeze as before.
-The 100 MiB `MAX_FILE_SIZE` bounds both FILEGET output and FILEPUT input;
-larger transfers are out of scope for the control channel by design.
-
----
+**Cross-reference:** realizes the pipeline of
+[ADR-011](DECISIONS.md#adr-011) on the storage chain of
+[ADR-010](DECISIONS.md#adr-010); the systemd-free PID 1 and no-ACPI shutdown are
+the init side of the guest model; waypipe-from-source in the foundation chroot
+follows [ADR-008](DECISIONS.md#adr-008); kernel delivery follows
+[ADR-005](DECISIONS.md#adr-005) (custom monolithic guest kernel).
