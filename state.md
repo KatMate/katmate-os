@@ -251,12 +251,11 @@ by init (isolated under `#ifdef DEV_HOSTSHARE` for later if ever needed).
 
 ## Next steps
 
-- **`state.md` + docs reconcile / ADR for foundation migration** — this session's
-  `foundation.sh` rewrite (LVM-thin, kernel-as-vmlinuz, systemd-out, init-baked,
-  direct-passwd) is committed to Codeberg but not yet written up as an ADR. Also
-  worth: an ARCHITECTURE.md **diagram set** (storage chain, VSOCK ports, CID
-  domains, boot chain, trust boundary) — agreed as a good next artefact while the
-  whole chain is fresh.
+- **ARCHITECTURE.md diagram set** — storage chain, VSOCK ports, CID domains,
+  boot chain, trust boundary. Agreed as a good next artefact while the whole
+  chain is fresh. (The foundation-migration rewrite — LVM-thin,
+  kernel-as-vmlinuz, systemd-out, init-baked, direct-passwd — is now written up
+  as **ADR-018**, so the docs-reconcile debt is closed.)
 - **GUI RUN on the new kernel — DONE 2026-07-01.** `ping-client run 5 nautilus`
   rendered on host Hyprland with the three-flag `6.12.87` kernel; landlock
   warning gone. (Superseded the earlier hyprlock-deferred test.)
