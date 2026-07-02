@@ -214,6 +214,38 @@ SNAP_CREATED=""
 trap - EXIT
 rmdir "$MNT" 2>/dev/null || true
 
+# ---- 10. write foundation.meta (ADR-019) ------------------------------------
+# Host-side source of truth for the active foundation version — readable
+# without booting or mounting anything. Ordering is deliberate:
+#  * AFTER a successful RO-freeze: the meta must never describe a half-built
+#    foundation.
+#  * AFTER the rollback trap is disarmed: a meta-write failure must not
+#    destroy a valid frozen LV. It dies loudly instead (set -e); the launch
+#    preflight refuses to start any instance without a meta, so the gap is
+#    detectable, and a manual re-run of this block is safe.
+# Format: flat KEY=value, POSIX-sourceable — the preflight reads it with no
+# parser. KATMATE_META_VERSION guards future schema changes.
+# WAYPIPE_PATCH_LEVEL counts the patch queue (0 until the scaffold exists).
+# NOTE: when the patch-apply step lands in step 5, it MUST apply from the same
+# $WAYPIPE_PATCHES_DIR this count reads — one dir, one truth.
+log "Write $FOUNDATION_META"
+WAYPIPE_PATCH_LEVEL=0
+if [[ -d "$WAYPIPE_PATCHES_DIR" ]]; then
+  WAYPIPE_PATCH_LEVEL=$(find "$WAYPIPE_PATCHES_DIR" -maxdepth 1 -name '*.patch' | wc -l)
+fi
+install -d -m0755 "$(dirname "$FOUNDATION_META")"
+META_TMP="$(mktemp "$(dirname "$FOUNDATION_META")/.foundation.meta.XXXXXX")"
+cat >"$META_TMP" <<EOF
+KATMATE_META_VERSION=1
+WAYPIPE_TAG=$WAYPIPE_VERSION
+WAYPIPE_PATCH_LEVEL=$WAYPIPE_PATCH_LEVEL
+KERNEL_VERSION=$KERNEL_VERSION
+BUILD_DATE=$(date -u +%Y-%m-%dT%H:%M:%SZ)
+FOUNDATION_LV=$VG/$FOUNDATION_LV
+EOF
+chmod 0644 "$META_TMP"
+mv "$META_TMP" "$FOUNDATION_META"   # atomic: same fs (mktemp in the target dir)
+
 log "$FOUNDATION_LV ready: RO-frozen thin foundation."
 log "Next: sudo make app-web / sudo make app-vault (thin snapshots of this LV)."
 log "Reminder: 'lvchange -K -ay $VG/$FOUNDATION_LV' is required before each boot."

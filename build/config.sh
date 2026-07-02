@@ -35,3 +35,13 @@ KERNEL_SRC_DIR="${KERNEL_SRC_DIR:-$HOME/katmate-kernels}"             # Makefile
 VM_AGENT_BIN="$OUT/vm-agent"                                # foundation only (Rust, ADR-018)
 INIT_SRC="$ROOT_DIR/init/katmate-init.c"
 INIT_BIN="$OUT/katmate-init"
+
+# --- foundation build metadata (ADR-019) --------------------------------------
+# Host-side source of truth for the active foundation version. Written by
+# foundation.sh after a successful RO-freeze; read by the instance launch
+# preflight (host waypipe --version vs meta — refuse loudly on mismatch) and
+# updated by katmate-update at each release bump.
+FOUNDATION_META="/var/lib/katmate/foundation.meta"
+# KatMate waypipe patch queue (ADR-019, strip & harden only). May not exist
+# yet — patch level 0 until the scaffold lands.
+WAYPIPE_PATCHES_DIR="$ROOT_DIR/third_party/waypipe/patches"
