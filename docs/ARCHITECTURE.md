@@ -76,7 +76,7 @@ system layers are thin snapshots of it; user data is a separate RW delta.
 ```
 foundation                        thin LV, RO-frozen, shared by all AppVMs
   ├── Debian stable userspace (minimal, debootstrap)
-  ├── waypipe X.Y.Z  — version-locked to host, source build
+  ├── waypipe — project-pinned tag + patch queue (ADR-019), source build
   └── vm-agent
         ▲
         │ lvcreate --snapshot  (thin snapshot, RO-frozen, + manifest packages)
@@ -99,15 +99,28 @@ custom MicroVM kernel             external to the image, passed via -kernel
 | Application data, documents | raw thin home LV (RW, persistent) |
 | Custom MicroVM kernel | host filesystem, passed via `-kernel` |
 
-Update flow:
+Update flow ([ADR-019](DECISIONS.md#adr-019)):
 
-1. Host updates waypipe (pacman) → pacman hook triggers `katmate-update`.
-2. `katmate-update` compares host waypipe version against the active foundation.
-3. On mismatch: rebuild `foundation`, re-snapshot each `app-<type>`, recreate
-   instance deltas onto the new snapshots. Home LVs untouched. The user gets a
-   notification — no action required.
-4. Debian LTS kernel security patch → rebuild guest kernel → shipped as the new
-   external `-kernel` for the next foundation release.
+Waypipe is a project-maintained component: a pinned upstream tag plus a small
+KatMate patch queue, built into **both** binaries from the same tree — guest
+in the foundation chroot, host at `/opt/katmate/bin/waypipe` (outside the
+package manager). Version drift is impossible by construction; there is no
+pacman hook and nothing to detect.
+
+1. A version bump is a deliberate release act: bump the pin → rebase the
+   patch queue → build the host binary → rebuild `foundation` → re-snapshot
+   each `app-<type>` → recreate instance deltas. Home LVs untouched.
+   `katmate-update` orchestrates this chain.
+2. `foundation.sh` records the active versions (waypipe tag + patch level,
+   guest kernel, build date) in `/var/lib/katmate/foundation.meta` at
+   RO-freeze time.
+3. Instance launch preflights host `waypipe --version` against
+   `foundation.meta` and refuses to start the VM loudly on mismatch — the
+   lock is enforced where the two ends meet.
+4. Debian LTS kernel security patch → rebuild guest kernel → shipped as the
+   new external `-kernel` for the next foundation release. Waypipe fixes
+   that do not build on trixie are backported onto the pinned tag (same
+   practice).
 
 Principles: immutability, reproducibility (foundation rebuilt from defined
 sources, never hand-edited), strict system/data separation, user transparency,
@@ -115,16 +128,21 @@ minimal TCB.
 
 ### Guest waypipe build (part of the base image pipeline)
 
-Waypipe in the guest is built from source and pinned to the host version
-([ADR-008](DECISIONS.md#adr-008)). Built inside the foundation chroot so it
-links against the foundation's own (trixie) libraries.
+Waypipe in the guest is built from source, version-locked to the host
+([ADR-008](DECISIONS.md#adr-008)); both binaries come from the same
+project-pinned tree — upstream tag + KatMate patch queue
+([ADR-019](DECISIONS.md#adr-019)). Built inside the foundation chroot so it
+links against the foundation's own (trixie) libraries. The host binary is
+built from the identical tree on the host and installed at
+`/opt/katmate/bin/waypipe`.
 
 ```
 apt install -y git meson ninja-build gcc pkg-config \
                libwayland-dev liblz4-dev libzstd-dev libgbm-dev \
                cargo rustc bindgen
 git clone https://gitlab.freedesktop.org/mstoeckl/waypipe.git
-cd waypipe && git checkout v0.11.0
+cd waypipe && git checkout v0.11.0   # project pin (ADR-019)
+for p in /path/to/third_party/waypipe/patches/*.patch; do git apply "$p"; done
 cargo fetch                                  # build wrapper passes --frozen
 meson setup build -Dbuildtype=release \
       -Dwith_lz4=enabled -Dwith_zstd=enabled \
@@ -183,9 +201,12 @@ Security controls are specified in [SECURITY-MODEL.md](SECURITY-MODEL.md#control
 ## GUI forwarding
 
 Waypipe over AF_VSOCK; host side is a socket-activated systemd user service.
-Guest runs waypipe 0.11.0 built from source; the version **must** match the
-host ([ADR-008](DECISIONS.md#adr-008)) — mismatched versions negotiate
-incompatible compression and the connection is refused or crashes.
+Guest runs waypipe built from source; the version **must** match the host
+([ADR-008](DECISIONS.md#adr-008)) — mismatched versions negotiate
+incompatible compression and the connection is refused or crashes. Both
+binaries are built from the same project-pinned tree and the launch preflight
+enforces the match against `foundation.meta`
+([ADR-019](DECISIONS.md#adr-019)).
 Benefits: no X11, no network listener, native Wayland path. Clipboard
 (copy/paste) between guest applications and host is functional.
 

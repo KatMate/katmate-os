@@ -262,9 +262,23 @@ by init (isolated under `#ifdef DEV_HOSTSHARE` for later if ever needed).
 - **dbus-run-session decision:** nautilus rendered without it this session, so
   it stays off. The wrapper is prepared in `katmate-init.c` under
   `-DUSE_DBUS_SESSION` — enable ONLY if a future app shows Tracker/a11y timeouts.
-- **`katmate-update` tool:** the reproducible-rebuild driver — compares host
-  waypipe vs active foundation, rebuilds foundation + re-snapshots app-layers on
-  mismatch. Only once this exists does the `snapshot.debian.org` apt pin matter.
+- **Waypipe redesign — ADR-019 written (2026-07-02).** Waypipe becomes a
+  project-maintained component: pinned upstream tag (`v0.11.0`) + KatMate
+  patch queue (`third_party/waypipe/patches/`, strip & harden only), both
+  host and guest binaries built from the same tree, host at
+  `/opt/katmate/bin/waypipe` outside pacman. Drift impossible by
+  construction; no pacman hook. Rationale: no wire-protocol stability
+  between waypipe versions, trixie toolchain freeze makes buildability on
+  trixie the binding constraint (host follows guest), ADR-012 forbids a
+  distro dependency. ARCHITECTURE.md update-flow rewritten to match.
+- **`katmate-update` tool (redefined by ADR-019):** a release-bump
+  orchestrator, not a drift detector — bump pin → rebase patches → build
+  host binary → `make foundation` → `make app-<type>` → recreate instance
+  deltas → update `/var/lib/katmate/foundation.meta`. Implementation open
+  items: `foundation.meta` writing in `foundation.sh`, launch preflight
+  (host `waypipe --version` vs meta, refuse loudly on mismatch), host build
+  script, patch-queue scaffold. Only once this exists does the
+  `snapshot.debian.org` apt pin matter.
 - **Disposable-VM launch model** decision: unblocks `katmate-cid` `_is_alive` +
   reconcile (CID ≥100 dynamic pool).
 - **Launch daemon / privilege split:** fold the launcher's `lvchange -K -ay`
