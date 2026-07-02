@@ -856,3 +856,83 @@ and the "defined sources" reproducibility of
 [ADR-007](DECISIONS.md#adr-007)/[ADR-011](DECISIONS.md#adr-011); removes the
 distro dependency that [ADR-012](DECISIONS.md#adr-012) cannot tolerate;
 mirrors the backport practice of [ADR-005](DECISIONS.md#adr-005).
+
+---
+
+## ADR-020 — Release is a pre-baked signed ISO; install-time carries no build-time dependencies
+
+**Status:** Accepted (2026-07)
+
+**Context:** ADR-019's host build script (`waypipe-host.sh`) clones waypipe
+from a public git remote, applies the patch queue, and compiles it with the
+full Rust/meson toolchain. That is correct for the *developer's* build
+environment, but it forced an implicit question that had never been settled:
+does any of this machinery run on the *end user's* machine at install time?
+
+For a security-focused OS the answer must be a hard no, and for reasons of
+security, not merely convenience:
+
+- **Network dependency at the worst moment.** Requiring `git clone` (or any
+  fetch of project components) during installation makes the install fail
+  without a network and, worse, ties the integrity of the installed system to
+  whatever a remote served at that instant.
+- **Supply-chain / TOFU surface.** What `git clone` pulls at install time is
+  not what the developer reviewed and signed. Every install-time fetch is an
+  unaudited trust decision made on the user's behalf. A user who chose this OS
+  *for* its minimal trust surface cannot be asked to trust a public git remote
+  as a precondition of installation.
+- **Reproducibility (ADR-007).** Installation must yield bit-for-bit what was
+  reviewed and signed at release time. A build performed at install time —
+  against moving package repos and git HEADs — cannot offer that.
+- **Threat model of the audience.** The users who most want this system are
+  precisely those who should not have to reach a public git host to obtain a
+  trustworthy install.
+
+**Decision:** The unit of distribution is a **pre-baked, GPG-signed ISO**.
+Everything is built ahead of time in the developer's environment and shipped
+inside the image; installation is unpacking and provisioning, never building.
+
+- **Build-time (developer, on Acer/MINIS).** `git clone`, patch queue,
+  `cargo`/`meson`/`ninja`, `debootstrap`, kernel build — all the pipeline
+  scripts (`foundation.sh`, `app-layer.sh`, `waypipe-host.sh`, kernel build)
+  run *here*. Git and the toolchain are legitimate at this stage: it is the
+  developer's reviewed, signed environment. The **output** of this pipeline is
+  the ISO.
+- **Release artifact.** The ISO carries every prebuilt component: the
+  foundation thin LV image, the app-layer snapshots, the external MicroVM
+  `vmlinuz`, and **both** waypipe binaries (guest baked into the foundation,
+  host binary destined for `/opt/katmate/bin/waypipe`). The ISO is signed; the
+  signature is the trust anchor.
+- **Install-time (user).** `download ISO → verify signature → bake to USB →
+  boot → installer provisions prebuilt artifacts onto disk` (LVM/thin-pool
+  setup, unpack, bootloader). No `git`, no `cargo`/`meson`/`ninja`, no fetch of
+  project components. Network access, if used at all, is a separate question
+  (e.g. the Debian base) and must never be a path by which *project*
+  components arrive unaudited.
+
+**Consequences:**
+
+- The ADR-019 pipeline scripts are firmly **build-time developer tools**; none
+  of them ever executes on a user's machine. `/opt/katmate/bin/waypipe` arrives
+  on the target as a prebuilt, signed artifact unpacked from the ISO — not as
+  something compiled during installation.
+- The installer's job shrinks to provisioning: partition/thin-pool, unpack the
+  signed images, install the bootloader, write per-instance deltas. It contains
+  no build logic and no toolchain.
+- Reproducibility and auditability become properties of a single signed
+  artifact (the ISO), the natural place to anchor both.
+- `katmate-update` (ADR-019) operates on the same principle: it is a
+  developer/release-side orchestrator that produces new signed artifacts, not
+  an install-time or on-device builder.
+- Open follow-up: define whether the installer needs *any* network at all
+  (offline install as the target), and how the Debian base within the
+  foundation is itself pinned/shipped so that even the base is not fetched
+  unaudited at build time (ties into the deferred `snapshot.debian.org` pin,
+  ADR-011).
+
+**Cross-reference:** enforces the reproducibility of
+[ADR-007](DECISIONS.md#adr-007)/[ADR-011](DECISIONS.md#adr-011) at the
+distribution boundary; scopes the build machinery of
+[ADR-019](DECISIONS.md#adr-019) to build-time only; consistent with the
+minimal-trust, distro-independent stance of
+[ADR-012](DECISIONS.md#adr-012).
