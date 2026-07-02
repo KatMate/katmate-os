@@ -5,7 +5,7 @@
 > each working session. Detailed proofs and command sequences live in git
 > history and the ADRs — this file references them rather than repeating them.
 
-**Last updated:** 2026-07-01 (morning) — **kernel rebuild proven live**: three flags (`HW_RANDOM_VIRTIO`, `SECURITY_LANDLOCK`, `SND_ALOOP`) built into `6.12.87` and validated end-to-end on a live `vm_app_web` boot + GUI RUN. Kernel now built on MINIS.
+**Last updated:** 2026-07-02 — **ADR-019/020 + `foundation.meta` writer**: waypipe becomes a project-maintained pinned-tag+patch-queue component (ADR-019); release is a pre-baked signed ISO with no install-time build deps (ADR-020); `foundation.sh` now writes `/var/lib/katmate/foundation.meta` at RO-freeze (first ADR-019 open item, committed). Meta hand-written for the existing frozen foundation on MINIS.
 **Milestone:** v0.2 (in development)
 
 ## Current focus
@@ -17,7 +17,9 @@ waypipe-from-source → bake init/agent/user → freeze), then `make app-web` /
 `vm_tpl_foundation` (Apr-13 systemd image — the source of much earlier confusion)
 is **replaced** by a clean systemd-free foundation. Remaining work shifts to
 `katmate-update`, the disposable-VM launch model, and migrating the live AppVMs
-onto the foundation chain.
+onto the foundation chain. The release model is now fixed (ADR-020): the whole
+build chain is a *developer-side* pipeline whose output is a signed ISO; the
+user installs by verify → bake → boot → provision, never by building.
 
 The full slice, re-proven on a freshly-scripted foundation (`vm_app_web`, CID 5):
 `foundation (thin RO) ← vm_app_web (thin snap RO) ← qcow2 delta` → custom
@@ -29,6 +31,51 @@ the three-flag `6.12.87` kernel on 2026-07-01.
 
 Direction unchanged: IOMMU-capable platforms only (VT-d/AMD-Vi); VT-x-only
 frozen (ADR-015). MINIS is primary host and merge target.
+
+## This session (2026-07-02) — ADR-019/020, `foundation.meta` writer
+
+Design/doc session, one implementation slice landed. No new live boot proof;
+scope was the waypipe ownership model, the release boundary, and the first
+concrete piece of the version-lock machinery.
+
+- **ADR-019 (committed):** waypipe is now a project-maintained *patch-queue
+  fork* — one pinned upstream tag (`v0.11.0`) + a KatMate patch queue
+  (`third_party/waypipe/patches/`, strip & harden only), both host and guest
+  binaries built from the same tree. Host binary lives at
+  `/opt/katmate/bin/waypipe`, outside pacman. Drift impossible by construction.
+- **`foundation.meta` writer (committed):** `foundation.sh` writes
+  `/var/lib/katmate/foundation.meta` at RO-freeze — flat `KEY=value`,
+  POSIX-sourceable, no parser needed by the launch preflight. Placed AFTER the
+  freeze and AFTER the rollback trap is disarmed: a meta-write failure dies
+  loudly (`set -e`) without destroying a valid frozen LV. `WAYPIPE_PATCH_LEVEL`
+  counts `*.patch` in `WAYPIPE_PATCHES_DIR` (0 until the scaffold lands).
+  `config.sh` gains `FOUNDATION_META` + `WAYPIPE_PATCHES_DIR`;
+  `KERNEL_VERSION` is now the declared source for the meta field (not filename
+  parse). This is the first of ADR-019's four open items.
+- **Existing frozen foundation covered:** meta hand-written on MINIS
+  (`WAYPIPE_TAG=v0.11.0`, `KERNEL_VERSION=6.12.87`, patch level 0) so the future
+  preflight will not reject the current live foundation. Host waypipe on MINIS
+  confirmed `0.11.0`.
+- **ADR-020 (committed):** the build-time / install-time boundary is now
+  formal. Release = a pre-baked, GPG-signed **ISO** carrying every prebuilt
+  component (foundation, app-layers, external vmlinuz, both waypipe binaries);
+  install = verify → bake USB → boot → provision, **never build**. No git, no
+  toolchain, no fetch of project components on the user's machine — a security
+  requirement (network + supply-chain surface at the worst moment), not
+  convenience. This scopes ALL pipeline scripts (`foundation.sh`,
+  `app-layer.sh`, `waypipe-host.sh`, kernel build) to build-time developer
+  tooling whose *output* is the ISO.
+- **Ordering correction for the remaining ADR-019 items:** the host build
+  script (`waypipe-host.sh`) must come BEFORE the launch preflight — the
+  preflight compares against `/opt/katmate/bin/waypipe`, which the host build
+  script produces. Preflight was drafted (fish, in `app_web.con`) but parked
+  until the host binary exists. Decisions taken for it: compare bare `x.y.z`
+  (strip leading `v` both sides); version only, NOT patch level (`waypipe
+  --version` does not report the patch queue); hard path `/opt/katmate/bin/
+  waypipe`, no fallback to the distro binary.
+- **Convention (recorded):** build/pipeline scripts are bash
+  (`#!/usr/bin/env bash`); `app_web.con` stays fish (host-side launcher). Guest
+  = bash everywhere. Matt uses fish interactively on MINIS + Acer only.
 
 ## Proven this session (2026-07-01) — kernel rebuild, three flags, live-validated
 
@@ -274,11 +321,33 @@ by init (isolated under `#ifdef DEV_HOSTSHARE` for later if ever needed).
 - **`katmate-update` tool (redefined by ADR-019):** a release-bump
   orchestrator, not a drift detector — bump pin → rebase patches → build
   host binary → `make foundation` → `make app-<type>` → recreate instance
-  deltas → update `/var/lib/katmate/foundation.meta`. Implementation open
-  items: `foundation.meta` writing in `foundation.sh`, launch preflight
-  (host `waypipe --version` vs meta, refuse loudly on mismatch), host build
-  script, patch-queue scaffold. Only once this exists does the
-  `snapshot.debian.org` apt pin matter.
+  deltas → update `/var/lib/katmate/foundation.meta`. Open items, in
+  dependency order:
+    1. ✅ `foundation.meta` writing in `foundation.sh` — DONE (2026-07-02).
+    2. **patch-queue scaffold** — `third_party/waypipe/patches/` with
+       `.gitkeep` + `README.md` (application order, "strip & harden only"
+       scope). Empty (patch level 0) but structurally present so the host
+       build script reads from it without being written twice. (Matt: i concur.)
+    3. **host build script** `build/waypipe-host.sh` (bash) — clone pinned tag
+       → apply patch queue → `cargo fetch` → `meson` (SAME flags as guest:
+       `lz4/zstd enabled`, `gbm/dmabuf/video disabled`) → install to
+       `/opt/katmate/bin/waypipe`; NO build-dep purge (host is not an
+       appliance). Build-deps: CHECK only (`command -v`), never auto-install —
+       OS install must not depend on git/toolchain (ADR-020). Must precede the
+       preflight (which compares against this binary).
+    4. **launch preflight** in `app_web.con` (fish) — drafted, parked on #3.
+  Only once this exists does the `snapshot.debian.org` apt pin matter.
+- **ADR-020 (2026-07-02) — release = pre-baked signed ISO.** Build-time /
+  install-time boundary formalized: all pipeline scripts are developer-side;
+  their output is a signed ISO; the user never builds. Cross-refs ADR-007/011
+  (reproducibility), ADR-012 (distro independence), ADR-019 (build machinery
+  scope). Open follow-up: whether the installer needs ANY network (offline
+  install as target); how the Debian base is itself pinned/shipped so even the
+  base is not fetched unaudited (ties to the deferred ADR-011 snapshot pin).
+- **ISO bake pipeline** (new artefact, the output of the build chain per
+  ADR-020): `download ISO → verify signature → bake USB → boot → installer
+  provisions prebuilt foundation/app-layers/vmlinuz/both waypipe binaries onto
+  disk`. Not yet designed; the terminal step of the developer pipeline.
 - **Disposable-VM launch model** decision: unblocks `katmate-cid` `_is_alive` +
   reconcile (CID ≥100 dynamic pool).
 - **Launch daemon / privilege split:** fold the launcher's `lvchange -K -ay`
@@ -293,6 +362,8 @@ by init (isolated under `#ifdef DEV_HOSTSHARE` for later if ever needed).
   `protocol.rs` to a shared `katmate-protocol` crate (ping-client already
   symlinks it — the first step is done).
 - **Installer:** secrets removal (v0.2 blocker); create `/var/lib/katmate/`.
+  Per ADR-020 the installer is PROVISIONING only — partition/thin-pool, unpack
+  signed images, bootloader, per-instance deltas — no build logic, no toolchain.
 - **Desktop:** port CYBRland + Plymouth from Acer to MINIS.
 
 ## Invariants & gotchas (quick reminders — detail in git/ADRs)
@@ -318,6 +389,14 @@ by init (isolated under `#ifdef DEV_HOSTSHARE` for later if ever needed).
   `XDG_RUNTIME_DIR`. waypipe ≥0.11 self-resolves the host CID (no `2:` prefix).
 - **VSOCK ports:** 1025 = vm-agent control, 1024 = waypipe GUI — two distinct
   purposeful ports. Host waypipe client must listen on 1024 before `RUN`.
+- **`foundation.meta` (ADR-019):** host-side source of truth for the active
+  foundation version at `/var/lib/katmate/foundation.meta`, flat `KEY=value`
+  (`KATMATE_META_VERSION`, `WAYPIPE_TAG`, `WAYPIPE_PATCH_LEVEL`,
+  `KERNEL_VERSION`, `BUILD_DATE`, `FOUNDATION_LV`). Written by `foundation.sh`
+  at RO-freeze; read without booting/mounting. The launch preflight compares
+  host `waypipe --version` (bare `x.y.z`) against `WAYPIPE_TAG` and refuses to
+  start on mismatch. A rebuilt foundation overwrites it; an existing frozen
+  foundation needs it hand-written once (done on MINIS).
 - **Re-bake invalidates deltas:** changing `vm_app_web` under an existing
   `test_web.qcow2` makes the delta inconsistent — recreate it
   (`qemu-img create -f qcow2 -F raw -b /dev/vg0/vm_app_web <delta> 10G`). The
