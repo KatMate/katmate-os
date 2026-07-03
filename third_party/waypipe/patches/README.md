@@ -35,7 +35,7 @@ Patches are applied in ascending filename order:
 where `NNNN` is a zero-padded sequence number starting at `0001`. The build
 scripts (`build/waypipe-host.sh` for the host, the foundation chroot recipe
 for the guest) apply every `*.patch` in this directory, in order, with
-`patch -p1`. A patch that fails to apply is a hard build error.
+`git apply`. A patch that fails to apply is a hard build error.
 
 ## Adding a patch
 
