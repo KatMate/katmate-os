@@ -36,26 +36,12 @@ set LV_HOME    vm_app_web_home          # persistent rw /home LV
 set INSTANCES_DIR /var/lib/katmate/instances
 set DELTA      $INSTANCES_DIR/$INSTANCE.qcow2
 
-# ---- pre-flight: activate the RO backing chain ----------------------------
-# Both layers, every boot. qemu/qemu-img fail with "Could not open backing
-# image" if either device node is absent.
-
-echo "[app_web] activating backing chain ($LV_FOUND, $LV_APP)"
-sudo lvchange -K -ay $VG/$LV_FOUND; or begin
-    echo "[app_web] FATAL: cannot activate $VG/$LV_FOUND" >&2; exit 1
-end
-sudo lvchange -K -ay $VG/$LV_APP; or begin
-    echo "[app_web] FATAL: cannot activate $VG/$LV_APP" >&2; exit 1
-end
-# Persistent /home LV (regular LV; activate to be safe).
-sudo lvchange -ay $VG/$LV_HOME; or begin
-    echo "[app_web] FATAL: cannot activate $VG/$LV_HOME" >&2; exit 1
-end
-
 # ---- pre-flight: waypipe version lock (ADR-019) ---------------------------
 # The guest waypipe (baked into the foundation) and the host waypipe MUST be
 # the same version, or vsock negotiation drops silently. foundation.meta
 # records the tag the foundation was built with; refuse loudly on mismatch.
+# Checked first: it is the cheapest gate (a file read, no sudo, no LVM), so
+# a mismatch fails before any device is activated.
 
 set META         /var/lib/katmate/foundation.meta
 set HOST_WAYPIPE /opt/katmate/bin/waypipe
@@ -88,6 +74,22 @@ if test "$HOST_VER" != "$FOUND_VER"
     exit 1
 end
 echo "[app_web] waypipe version OK ($HOST_VER, matches foundation)"
+
+# ---- pre-flight: activate the RO backing chain ----------------------------
+# Both layers, every boot. qemu/qemu-img fail with "Could not open backing
+# image" if either device node is absent.
+
+echo "[app_web] activating backing chain ($LV_FOUND, $LV_APP)"
+sudo lvchange -K -ay $VG/$LV_FOUND; or begin
+    echo "[app_web] FATAL: cannot activate $VG/$LV_FOUND" >&2; exit 1
+end
+sudo lvchange -K -ay $VG/$LV_APP; or begin
+    echo "[app_web] FATAL: cannot activate $VG/$LV_APP" >&2; exit 1
+end
+# Persistent /home LV (regular LV; activate to be safe).
+sudo lvchange -ay $VG/$LV_HOME; or begin
+    echo "[app_web] FATAL: cannot activate $VG/$LV_HOME" >&2; exit 1
+end
 
 # ---- sanity checks --------------------------------------------------------
 
