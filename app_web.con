@@ -52,6 +52,43 @@ sudo lvchange -ay $VG/$LV_HOME; or begin
     echo "[app_web] FATAL: cannot activate $VG/$LV_HOME" >&2; exit 1
 end
 
+# ---- pre-flight: waypipe version lock (ADR-019) ---------------------------
+# The guest waypipe (baked into the foundation) and the host waypipe MUST be
+# the same version, or vsock negotiation drops silently. foundation.meta
+# records the tag the foundation was built with; refuse loudly on mismatch.
+
+set META         /var/lib/katmate/foundation.meta
+set HOST_WAYPIPE /opt/katmate/bin/waypipe
+
+if not test -e $META
+    echo "[app_web] FATAL: foundation metadata not found: $META" >&2
+    exit 1
+end
+if not test -x $HOST_WAYPIPE
+    echo "[app_web] FATAL: host waypipe not found: $HOST_WAYPIPE" >&2
+    echo "          build it with: ./build/waypipe-host.sh" >&2
+    exit 1
+end
+
+# WAYPIPE_TAG in the meta is the upstream tag (e.g. 'v0.11.0'); strip the
+# leading 'v' to compare against 'waypipe --version' -> 'waypipe 0.11.0 ...'.
+set META_TAG  (string match -rg '^WAYPIPE_TAG=(.*)$' < $META)
+set FOUND_VER (string replace -r '^v' '' -- $META_TAG)
+set HOST_VER  (command $HOST_WAYPIPE --version | string match -rg 'waypipe (\S+)')
+
+if test -z "$FOUND_VER"
+    echo "[app_web] FATAL: WAYPIPE_TAG missing/empty in $META" >&2
+    exit 1
+end
+if test "$HOST_VER" != "$FOUND_VER"
+    echo "[app_web] FATAL: waypipe version mismatch" >&2
+    echo "          host binary : $HOST_VER ($HOST_WAYPIPE)" >&2
+    echo "          foundation  : $FOUND_VER (WAYPIPE_TAG=$META_TAG in $META)" >&2
+    echo "          rebuild host waypipe or rebuild the foundation to match." >&2
+    exit 1
+end
+echo "[app_web] waypipe version OK ($HOST_VER, matches foundation)"
+
 # ---- sanity checks --------------------------------------------------------
 
 if not test -e $DELTA
