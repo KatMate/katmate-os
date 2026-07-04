@@ -5,7 +5,12 @@
 > each working session. Detailed proofs and command sequences live in git
 > history and the ADRs — this file references them rather than repeating them.
 
-**Last updated:** 2026-07-03 — **ADR-019 version-lock chain COMPLETE**: the remaining three open items landed and were validated end-to-end. Patch-queue scaffold (`third_party/waypipe/patches/`, level 0), host build script `build/waypipe-host.sh` (built on MINIS → `lz4/zstd true`, `gbm/dmabuf/video false`), and the launch preflight in `app_web.con` (version lock placed BEFORE LVM activation — cheapest gate first). Negative test (forced `v0.10.0` mismatch → FATAL before activation) and positive test (match → normal boot) both pass. The whole waypipe version-lock backbone (ADR-008's "katmate-update enforces the lock") is now real.
+**Last updated:** 2026-07-04 — **katmate-update MVP orchestrator DONE**:
+`build/katmate-update.sh` chains a waypipe version bump end to end (host binary
+→ foundation → app-layers → recreate deltas), dry-run-validated on MINIS.
+ROADMAP build-order step 2 closed; the ADR-019 version-lock backbone is now
+fully mechanized. Next: RTL8125 PCIe passthrough to netVM (unblocks ROADMAP
+step 3, NetVM installer integration).
 **Milestone:** v0.2 (in development)
 
 ## Current focus
@@ -32,11 +37,58 @@ the three-flag `6.12.87` kernel on 2026-07-01.
 The **waypipe version-lock chain (ADR-019) is now complete**: host binary built
 from the pinned tree (`/opt/katmate/bin/waypipe`), `foundation.meta` records the
 tag, and the `app_web.con` preflight refuses to boot on host↔foundation version
-mismatch. What remains of `katmate-update` is the orchestrator itself (bump pin →
-rebase → build host → make foundation → make app → recreate deltas → update meta).
+mismatch.
+
+`katmate-update` is now complete: `build/katmate-update.sh` chains the whole
+bump (dry-run-validated). Remaining work shifts to the disposable-VM launch
+model, live-AppVM migration, and RTL8125 passthrough (unblocks NetVM installer
+integration).
 
 Direction unchanged: IOMMU-capable platforms only (VT-d/AMD-Vi); VT-x-only
 frozen (ADR-015). MINIS is primary host and merge target.
+
+## This session (2026-07-04) — katmate-update MVP orchestrator
+
+`build/katmate-update.sh` written and dry-run-validated on MINIS. This closes
+ROADMAP build-order step 2 (the last piece of the version-lock backbone: the
+orchestrator that chains a waypipe bump end to end).
+
+- **`build/katmate-update.sh` (bash, committed):** sources `build/config.sh`,
+  then chains the proven steps in dependency order — build host waypipe
+  (`waypipe-host.sh`) → `make foundation` (writes `foundation.meta`) →
+  `make app-web` + `make app-vault` → recreate instance deltas. Home LVs
+  untouched. Realizes ADR-019 / ARCHITECTURE.md update-flow §1.
+  - **MVP scope, deliberately narrow:** instances assumed STOPPED — no
+    teardown (that is launch-daemon policy: disposable vs persistent, must not
+    kill netVM/CID 3). Preflight aborts loudly (via `fuser`) if any qemu holds
+    an instance delta, BEFORE the destructive foundation rebuild.
+  - `WAYPIPE_VERSION` edited by hand in `config.sh`; the script only reads it.
+    App types hardcoded `web vault` (matches Makefile `APP_TYPES`).
+  - vm-agent + kernel vmlinuz are NOT built here; their presence is checked so
+    a missing artefact fails before rebuild, not mid-`make`.
+  - Delta → app-type mapping by `<instance>_<type>.qcow2` convention, validated
+    in the preflight (type = last `_` segment).
+  - `--dry-run`: runs all checks, prints the plan, performs no build/make/
+    recreate (root not required). Used to validate this session — no live
+    rebuild was run (would needlessly destroy the working frozen foundation).
+- **Dry-run result:** config read (`v0.11.0`), all paths resolved, single delta
+  `test_web.qcow2` found + free, mapping `test_web → web → /dev/vg0/vm_app_web`
+  OK, full chain printed. Clean.
+- **`out/vm-agent` staged on MINIS:** the Makefile foundation target requires
+  `out/vm-agent`, but the binary was only ever built to
+  `agent/target/release/vm-agent` (never copied to `out/`). Copied into place.
+  Verified: dynamically linked, max symbol `GLIBC_2.34` (well under trixie's
+  2.41 — safe for the guest). `out/` is a build artefact, gitignored.
+
+### Notes / cosmetics observed this session
+
+- **Naming wart (`WAYPIPE_VERSION` vs `WAYPIPE_TAG`):** `config.sh` exports the
+  variable as `WAYPIPE_VERSION`; the `foundation.meta` KEY written by
+  `foundation.sh` is `WAYPIPE_TAG`. Same value, two names — a trap. Worth
+  unifying, or at least cross-referencing in an ADR comment.
+- **Stale Makefile header comment:** still lists `out/linux-image-...deb` as a
+  foundation prerequisite, though the kernel path is now `KERNEL_VMLINUZ`
+  (external vmlinuz, not `.deb`). Cosmetic; clean up on next Makefile touch.
 
 ## This session (2026-07-03) — ADR-019 chain closed (items #2–#4)
 
@@ -208,7 +260,8 @@ systemd unit, which was the pre-06-27 plan, not reality).
 lz4+zstd true; vm-agent + waypipe at `/usr/local/bin`; `user:x:1000:1000:...` in
 passwd. Boot log: `Run /sbin/init as init process` → `[katmate-init] starting
 (pid 1)` → `[katmate-init] vm-agent launched as uid 1000 (pid 60)`. `ping-client
-ping 5` → `status=0x00 (OK)`. **ROADMAP build-order step 2 closed.**
+ping 5` → `status=0x00 (OK)`. **Foundation pipeline complete (part of
+ROADMAP build-order step 1).**
 
 > NOTE: flaky `deb.debian.org` (fastly) timeouts hit `libicu76` mid-install
 > twice during bring-up — retry cleared it. This is the standing argument for the
@@ -373,26 +426,10 @@ by init (isolated under `#ifdef DEV_HOSTSHARE` for later if ever needed).
   between waypipe versions, trixie toolchain freeze makes buildability on
   trixie the binding constraint (host follows guest), ADR-012 forbids a
   distro dependency. ARCHITECTURE.md update-flow rewritten to match.
-- **`katmate-update` tool (redefined by ADR-019):** a release-bump
-  orchestrator, not a drift detector — bump pin → rebase patches → build
-  host binary → `make foundation` → `make app-<type>` → recreate instance
-  deltas → update `/var/lib/katmate/foundation.meta`. Open items, in
-  dependency order:
-    1. ✅ `foundation.meta` writing in `foundation.sh` — DONE (2026-07-02).
-    2. ✅ **patch-queue scaffold** — DONE (2026-07-03).
-       `third_party/waypipe/patches/` with `.gitkeep` + `README.md`
-       (application order = ascending filename, `git apply`, "strip & harden
-       only" scope). Empty, patch level 0.
-    3. ✅ **host build script** `build/waypipe-host.sh` (bash) — DONE
-       (2026-07-03). Built on MINIS: `waypipe 0.11.0`, `lz4/zstd true`,
-       `gbm/dmabuf/video false`. Build-deps CHECK-only; missing host dep was
-       `bindgen` (`rust-bindgen`).
-    4. ✅ **launch preflight** in `app_web.con` (fish) — DONE (2026-07-03).
-       Version lock placed BEFORE LVM activation (cheapest gate first).
-       Negative test (forced `v0.10.0` → FATAL before activation) + positive
-       test (match → boot) both pass.
-  ADR-019 version-lock chain COMPLETE. `snapshot.debian.org` apt pin still
-  deferred until the `katmate-update` orchestrator (rebuild pipeline) exists.
+- **`katmate-update` — COMPLETE (2026-07-04).** Release-bump orchestrator
+  `build/katmate-update.sh`; all four ADR-019 version-lock items done (see
+  the 2026-07-04 session above). `snapshot.debian.org` apt pin still deferred
+  until the rebuild pipeline exercises determinism.
 - **ADR-020 (2026-07-02) — release = pre-baked signed ISO.** Build-time /
   install-time boundary formalized: all pipeline scripts are developer-side;
   their output is a signed ISO; the user never builds. Cross-refs ADR-007/011
@@ -404,6 +441,9 @@ by init (isolated under `#ifdef DEV_HOSTSHARE` for later if ever needed).
   ADR-020): `download ISO → verify signature → bake USB → boot → installer
   provisions prebuilt foundation/app-layers/vmlinuz/both waypipe binaries onto
   disk`. Not yet designed; the terminal step of the developer pipeline.
+- **RTL8125 PCIe passthrough to netVM** — clean IOMMU group 12; fix identified
+  (`disable_idle_d3=1` + `softdep r8169 pre: vfio-pci`). Unblocks ROADMAP
+  build-order step 3 (NetVM installer integration). NEXT concrete step.
 - **Disposable-VM launch model** decision: unblocks `katmate-cid` `_is_alive` +
   reconcile (CID ≥100 dynamic pool).
 - **Launch daemon / privilege split:** fold the launcher's `lvchange -K -ay`
@@ -452,7 +492,9 @@ by init (isolated under `#ifdef DEV_HOSTSHARE` for later if ever needed).
   at RO-freeze; read without booting/mounting. The launch preflight compares
   host `waypipe --version` (bare `x.y.z`) against `WAYPIPE_TAG` and refuses to
   start on mismatch. A rebuilt foundation overwrites it; an existing frozen
-  foundation needs it hand-written once (done on MINIS).
+  foundation needs it hand-written once (done on MINIS). NOTE: the config.sh
+  variable is `WAYPIPE_VERSION`; the meta KEY is `WAYPIPE_TAG` — same value,
+  two names.
 - **Re-bake invalidates deltas:** changing `vm_app_web` under an existing
   `test_web.qcow2` makes the delta inconsistent — recreate it
   (`qemu-img create -f qcow2 -F raw -b /dev/vg0/vm_app_web <delta> 10G`). The
