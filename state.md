@@ -5,7 +5,7 @@
 > each working session. Detailed proofs and command sequences live in git
 > history and the ADRs — this file references them rather than repeating them.
 
-**Last updated:** 2026-07-02 — **ADR-019/020 + `foundation.meta` writer**: waypipe becomes a project-maintained pinned-tag+patch-queue component (ADR-019); release is a pre-baked signed ISO with no install-time build deps (ADR-020); `foundation.sh` now writes `/var/lib/katmate/foundation.meta` at RO-freeze (first ADR-019 open item, committed). Meta hand-written for the existing frozen foundation on MINIS.
+**Last updated:** 2026-07-03 — **ADR-019 version-lock chain COMPLETE**: the remaining three open items landed and were validated end-to-end. Patch-queue scaffold (`third_party/waypipe/patches/`, level 0), host build script `build/waypipe-host.sh` (built on MINIS → `lz4/zstd true`, `gbm/dmabuf/video false`), and the launch preflight in `app_web.con` (version lock placed BEFORE LVM activation — cheapest gate first). Negative test (forced `v0.10.0` mismatch → FATAL before activation) and positive test (match → normal boot) both pass. The whole waypipe version-lock backbone (ADR-008's "katmate-update enforces the lock") is now real.
 **Milestone:** v0.2 (in development)
 
 ## Current focus
@@ -29,8 +29,63 @@ is baked nowhere into the boot path (the binary still ships in the image as dead
 mass — a later minimal-TCB purge). GUI RUN (nautilus over waypipe) re-proven on
 the three-flag `6.12.87` kernel on 2026-07-01.
 
+The **waypipe version-lock chain (ADR-019) is now complete**: host binary built
+from the pinned tree (`/opt/katmate/bin/waypipe`), `foundation.meta` records the
+tag, and the `app_web.con` preflight refuses to boot on host↔foundation version
+mismatch. What remains of `katmate-update` is the orchestrator itself (bump pin →
+rebase → build host → make foundation → make app → recreate deltas → update meta).
+
 Direction unchanged: IOMMU-capable platforms only (VT-d/AMD-Vi); VT-x-only
 frozen (ADR-015). MINIS is primary host and merge target.
+
+## This session (2026-07-03) — ADR-019 chain closed (items #2–#4)
+
+Implementation session; the three remaining version-lock items landed and were
+validated live on MINIS. No design changes — the ADR-019/020 decisions from
+2026-07-02 held as written.
+
+- **Patch-queue scaffold (committed):** `third_party/waypipe/patches/` with
+  `.gitkeep` + `README.md`. Convention fixed to `git apply` (README aligned to
+  match `waypipe-host.sh` and the guest recipe — the earlier `patch -p1` note is
+  gone). Empty, patch level 0.
+- **`build/waypipe-host.sh` (committed, bash):** clone pinned `v0.11.0` → apply
+  patch queue (`git apply`, ascending filename order) → `cargo fetch` → `meson`
+  with the SAME flags as the guest (`lz4/zstd enabled`, `gbm/dmabuf/video
+  disabled`) → install to `/opt/katmate/bin/waypipe`. Build-deps are CHECKED
+  only (`command -v` + `pkg-config --exists`), never auto-installed (ADR-020);
+  no build-dep purge (host is not an appliance). Ephemeral clone in `mktemp -d`
+  with a cleanup trap; patch dir resolved relative to the script.
+  - **Live build on MINIS:** the only missing host dep was `bindgen` (Arch
+    package `rust-bindgen`); after install the build succeeded. Result:
+    `waypipe 0.11.0`, `lz4: true, zstd: true, dmabuf: false, video: false`. Gate
+    passed.
+- **Launch preflight (committed, fish, in `app_web.con`):** reads `WAYPIPE_TAG`
+  from `/var/lib/katmate/foundation.meta`, strips leading `v`, compares against
+  `waypipe --version` (parsed with `string match -rg`). Placed FIRST — before
+  the `lvchange -K -ay` activation block — because it is the cheapest gate (a
+  file read, no sudo, no LVM). An initial version had it AFTER activation; the
+  negative test exposed the wrong order and it was moved up.
+  - **Negative test:** meta temporarily set to `WAYPIPE_TAG=v0.10.0` → preflight
+    prints FATAL mismatch and exits BEFORE `activating backing chain`. Meta
+    restored to `v0.11.0`.
+  - **Positive test:** `waypipe version OK (0.11.0, matches foundation)` prints
+    before activation, then normal boot (kernel `6.12.87-dirty` on ttyS0).
+- **`ping-client` built on MINIS:** `cargo build --release` in
+  `~/katmate-build/bin/ping-client/` — the `error.rs`/`protocol.rs` symlinks into
+  `agent/src/` resolved correctly. Binary at
+  `bin/ping-client/target/release/ping-client`; `shutdown <cid> [port]`
+  subcommand present. (Closes the standing "next immediate step".)
+
+### Notes / cosmetics observed this session
+
+- **rsync `--delete` without excludes** still tries to remove MINIS-only
+  build output (`trixie-build/`, root-owned) → `Permission denied` noise.
+  Harmless (source transferred fine) but a standing wart; a fixed `--exclude`
+  set (`.git/ trixie-build/ out/ agent/target/ git-cli.txt`) or a `sync.fish`
+  wrapper is the clean fix. NOT yet done.
+- **`zoxide` error** in `~/.config/fish/config.fish:81` on MINIS prints on every
+  script invocation (`zoxide` not installed there). Non-blocking; guard the line
+  (`command -q zoxide; and zoxide init fish | source`) or install it.
 
 ## This session (2026-07-02) — ADR-019/020, `foundation.meta` writer
 
@@ -324,19 +379,20 @@ by init (isolated under `#ifdef DEV_HOSTSHARE` for later if ever needed).
   deltas → update `/var/lib/katmate/foundation.meta`. Open items, in
   dependency order:
     1. ✅ `foundation.meta` writing in `foundation.sh` — DONE (2026-07-02).
-    2. **patch-queue scaffold** — `third_party/waypipe/patches/` with
-       `.gitkeep` + `README.md` (application order, "strip & harden only"
-       scope). Empty (patch level 0) but structurally present so the host
-       build script reads from it without being written twice. (Matt: i concur.)
-    3. **host build script** `build/waypipe-host.sh` (bash) — clone pinned tag
-       → apply patch queue → `cargo fetch` → `meson` (SAME flags as guest:
-       `lz4/zstd enabled`, `gbm/dmabuf/video disabled`) → install to
-       `/opt/katmate/bin/waypipe`; NO build-dep purge (host is not an
-       appliance). Build-deps: CHECK only (`command -v`), never auto-install —
-       OS install must not depend on git/toolchain (ADR-020). Must precede the
-       preflight (which compares against this binary).
-    4. **launch preflight** in `app_web.con` (fish) — drafted, parked on #3.
-  Only once this exists does the `snapshot.debian.org` apt pin matter.
+    2. ✅ **patch-queue scaffold** — DONE (2026-07-03).
+       `third_party/waypipe/patches/` with `.gitkeep` + `README.md`
+       (application order = ascending filename, `git apply`, "strip & harden
+       only" scope). Empty, patch level 0.
+    3. ✅ **host build script** `build/waypipe-host.sh` (bash) — DONE
+       (2026-07-03). Built on MINIS: `waypipe 0.11.0`, `lz4/zstd true`,
+       `gbm/dmabuf/video false`. Build-deps CHECK-only; missing host dep was
+       `bindgen` (`rust-bindgen`).
+    4. ✅ **launch preflight** in `app_web.con` (fish) — DONE (2026-07-03).
+       Version lock placed BEFORE LVM activation (cheapest gate first).
+       Negative test (forced `v0.10.0` → FATAL before activation) + positive
+       test (match → boot) both pass.
+  ADR-019 version-lock chain COMPLETE. `snapshot.debian.org` apt pin still
+  deferred until the `katmate-update` orchestrator (rebuild pipeline) exists.
 - **ADR-020 (2026-07-02) — release = pre-baked signed ISO.** Build-time /
   install-time boundary formalized: all pipeline scripts are developer-side;
   their output is a signed ISO; the user never builds. Cross-refs ADR-007/011
