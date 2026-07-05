@@ -5,53 +5,92 @@
 > each working session. Detailed proofs and command sequences live in git
 > history and the ADRs — this file references them rather than repeating them.
 
-**Last updated:** 2026-07-04 — **katmate-update MVP orchestrator DONE**:
-`build/katmate-update.sh` chains a waypipe version bump end to end (host binary
-→ foundation → app-layers → recreate deltas), dry-run-validated on MINIS.
-ROADMAP build-order step 2 closed; the ADR-019 version-lock backbone is now
-fully mechanized. Next: RTL8125 PCIe passthrough to netVM (unblocks ROADMAP
-step 3, NetVM installer integration).
+**Last updated:** 2026-07-05 — **RTL8125 PCIe passthrough to netVM ACHIEVED**:
+the 2.5GbE controller (`10ec:8125`, `01:00.0`) now binds to `vfio-pci` at boot
+and netVM boots with it assigned, guest sees it as `enp0s6`. The Feb/Mar
+"cannot allocate memory" wall is gone. This is what an earlier assistant could
+not do. netVM in-guest network config (`enp0s6`) and the critical second-boot
+FLReset- test are the immediate next steps (the session was consumed by an
+unrelated USB-NIC recovery, now Open problem #7). ROADMAP build-order step 3
+(NetVM installer integration) is unblocked on the passthrough side.
 **Milestone:** v0.2 (in development)
 
 ## Current focus
 
-The **entire build chain is now scripted and proven from nothing**: a single
-`make foundation` builds the shared base from scratch (debootstrap → base →
-waypipe-from-source → bake init/agent/user → freeze), then `make app-web` /
-`make app-vault` snapshot it, and an instance boots end-to-end. The old hand-built
-`vm_tpl_foundation` (Apr-13 systemd image — the source of much earlier confusion)
-is **replaced** by a clean systemd-free foundation. Remaining work shifts to
-`katmate-update`, the disposable-VM launch model, and migrating the live AppVMs
-onto the foundation chain. The release model is now fixed (ADR-020): the whole
-build chain is a *developer-side* pipeline whose output is a signed ISO; the
-user installs by verify → bake → boot → provision, never by building.
+The RTL8125 passthrough backbone is proven: `vfio.conf` binds the NIC away from
+`r8169` at boot, a vfio variant of the netVM launcher (`net-vfio.con`) boots the
+guest with `-device vfio-pci,host=0000:01:00.0`, and the guest enumerates the
+card as `enp0s6`. What remains on this thread is small and concrete: point the
+guest's network config at `enp0s6` (DHCP from the LAN router over the real
+uplink), then run the second-boot test where FLReset-less devices typically
+break, to prove the `disable_idle_d3=1` workaround holds across a guest reboot
+cycle. Only after that does the USB↔PCI role-swap become permanent (RTL8125 =
+netVM production uplink; USB-NIC r8152 = host dev/fallback).
 
-The full slice, re-proven on a freshly-scripted foundation (`vm_app_web`, CID 5):
-`foundation (thin RO) ← vm_app_web (thin snap RO) ← qcow2 delta` → custom
-microvm kernel `6.12.87` (external `-kernel`) → **katmate-init (PID 1)** →
-**vm-agent (uid 1000)** → VSOCK control channel (PING `status=0x00 OK`). systemd
-is baked nowhere into the boot path (the binary still ships in the image as dead
-mass — a later minimal-TCB purge). GUI RUN (nautilus over waypipe) re-proven on
-the three-flag `6.12.87` kernel on 2026-07-01.
-
-The **waypipe version-lock chain (ADR-019) is now complete**: host binary built
-from the pinned tree (`/opt/katmate/bin/waypipe`), `foundation.meta` records the
-tag, and the `app_web.con` preflight refuses to boot on host↔foundation version
-mismatch.
-
-`katmate-update` is now complete: `build/katmate-update.sh` chains the whole
-bump (dry-run-validated). Remaining work shifts to the disposable-VM launch
-model, live-AppVM migration, and RTL8125 passthrough (unblocks NetVM installer
-integration).
+The **entire build chain remains scripted and proven from nothing** (unchanged
+this session): `make foundation` builds the shared systemd-free base
+(debootstrap → base → waypipe-from-source → bake init/agent/user → freeze),
+`make app-web`/`make app-vault` snapshot it, and an instance boots end-to-end.
+The release model is fixed (ADR-020): the build chain is developer-side; its
+output is a signed ISO; the user installs by verify → bake → boot → provision,
+never by building. `katmate-update` (ADR-019 version-lock backbone) is complete.
 
 Direction unchanged: IOMMU-capable platforms only (VT-d/AMD-Vi); VT-x-only
 frozen (ADR-015). MINIS is primary host and merge target.
 
+## This session (2026-07-05) — RTL8125 passthrough achieved; USB-NIC regression
+
+Live work on MINIS console. The primary goal — PCIe passthrough of the embedded
+RTL8125 into netVM — succeeded. A secondary, unplanned thread (recovering the
+USB-NIC to host, needed to free the RTL8125) ate most of the session and is not
+resolved; it is carried as Open problem #7 with full diagnostics for tomorrow.
+
+### Passthrough (DONE — the real objective)
+
+- **`memlock` drop-in (committed to MINIS user units):**
+  `~/.config/systemd/user/netVM.service.d/memlock.conf` → `LimitMEMLOCK=infinity`.
+  `systemctl --user show netVM.service` confirms `LimitMEMLOCK=infinity` /
+  `LimitMEMLOCKSoft=infinity` — the user manager did NOT cap it, so no
+  system-level (`user@1000.service`) drop-in was needed.
+- **`/etc/modprobe.d/vfio.conf`:** `options vfio-pci ids=10ec:8125
+  disable_idle_d3=1` + `softdep r8169 pre: vfio-pci`. vfio modules added to
+  `/etc/mkinitcpio.conf` `MODULES=(vfio_pci vfio vfio_iommu_type1)`;
+  `mkinitcpio -P` clean (only benign `qat_6xxx` firmware warning).
+- **Post-reboot bind CONFIRMED:** `lspci -nnk -s 01:00.0` →
+  `Kernel driver in use: vfio-pci` (modules `r8169`). vfio.conf persists across
+  reboot. This is the point the earlier assistant never reached — it read
+  `FLReset-` in lspci, searched forum "won't work" posts, and gave up; the
+  `disable_idle_d3=1` workaround for the FLR-less reset is exactly the missing
+  piece.
+- **`/dev/vfio/12` permission (production-correct fix, path A):** QEMU runs as
+  user `host`, `/dev/vfio/*` is root-only by default → `permission denied`.
+  Fixed with a `vfio` group + udev rule
+  (`/etc/udev/rules.d/10-vfio.rules`: `SUBSYSTEM=="vfio", GROUP="vfio",
+  MODE="0660"`) + `usermod -aG vfio host` (takes effect on next login). NOT the
+  sudo-QEMU shortcut — the proper non-root path.
+- **netVM vfio launcher:** `~/net-vfio.con` = copy of `net.con` with the
+  `-device usb-host,vendorid=0x0bda,...` line (line 18) replaced by
+  `-device vfio-pci,host=0000:01:00.0`. Original `net.con` left untouched.
+- **First boot PROVEN:** `bash ~/net-vfio.con` (with `ulimit -l unlimited` set
+  in the shell first — see gotcha) boots netVM past the `VFIO_MAP_DMA` phase
+  with NO ENOMEM, guest reaches serial console (S0), `ip a` shows a new adapter
+  **`enp0s6`** = the passed-through RTL8125. A `[FAILED] raise network
+  interface` at boot is EXPECTED (guest netconf still targets the old
+  USB/TAP-era interface name, not `enp0s6`) — trivial, fixed next session.
+
+### USB-NIC recovery (NOT resolved — Open problem #7)
+
+Moving the USB-NIC (r8152, `0bda:8153`) back from netVM to host, so the host
+keeps an uplink after the RTL8125 goes to vfio. The device is HEALTHY (proven on
+a third machine — see #7) but on MINIS it will not come up as a host NIC. Long
+recovery attempt failed on every software path; deferred to tomorrow with a
+concrete untried hypothesis. Full detail under Open problems.
+
 ## This session (2026-07-04) — katmate-update MVP orchestrator
 
-`build/katmate-update.sh` written and dry-run-validated on MINIS. This closes
-ROADMAP build-order step 2 (the last piece of the version-lock backbone: the
-orchestrator that chains a waypipe bump end to end).
+`build/katmate-update.sh` written and dry-run-validated on MINIS. Closes
+ROADMAP build-order step 2 (the orchestrator that chains a waypipe bump end to
+end).
 
 - **`build/katmate-update.sh` (bash, committed):** sources `build/config.sh`,
   then chains the proven steps in dependency order — build host waypipe
@@ -80,7 +119,7 @@ orchestrator that chains a waypipe bump end to end).
   Verified: dynamically linked, max symbol `GLIBC_2.34` (well under trixie's
   2.41 — safe for the guest). `out/` is a build artefact, gitignored.
 
-### Notes / cosmetics observed this session
+### Notes / cosmetics observed 2026-07-04
 
 - **Naming wart (`WAYPIPE_VERSION` vs `WAYPIPE_TAG`):** `config.sh` exports the
   variable as `WAYPIPE_VERSION`; the `foundation.meta` KEY written by
@@ -128,7 +167,7 @@ validated live on MINIS. No design changes — the ADR-019/020 decisions from
   `bin/ping-client/target/release/ping-client`; `shutdown <cid> [port]`
   subcommand present. (Closes the standing "next immediate step".)
 
-### Notes / cosmetics observed this session
+### Notes / cosmetics observed 2026-07-03
 
 - **rsync `--delete` without excludes** still tries to remove MINIS-only
   build output (`trixie-build/`, root-owned) → `Permission denied` noise.
@@ -137,7 +176,8 @@ validated live on MINIS. No design changes — the ADR-019/020 decisions from
   wrapper is the clean fix. NOT yet done.
 - **`zoxide` error** in `~/.config/fish/config.fish:81` on MINIS prints on every
   script invocation (`zoxide` not installed there). Non-blocking; guard the line
-  (`command -q zoxide; and zoxide init fish | source`) or install it.
+  (`command -q zoxide; and zoxide init fish | source`) or install it. (Seen
+  again 2026-07-05 at the top of the console.)
 
 ## This session (2026-07-02) — ADR-019/020, `foundation.meta` writer
 
@@ -364,103 +404,123 @@ by init (isolated under `#ifdef DEV_HOSTSHARE` for later if ever needed).
   `/home/host/katmate-kernels/` (monolithic, `-kernel`, no initrd). nft input
   drop; SSH open (dev, Open problem #4). Host is on a SI IP in LJ, direct (the
   host's own apt/debootstrap traffic does NOT route through netVM/ProtonVPN).
-- **foundation** (`vm_tpl_foundation`, thin RO): **rebuilt from scratch this
-  session** via `make foundation` — clean, systemd-free, init/agent/waypipe/user
-  baked in. The old Apr-13 hand-built systemd image is gone.
-- **netVM** (CID 3, Debian trixie, q35): USB-NIC passthrough (r8152),
-  WireGuard/ProtonVPN, inner-segment routing. Runs independently of app_web.
+  **RTL8125 (`01:00.0`) now bound to `vfio-pci` at boot** (was `r8169`) — host
+  no longer has this NIC; it belongs to netVM. `vfio` group + udev rule added;
+  `host` is a member.
+- **foundation** (`vm_tpl_foundation`, thin RO): clean, systemd-free,
+  init/agent/waypipe/user baked in.
+- **netVM** (CID 3, Debian trixie, q35): **now launched via `net-vfio.con` with
+  the RTL8125 assigned by `-device vfio-pci,host=0000:01:00.0`** (guest
+  `enp0s6`); the old USB-NIC (r8152) passthrough line is replaced. netVM
+  `memlock` drop-in gives it `LimitMEMLOCK=infinity`. In-guest netconf for
+  `enp0s6` still pending. WireGuard/ProtonVPN + inner-segment routing carried
+  over. Runs independently of app_web.
 - **personalVM** (CID 4, Debian trixie, microvm): still on the **old**
   systemd-user model (pre-foundation linear root). Migration to the
   init+foundation model is pending (Next steps).
 - **app_web** (CID 5): the proven appliance. Backing `vm_app_web` (thin snap
   RO) ← `/var/lib/katmate/instances/test_web.qcow2`. `/home` =
-  `vm_app_web_home` (10G ext4 raw LV, created this session, `/home/user` owned
-  1000:1000). init + Rust vm-agent + user 1000 baked in.
+  `vm_app_web_home` (10G ext4 raw LV, `/home/user` owned 1000:1000). init +
+  Rust vm-agent + user 1000 baked in.
 - **app_vault** (build-only): `vm_app_vault` thin snap RO of `vm_tpl_foundation`,
   built via `make app-vault` (2026-06-29; keepassxc/foot/nautilus). NOT yet
-  instantiated — no qcow2 delta, no home LV, no CID, never booted. Gate for the
-  app-layer pipeline (second manifest axis: offline/persistent), not a running
-  appliance. keepassxc still off the vm-agent RUN whitelist (Faza 4 blocker).
-- **Disk chain**: three-level LVM-thin chain proven live and now exercised
-  through a full boot/render/shutdown cycle.
+  instantiated — no qcow2 delta, no home LV, no CID, never booted. keepassxc
+  still off the vm-agent RUN whitelist (Faza 4 blocker).
+- **Disk chain**: three-level LVM-thin chain proven live through a full
+  boot/render/shutdown cycle.
 
 ## Open problems
 
 1. **Desktop migration Acer → MINIS** — CYBRland Hyprland config + Plymouth
    theme to port; greetd swap.
 2. **hyprlock-after-suspend (host)** — recurring: after host suspend, tty1
-   Hyprland locks and will not unlock (killing hyprlock from another tty shows
-   an unhelpful screen; screen text not yet captured). Host DE issue, not
-   Katmate, but it blocks visual inspection of guest render. Needs its own pass.
+   Hyprland locks and will not unlock. Host DE issue, not Katmate, but it blocks
+   visual inspection of guest render. Needs its own pass.
 3. **Installer secrets** (v0.2 blocker): WireGuard key, WiFi PSK, credentials
    removed before release; rotate burned WG key. SECURITY-MODEL gap #1.
 4. **SSH open on MINIS host** — dev convenience. Fix identified
    (`iif enp1s0 ip saddr 10.3.1.0/24`), not applied. SECURITY-MODEL gap #4.
+   NOTE: `enp1s0` no longer exists on the host now that RTL8125 is in vfio — the
+   nft rule will need to target whatever the host uplink becomes (USB-NIC once
+   #7 is solved).
 5. **ext4 lazy-init warning on vda** — `EXT4-fs error (vda) ... bad block
    bitmap checksum` from `ext4lazyinit` during boot. Cosmetic on a disposable
-   delta, but suggests the `vm_app_web` base may want a clean `e2fsck` (likely
-   residue from a r/w bake cycle closed by hard-kill, not clean unmount).
-6. Disk model + GUI chain + shutdown + **scripted foundation/app build** are
-   **resolved** end-to-end. What remains is `katmate-update` + migration +
-   installer, not the build mechanism.
+   delta, but suggests `vm_app_web` may want a clean `e2fsck`.
+6. Disk model + GUI chain + shutdown + scripted foundation/app build are
+   **resolved** end-to-end. What remains is migration + installer, not the build
+   mechanism.
+7. **USB-NIC (r8152, `0bda:8153`) will not come up as a host NIC on MINIS.**
+   Needed as the host uplink once RTL8125 is in vfio (concretely: lets Matt work
+   on MINIS from the terrace instead of the office — a real workflow need, not
+   dev cosmetics). Full picture:
+   - **Device is HEALTHY.** Plugged into the MSI Cubi (yoshie, Debian 13.5) it
+     comes straight up as `enx00e04c3961b8` (MAC `00:e0:4c:39:61:b8`, serial
+     `DF1300E04C3961B8`), DHCP `10.3.1.103/24`, state UP. So NOT the device, NOT
+     the cable, NOT general kernel support.
+   - **On MINIS it sticks on `r8152-cfgselector`.** After `usbmon` numbering
+     climbed to device number ~20 from repeated resets, then a reboot reset the
+     xHCI slots. Post-reboot the device driver symlink IS `r8152` (module
+     `r8152`), but the interface `1-4:1.0` has NO driver (`.../1-4:1.0/driver`
+     absent) — r8152 holds the USB device but never creates the NET interface.
+     `lsusb` shows `0bda:8153` present; `dmesg` shows only
+     `r8152-cfgselector ...: reset high-speed USB device` cycles, no `enu*`.
+   - **Tried and FAILED (all on MINIS):** authorized-toggle (0→1); config-toggle
+     `bConfigurationValue` 0→1 (config already 1, 2 configs total); `new_id`
+     (`0bda 8153` into r8152); direct interface bind
+     (`echo 1-4:1.0 > r8152/bind`, accepted, no iface); autosuspend `-1` +
+     `power/control on`; kernel cmdline `usbcore.quirks=0bda:8153:k`. Also
+     established: `cdc_ether`/`r8153_ecm`/`r8152` all loaded (no blacklist
+     active — an earlier `usbnic.conf` blacklist was removed; do NOT re-add,
+     see gotcha). Firmware `bcdDevice=31.fd`. On a USB4/TB hub it additionally
+     throws `error -71` (EPROTO) on SuperSpeed setup — must use a native port.
+   - **Untried hypothesis for next session (most likely):** blacklist the
+     `r8152-cfgselector` module ITSELF (not cdc_ether), so the device goes
+     straight to `r8152` the way it does on the Cubi (Debian 13.5, older kernel,
+     where the cfgselector interposer is likely absent). Verify the interposer
+     is the delta first (`modinfo r8152-cfgselector`; compare kernel behaviour).
+     If blacklisting the cfgselector is wrong/unsafe, the fallback is to accept
+     the Cubi-style ECM path and find why r8152's NET probe aborts silently on
+     7.0.12.
 
 ## Next steps
 
+- **netVM in-guest network on `enp0s6`** (immediate): match by MAC (stable
+  across topology change) not name; DHCP from the LAN router over the RTL8125.
+  Fixes the expected `[FAILED] raise network interface` from the first vfio
+  boot. THEN the USB↔PCI role swap is complete and permanent.
+- **RTL8125 second-boot FLReset- test** (critical): stop netVM → relaunch
+  `net-vfio.con`; the FLR-less device typically breaks on the second start.
+  Proves whether `disable_idle_d3=1` holds across a guest reboot cycle. If it
+  fails on reset/ENOMEM, an additional reset workaround is needed. This is the
+  real robustness test — the first boot succeeding is not sufficient.
+- **USB-NIC recovery** (Open problem #7): cfgselector-blacklist hypothesis,
+  fresh head. Blocks working-from-terrace, not the project.
 - **ARCHITECTURE.md diagram set** — storage chain, VSOCK ports, CID domains,
-  boot chain, trust boundary. Agreed as a good next artefact while the whole
-  chain is fresh. (The foundation-migration rewrite — LVM-thin,
-  kernel-as-vmlinuz, systemd-out, init-baked, direct-passwd — is now written up
-  as **ADR-018**, so the docs-reconcile debt is closed.)
-- **GUI RUN on the new kernel — DONE 2026-07-01.** `ping-client run 5 nautilus`
-  rendered on host Hyprland with the three-flag `6.12.87` kernel; landlock
-  warning gone. (Superseded the earlier hyprlock-deferred test.)
-- **dbus-run-session decision:** nautilus rendered without it this session, so
-  it stays off. The wrapper is prepared in `katmate-init.c` under
-  `-DUSE_DBUS_SESSION` — enable ONLY if a future app shows Tracker/a11y timeouts.
-- **Waypipe redesign — ADR-019 written (2026-07-02).** Waypipe becomes a
-  project-maintained component: pinned upstream tag (`v0.11.0`) + KatMate
-  patch queue (`third_party/waypipe/patches/`, strip & harden only), both
-  host and guest binaries built from the same tree, host at
-  `/opt/katmate/bin/waypipe` outside pacman. Drift impossible by
-  construction; no pacman hook. Rationale: no wire-protocol stability
-  between waypipe versions, trixie toolchain freeze makes buildability on
-  trixie the binding constraint (host follows guest), ADR-012 forbids a
-  distro dependency. ARCHITECTURE.md update-flow rewritten to match.
-- **`katmate-update` — COMPLETE (2026-07-04).** Release-bump orchestrator
-  `build/katmate-update.sh`; all four ADR-019 version-lock items done (see
-  the 2026-07-04 session above). `snapshot.debian.org` apt pin still deferred
-  until the rebuild pipeline exercises determinism.
-- **ADR-020 (2026-07-02) — release = pre-baked signed ISO.** Build-time /
-  install-time boundary formalized: all pipeline scripts are developer-side;
-  their output is a signed ISO; the user never builds. Cross-refs ADR-007/011
-  (reproducibility), ADR-012 (distro independence), ADR-019 (build machinery
-  scope). Open follow-up: whether the installer needs ANY network (offline
-  install as target); how the Debian base is itself pinned/shipped so even the
-  base is not fetched unaudited (ties to the deferred ADR-011 snapshot pin).
-- **ISO bake pipeline** (new artefact, the output of the build chain per
-  ADR-020): `download ISO → verify signature → bake USB → boot → installer
-  provisions prebuilt foundation/app-layers/vmlinuz/both waypipe binaries onto
-  disk`. Not yet designed; the terminal step of the developer pipeline.
-- **RTL8125 PCIe passthrough to netVM** — clean IOMMU group 12; fix identified
-  (`disable_idle_d3=1` + `softdep r8169 pre: vfio-pci`). Unblocks ROADMAP
-  build-order step 3 (NetVM installer integration). NEXT concrete step.
+  boot chain, trust boundary. (Foundation-migration rewrite already written up
+  as ADR-018.)
 - **Disposable-VM launch model** decision: unblocks `katmate-cid` `_is_alive` +
   reconcile (CID ≥100 dynamic pool).
 - **Launch daemon / privilege split:** fold the launcher's `lvchange -K -ay`
-  activation into a proper unit / katmate launch code (`ExecStartPre=+` as root,
-  QEMU as `host`); shared `katmate-foundation.service` oneshot.
+  activation into a proper unit (`ExecStartPre=+` as root, QEMU as `host`);
+  shared `katmate-foundation.service` oneshot. NOTE: the netVM `memlock`
+  drop-in + `vfio` group model from this session are the template for how the
+  launch daemon must grant memlock + vfio access to a non-root QEMU.
 - **Migrate live AppVMs** (personal/net) off the old systemd-user / linear-root
   model onto the init+foundation chain.
 - **systemd purge from foundation** (minimal-TCB): the binary still ships unused.
 - **udisks2 check:** confirm nautilus works with udisks2 disabled, then bake
   `systemctl disable udisks2` into the app-layer build.
 - **FILEPUT streaming** (currently buffers payload in memory); promote
-  `protocol.rs` to a shared `katmate-protocol` crate (ping-client already
-  symlinks it — the first step is done).
+  `protocol.rs` to a shared `katmate-protocol` crate.
+- **ISO bake pipeline** (ADR-020): download → verify → bake USB → boot →
+  provision. Not yet designed; terminal step of the developer pipeline.
 - **Installer:** secrets removal (v0.2 blocker); create `/var/lib/katmate/`.
-  Per ADR-020 the installer is PROVISIONING only — partition/thin-pool, unpack
-  signed images, bootloader, per-instance deltas — no build logic, no toolchain.
+  PROVISIONING only — no build logic, no toolchain.
 - **Desktop:** port CYBRland + Plymouth from Acer to MINIS.
+- **vm-agent Rust rewrite** — wanted while the codebase is small; "as soon as
+  feasible", not urgent. Separate from the foundation build. (NOTE: the agent is
+  already Rust — this item as historically phrased predates that; treat as
+  "keep the agent lean / finish the protocol-crate split".)
 
 ## Invariants & gotchas (quick reminders — detail in git/ADRs)
 
@@ -468,68 +528,83 @@ by init (isolated under `#ifdef DEV_HOSTSHARE` for later if ever needed).
   flag permanently; `lvchange -K -ay <lv>` is mandatory before every instance
   boot, on both the app-layer AND the foundation, or QEMU fails with "Could not
   open backing image". The `app_web.con` launcher does this in pre-flight.
+- **vfio passthrough — memlock (RTL8125):** VFIO pins the ENTIRE guest RAM
+  regardless of `-overcommit mem-lock=off` or hugepages. A manual
+  `bash net-vfio.con` inherits the SHELL's `ulimit -l` (default 8192 KB) → QEMU
+  dies with "cannot allocate memory" at `VFIO_MAP_DMA`, NOT a real OOM. Fixes:
+  either `ulimit -l unlimited` in the shell before a manual launch, OR launch
+  via `netVM.service` (which carries `LimitMEMLOCK=infinity` via the
+  `netVM.service.d/memlock.conf` drop-in). The unit path is the production one;
+  the manual `ulimit` is a dev-only workaround. A plain user cannot raise
+  `ulimit -l` above the hard cap — but here the user manager did not cap it, so
+  the drop-in alone sufficed (no `/etc/security/limits.d/` needed).
+- **vfio passthrough — FLReset- (RTL8125):** the RTL8125 reports `FLReset-` (no
+  function-level reset) with small BARs (~80K, so NOT a large-BAR/memory-hole
+  problem — that earlier diagnosis was a myth). Without a workaround, vfio's
+  reset on teardown leaves the device half-initialised and the NEXT
+  `VFIO_MAP_DMA` returns ENOMEM (this was the real Feb/Mar "out of memory").
+  Workaround baked into `/etc/modprobe.d/vfio.conf`:
+  `options vfio-pci ids=10ec:8125 disable_idle_d3=1` + `softdep r8169 pre:
+  vfio-pci`. First boot proven; the SECOND boot is the real test (still to run).
+- **vfio device node permission:** `/dev/vfio/<group>` is root-only by default;
+  QEMU as user `host` gets `permission denied`. Production fix = `vfio` group +
+  udev rule (`SUBSYSTEM=="vfio", GROUP="vfio", MODE="0660"`) + user in the
+  group (login-scoped). This is the template for the future launch daemon's
+  non-root QEMU.
+- **USB-NIC (r8152) is DEV-ONLY churn, not a product concern.** The whole
+  "device did not come back" class exists only because the dev workflow shuffles
+  one NIC between host and netVM live. In production devices do not migrate —
+  each VM has a fixed declarative assignment — so this class vanishes. Universal
+  NIC passthrough is a build/provision-time job (read IOMMU groups, resolve BDF,
+  generate vfio bind once), NOT per-boot runtime recovery.
+- **Do NOT blacklist `cdc_ether`/`r8153_ecm` for the RTL8153 USB-NIC.** It
+  breaks the `r8152-cfgselector` config-select chain (the device then sticks
+  unconfigured). An earlier attempt this session did exactly that; removed. See
+  Open problem #7 for the correct (untried) angle: blacklist the cfgselector
+  interposer instead.
+- **USB fallback NIC must be on a native port, never behind a USB4/TB hub.** On
+  the TB hub the RTL8153 throws `error -71` (EPROTO) on SuperSpeed setup-address;
+  native high-speed ports avoid it.
 - **Root device has no partition table:** debootstrap is directly on the LV, so
-  `root=/dev/vda` (NOT `vda1`). `vda1` gives `VFS: Unable to mount root fs on
-  unknown-block(253,1)`.
+  `root=/dev/vda` (NOT `vda1`).
 - **Serial console:** microvm + `-nographic` does NOT auto-wire the serial
-  console (changed ~QEMU 10.x). Must add `-serial mon:stdio` explicitly or the
-  kernel boots silently into a console nobody can see.
+  console (changed ~QEMU 10.x). Must add `-serial mon:stdio` explicitly.
 - **Shutdown without ACPI:** init calls `reboot(RB_AUTOBOOT)` (NOT
-  `RB_POWER_OFF`, which only halts with no pm_power_off handler). Requires
-  host-side `-no-reboot` (QEMU exits on the reboot event) + kernel cmdline
-  `reboot=t` (go straight to triple-fault, skip the ~5s delay).
+  `RB_POWER_OFF`). Requires host-side `-no-reboot` + kernel cmdline `reboot=t`.
 - **Agent PATH:** init launches vm-agent with `PATH=/usr/local/bin:/usr/bin:/bin`
-  — waypipe is the source-built `/usr/local/bin/waypipe`, not apt. Omitting
-  `/usr/local/bin` makes `RUN` return ERR (spawn: No such file or directory).
+  — waypipe is the source-built `/usr/local/bin/waypipe`, not apt.
 - **GUI launch:** GTK apps refuse to run as root; require user 1000 with
   `XDG_RUNTIME_DIR`. waypipe ≥0.11 self-resolves the host CID (no `2:` prefix).
-- **VSOCK ports:** 1025 = vm-agent control, 1024 = waypipe GUI — two distinct
-  purposeful ports. Host waypipe client must listen on 1024 before `RUN`.
-- **`foundation.meta` (ADR-019):** host-side source of truth for the active
-  foundation version at `/var/lib/katmate/foundation.meta`, flat `KEY=value`
-  (`KATMATE_META_VERSION`, `WAYPIPE_TAG`, `WAYPIPE_PATCH_LEVEL`,
-  `KERNEL_VERSION`, `BUILD_DATE`, `FOUNDATION_LV`). Written by `foundation.sh`
-  at RO-freeze; read without booting/mounting. The launch preflight compares
-  host `waypipe --version` (bare `x.y.z`) against `WAYPIPE_TAG` and refuses to
-  start on mismatch. A rebuilt foundation overwrites it; an existing frozen
-  foundation needs it hand-written once (done on MINIS). NOTE: the config.sh
-  variable is `WAYPIPE_VERSION`; the meta KEY is `WAYPIPE_TAG` — same value,
-  two names.
-- **Re-bake invalidates deltas:** changing `vm_app_web` under an existing
-  `test_web.qcow2` makes the delta inconsistent — recreate it
-  (`qemu-img create -f qcow2 -F raw -b /dev/vg0/vm_app_web <delta> 10G`). The
-  create fails with "write lock" if a QEMU still holds the delta (kill the old
-  VM first; do NOT kill the unrelated netVM/CID-3 QEMU).
+- **VSOCK ports:** 1025 = vm-agent control, 1024 = waypipe GUI.
+- **`amd_iommu=on` is a DEAD cmdline param** (kernel prints `AMD-Vi: Unknown
+  option` and ignores it). IOMMU actually runs via `iommu=pt` + IVHD/IVRS. The
+  MINIS cmdline still carries the dead `amd_iommu=on`; harmless, clean up
+  someday. IOMMU group 12 (RTL8125) is clean/isolated — passthrough-safe.
+- **`foundation.meta` (ADR-019):** host-side source of truth at
+  `/var/lib/katmate/foundation.meta`, flat `KEY=value`. Read without
+  booting/mounting. Launch preflight compares host `waypipe --version` (bare
+  `x.y.z`) against `WAYPIPE_TAG` and refuses to start on mismatch. config.sh
+  variable is `WAYPIPE_VERSION`; meta KEY is `WAYPIPE_TAG` — same value, two
+  names.
+- **Re-bake invalidates deltas:** recreate with `qemu-img create -f qcow2 -F raw
+  -b /dev/vg0/vm_app_web <delta> 10G`. Fails with "write lock" if a QEMU still
+  holds the delta (kill the old VM first; do NOT kill netVM/CID-3).
 - **Custom microvm kernel** is monolithic, passed via `-kernel` (no initrd, no
-  `/lib/modules`); this is why the stock modular Debian kernel failed and
-  6.12.87 (vsock builtin) succeeded. Delivered as an external vmlinuz (NOT a
-  `.deb` in the image) — ARCHITECTURE.md update-flow §4.
+  `/lib/modules`); delivered as an external vmlinuz (NOT a `.deb`).
 - **Never rsync a kernel *build* tree with broad `--exclude` patterns.**
-  `--exclude='vmlinux.*'` matches the SOURCE `vmlinux.lds.S` (and `.lds.h`), not
-  just the `vmlinux.*` artefacts — dropping it makes the build fail with `No rule
-  to make target 'arch/x86/kernel/vmlinux.lds'` even after `make mrproper` (the
-  generator input is simply absent). Interrupted builds (e.g. thermal shutdown)
-  also leave truncated `.o` files that pass make's timestamp check but fail at
-  link with `ld: member ... is not an object`. Robust pattern for moving the
-  tree to a build host: `git clone`/`git archive` a clean source + copy only
-  `.config` — git knows source from artefact; broad rsync excludes do not.
-- **Kernel build host is MINIS (Ryzen), not Acer.** The N4200 thermally shuts
-  down under a full `-j` kernel build in summer ambient; use `-j16` on MINIS.
-  Source tree at `~/src/kernel/linux-6.12.y/` on both; treat Acer's as the
-  reference, MINIS's as a build copy (same source-of-truth rule as the agent).
-- **foundation build (from scratch) gotchas:** (a) pseudo-fs mount AFTER
-  debootstrap, never before (fresh ext4 has no `/proc` etc.); (b) ext4 label
-  ≤16 chars (`katmate-found`); (c) no `useradd`/`passwd` in minbase — write the
-  user directly to `/etc/passwd`+`group`+`shadow`; (d) `$(HOME)` under `sudo` is
-  `/root`, so `KERNEL_SRC_DIR` is hardcoded to `/home/host/katmate-kernels`.
+  `--exclude='vmlinux.*'` matches the SOURCE `vmlinux.lds.S` too. Use `git
+  clone`/`git archive` + copy only `.config`. Interrupted builds leave truncated
+  `.o` files that pass make's timestamp check but fail at link.
+- **Kernel build host is MINIS (Ryzen), not Acer** (N4200 thermally shuts down
+  under a full build in summer). `-j16` on MINIS. Source at
+  `~/src/kernel/linux-6.12.y/` on both; Acer is reference, MINIS is build copy.
+- **foundation build gotchas:** (a) pseudo-fs mount AFTER debootstrap; (b) ext4
+  label ≤16 chars (`katmate-found`); (c) no `useradd`/`passwd` in minbase —
+  write the user directly; (d) `$(HOME)` under `sudo` is `/root`, so
+  `KERNEL_SRC_DIR` hardcoded to `/home/host/katmate-kernels`.
 - **Abstract vs concrete naming:** ADRs use `foundation`/`app`/`instance`;
   concrete LVM names (`vm_tpl_foundation`, `vm_app_web`) only here and in live
   inspection.
 - **Source of truth = Acer `~/katmate-os/` git repo.** MINIS
-  `katmate-build/{agent,ping-client}/` are build copies — source is always
-  synced FROM the repo (scp from Acer, or git pull), never edited on MINIS and
-  left to diverge. (Today's "what is where" confusion came from editing on MINIS
-  and hand-syncing back.) MINIS `katmate-build/trixie-build/` is the build
-  chroot (compile the agent against trixie glibc); `katmate-kernels/` holds the
-  live custom kernel on both machines. Git lives ONLY on Acer
-  (`/home/winterbox/katmate-os/.git`); MINIS has no git.
+  `katmate-build/{agent,ping-client}/` are build copies — synced FROM the repo,
+  never edited on MINIS and left to diverge. Git lives ONLY on Acer.
