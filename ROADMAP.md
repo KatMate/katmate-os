@@ -23,7 +23,7 @@
       segment routing (live on MINIS/UM870; ADR-009 realized ahead of v0.3)
 - [x] personalVM operational — microvm, hugepages, qcow2 overlay + raw home LV
 - [ ] AppVM domain model + three-layer composition (ADR-014, ADR-010)
-- [ ] `katmate-update` implementation (MVP)
+- [x] `katmate-update` implementation (MVP)
 - [ ] Base image build pipeline — foundation + app-`<type>` images, shell+Make (ADR-011)
 - [ ] Suspend/resume fix under `linux-hardened`
 - [ ] Remove secrets from installer (prompts / `wg genkey`); rotate burned WG key
