@@ -5,14 +5,21 @@
 > each working session. Detailed proofs and command sequences live in git
 > history and the ADRs — this file references them rather than repeating them.
 
-**Last updated:** 2026-07-05 — **RTL8125 PCIe passthrough to netVM ACHIEVED**:
-the 2.5GbE controller (`10ec:8125`, `01:00.0`) now binds to `vfio-pci` at boot
-and netVM boots with it assigned, guest sees it as `enp0s6`. The Feb/Mar
-"cannot allocate memory" wall is gone. This is what an earlier assistant could
-not do. netVM in-guest network config (`enp0s6`) and the critical second-boot
-FLReset- test are the immediate next steps (the session was consumed by an
-unrelated USB-NIC recovery, now Open problem #7). ROADMAP build-order step 3
-(NetVM installer integration) is unblocked on the passthrough side.
+**Last updated:** 2026-07-06 — **USB-NIC host recovery SOLVED (Open problem #7
+CLOSED)**. Root cause was NOT the driver, cfgselector, SuperSpeed link, or
+kernel version — it was OUR OWN leftover udev rule
+`/etc/udev/rules.d/30-usb-nic-qemu.rules`, which ran
+`echo %k:1.0 > /sys/bus/usb/drivers/r8152/unbind` on every `0bda:8153` plug.
+r8152 bound correctly each time and the rule tore it off microseconds later →
+`driver=[none]` after a clean enumeration, on every port/bus. Removing the rule
+(`rm` + `udevadm control --reload-rules && udevadm trigger`) brought the NIC up
+immediately as `enp195s0f3u1u1`. Host now has a dev uplink over the USB-NIC;
+fixed IP `10.3.1.3` set via `ip addr` (volatile), DNS → ProtonVPN `10.2.0.1`.
+The RTL8125↔USB role swap is now complete: RTL8125 = netVM uplink (vfio),
+USB-NIC r8152 = host dev/terrace uplink. **A large kernel detour (6.12.94 build)
+this session was wasted effort** — MINIS runs Arch `7.0.12`, not any 6.12.y, and
+the r8152 driver was present all along. Immediate next steps unchanged: netVM
+in-guest `enp0s6` config + the critical RTL8125 second-boot FLReset- test.
 **Milestone:** v0.2 (in development)
 
 ## Current focus
@@ -37,6 +44,69 @@ never by building. `katmate-update` (ADR-019 version-lock backbone) is complete.
 
 Direction unchanged: IOMMU-capable platforms only (VT-d/AMD-Vi); VT-x-only
 frozen (ADR-015). MINIS is primary host and merge target.
+
+## This session (2026-07-06) — USB-NIC host recovery SOLVED (#7 closed)
+
+Live work on MINIS console from the terrace goal. The single objective —
+bring the USB-NIC (r8152, `0bda:8153`) up as a host NIC — was reached, but only
+after a long detour that is itself the lesson of the session.
+
+### Root cause (the actual bug)
+
+`/etc/udev/rules.d/30-usb-nic-qemu.rules` — a rule WE wrote at the very start of
+the USB↔PCI work to keep the NIC out of the host's way while it was destined for
+netVM USB-passthrough:
+
+```
+ACTION=="add|change", SUBSYSTEM=="usb", ATTRS{idVendor}=="0bda",
+  ATTRS{idProduct}=="8153", MODE="0660", GROUP="kvm",
+  RUN+="/bin/sh -c 'echo -n %k:1.0 > /sys/bus/usb/drivers/r8152/unbind'"
+```
+
+On every plug the cfgselector enumerated the device, selected config 1, handed
+the interface to `r8152` — and this rule immediately unbound `r8152`. Net effect:
+clean enumeration, then `driver=[none]`, on **every port and every bus**, SS or
+HS. That port/bus-independence was the tell we kept missing. Fix:
+
+```
+sudo rm /etc/udev/rules.d/30-usb-nic-qemu.rules
+sudo udevadm control --reload-rules && sudo udevadm trigger
+```
+
+NIC came up as **`enp195s0f3u1u1`** (USB-path predictable name; MAC-stable is
+`00:e0:4c:39:61:b8`). Fixed IP `10.3.1.3/24` set with `ip addr add` (for admin);
+old address removed with `ip addr del`. DNS pointed at ProtonVPN `10.2.0.1`
+(MINIS is on Proton VPN). sshd restarted for terrace access.
+
+### Wasted detour (recorded so it is not repeated)
+
+Nearly the whole session went into a wrong hypothesis chain:
+- Built a full `linux-6.12.94` tree on MINIS (tarball via Cubi/USB, olddefconfig
+  from the running config, enabled `CONFIG_USB_RTL8152` + others), installed
+  kernel + initramfs + GRUB entry. **It never booted** (hangs just after the EFI
+  stub `Measured initrd data into PCR 9` line — root/initramfs/cmdline mismatch,
+  never chased down because the whole path was moot).
+- The premise was doubly wrong: MINIS runs **Arch `7.0.12-arch1-1`**, not 6.12.y
+  (the `~/src/kernel/linux-6.12.y/` tree is NOT the running kernel's source), and
+  `r8152` was present and loaded the entire time (`modinfo r8152` returns a full
+  driver; cfgselector is built INTO `r8152.ko`, not a separable module — so it
+  cannot be blacklisted, which retroactively kills the #7 "untried hypothesis").
+- Also chased: ECM conflict (`r8153_ecm` removal — no effect), SuperSpeed-vs-HS
+  link training (device DID reach 5000M on bus 002; not the cause), usbfs/QEMU
+  claim (a stale netVM `.con` had briefly held it via usb-host, but QEMU was not
+  running at diagnosis). All dead ends.
+
+### Cleanup performed / pending
+
+- **Removed** the `6.12.94` kernel + initramfs from `/boot`, `/lib/modules/6.12.94`,
+  and regenerated GRUB so no dead boot entry remains. (Trees
+  `~/src/kernel/linux-6.12.94/` + `linux-6.12.y/` may be kept or deleted — space
+  only, not in the way.)
+- `ip addr`-set `10.3.1.3` and the ProtonVPN DNS are **volatile** (lost on
+  reboot/replug). If the terrace uplink should survive a reboot, it needs a
+  persistent profile — and because the interface NAME is USB-path-derived
+  (`enp195s0f3u1u1`, changes with the physical port), the persistent match must
+  be on MAC (`00:e0:4c:39:61:b8`), not on the name. Not yet done.
 
 ## This session (2026-07-05) — RTL8125 passthrough achieved; USB-NIC regression
 
@@ -406,7 +476,10 @@ by init (isolated under `#ifdef DEV_HOSTSHARE` for later if ever needed).
   host's own apt/debootstrap traffic does NOT route through netVM/ProtonVPN).
   **RTL8125 (`01:00.0`) now bound to `vfio-pci` at boot** (was `r8169`) — host
   no longer has this NIC; it belongs to netVM. `vfio` group + udev rule added;
-  `host` is a member.
+  `host` is a member. **Host uplink is now the USB-NIC r8152**
+  (`enp195s0f3u1u1`, MAC `00:e0:4c:39:61:b8`, IP `10.3.1.3` — #7 resolved
+  2026-07-06); MINIS is on ProtonVPN with DNS `10.2.0.1`. The uplink config is
+  volatile (`ip addr`), not yet a persistent profile.
 - **foundation** (`vm_tpl_foundation`, thin RO): clean, systemd-free,
   init/agent/waypipe/user baked in.
 - **netVM** (CID 3, Debian trixie, q35): **now launched via `net-vfio.con` with
@@ -439,48 +512,32 @@ by init (isolated under `#ifdef DEV_HOSTSHARE` for later if ever needed).
 3. **Installer secrets** (v0.2 blocker): WireGuard key, WiFi PSK, credentials
    removed before release; rotate burned WG key. SECURITY-MODEL gap #1.
 4. **SSH open on MINIS host** — dev convenience. Fix identified
-   (`iif enp1s0 ip saddr 10.3.1.0/24`), not applied. SECURITY-MODEL gap #4.
-   NOTE: `enp1s0` no longer exists on the host now that RTL8125 is in vfio — the
-   nft rule will need to target whatever the host uplink becomes (USB-NIC once
-   #7 is solved).
+   (`iif <uplink> ip saddr 10.3.1.0/24`), not applied. SECURITY-MODEL gap #4.
+   NOTE: `enp1s0` no longer exists on the host now that RTL8125 is in vfio; the
+   host uplink is now the USB-NIC **`enp195s0f3u1u1`** (#7 resolved), so the nft
+   rule should target that (LAN-only). Additional caveat now that MINIS is on
+   ProtonVPN: ensure sshd listens on the LAN address `10.3.1.3` only, not on the
+   VPN interface — either `ListenAddress 10.3.1.3` or the nft `iif` restriction,
+   so SSH is not exposed through the tunnel.
 5. **ext4 lazy-init warning on vda** — `EXT4-fs error (vda) ... bad block
    bitmap checksum` from `ext4lazyinit` during boot. Cosmetic on a disposable
    delta, but suggests `vm_app_web` may want a clean `e2fsck`.
 6. Disk model + GUI chain + shutdown + scripted foundation/app build are
    **resolved** end-to-end. What remains is migration + installer, not the build
    mechanism.
-7. **USB-NIC (r8152, `0bda:8153`) will not come up as a host NIC on MINIS.**
-   Needed as the host uplink once RTL8125 is in vfio (concretely: lets Matt work
-   on MINIS from the terrace instead of the office — a real workflow need, not
-   dev cosmetics). Full picture:
-   - **Device is HEALTHY.** Plugged into the MSI Cubi (yoshie, Debian 13.5) it
-     comes straight up as `enx00e04c3961b8` (MAC `00:e0:4c:39:61:b8`, serial
-     `DF1300E04C3961B8`), DHCP `10.3.1.103/24`, state UP. So NOT the device, NOT
-     the cable, NOT general kernel support.
-   - **On MINIS it sticks on `r8152-cfgselector`.** After `usbmon` numbering
-     climbed to device number ~20 from repeated resets, then a reboot reset the
-     xHCI slots. Post-reboot the device driver symlink IS `r8152` (module
-     `r8152`), but the interface `1-4:1.0` has NO driver (`.../1-4:1.0/driver`
-     absent) — r8152 holds the USB device but never creates the NET interface.
-     `lsusb` shows `0bda:8153` present; `dmesg` shows only
-     `r8152-cfgselector ...: reset high-speed USB device` cycles, no `enu*`.
-   - **Tried and FAILED (all on MINIS):** authorized-toggle (0→1); config-toggle
-     `bConfigurationValue` 0→1 (config already 1, 2 configs total); `new_id`
-     (`0bda 8153` into r8152); direct interface bind
-     (`echo 1-4:1.0 > r8152/bind`, accepted, no iface); autosuspend `-1` +
-     `power/control on`; kernel cmdline `usbcore.quirks=0bda:8153:k`. Also
-     established: `cdc_ether`/`r8153_ecm`/`r8152` all loaded (no blacklist
-     active — an earlier `usbnic.conf` blacklist was removed; do NOT re-add,
-     see gotcha). Firmware `bcdDevice=31.fd`. On a USB4/TB hub it additionally
-     throws `error -71` (EPROTO) on SuperSpeed setup — must use a native port.
-   - **Untried hypothesis for next session (most likely):** blacklist the
-     `r8152-cfgselector` module ITSELF (not cdc_ether), so the device goes
-     straight to `r8152` the way it does on the Cubi (Debian 13.5, older kernel,
-     where the cfgselector interposer is likely absent). Verify the interposer
-     is the delta first (`modinfo r8152-cfgselector`; compare kernel behaviour).
-     If blacklisting the cfgselector is wrong/unsafe, the fallback is to accept
-     the Cubi-style ECM path and find why r8152's NET probe aborts silently on
-     7.0.12.
+7. **RESOLVED 2026-07-06 — USB-NIC (r8152, `0bda:8153`) host recovery.**
+   Root cause was a leftover udev rule of OUR OWN making,
+   `/etc/udev/rules.d/30-usb-nic-qemu.rules`, whose `RUN+=` unbound `r8152`
+   (`echo %k:1.0 > /sys/bus/usb/drivers/r8152/unbind`) on every plug of the
+   device. r8152 bound and was torn off immediately → `driver=[none]` after a
+   clean enumeration, independent of port/bus/speed. Fix: remove the rule +
+   `udevadm control --reload-rules && udevadm trigger`. NIC came up as
+   `enp195s0f3u1u1` (MAC `00:e0:4c:39:61:b8`). None of the driver/cfgselector/
+   SuperSpeed/kernel-version theories were correct; `r8152` (with cfgselector
+   built in) was present and working the whole time. See This session
+   (2026-07-06) for the full detour and the diagnostic lesson (now a gotcha).
+   Device health baseline (still valid): on the MSI Cubi (yoshie, Debian 13.5)
+   it enumerates directly on `r8152` at SuperSpeed 5000M, DHCP `10.3.1.103/24`.
 
 ## Next steps
 
@@ -493,8 +550,12 @@ by init (isolated under `#ifdef DEV_HOSTSHARE` for later if ever needed).
   Proves whether `disable_idle_d3=1` holds across a guest reboot cycle. If it
   fails on reset/ENOMEM, an additional reset workaround is needed. This is the
   real robustness test — the first boot succeeding is not sufficient.
-- **USB-NIC recovery** (Open problem #7): cfgselector-blacklist hypothesis,
-  fresh head. Blocks working-from-terrace, not the project.
+- **Host uplink persistence** (follow-up to #7, resolved): the USB-NIC
+  `enp195s0f3u1u1` / `10.3.1.3` is up but volatile (`ip addr`). If it should
+  survive a reboot, add a persistent profile matched on MAC
+  (`00:e0:4c:39:61:b8`), not on the USB-path name. Dev-only; low priority.
+- **sshd exposure with ProtonVPN active** (ties into #4): bind sshd to
+  `10.3.1.3` / restrict nft so SSH is not reachable over the VPN tunnel.
 - **ARCHITECTURE.md diagram set** — storage chain, VSOCK ports, CID domains,
   boot chain, trust boundary. (Foundation-migration rewrite already written up
   as ADR-018.)
@@ -557,14 +618,34 @@ by init (isolated under `#ifdef DEV_HOSTSHARE` for later if ever needed).
   each VM has a fixed declarative assignment — so this class vanishes. Universal
   NIC passthrough is a build/provision-time job (read IOMMU groups, resolve BDF,
   generate vfio bind once), NOT per-boot runtime recovery.
-- **Do NOT blacklist `cdc_ether`/`r8153_ecm` for the RTL8153 USB-NIC.** It
-  breaks the `r8152-cfgselector` config-select chain (the device then sticks
-  unconfigured). An earlier attempt this session did exactly that; removed. See
-  Open problem #7 for the correct (untried) angle: blacklist the cfgselector
-  interposer instead.
-- **USB fallback NIC must be on a native port, never behind a USB4/TB hub.** On
-  the TB hub the RTL8153 throws `error -71` (EPROTO) on SuperSpeed setup-address;
-  native high-speed ports avoid it.
+- **`driver=[none]` AFTER a clean enumeration → check `/etc/udev/rules.d/`
+  FIRST, not the kernel.** This is the #7 lesson, learned the hard way. When a
+  USB device enumerates fine (strings, product, serial all read) and then ends
+  up with no driver on every port and every bus, the cause is almost always a
+  userspace `unbind`/`driver_override`/vfio claim, not a missing or broken
+  kernel driver. The actual culprit was our own
+  `30-usb-nic-qemu.rules` running `r8152/unbind` on plug. Grep
+  `udev/rules.d` + `modprobe.d` for the VID/PID before touching kernel config.
+- **`r8152-cfgselector` is NOT a separable module and NOT the enemy.** It is
+  built into `r8152.ko` (registers two drivers from one module: the cfgselector
+  interposer for the USB *device*, `r8152` for the *interface*). It cannot be
+  blacklisted, and on the working Cubi it is present in the chain too
+  (`2-3` → cfgselector, `2-3:1.0` → r8152). Any note about "blacklist the
+  cfgselector" (a prior #7 hypothesis) is void.
+- **Do NOT blacklist `cdc_ether`/`r8153_ecm` for the RTL8153 USB-NIC.** Removing
+  them has no effect on the bind path and only removes the ECM fallback. An
+  earlier session blacklisted them; removed.
+- **USB fallback NIC: prefer a native port, avoid a USB4/TB hub.** On the TB hub
+  the RTL8153 throws `error -71` (EPROTO) on SuperSpeed setup-address. On MINIS
+  the device is happiest on a rear/native SuperSpeed port (bus 002, 5000M); the
+  front panel and the VIA USB2.0 hub path drop it to 480M. (This mattered less
+  than we thought — the real bug was the udev rule — but the topology note holds.)
+- **The running kernel on MINIS is Arch stock `7.0.12-arch1-1`, NOT a 6.12.y
+  microvm kernel.** `~/src/kernel/linux-6.12.y/` (and any 6.12.94 tree) is the
+  GUEST microvm kernel source, unrelated to the host. Do not build host modules
+  against it (vermagic mismatch) and do not reason about host USB/driver
+  behaviour from 6.12.y. The custom `6.12.87`/`6.12.94` kernels are `-kernel`
+  payloads for guests only.
 - **Root device has no partition table:** debootstrap is directly on the LV, so
   `root=/dev/vda` (NOT `vda1`).
 - **Serial console:** microvm + `-nographic` does NOT auto-wire the serial
