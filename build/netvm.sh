@@ -62,14 +62,33 @@ NETVM_AGENT_BIN="${NETVM_AGENT_BIN:-$OUT/netvm-agent}"
 DEV="/dev/$VG/$NETVM_LV"
 
 # --- own cleanup / rollback (linear LV; not lib.sh's thin model) --------------
+# On any failure mid-write (e.g. a bad chroot call during initramfs/boot
+# writes), the ext4 journal can stay busy if we umount while it is still hot.
+# So: sync + settle BEFORE umount, then deactivate explicitly, and if the LV is
+# still busy, say so LOUDLY with the exact manual command rather than silently
+# leaving a stuck LV behind (which previously masqueraded as a successful
+# rollback and forced a host reboot).
 NETVM_LV_CREATED=""
 netvm_cleanup() {
   local rc=$?
-  umount_root            # lib.sh helper — safe, uses its own MOUNTED state
+  sync
+  umount_root                         # lib.sh helper (umount -R; own MOUNTED)
+  udevadm settle 2>/dev/null || true
   if [[ $rc -ne 0 && -n "$NETVM_LV_CREATED" ]]; then
     log "netvm.sh FAILED (rc=$rc) — removing half-built LV $DEV"
     lvchange -an "$DEV" 2>/dev/null || true
-    lvremove -f "$DEV"  2>/dev/null || true
+    udevadm settle 2>/dev/null || true
+    if ! lvremove -f "$DEV" 2>/dev/null; then
+      echo "" >&2
+      echo "WARNING: could not remove $DEV automatically (filesystem still busy)." >&2
+      echo "  A hot ext4 journal (jbd2) is likely still holding the device." >&2
+      echo "  Try, in order:" >&2
+      echo "    sudo sync; sudo udevadm settle" >&2
+      echo "    sudo lvchange -an $DEV && sudo lvremove -f $DEV" >&2
+      echo "  If it still reports 'in use', a host reboot clears the stuck" >&2
+      echo "  jbd2 kthread; then: sudo lvremove -f $DEV" >&2
+      echo "" >&2
+    fi
   fi
   exit "$rc"
 }
@@ -211,10 +230,16 @@ fi
 # Trim initramfs to dependency modules, regenerate, then copy BOTH out to the
 # host-side artifact dir. net-vfio.con passes them via -kernel/-initrd; nothing
 # in the guest boots them (no GRUB, no /boot partition).
+#
+# NOTE: call update-initramfs by FULL PATH (/usr/sbin). chroot_run runs it via
+# `env`, whose inherited PATH does not include /usr/sbin, so a bare name is not
+# found (rc 127) even though the binary exists — the kernel postinst that ran it
+# earlier used dpkg's own PATH. The kernel's own postinst already generated a
+# full initramfs; this regeneration re-makes it trimmed (MODULES=dep).
 log "Trimming initramfs (MODULES=dep) and regenerating"
 install -D -m 0644 /dev/stdin \
   "$NETVM_MNT/etc/initramfs-tools/conf.d/modules-dep" <<< 'MODULES=dep'
-chroot_run "$NETVM_MNT" update-initramfs -u
+chroot_run "$NETVM_MNT" /usr/sbin/update-initramfs -u
 
 log "Exporting vmlinuz + initrd to $NETVM_OUT"
 mkdir -p "$NETVM_OUT"
