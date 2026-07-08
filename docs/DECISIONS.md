@@ -933,6 +933,160 @@ inside the image; installation is unpacking and provisioning, never building.
 **Cross-reference:** enforces the reproducibility of
 [ADR-007](DECISIONS.md#adr-007)/[ADR-011](DECISIONS.md#adr-011) at the
 distribution boundary; scopes the build machinery of
-[ADR-019](DECISIONS.md#adr-019) to build-time only; consistent with the
+[ADR-019](DECISIONS.md#adr-019) to build-tim---
+
+---
+
+## ADR-021 — netVM is a distinct sysVM component class: separate, declarative build and update track
+
+**Status:** Accepted (2026-07)
+
+**Context:** [ADR-009](DECISIONS.md#adr-009) fixed netVM's *role* — the sole
+network-facing domain, owning DHCP/DNS/VPN/firewalling/routing — but never
+fixed *how netVM is built or updated*. By omission it was treated like every
+other guest, and in practice it became the one guest built by no pipeline at
+all: a hand-installed Debian **netinst pet** (`deb cdrom:` source, in-guest
+GRUB + initrd, installer-written configuration). Two facts forced the question
+open in the 2026-07-08 session:
+
+- **netVM does not fit the foundation/app-layer model, in either direction.**
+  It is the *only* guest that needs `-machine q35` (PCI topology for vfio NIC
+  passthrough per [ADR-009](DECISIONS.md#adr-009)), not microvm; and it needs
+  full **systemd** (`systemd-networkd`, `wg-quick`, a DHCP client) plus
+  firmware and an initramfs — the exact inverse of the systemd-free,
+  `katmate-init`, monolithic-`-kernel` foundation ([ADR-018](DECISIONS.md#adr-018),
+  [ADR-005](DECISIONS.md#adr-005)). It also carries **no waypipe**, so the
+  entire lifecycle premise of the app layer — rebuild is driven by a waypipe
+  version bump ([ADR-019](DECISIONS.md#adr-019)) — does not apply to it. In
+  Qubes' vocabulary this is a **sysVM**, a different class from AppVMs, and the
+  design should say so explicitly rather than leave it as an unclassified
+  exception.
+- **The pet just leaked a bug into the most security-exposed VM.** The recurring
+  first-boot `Raise network interfaces` failure traced to a stale static block
+  for the *host's* USB-NIC MAC (`enx00e04c3961b8`) in `/etc/network/interfaces`
+  — written by the netinst installer for a topology that no longer exists, and
+  drifting silently ever since. netVM is the VM that terminates the raw uplink
+  and holds the VPN keys; installer-authored state that no manifest owns is
+  least acceptable *here* of all places.
+
+Two constraints already accepted make the netinst pet untenable, not merely
+untidy. [ADR-020](DECISIONS.md#adr-020) fixes the release unit as a pre-baked
+signed ISO the user provisions but never builds — which requires netVM to exist
+as a prebuilt, reproducible artifact, impossible while it is produced by an
+interactive installer run. And [ROADMAP.md](../ROADMAP.md) step 3 (installer
+provisions netVM) requires a declarative source for that provisioning.
+
+The real decision is therefore not *whether* netVM is separate — its machine
+model, service model and update trigger make that self-evident — but that
+"separate" must mean **separately declarative**, never "hand-maintained
+forever".
+
+**Decision:** netVM is a first-class **sysVM component class**, built and
+updated by its own declarative pipeline, outside foundation/app-layer and
+outside `katmate-update`.
+
+- **Own build script, `build/netvm.sh`, debootstrap-based.** netVM is built
+  from nothing by debootstrap onto a thin LV, mount → chroot → bake → freeze,
+  reusing the proven skeleton and rollback trap of
+  [ADR-018](DECISIONS.md#adr-018). It is a *sibling* of `foundation.sh`, not a
+  copy: systemd stays, the machine is q35, `non-free-firmware` is an enabled apt
+  component, and an initramfs is generated. debootstrap is chosen over keeping
+  netinst + a config-management layer specifically because it **closes the
+  drift class** the pet just demonstrated — every file in the image answers to
+  the manifest, and there is no unclassified installer as a second author. This
+  is the same reproducibility stance ADR-018 took for the foundation, applied
+  to the one guest that had escaped it.
+
+- **Own package + config manifest.** A netVM-specific manifest declares the
+  package set (`systemd`, `firmware-realtek`, WireGuard, a DHCP client,
+  `linux-image-amd64`, nftables) and the configuration baked at build time:
+  `/etc/systemd/network/20-uplink.network` (MAC-matched DHCP), a minimal
+  `/etc/network/interfaces` (`lo` + `source` only — the stale static block is
+  never re-baked), the WireGuard/ProtonVPN config *template*, and the
+  nft/routing rules. This manifest is netVM's own; it does not share the
+  app-layer manifest format's assumptions (no waypipe, no `properties.toml`
+  domain axes — netVM's role is fixed by ADR-009, not selected per-instance).
+
+- **No bootloader in the guest: direct-kernel boot.** q35 supports QEMU
+  `-kernel`/`-initrd`/`-append` (SeaBIOS linuxboot), so netVM boots with no
+  in-guest GRUB and no `/boot` partition. `build/netvm.sh` installs Debian's
+  stock `linux-image-amd64` in the chroot and **exports the resulting
+  `vmlinuz` + `initrd.img` to a host-side artifact** at build time; the
+  `net-vfio.con` launcher passes them with `-kernel`/`-initrd`, mirroring the
+  external-vmlinuz pattern ADR-018 established for the foundation. The stock
+  Debian kernel (not a custom build) is used deliberately: its security
+  maintenance is Debian's, adding no second kernel configuration to carry. An
+  initramfs is retained because the stock kernel has `virtio_blk` as a module;
+  it is trimmed with `MODULES=dep` but not eliminated.
+
+- **Own update track, `netvm-update`, outside `katmate-update`.**
+  `katmate-update` ([ADR-019](DECISIONS.md#adr-019)) is a waypipe-version-bump
+  orchestrator and **must never touch netVM** — netVM has no waypipe and no
+  shared foundation. netVM rebuilds are driven by a different trigger entirely:
+  Debian security updates and network-configuration changes. `netvm-update`
+  rebuilds the image from the manifest and re-exports kernel + initrd, on its
+  own cadence.
+
+- **Image and state are separated.** Because the image is rebuilt from a
+  manifest, no per-install secret may live inside it. WireGuard keys and any
+  per-deployment values live **outside** the image (the manifest carries a
+  config *template*; concrete values are written at provisioning time), so a
+  rebuild never destroys installed credentials. This is a direct consequence of
+  making the image declarative and disposable.
+
+**Alternatives considered:**
+
+- **Fold netVM into the foundation** (one base for all guests). Rejected: the
+  machine models are opposite (q35+PCI vs microvm), the init models are opposite
+  (systemd vs `katmate-init`), and the update triggers are unrelated (Debian
+  security vs waypipe bump). Merging would drag systemd, firmware and an
+  initramfs back into the minimal-TCB foundation to serve a single guest —
+  contradicting ADR-018 and the minimal-TCB principle.
+- **Keep the hand-installed netinst pet** (accept "separate" as "manual").
+  Rejected: it cannot satisfy ADR-020 (user provisions a prebuilt artifact, does
+  not run an installer) or ROADMAP step 3 (declarative provisioning source), and
+  it is exactly the mechanism that leaked the stale-`interfaces` bug into the
+  most security-exposed VM. Separateness is correct; hand-maintenance is the
+  part being rejected.
+- **A second custom monolithic kernel for netVM** (no initrd, maximal trim).
+  Rejected *for now*, on stability grounds over speed: it doubles the kernel
+  configuration maintenance burden permanently, and a built-in `r8169` would
+  probe before root is mounted and fail the `rtl8125b-2.fw` firmware load (the
+  blob issue closed on 2026-07-08) — soluble only via `CONFIG_EXTRA_FIRMWARE`,
+  which opens firmware-licensing questions for ISO distribution. Deferred as an
+  optimization, not adopted as the default.
+
+**Consequences:**
+
+- A new build artifact class exists: netVM's image + its exported host-side
+  `vmlinuz`/`initrd`, produced by `build/netvm.sh`, distinct from
+  `foundation` and the `app-<type>` layers.
+- `katmate-update` explicitly excludes netVM; `netvm-update` is its own track
+  with its own trigger. The two update paths do not interact.
+- **Security posture improves at the boundary that matters most.** The boot
+  chain of the network-facing VM lives host-side and outside the guest image: a
+  compromised netVM cannot rewrite its own kernel, initrd or bootloader for
+  persistence, because there is none inside it to rewrite. For the raw-uplink /
+  VPN-key VM this is the correct property.
+- netVM migration is explicitly **not** the AppVM migration: netVM is *not*
+  moved onto the `katmate-init`/foundation chain (Next-steps item), it stays
+  systemd. The two tracks are independent.
+- Open follow-ups deferred to `build/netvm.sh` + manifest (next session, not
+  fixed here): the exact initramfs/service/firmware trim (`MODULES=dep`,
+  disabling unused systemd units, boot-time optimization such as qboot vs
+  SeaBIOS); the storage choice (thin LV in `vm_pool` vs a standalone LV); the
+  provisioning-time secret-injection mechanism; and the **DNS-leak policy** —
+  whether `20-uplink.network` overrides the LAN-supplied `DNS=1.1.1.1` with the
+  ProtonVPN resolver (`DNS=10.2.0.1` + `Domains=~.`) or drops the uplink DNS
+  entirely. The DNS decision is security-relevant and belongs in the manifest.
+
+**Cross-reference:** classifies the netVM of [ADR-009](DECISIONS.md#adr-009) as
+a sysVM and gives it the build/update model that ADR-009 left unspecified;
+reuses the debootstrap → thin-LV → chroot → freeze mechanism and external-kernel
+pattern of [ADR-018](DECISIONS.md#adr-018) while deliberately diverging on init
+(systemd) and machine (q35); scopes out of [ADR-019](DECISIONS.md#adr-019)
+(`katmate-update` never touches netVM); required by
+[ADR-020](DECISIONS.md#adr-020) (netVM must be a prebuilt, provisioned artifact)
+and by [ROADMAP.md](../ROADMAP.md) step 3.e only; consistent with the
 minimal-trust, distro-independent stance of
 [ADR-012](DECISIONS.md#adr-012).
