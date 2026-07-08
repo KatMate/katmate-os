@@ -937,37 +937,38 @@ distribution boundary; scopes the build machinery of
 
 ---
 
-## ADR-021 — netVM is a distinct sysVM component class: separate, declarative build and update track
+## ADR-021 — netVM is a distinct sysVM component class: separate, declarative build, its own control agent and update track
 
 **Status:** Accepted (2026-07)
 
 **Context:** [ADR-009](DECISIONS.md#adr-009) fixed netVM's *role* — the sole
 network-facing domain, owning DHCP/DNS/VPN/firewalling/routing — but never
-fixed *how netVM is built or updated*. By omission it was treated like every
-other guest, and in practice it became the one guest built by no pipeline at
-all: a hand-installed Debian **netinst pet** (`deb cdrom:` source, in-guest
-GRUB + initrd, installer-written configuration). Two facts forced the question
-open in the 2026-07-08 session:
+fixed *how netVM is built, controlled or updated*. By omission it was treated
+like every other guest, and in practice it became the one guest built by no
+pipeline at all: a hand-installed Debian **netinst pet** (`deb cdrom:` source,
+in-guest GRUB + initrd, installer-written configuration). Two facts forced the
+question open in the 2026-07-08 session:
 
 - **netVM does not fit the foundation/app-layer model, in either direction.**
   It is the *only* guest that needs `-machine q35` (PCI topology for vfio NIC
   passthrough per [ADR-009](DECISIONS.md#adr-009)), not microvm; and it needs
-  full **systemd** (`systemd-networkd`, `wg-quick`, a DHCP client) plus
+  full **systemd** (`systemd-networkd`, `wg-quick`, DHCP via networkd) plus
   firmware and an initramfs — the exact inverse of the systemd-free,
   `katmate-init`, monolithic-`-kernel` foundation ([ADR-018](DECISIONS.md#adr-018),
   [ADR-005](DECISIONS.md#adr-005)). It also carries **no waypipe**, so the
-  entire lifecycle premise of the app layer — rebuild is driven by a waypipe
-  version bump ([ADR-019](DECISIONS.md#adr-019)) — does not apply to it. In
-  Qubes' vocabulary this is a **sysVM**, a different class from AppVMs, and the
-  design should say so explicitly rather than leave it as an unclassified
-  exception.
+  lifecycle premise of the app layer — rebuild is driven by a waypipe version
+  bump ([ADR-019](DECISIONS.md#adr-019)) — does not apply to it. In Qubes'
+  vocabulary this is a **sysVM**, a different class from AppVMs, and the design
+  should say so explicitly rather than leave it as an unclassified exception.
 - **The pet just leaked a bug into the most security-exposed VM.** The recurring
   first-boot `Raise network interfaces` failure traced to a stale static block
   for the *host's* USB-NIC MAC (`enx00e04c3961b8`) in `/etc/network/interfaces`
   — written by the netinst installer for a topology that no longer exists, and
-  drifting silently ever since. netVM is the VM that terminates the raw uplink
-  and holds the VPN keys; installer-authored state that no manifest owns is
-  least acceptable *here* of all places.
+  drifting silently ever since. The same artefact reappeared in the pet's
+  `nftables.conf` as dead `enx00e04c3961b8` forward rules and a wrong internal
+  subnet (`10.100.17.0/24` where the segment is `10.100.1.0/24`). netVM is the
+  VM that terminates the raw uplink and holds the VPN keys; installer-authored
+  state that no manifest owns is least acceptable *here* of all places.
 
 Two constraints already accepted make the netinst pet untenable, not merely
 untidy. [ADR-020](DECISIONS.md#adr-020) fixes the release unit as a pre-baked
@@ -979,33 +980,122 @@ provisions netVM) requires a declarative source for that provisioning.
 The real decision is therefore not *whether* netVM is separate — its machine
 model, service model and update trigger make that self-evident — but that
 "separate" must mean **separately declarative**, never "hand-maintained
-forever".
+forever"; and that netVM, being appVM-agnostic by design (below), needs a
+**host-driven control channel** to receive per-appVM network configuration at
+launch time rather than baking any appVM topology into the image.
 
 **Decision:** netVM is a first-class **sysVM component class**, built and
-updated by its own declarative pipeline, outside foundation/app-layer and
-outside `katmate-update`.
+updated by its own declarative pipeline, carrying its own privileged control
+agent, outside foundation/app-layer and outside `katmate-update`.
 
 - **Own build script, `build/netvm.sh`, debootstrap-based.** netVM is built
-  from nothing by debootstrap onto a thin LV, mount → chroot → bake → freeze,
-  reusing the proven skeleton and rollback trap of
-  [ADR-018](DECISIONS.md#adr-018). It is a *sibling* of `foundation.sh`, not a
-  copy: systemd stays, the machine is q35, `non-free-firmware` is an enabled apt
-  component, and an initramfs is generated. debootstrap is chosen over keeping
-  netinst + a config-management layer specifically because it **closes the
-  drift class** the pet just demonstrated — every file in the image answers to
-  the manifest, and there is no unclassified installer as a second author. This
-  is the same reproducibility stance ADR-018 took for the foundation, applied
-  to the one guest that had escaped it.
+  from nothing by debootstrap onto a **standalone linear RW LV**, mount →
+  chroot → bake → export, reusing the proven mount/chroot skeleton and rollback
+  trap of [ADR-018](DECISIONS.md#adr-018). It is a *sibling* of `foundation.sh`,
+  not a copy, and diverges deliberately: full systemd (debootstrap default
+  variant, **not** `--variant=minbase`); q35; `non-free-firmware` an enabled apt
+  component; an initramfs is generated; **no waypipe, no katmate-init**.
+  debootstrap is chosen over keeping netinst + a config-management layer
+  specifically because it **closes the drift class** the pet just demonstrated —
+  every file in the image answers to the manifest, and there is no unclassified
+  installer as a second author. Same reproducibility stance ADR-018 took for the
+  foundation, applied to the one guest that had escaped it.
+
+- **Standalone linear RW LV, not thin, not frozen.** netVM is nobody's backing
+  store, so it is a plain linear LV — no thin snapshot, and therefore none of
+  the `-K -ay` skip-activation trap that governs the foundation/app chain
+  ([ADR-010](DECISIONS.md#adr-010)). It is **not** RO-frozen: runtime-mutable
+  state (`/var`, DHCP leases, WireGuard handshake state, `resolv.conf`, logs,
+  and host-delivered dynamic network config — below) lives on the RW LV. The
+  image itself is disposable: a rebuild overwrites the LV.
 
 - **Own package + config manifest.** A netVM-specific manifest declares the
-  package set (`systemd`, `firmware-realtek`, WireGuard, a DHCP client,
-  `linux-image-amd64`, nftables) and the configuration baked at build time:
-  `/etc/systemd/network/20-uplink.network` (MAC-matched DHCP), a minimal
-  `/etc/network/interfaces` (`lo` + `source` only — the stale static block is
-  never re-baked), the WireGuard/ProtonVPN config *template*, and the
-  nft/routing rules. This manifest is netVM's own; it does not share the
-  app-layer manifest format's assumptions (no waypipe, no `properties.toml`
-  domain axes — netVM's role is fixed by ADR-009, not selected per-instance).
+  package set (`systemd`, `firmware-realtek`, `wireguard-tools`, `nftables`,
+  `linux-image-amd64`, `initramfs-tools`) and the configuration baked at build
+  time. The image is **appVM-agnostic**: it bakes only VM-independent policy and
+  bakes **no internal topology at all**:
+  - `/etc/systemd/network/20-uplink.network` — MAC-matched DHCP on the vfio
+    uplink NIC (not appVM-specific).
+  - `/etc/network/interfaces` — reduced to `lo` + `source` only; the stale
+    static block is never re-baked.
+  - `/etc/wireguard/proton.conf.template` — a **placeholder** config, not a
+    secret (see image/state separation below).
+  - `/etc/nftables.conf` — a **static** firewall/routing policy that references
+    the internal segment only as the aggregate `10.100.1.0/24`, never
+    per-appVM. Per-`/32` isolation is provided by **topology** (each appVM is a
+    separate p2p link with a link-scoped `/32` route), not by per-appVM firewall
+    rules, so the firewall never changes as appVMs come and go. The pet's dead
+    `enx00e04c3961b8` forward rules are dropped and the wrong subnet corrected.
+  - `/etc/sysctl.d/30-netvm-forward.conf` — `net.ipv4.ip_forward = 1`.
+  No `10-personal.network` and no other `/32` route is baked: **not even
+  personalVM** (a fixed CID) is treated as an image-level exception. Every
+  internal route, personalVM included, is delivered at launch time (below). On a
+  clean boot netVM therefore has *no* internal route, which is correct — with no
+  running appVMs there is nowhere to route.
+
+- **netVM carries its own control agent (`netvm-agent`), privileged.** The host
+  configures netVM's network boundary through a vsock control agent, consistent
+  with the vsock-only channel rule ([ADR-003](DECISIONS.md#adr-003)): the host
+  is the caller, netVM the executor, and the boundary holds because the mutation
+  comes from the *more*-trusted side (host), never from an appVM. This is the
+  same trust direction as the host-drawn domain indicator — the boundary is
+  moved only by code the constrained side cannot reach. Crucially, the mutating
+  party is netVM's **own** agent receiving a host command, **not** an appVM's
+  agent reaching across a boundary.
+
+- **Two agent binaries from one Rust workspace; absent, not disabled.** The
+  agent becomes a Cargo workspace: a shared `protocol` crate (framing/transport
+  + `error.rs`) and **two** bin crates — `vm-agent` (foundation/appVM:
+  uid 1000, RUN whitelist, FILEPUT/FILEGET) and `netvm-agent` (netVM:
+  privileged, network control). The split is a security measure, not just
+  tidiness, on the same principle as the ADR-019 waypipe strip — *absent code
+  paths are stronger than disabled ones*. The privileged `netvm-agent` binary
+  does **not contain** RUN/FILEPUT code at all; the unprivileged appVM
+  `vm-agent` does **not contain** NETCFG code at all. A single build gating
+  behaviour at runtime would leave RUN code physically present in a process
+  holding `CAP_NET_ADMIN`, and NETCFG code physically present in the
+  least-trusted guest — both avoided here by separate compilation. Opcode
+  definitions are per-bin-crate; only framing/transport/error are shared.
+
+  Opcode model:
+
+  | Opcode | Shared `protocol` | `netvm-agent` | `vm-agent` (appVM) |
+  |---|---|---|---|
+  | PING | definition | handler | handler |
+  | SHUTDOWN | definition | handler | handler |
+  | NETCFG | — | handler (privileged) | absent |
+  | RUN / FILEPUT / FILEGET | — | absent | handler (uid 1000, whitelist) |
+
+  PING and SHUTDOWN are shared because **both** agents are legitimate targets
+  for them — shared legitimate functionality is not "dead code"; the principle
+  forbids a *privileged* opcode present where it is not needed, not a
+  common opcode present where it is.
+
+- **`NETCFG` is a typed network-config command, never a generic RUN.** It
+  installs a **validated** `systemd-networkd` `.network` fragment (a per-appVM
+  `/32` p2p link route on netVM's internal interface) and triggers
+  `networkctl reload`; it carries a structured payload, not a shell string. The
+  host calls it at appVM launch to add the route and at teardown to remove it.
+  This keeps the privileged agent's surface to exactly one job — internal-route
+  lifecycle — rather than arbitrary execution. Because the LV is RW, the
+  delivered fragment persists as runtime state and is correctly discarded on
+  image rebuild (when no appVM is running anyway).
+
+- **`SHUTDOWN` exists for graceful teardown**, matching the existing appVM
+  agent and the `ping-client shutdown` subcommand — needed for clean netVM
+  restart (e.g. the second-boot FLReset- cycle). Operational caveat, not a
+  vulnerability: netVM is the gateway for all appVMs, so shutting it down while
+  appVMs run severs their network. *When* it is safe to call is launch-daemon
+  policy (the `katmate-update` MVP already refuses to tear down CID 3 blindly),
+  not the agent's concern.
+
+- **Privilege: `netvm-agent` runs with `CAP_NET_ADMIN`** (plus write access to
+  `/etc/systemd/network/`), granted via its systemd unit — the minimum for
+  writing `.network` fragments, reloading networkd, and touching `nft`, rather
+  than full root if capabilities suffice. This is deliberately **more** than the
+  appVM `vm-agent` (uid 1000, unprivileged, RUN whitelist): the same protocol,
+  two trust/privilege levels by VM class. It runs under systemd (a unit), not
+  under katmate-init.
 
 - **No bootloader in the guest: direct-kernel boot.** q35 supports QEMU
   `-kernel`/`-initrd`/`-append` (SeaBIOS linuxboot), so netVM boots with no
@@ -1016,77 +1106,101 @@ outside `katmate-update`.
   external-vmlinuz pattern ADR-018 established for the foundation. The stock
   Debian kernel (not a custom build) is used deliberately: its security
   maintenance is Debian's, adding no second kernel configuration to carry. An
-  initramfs is retained because the stock kernel has `virtio_blk` as a module;
-  it is trimmed with `MODULES=dep` but not eliminated.
+  initramfs is retained because the stock kernel has `virtio_blk` as a module
+  (trimmed with `MODULES=dep`, not eliminated).
 
 - **Own update track, `netvm-update`, outside `katmate-update`.**
   `katmate-update` ([ADR-019](DECISIONS.md#adr-019)) is a waypipe-version-bump
   orchestrator and **must never touch netVM** — netVM has no waypipe and no
-  shared foundation. netVM rebuilds are driven by a different trigger entirely:
-  Debian security updates and network-configuration changes. `netvm-update`
-  rebuilds the image from the manifest and re-exports kernel + initrd, on its
-  own cadence.
+  shared foundation. netVM rebuilds are driven by Debian security updates and
+  network-configuration changes; `netvm-update` rebuilds the image from the
+  manifest and re-exports kernel + initrd on its own cadence.
 
 - **Image and state are separated.** Because the image is rebuilt from a
-  manifest, no per-install secret may live inside it. WireGuard keys and any
-  per-deployment values live **outside** the image (the manifest carries a
-  config *template*; concrete values are written at provisioning time), so a
-  rebuild never destroys installed credentials. This is a direct consequence of
-  making the image declarative and disposable.
+  manifest, no per-install secret lives inside it. WireGuard keys and per-deploy
+  values live **outside** the image (the manifest carries a config *template*;
+  concrete values are written at provisioning time), so a rebuild never destroys
+  installed credentials. Host-delivered dynamic routes (NETCFG) are runtime
+  state on the RW LV, likewise outside the baked image.
 
 **Alternatives considered:**
 
-- **Fold netVM into the foundation** (one base for all guests). Rejected: the
-  machine models are opposite (q35+PCI vs microvm), the init models are opposite
-  (systemd vs `katmate-init`), and the update triggers are unrelated (Debian
-  security vs waypipe bump). Merging would drag systemd, firmware and an
-  initramfs back into the minimal-TCB foundation to serve a single guest —
-  contradicting ADR-018 and the minimal-TCB principle.
-- **Keep the hand-installed netinst pet** (accept "separate" as "manual").
-  Rejected: it cannot satisfy ADR-020 (user provisions a prebuilt artifact, does
-  not run an installer) or ROADMAP step 3 (declarative provisioning source), and
-  it is exactly the mechanism that leaked the stale-`interfaces` bug into the
-  most security-exposed VM. Separateness is correct; hand-maintenance is the
-  part being rejected.
+- **Fold netVM into the foundation.** Rejected: opposite machine models
+  (q35+PCI vs microvm), opposite init models (systemd vs katmate-init),
+  unrelated update triggers (Debian security vs waypipe bump). Merging would
+  drag systemd, firmware and an initramfs back into the minimal-TCB foundation
+  to serve one guest.
+- **Keep the hand-installed netinst pet.** Rejected: cannot satisfy ADR-020
+  (user provisions a prebuilt artifact) or ROADMAP step 3 (declarative
+  provisioning), and is the exact mechanism that leaked the stale-`interfaces`
+  and dead-firewall-rule bugs into the most security-exposed VM. Separateness is
+  correct; hand-maintenance is what is rejected.
+- **A single agent binary gating RUN/NETCFG at runtime.** Rejected on the
+  absent-vs-disabled principle: it would ship RUN code inside a
+  `CAP_NET_ADMIN`-holding process and NETCFG code inside the least-trusted
+  guest. There is no running system to protect and no schedule pressure, so the
+  split is done from the start rather than deferred — deferred security
+  minimizations accrue as debt, and refactoring a privileged network element
+  "later" is strictly more work and risk than building it split now.
+- **Guest-side (appVM) agent managing netVM firewall/routes.** Rejected
+  outright: it would let a constrained guest move its own boundary — the
+  inverse of the trust direction. netVM's own agent receiving a host command is
+  the correct shape.
+- **Bake per-appVM `/32` routes (or personalVM's) into the image.** Rejected:
+  it would couple the stable, rarely-rebuilt netVM image to the dynamic appVM
+  lifecycle (CID ≥100 pool). The image stays appVM-agnostic; all internal
+  routes arrive via NETCFG at launch.
 - **A second custom monolithic kernel for netVM** (no initrd, maximal trim).
-  Rejected *for now*, on stability grounds over speed: it doubles the kernel
-  configuration maintenance burden permanently, and a built-in `r8169` would
-  probe before root is mounted and fail the `rtl8125b-2.fw` firmware load (the
-  blob issue closed on 2026-07-08) — soluble only via `CONFIG_EXTRA_FIRMWARE`,
-  which opens firmware-licensing questions for ISO distribution. Deferred as an
-  optimization, not adopted as the default.
+  Rejected *for now*, stability over speed: doubles kernel-config maintenance,
+  and a built-in `r8169` would probe before root is mounted and fail the
+  `rtl8125b-2.fw` load (the blob issue closed 2026-07-08) — soluble only via
+  `CONFIG_EXTRA_FIRMWARE`, which raises firmware-licensing questions for ISO
+  distribution. Deferred, not adopted.
 
 **Consequences:**
 
 - A new build artifact class exists: netVM's image + its exported host-side
-  `vmlinuz`/`initrd`, produced by `build/netvm.sh`, distinct from
-  `foundation` and the `app-<type>` layers.
+  `vmlinuz`/`initrd`, produced by `build/netvm.sh`, distinct from `foundation`
+  and the `app-<type>` layers.
+- The agent codebase becomes a Cargo workspace (shared `protocol` crate + two
+  bin crates). The existing appVM `vm-agent` is unchanged in behaviour; the new
+  `netvm-agent` is built and baked by `build/netvm.sh` and run as a privileged
+  systemd unit inside netVM.
 - `katmate-update` explicitly excludes netVM; `netvm-update` is its own track
   with its own trigger. The two update paths do not interact.
 - **Security posture improves at the boundary that matters most.** The boot
-  chain of the network-facing VM lives host-side and outside the guest image: a
-  compromised netVM cannot rewrite its own kernel, initrd or bootloader for
-  persistence, because there is none inside it to rewrite. For the raw-uplink /
-  VPN-key VM this is the correct property.
+  chain of the network-facing VM lives host-side and outside the guest image (no
+  in-guest bootloader to rewrite for persistence); the privileged control
+  binary contains only network-config code, not general execution; the firewall
+  is static and appVM-agnostic, with isolation carried by topology; and the
+  least-trusted appVM guest cannot even name a network-config opcode.
 - netVM migration is explicitly **not** the AppVM migration: netVM is *not*
-  moved onto the `katmate-init`/foundation chain (Next-steps item), it stays
-  systemd. The two tracks are independent.
-- Open follow-ups deferred to `build/netvm.sh` + manifest (next session, not
-  fixed here): the exact initramfs/service/firmware trim (`MODULES=dep`,
-  disabling unused systemd units, boot-time optimization such as qboot vs
-  SeaBIOS); the storage choice (thin LV in `vm_pool` vs a standalone LV); the
-  provisioning-time secret-injection mechanism; and the **DNS-leak policy** —
-  whether `20-uplink.network` overrides the LAN-supplied `DNS=1.1.1.1` with the
+  moved onto the katmate-init/foundation chain, it stays systemd. The two tracks
+  are independent.
+- The launch daemon (future ADR) becomes the owner of *when* NETCFG and
+  SHUTDOWN are called: it allocates the appVM's CID and internal `/32`, calls
+  NETCFG on netVM to add the route at launch and remove it at teardown, and
+  refuses to SHUTDOWN netVM while appVMs depend on it.
+- Open follow-ups deferred to `build/netvm.sh` + manifest + agent work (next
+  sessions, not fixed here): the exact initramfs/service/firmware trim
+  (`MODULES=dep`, disabling unused systemd units, qboot vs SeaBIOS); the
+  `netvm-agent` vsock control **port** (distinct from GUI 1024 / control 1025 /
+  audio 1026); the `.network`-fragment validation rules NETCFG enforces; the
+  internal-interface naming/addressing convention for per-appVM p2p links; the
+  `wireguard` listen-port firewall rule audit (the pet's `udp dport 51820` may
+  be unnecessary for a client-only tunnel); and the **DNS-leak policy** —
+  whether `20-uplink.network` overrides the LAN-supplied `DNS` with the
   ProtonVPN resolver (`DNS=10.2.0.1` + `Domains=~.`) or drops the uplink DNS
   entirely. The DNS decision is security-relevant and belongs in the manifest.
 
 **Cross-reference:** classifies the netVM of [ADR-009](DECISIONS.md#adr-009) as
-a sysVM and gives it the build/update model that ADR-009 left unspecified;
-reuses the debootstrap → thin-LV → chroot → freeze mechanism and external-kernel
-pattern of [ADR-018](DECISIONS.md#adr-018) while deliberately diverging on init
-(systemd) and machine (q35); scopes out of [ADR-019](DECISIONS.md#adr-019)
-(`katmate-update` never touches netVM); required by
-[ADR-020](DECISIONS.md#adr-020) (netVM must be a prebuilt, provisioned artifact)
-and by [ROADMAP.md](../ROADMAP.md) step 3.e only; consistent with the
-minimal-trust, distro-independent stance of
-[ADR-012](DECISIONS.md#adr-012).
+a sysVM and gives it the build/control/update model ADR-009 left unspecified;
+reuses the debootstrap → LV → chroot mechanism and external-kernel pattern of
+[ADR-018](DECISIONS.md#adr-018) while diverging on init (systemd), machine (q35)
+and storage (standalone linear RW, not thin/frozen); keeps the control channel
+within the vsock-only rule of [ADR-003](DECISIONS.md#adr-003); scopes out of
+[ADR-019](DECISIONS.md#adr-019) (`katmate-update` never touches netVM); required
+by [ADR-020](DECISIONS.md#adr-020) (netVM must be a prebuilt, provisioned
+artifact) and by [ROADMAP.md](../ROADMAP.md) step 3; the shared-protocol,
+whitelisted appVM agent it splits from is the one specified in
+[ADR-018](DECISIONS.md#adr-018).
