@@ -151,6 +151,17 @@ APT
 # --- 4. install package manifest ---------------------------------------------
 # Manifest: one package per line, '#' comments and blanks ignored. Parser is
 # bit-for-bit identical to app-layer.sh so the two never diverge on the format.
+#
+# Set MODULES=dep BEFORE installing the kernel: linux-image-amd64's postinst
+# generates the initramfs itself, and with this conf already in place it makes a
+# TRIMMED initrd on first generation — no separate regeneration step later (that
+# step used to write /boot again after apt, and a failure there left a hot ext4
+# journal / stuck jbd2, forcing host reboots). This is the robust path: the only
+# initramfs write is the kernel's own postinst, inside the apt transaction.
+log "Pre-seeding initramfs MODULES=dep (trimmed initrd at kernel install time)"
+install -D -m 0644 /dev/stdin \
+  "$NETVM_MNT/etc/initramfs-tools/conf.d/modules-dep" <<< 'MODULES=dep'
+
 log "Installing netVM package manifest"
 mapfile -t PKGS < <(grep -vE '^[[:space:]]*(#|$)' "$NETVM_PKGS")
 [[ ${#PKGS[@]} -gt 0 ]] || die "Manifest $NETVM_PKGS lists no packages"
@@ -226,20 +237,20 @@ else
 fi
 
 # --- 8. export kernel + initrd host-side (no in-guest bootloader) -------------
-# linux-image-amd64 installed a stock vmlinuz + generated an initramfs in /boot.
-# Trim initramfs to dependency modules, regenerate, then copy BOTH out to the
-# host-side artifact dir. net-vfio.con passes them via -kernel/-initrd; nothing
-# in the guest boots them (no GRUB, no /boot partition).
-#
-# NOTE: call update-initramfs by FULL PATH (/usr/sbin). chroot_run runs it via
-# `env`, whose inherited PATH does not include /usr/sbin, so a bare name is not
-# found (rc 127) even though the binary exists — the kernel postinst that ran it
-# earlier used dpkg's own PATH. The kernel's own postinst already generated a
-# full initramfs; this regeneration re-makes it trimmed (MODULES=dep).
-log "Trimming initramfs (MODULES=dep) and regenerating"
-install -D -m 0644 /dev/stdin \
-  "$NETVM_MNT/etc/initramfs-tools/conf.d/modules-dep" <<< 'MODULES=dep'
-chroot_run "$NETVM_MNT" /usr/sbin/update-initramfs -u
+# linux-image-amd64's postinst already generated a TRIMMED initramfs in /boot
+# (MODULES=dep was pre-seeded in step 4, before the install). We therefore only
+# COPY vmlinuz + initrd out to the host-side artifact dir — NO regeneration here
+# (that avoided the fragile /boot re-write that kept leaving a stuck jbd2). The
+# launcher (net-vfio.con) passes these via -kernel/-initrd; nothing in the guest
+# boots them (no GRUB, no /boot partition).
+log "Exporting vmlinuz + initrd to $NETVM_OUT"
+mkdir -p "$NETVM_OUT"
+KVER="$(chroot "$NETVM_MNT" sh -c 'ls -1 /boot/vmlinuz-* 2>/dev/null | sed s#/boot/vmlinuz-##' | head -n1)"
+[[ -n "$KVER" ]] || die "no vmlinuz found in image /boot"
+[[ -f "$NETVM_MNT/boot/initrd.img-$KVER" ]] || die "no initrd.img-$KVER in image /boot (kernel postinst did not generate it)"
+cp -v "$NETVM_MNT/boot/vmlinuz-$KVER"    "$NETVM_OUT/vmlinuz"
+cp -v "$NETVM_MNT/boot/initrd.img-$KVER" "$NETVM_OUT/initrd.img"
+echo "$KVER" > "$NETVM_OUT/kernel.version"
 
 log "Exporting vmlinuz + initrd to $NETVM_OUT"
 mkdir -p "$NETVM_OUT"

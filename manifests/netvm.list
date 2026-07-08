@@ -5,6 +5,10 @@
 # --- kernel (stock Debian; exported host-side, boots via -kernel/-initrd) ---
 linux-image-amd64
 initramfs-tools
+# cpio: required by initramfs generation. initramfs-tools normally pulls it,
+# but --no-install-recommends can drop it — list it explicitly so the kernel
+# postinst's initrd generation cannot fail on a missing tool.
+cpio
 
 # --- NIC firmware (the last uplink blocker, 2026-07-08: rtl8125b-2.fw) ------
 firmware-realtek
