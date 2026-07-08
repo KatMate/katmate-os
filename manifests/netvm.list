@@ -1,0 +1,23 @@
+# Katmate OS — netVM sysVM package manifest (ADR-021)
+# One package per line. '#' comments and blank lines ignored.
+# Installed with --no-install-recommends, so list what is actually needed.
+
+# --- kernel (stock Debian; exported host-side, boots via -kernel/-initrd) ---
+linux-image-amd64
+initramfs-tools
+
+# --- NIC firmware (the last uplink blocker, 2026-07-08: rtl8125b-2.fw) ------
+firmware-realtek
+
+# --- networking core --------------------------------------------------------
+# systemd-networkd ships with systemd (pulled by the debootstrap variant), and
+# does DHCP itself — no separate DHCP client package is needed.
+nftables
+iproute2
+
+# --- VPN --------------------------------------------------------------------
+wireguard-tools
+
+# --- console / diagnostics (dev; trim for release) --------------------------
+# Keep minimal — netVM is the most exposed VM. Add only what debugging needs.
+iputils-ping

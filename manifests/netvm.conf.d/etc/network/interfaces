@@ -1,0 +1,8 @@
+# netVM /etc/network/interfaces — lo + source only.
+# The stale enx00e04c3961b8 static block (host USB-NIC MAC, a netinst artefact)
+# is deliberately absent and must never be re-baked. All primary-interface
+# configuration belongs to systemd-networkd (see /etc/systemd/network/).
+auto lo
+iface lo inet loopback
+
+source /etc/network/interfaces.d/*
