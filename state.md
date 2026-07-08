@@ -5,34 +5,32 @@
 > each working session. Detailed proofs and command sequences live in git
 > history and the ADRs — this file references them rather than repeating them.
 
-**Last updated:** 2026-07-06 — **USB-NIC host recovery SOLVED (Open problem #7
-CLOSED)**. Root cause was NOT the driver, cfgselector, SuperSpeed link, or
-kernel version — it was OUR OWN leftover udev rule
-`/etc/udev/rules.d/30-usb-nic-qemu.rules`, which ran
-`echo %k:1.0 > /sys/bus/usb/drivers/r8152/unbind` on every `0bda:8153` plug.
-r8152 bound correctly each time and the rule tore it off microseconds later →
-`driver=[none]` after a clean enumeration, on every port/bus. Removing the rule
-(`rm` + `udevadm control --reload-rules && udevadm trigger`) brought the NIC up
-immediately as `enp195s0f3u1u1`. Host now has a dev uplink over the USB-NIC;
-fixed IP `10.3.1.3` set via `ip addr` (volatile), DNS → ProtonVPN `10.2.0.1`.
-The RTL8125↔USB role swap is now complete: RTL8125 = netVM uplink (vfio),
-USB-NIC r8152 = host dev/terrace uplink. **A large kernel detour (6.12.94 build)
-this session was wasted effort** — MINIS runs Arch `7.0.12`, not any 6.12.y, and
-the r8152 driver was present all along. Immediate next steps unchanged: netVM
-in-guest `enp0s6` config + the critical RTL8125 second-boot FLReset- test.
+**Last updated:** 2026-07-08 — **RTL8125 netVM uplink COMPLETE; second-boot
+FLReset- gate PASSED.** The full netVM uplink chain is proven end to end:
+MAC-matched systemd-networkd config (`20-uplink.network`) + `firmware-realtek`
+(the missing `rtl8125b-2.fw` was the last blocker) → guest `enp0s6` reaches
+`State: routable (configured)`, DHCP `10.3.1.110/24` via `10.3.1.1`, 1Gbps
+full duplex. The critical **second boot** (fresh `net-vfio.con` launch, fresh
+`systemd-networkd` PID, uptime seconds) came up clean — no ENOMEM, no VFIO
+reset failure — proving `disable_idle_d3=1` holds across a guest reboot cycle.
+The RTL8125↔USB role swap is now functionally permanent (RTL8125 = netVM
+uplink; USB-NIC r8152 = host dev uplink). Architectural decision this session:
+**netVM is a separate component class (sysVM), NOT an appVM** — it gets its own
+build/update pipeline and manifest, outside foundation/app-layer and
+`katmate-update`. Captured as pending **ADR-021** (next session).
 **Milestone:** v0.2 (in development)
 
 ## Current focus
 
-The RTL8125 passthrough backbone is proven: `vfio.conf` binds the NIC away from
-`r8169` at boot, a vfio variant of the netVM launcher (`net-vfio.con`) boots the
-guest with `-device vfio-pci,host=0000:01:00.0`, and the guest enumerates the
-card as `enp0s6`. What remains on this thread is small and concrete: point the
-guest's network config at `enp0s6` (DHCP from the LAN router over the real
-uplink), then run the second-boot test where FLReset-less devices typically
-break, to prove the `disable_idle_d3=1` workaround holds across a guest reboot
-cycle. Only after that does the USB↔PCI role-swap become permanent (RTL8125 =
-netVM production uplink; USB-NIC r8152 = host dev/fallback).
+The RTL8125 passthrough backbone is COMPLETE and proven across a reboot cycle:
+`vfio.conf` binds the NIC away from `r8169` at boot, `net-vfio.con` launches
+netVM with `-device vfio-pci,host=0000:01:00.0`, the guest enumerates it as
+`enp0s6`, and with `firmware-realtek` present + a MAC-matched networkd profile
+the link is routable with a DHCP lease. Both the first and the critical second
+boot succeeded. The remaining netVM work is no longer runtime bring-up but
+**making these deltas survive a rebuild** — netVM is still a hand-installed
+netinst pet, and the fixes below live only in the running instance. That is the
+motivation for the sysVM pipeline (ADR-021).
 
 The **entire build chain remains scripted and proven from nothing** (unchanged
 this session): `make foundation` builds the shared systemd-free base
@@ -40,121 +38,141 @@ this session): `make foundation` builds the shared systemd-free base
 `make app-web`/`make app-vault` snapshot it, and an instance boots end-to-end.
 The release model is fixed (ADR-020): the build chain is developer-side; its
 output is a signed ISO; the user installs by verify → bake → boot → provision,
-never by building. `katmate-update` (ADR-019 version-lock backbone) is complete.
+never by building. `katmate-update` (ADR-019 version-lock backbone) is complete
+— and, per this session, deliberately does NOT cover netVM.
 
 Direction unchanged: IOMMU-capable platforms only (VT-d/AMD-Vi); VT-x-only
 frozen (ADR-015). MINIS is primary host and merge target.
 
-## This session (2026-07-06) — USB-NIC host recovery SOLVED (#7 closed)
+## This session (2026-07-08) — netVM uplink complete; netVM = sysVM decision
 
-Live work on MINIS console from the terrace goal. The single objective —
-bring the USB-NIC (r8152, `0bda:8153`) up as a host NIC — was reached, but only
-after a long detour that is itself the lesson of the session.
+Live work on MINIS console + serial into netVM (CID 3). Objective: point the
+guest at the passed-through RTL8125 (`enp0s6`), then run the critical
+second-boot FLReset- test. Both done; a firmware gap surfaced and was closed;
+and the session produced an architectural decision about how netVM is built.
 
-### Root cause (the actual bug)
+### netVM in-guest netconf (`enp0s6`) — DONE
 
-`/etc/udev/rules.d/30-usb-nic-qemu.rules` — a rule WE wrote at the very start of
-the USB↔PCI work to keep the NIC out of the host's way while it was destined for
-netVM USB-passthrough:
+- **Diagnosis of the first-boot `[FAILED] Raise network interfaces`:** the guest
+  had TWO stacks active — `systemd-networkd` (enabled, running) AND `networking`
+  (ifupdown, enabled but **failed**). `/etc/network/interfaces` carried a stale
+  static block for `enx00e04c3961b8` — the HOST's USB-NIC MAC, wrong VM entirely
+  — almost certainly written by the original netinst installer back when the
+  USB-NIC was passed into netVM. That is the source of the recurring boot
+  failure, not `enp0s6` itself.
+- **Fix (ifupdown side):** reduced `/etc/network/interfaces` to `lo` +
+  `source interfaces.d/*` only. The primary-interface job now belongs entirely
+  to networkd.
+- **New `/etc/systemd/network/20-uplink.network`** — MAC-match (stable across
+  PCI topology), DHCP:
+  ```ini
+  [Match]
+  MACAddress=38:05:25:34:7c:47
 
-```
-ACTION=="add|change", SUBSYSTEM=="usb", ATTRS{idVendor}=="0bda",
-  ATTRS{idProduct}=="8153", MODE="0660", GROUP="kvm",
-  RUN+="/bin/sh -c 'echo -n %k:1.0 > /sys/bus/usb/drivers/r8152/unbind'"
-```
+  [Network]
+  DHCP=ipv4
 
-On every plug the cfgselector enumerated the device, selected config 1, handed
-the interface to `r8152` — and this rule immediately unbound `r8152`. Net effect:
-clean enumeration, then `driver=[none]`, on **every port and every bus**, SS or
-HS. That port/bus-independence was the tell we kept missing. Fix:
+  [DHCP]
+  RouteMetric=100
+  ```
+  (`38:05:25:34:7c:47` = the RTL8125's MAC as seen in the guest. Matches by MAC,
+  not `Name=enp0s6`, so a slot/name change does not break it — the whole reason
+  for the exercise. `10-personal.network` stays `Name=`-matched on `enp0s4`, the
+  internal p2p segment to personalVM at `10.100.1.2`.)
 
-```
-sudo rm /etc/udev/rules.d/30-usb-nic-qemu.rules
-sudo udevadm control --reload-rules && sudo udevadm trigger
-```
+### Firmware gap (the real last blocker) — closed
 
-NIC came up as **`enp195s0f3u1u1`** (USB-path predictable name; MAC-stable is
-`00:e0:4c:39:61:b8`). Fixed IP `10.3.1.3/24` set with `ip addr add` (for admin);
-old address removed with `ip addr del`. DNS pointed at ProtonVPN `10.2.0.1`
-(MINIS is on Proton VPN). sshd restarted for terrace access.
+- **Symptom:** after networkd matched and brought the link UP, it stayed
+  `no-carrier`: `r8169 0000:00:06.0: Unable to load firmware
+  rtl_nic/rtl8125b-2.fw (-2)`. `-2` = ENOENT: `/lib/firmware/rtl_nic/` was empty.
+- **Root cause:** vfio hands the RTL8125 to the guest as a plain PCI device, and
+  the guest's own `r8169` needs the Realtek firmware blob to bring the PHY up.
+  The netinst netVM image never had `firmware-realtek` (the USB-NIC r8152 the
+  guest used before does not need a separate blob).
+- **Fix:** `apt install firmware-realtek` (already had `non-free-firmware` in
+  `sources.list`; apt reached the mirror over the internal segment).
+  `ip link set enp0s6 down; up` reloaded the driver with the blob present.
+- **Result:** `Gained carrier` → `DHCPv4 address 10.3.1.110/24, gateway
+  10.3.1.1`. `networkctl status enp0s6`: `State: routable (configured)`,
+  `Online state: online`, `Speed: 1Gbps` full duplex.
 
-### Wasted detour (recorded so it is not repeated)
+### Second-boot FLReset- test — PASSED (the critical gate)
 
-Nearly the whole session went into a wrong hypothesis chain:
-- Built a full `linux-6.12.94` tree on MINIS (tarball via Cubi/USB, olddefconfig
-  from the running config, enabled `CONFIG_USB_RTL8152` + others), installed
-  kernel + initramfs + GRUB entry. **It never booted** (hangs just after the EFI
-  stub `Measured initrd data into PCR 9` line — root/initramfs/cmdline mismatch,
-  never chased down because the whole path was moot).
-- The premise was doubly wrong: MINIS runs **Arch `7.0.12-arch1-1`**, not 6.12.y
-  (the `~/src/kernel/linux-6.12.y/` tree is NOT the running kernel's source), and
-  `r8152` was present and loaded the entire time (`modinfo r8152` returns a full
-  driver; cfgselector is built INTO `r8152.ko`, not a separable module — so it
-  cannot be blacklisted, which retroactively kills the #7 "untried hypothesis").
-- Also chased: ECM conflict (`r8153_ecm` removal — no effect), SuperSpeed-vs-HS
-  link training (device DID reach 5000M on bus 002; not the cause), usbfs/QEMU
-  claim (a stale netVM `.con` had briefly held it via usb-host, but QEMU was not
-  running at diagnosis). All dead ends.
+Clean shutdown of netVM → fresh `net-vfio.con` launch. On the second boot the
+guest reached the console with no ENOMEM and no VFIO reset error, firmware
+loaded at boot (no `-2` this time), and `enp0s6` came back `routable` with the
+same DHCP lease `10.3.1.110/24`, 1Gbps full duplex, fresh `systemd-networkd`
+PID. This proves `disable_idle_d3=1` survives a guest reboot cycle for the
+FLR-less RTL8125 — the first boot succeeding was never sufficient; this is the
+result that makes the passthrough usable. The earlier one-off `Link DOWN /
+Lost carrier` blip did NOT recur (was a switch/cable renegotiation, not the
+device).
 
-### Cleanup performed / pending
+### Architectural decision — netVM is a sysVM (→ ADR-021, pending)
 
-- **Removed** the `6.12.94` kernel + initramfs from `/boot`, `/lib/modules/6.12.94`,
-  and regenerated GRUB so no dead boot entry remains. (Trees
-  `~/src/kernel/linux-6.12.94/` + `linux-6.12.y/` may be kept or deleted — space
-  only, not in the way.)
-- `ip addr`-set `10.3.1.3` and the ProtonVPN DNS are **volatile** (lost on
-  reboot/replug). If the terrace uplink should survive a reboot, it needs a
-  persistent profile — and because the interface NAME is USB-path-derived
-  (`enp195s0f3u1u1`, changes with the physical port), the persistent match must
-  be on MAC (`00:e0:4c:39:61:b8`), not on the name. Not yet done.
+netVM is deliberately a **separate component class**, not an appVM, and will
+NOT be folded into foundation/app-layer or `katmate-update`. Rationale:
+- **Different machine model:** the ONLY VM with `-machine q35` (needs PCI for
+  vfio passthrough), not microvm. Needs ACPI/initramfs/firmware and full
+  systemd (networkd, wg-quick, DHCP client) — the exact opposite of the
+  systemd-free, katmate-init foundation.
+- **Different lifecycle:** appVM rebuilds are driven by waypipe bumps (ADR-019);
+  netVM has no waypipe at all. netVM rebuilds are driven by Debian security
+  updates + network config. `katmate-update` must never touch it.
+- **In Qubes terms:** this is a sysVM, a different class from appVMs.
 
-## This session (2026-07-05) — RTL8125 passthrough achieved; USB-NIC regression
+BUT "separate" must mean "separately declarative", NOT "hand-maintained forever".
+The current netVM is a netinst pet (`deb cdrom:` line, GRUB+initrd in-guest,
+installer-written configs) — and that pet just leaked the stale-`interfaces`
+bug into the most security-exposed VM (raw network, VPN keys). ADR-020 (release
+= pre-baked ISO, user never builds) and ROADMAP step 3 (NetVM installer
+integration) both REQUIRE netVM to be provisioned declaratively by the
+installer, which is impossible while it is a hand-installed pet. So the decision
+is: **a dedicated `build/netvm.sh` (debootstrap-based, its own package + config
+manifest), a separate `netvm-update` track, and ADR-021 to record it.** Full
+design + the script belong to a dedicated Opus/thinking session, not this one.
 
-Live work on MINIS console. The primary goal — PCIe passthrough of the embedded
-RTL8125 into netVM — succeeded. A secondary, unplanned thread (recovering the
-USB-NIC to host, needed to free the RTL8125) ate most of the session and is not
-resolved; it is carried as Open problem #7 with full diagnostics for tomorrow.
+### netVM manual deltas PENDING pipeline (must not be lost)
 
-### Passthrough (DONE — the real objective)
+These fixes exist ONLY in the running netVM instance and will vanish on any
+rebuild until `build/netvm.sh` exists:
+1. `firmware-realtek` installed (for `rtl8125b-2.fw`).
+2. `/etc/systemd/network/20-uplink.network` (MAC-matched DHCP for `enp0s6`).
+3. `/etc/network/interfaces` reduced to `lo` + `source` (stale
+   `enx00e04c3961b8` static block removed).
+Also to check at pipeline time: where the stale `enx00e04c3961b8` block came
+from (netinst installer artefact) so it is not re-baked.
 
-- **`memlock` drop-in (committed to MINIS user units):**
-  `~/.config/systemd/user/netVM.service.d/memlock.conf` → `LimitMEMLOCK=infinity`.
-  `systemctl --user show netVM.service` confirms `LimitMEMLOCK=infinity` /
-  `LimitMEMLOCKSoft=infinity` — the user manager did NOT cap it, so no
-  system-level (`user@1000.service`) drop-in was needed.
-- **`/etc/modprobe.d/vfio.conf`:** `options vfio-pci ids=10ec:8125
-  disable_idle_d3=1` + `softdep r8169 pre: vfio-pci`. vfio modules added to
-  `/etc/mkinitcpio.conf` `MODULES=(vfio_pci vfio vfio_iommu_type1)`;
-  `mkinitcpio -P` clean (only benign `qat_6xxx` firmware warning).
-- **Post-reboot bind CONFIRMED:** `lspci -nnk -s 01:00.0` →
-  `Kernel driver in use: vfio-pci` (modules `r8169`). vfio.conf persists across
-  reboot. This is the point the earlier assistant never reached — it read
-  `FLReset-` in lspci, searched forum "won't work" posts, and gave up; the
-  `disable_idle_d3=1` workaround for the FLR-less reset is exactly the missing
-  piece.
-- **`/dev/vfio/12` permission (production-correct fix, path A):** QEMU runs as
-  user `host`, `/dev/vfio/*` is root-only by default → `permission denied`.
-  Fixed with a `vfio` group + udev rule
-  (`/etc/udev/rules.d/10-vfio.rules`: `SUBSYSTEM=="vfio", GROUP="vfio",
-  MODE="0660"`) + `usermod -aG vfio host` (takes effect on next login). NOT the
-  sudo-QEMU shortcut — the proper non-root path.
-- **netVM vfio launcher:** `~/net-vfio.con` = copy of `net.con` with the
-  `-device usb-host,vendorid=0x0bda,...` line (line 18) replaced by
-  `-device vfio-pci,host=0000:01:00.0`. Original `net.con` left untouched.
-- **First boot PROVEN:** `bash ~/net-vfio.con` (with `ulimit -l unlimited` set
-  in the shell first — see gotcha) boots netVM past the `VFIO_MAP_DMA` phase
-  with NO ENOMEM, guest reaches serial console (S0), `ip a` shows a new adapter
-  **`enp0s6`** = the passed-through RTL8125. A `[FAILED] raise network
-  interface` at boot is EXPECTED (guest netconf still targets the old
-  USB/TAP-era interface name, not `enp0s6`) — trivial, fixed next session.
+### Open follow-up noticed this session
 
-### USB-NIC recovery (NOT resolved — Open problem #7)
+- **DNS leak risk:** the DHCP lease on `enp0s6` set `DNS: 1.1.1.1` (LAN-router
+  supplied). netVM is meant to push DNS through ProtonVPN (`10.2.0.1`); a
+  LAN-supplied resolver on the uplink can leak queries outside the tunnel.
+  Decide whether to override with `DNS=10.2.0.1` + `Domains=~.` in
+  `20-uplink.network`, or ignore the uplink's DNS entirely. Security-relevant;
+  fold into the netvm manifest.
 
-Moving the USB-NIC (r8152, `0bda:8153`) back from netVM to host, so the host
-keeps an uplink after the RTL8125 goes to vfio. The device is HEALTHY (proven on
-a third machine — see #7) but on MINIS it will not come up as a host NIC. Long
-recovery attempt failed on every software path; deferred to tomorrow with a
-concrete untried hypothesis. Full detail under Open problems.
+## Archived — completed threads (2026-07-05 / 2026-07-06)
+
+Both the RTL8125 passthrough and the USB-NIC host recovery threads are now
+CLOSED (the uplink completion above supersedes them). One-line each; full
+detail in git history and the invariants below.
+
+- **2026-07-05 — RTL8125 PCIe passthrough achieved.** `memlock` drop-in
+  (`netVM.service.d/memlock.conf` → `LimitMEMLOCK=infinity`),
+  `/etc/modprobe.d/vfio.conf` (`ids=10ec:8125 disable_idle_d3=1` +
+  `softdep r8169 pre: vfio-pci`), vfio modules in mkinitcpio, `/dev/vfio/12`
+  via a `vfio` group + udev rule. Post-reboot bind confirmed
+  (`Kernel driver in use: vfio-pci`); `net-vfio.con` first boot reached
+  `enp0s6`. (See invariants: memlock, FLReset-, vfio device permission.)
+- **2026-07-06 — USB-NIC (r8152, `0bda:8153`) host recovery SOLVED (#7).** Root
+  cause was OUR OWN leftover udev rule `/etc/udev/rules.d/30-usb-nic-qemu.rules`
+  running `r8152/unbind` on every plug → `driver=[none]` after clean
+  enumeration, on every port/bus. Fix: `rm` the rule + `udevadm` reload. NIC
+  came up as `enp195s0f3u1u1` (MAC `00:e0:4c:39:61:b8`). A full `linux-6.12.94`
+  build that session was wasted effort (MINIS runs Arch `7.0.12`, not 6.12.y;
+  r8152 was present all along). Diagnostic lesson promoted to an invariant
+  (check `udev/rules.d` before kernel hypotheses).
 
 ## This session (2026-07-04) — katmate-update MVP orchestrator
 
@@ -246,8 +264,7 @@ validated live on MINIS. No design changes — the ADR-019/020 decisions from
   wrapper is the clean fix. NOT yet done.
 - **`zoxide` error** in `~/.config/fish/config.fish:81` on MINIS prints on every
   script invocation (`zoxide` not installed there). Non-blocking; guard the line
-  (`command -q zoxide; and zoxide init fish | source`) or install it. (Seen
-  again 2026-07-05 at the top of the console.)
+  (`command -q zoxide; and zoxide init fish | source`) or install it.
 
 ## This session (2026-07-02) — ADR-019/020, `foundation.meta` writer
 
@@ -482,12 +499,16 @@ by init (isolated under `#ifdef DEV_HOSTSHARE` for later if ever needed).
   volatile (`ip addr`), not yet a persistent profile.
 - **foundation** (`vm_tpl_foundation`, thin RO): clean, systemd-free,
   init/agent/waypipe/user baked in.
-- **netVM** (CID 3, Debian trixie, q35): **now launched via `net-vfio.con` with
-  the RTL8125 assigned by `-device vfio-pci,host=0000:01:00.0`** (guest
-  `enp0s6`); the old USB-NIC (r8152) passthrough line is replaced. netVM
-  `memlock` drop-in gives it `LimitMEMLOCK=infinity`. In-guest netconf for
-  `enp0s6` still pending. WireGuard/ProtonVPN + inner-segment routing carried
-  over. Runs independently of app_web.
+- **netVM** (CID 3, Debian trixie, q35, **sysVM class — see ADR-021 pending**):
+  launched via `net-vfio.con` with the RTL8125 assigned by
+  `-device vfio-pci,host=0000:01:00.0` (guest `enp0s6`). netVM `memlock` drop-in
+  gives it `LimitMEMLOCK=infinity`. **Uplink COMPLETE**: `firmware-realtek` +
+  MAC-matched `20-uplink.network` → `enp0s6` routable, DHCP `10.3.1.110/24`,
+  1Gbps. Second-boot FLReset- test PASSED. WireGuard/ProtonVPN + inner-segment
+  routing (`enp0s4`, `10.100.1.1` p2p to personalVM) carried over. Still a
+  hand-installed netinst pet — the uplink fixes live only in the running
+  instance (see "netVM manual deltas PENDING pipeline"). Runs independently of
+  app_web.
 - **personalVM** (CID 4, Debian trixie, microvm): still on the **old**
   systemd-user model (pre-foundation linear root). Migration to the
   init+foundation model is pending (Next steps).
@@ -514,48 +535,45 @@ by init (isolated under `#ifdef DEV_HOSTSHARE` for later if ever needed).
 4. **SSH open on MINIS host** — dev convenience. Fix identified
    (`iif <uplink> ip saddr 10.3.1.0/24`), not applied. SECURITY-MODEL gap #4.
    NOTE: `enp1s0` no longer exists on the host now that RTL8125 is in vfio; the
-   host uplink is now the USB-NIC **`enp195s0f3u1u1`** (#7 resolved), so the nft
-   rule should target that (LAN-only). Additional caveat now that MINIS is on
-   ProtonVPN: ensure sshd listens on the LAN address `10.3.1.3` only, not on the
-   VPN interface — either `ListenAddress 10.3.1.3` or the nft `iif` restriction,
-   so SSH is not exposed through the tunnel.
+   host uplink is the USB-NIC **`enp195s0f3u1u1`**, so the nft rule should
+   target that (LAN-only). Additional caveat now that MINIS is on ProtonVPN:
+   ensure sshd listens on the LAN address `10.3.1.3` only, not on the VPN
+   interface — either `ListenAddress 10.3.1.3` or the nft `iif` restriction, so
+   SSH is not exposed through the tunnel.
 5. **ext4 lazy-init warning on vda** — `EXT4-fs error (vda) ... bad block
    bitmap checksum` from `ext4lazyinit` during boot. Cosmetic on a disposable
    delta, but suggests `vm_app_web` may want a clean `e2fsck`.
-6. Disk model + GUI chain + shutdown + scripted foundation/app build are
-   **resolved** end-to-end. What remains is migration + installer, not the build
-   mechanism.
-7. **RESOLVED 2026-07-06 — USB-NIC (r8152, `0bda:8153`) host recovery.**
-   Root cause was a leftover udev rule of OUR OWN making,
-   `/etc/udev/rules.d/30-usb-nic-qemu.rules`, whose `RUN+=` unbound `r8152`
-   (`echo %k:1.0 > /sys/bus/usb/drivers/r8152/unbind`) on every plug of the
-   device. r8152 bound and was torn off immediately → `driver=[none]` after a
-   clean enumeration, independent of port/bus/speed. Fix: remove the rule +
-   `udevadm control --reload-rules && udevadm trigger`. NIC came up as
-   `enp195s0f3u1u1` (MAC `00:e0:4c:39:61:b8`). None of the driver/cfgselector/
-   SuperSpeed/kernel-version theories were correct; `r8152` (with cfgselector
-   built in) was present and working the whole time. See This session
-   (2026-07-06) for the full detour and the diagnostic lesson (now a gotcha).
-   Device health baseline (still valid): on the MSI Cubi (yoshie, Debian 13.5)
-   it enumerates directly on `r8152` at SuperSpeed 5000M, DHCP `10.3.1.103/24`.
+6. **netVM is a hand-installed netinst pet** (NEW, 2026-07-08). No declarative
+   build; configs are installer-written and drift silently (the stale
+   `enx00e04c3961b8` block in `/etc/network/interfaces` was one such leak). The
+   uplink fixes (firmware-realtek, `20-uplink.network`, cleaned `interfaces`)
+   currently live only in the running instance. Blocks ROADMAP step 3 (installer
+   provisions netVM) and ADR-020 (user never builds). Resolution = `build/
+   netvm.sh` + netVM manifest + ADR-021 (see Next steps). Supersedes the old
+   #6 (which noted the app-build mechanism was resolved end-to-end — still true).
+7. **RESOLVED 2026-07-06 — USB-NIC (r8152, `0bda:8153`) host recovery.** (See
+   Archived threads + invariants.) Kept as a closed marker so the number is not
+   reused.
 
 ## Next steps
 
-- **netVM in-guest network on `enp0s6`** (immediate): match by MAC (stable
-  across topology change) not name; DHCP from the LAN router over the RTL8125.
-  Fixes the expected `[FAILED] raise network interface` from the first vfio
-  boot. THEN the USB↔PCI role swap is complete and permanent.
-- **RTL8125 second-boot FLReset- test** (critical): stop netVM → relaunch
-  `net-vfio.con`; the FLR-less device typically breaks on the second start.
-  Proves whether `disable_idle_d3=1` holds across a guest reboot cycle. If it
-  fails on reset/ENOMEM, an additional reset workaround is needed. This is the
-  real robustness test — the first boot succeeding is not sufficient.
-- **Host uplink persistence** (follow-up to #7, resolved): the USB-NIC
-  `enp195s0f3u1u1` / `10.3.1.3` is up but volatile (`ip addr`). If it should
-  survive a reboot, add a persistent profile matched on MAC
-  (`00:e0:4c:39:61:b8`), not on the USB-path name. Dev-only; low priority.
-- **sshd exposure with ProtonVPN active** (ties into #4): bind sshd to
-  `10.3.1.3` / restrict nft so SSH is not reachable over the VPN tunnel.
+**Primary (netVM sysVM pipeline — ADR-021 track):**
+
+- **Write ADR-021** — netVM as a separate sysVM component class: own
+  `build/netvm.sh` (debootstrap-based, q35/systemd/firmware, NOT foundation),
+  own package + config manifest, own `netvm-update` track outside
+  `katmate-update`. Record the alternatives considered (fold into foundation /
+  leave hand-maintained / separate pipeline) and why separate-but-declarative
+  won. This is an Opus/thinking-session task.
+- **`build/netvm.sh` + netVM manifest** — bake the pending manual deltas so they
+  survive a rebuild: `firmware-realtek`, `/etc/systemd/network/20-uplink.network`
+  (MAC-matched DHCP), cleaned `/etc/network/interfaces`, WireGuard/ProtonVPN
+  config template, nft/routing rules. Decide the DNS-leak policy at this point
+  (override the uplink's `DNS=1.1.1.1` with ProtonVPN `10.2.0.1` +
+  `Domains=~.`, or drop the uplink DNS). Unblocks ROADMAP step 3.
+
+**Secondary / carried:**
+
 - **ARCHITECTURE.md diagram set** — storage chain, VSOCK ports, CID domains,
   boot chain, trust boundary. (Foundation-migration rewrite already written up
   as ADR-018.)
@@ -564,10 +582,11 @@ by init (isolated under `#ifdef DEV_HOSTSHARE` for later if ever needed).
 - **Launch daemon / privilege split:** fold the launcher's `lvchange -K -ay`
   activation into a proper unit (`ExecStartPre=+` as root, QEMU as `host`);
   shared `katmate-foundation.service` oneshot. NOTE: the netVM `memlock`
-  drop-in + `vfio` group model from this session are the template for how the
-  launch daemon must grant memlock + vfio access to a non-root QEMU.
-- **Migrate live AppVMs** (personal/net) off the old systemd-user / linear-root
-  model onto the init+foundation chain.
+  drop-in + `vfio` group model are the template for how the launch daemon must
+  grant memlock + vfio access to a non-root QEMU.
+- **Migrate live AppVMs** (personal) off the old systemd-user / linear-root
+  model onto the init+foundation chain. (netVM is NOT migrated — it is a sysVM,
+  stays systemd.)
 - **systemd purge from foundation** (minimal-TCB): the binary still ships unused.
 - **udisks2 check:** confirm nautilus works with udisks2 disabled, then bake
   `systemctl disable udisks2` into the app-layer build.
@@ -578,13 +597,35 @@ by init (isolated under `#ifdef DEV_HOSTSHARE` for later if ever needed).
 - **Installer:** secrets removal (v0.2 blocker); create `/var/lib/katmate/`.
   PROVISIONING only — no build logic, no toolchain.
 - **Desktop:** port CYBRland + Plymouth from Acer to MINIS.
-- **vm-agent Rust rewrite** — wanted while the codebase is small; "as soon as
-  feasible", not urgent. Separate from the foundation build. (NOTE: the agent is
-  already Rust — this item as historically phrased predates that; treat as
-  "keep the agent lean / finish the protocol-crate split".)
+- **Host uplink persistence** (dev-only, low priority): USB-NIC
+  `enp195s0f3u1u1` / `10.3.1.3` is volatile (`ip addr`). If it should survive a
+  reboot, add a persistent profile matched on MAC (`00:e0:4c:39:61:b8`), not the
+  USB-path name.
+- **sshd exposure with ProtonVPN active** (ties into #4): bind sshd to
+  `10.3.1.3` / restrict nft so SSH is not reachable over the VPN tunnel.
+- **vm-agent lean / protocol-crate split** — wanted while the codebase is small;
+  "as soon as feasible", not urgent. (The agent is already Rust.)
 
 ## Invariants & gotchas (quick reminders — detail in git/ADRs)
 
+- **netVM needs `firmware-realtek` for the passed-through RTL8125.** vfio hands
+  the card to the guest as a plain PCI device; the guest's own `r8169` needs
+  `rtl_nic/rtl8125b-2.fw` or the PHY stays down (`Unable to load firmware ...
+  (-2)`, then `no-carrier`). `non-free-firmware` is already in the netVM
+  `sources.list`. This MUST be in the netVM manifest (`build/netvm.sh`), or a
+  rebuild loses the uplink. (The old USB-NIC r8152 did not need a separate blob,
+  which is why the netinst image never had it.)
+- **netVM `enp0s6` netconf is MAC-matched, not name-matched.**
+  `/etc/systemd/network/20-uplink.network` matches `MACAddress=38:05:25:34:7c:47`
+  (the RTL8125 as seen in the guest), DHCP, `RouteMetric=100`. MAC match is
+  deliberate so a PCI slot / interface-name change does not break it. The
+  internal p2p segment `10-personal.network` stays `Name=enp0s4`-matched.
+- **A netinst netVM writes stale installer configs.** The recurring first-boot
+  `[FAILED] Raise network interfaces` came from a leftover static block for the
+  HOST's USB-NIC MAC (`enx00e04c3961b8`) in `/etc/network/interfaces`, written
+  by the original netinst installer. General lesson: the hand-installed netVM
+  drifts; do not trust its configs — this is why it must become a declarative
+  build (ADR-021).
 - **Thin-LV activation:** an RO-frozen thin LV keeps the skip-activation `k`
   flag permanently; `lvchange -K -ay <lv>` is mandatory before every instance
   boot, on both the app-layer AND the foundation, or QEMU fails with "Could not
@@ -606,7 +647,8 @@ by init (isolated under `#ifdef DEV_HOSTSHARE` for later if ever needed).
   `VFIO_MAP_DMA` returns ENOMEM (this was the real Feb/Mar "out of memory").
   Workaround baked into `/etc/modprobe.d/vfio.conf`:
   `options vfio-pci ids=10ec:8125 disable_idle_d3=1` + `softdep r8169 pre:
-  vfio-pci`. First boot proven; the SECOND boot is the real test (still to run).
+  vfio-pci`. **Both first AND second boot now PROVEN (2026-07-08)** — the reset
+  workaround holds across a guest reboot cycle.
 - **vfio device node permission:** `/dev/vfio/<group>` is root-only by default;
   QEMU as user `host` gets `permission denied`. Production fix = `vfio` group +
   udev rule (`SUBSYSTEM=="vfio", GROUP="vfio", MODE="0660"`) + user in the
