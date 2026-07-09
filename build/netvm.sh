@@ -165,8 +165,8 @@ APT
 # common-storage set regardless of build context. The extra few MB of initrd are
 # irrelevant for a sysVM. (dep failed the first sysVM boot, 2026-07-09.)
 log "Pre-seeding initramfs MODULES=most (build ctx != virtio runtime ctx)"
-printf 'MODULES=most\n' > \
-  "$NETVM_MNT/etc/initramfs-tools/conf.d/modules-most"
+install -D -m 0644 /dev/stdin \
+  "$NETVM_MNT/etc/initramfs-tools/conf.d/modules-most" <<< 'MODULES=most'
 
 log "Installing netVM package manifest"
 mapfile -t PKGS < <(grep -vE '^[[:space:]]*(#|$)' "$NETVM_PKGS")
