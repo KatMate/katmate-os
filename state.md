@@ -5,20 +5,20 @@
 > each working session. Detailed proofs and command sequences live in git
 > history and the ADRs — this file references them rather than repeating them.
 
-**Last updated:** 2026-07-08 — **RTL8125 netVM uplink COMPLETE; second-boot
-FLReset- gate PASSED.** The full netVM uplink chain is proven end to end:
-MAC-matched systemd-networkd config (`20-uplink.network`) + `firmware-realtek`
-(the missing `rtl8125b-2.fw` was the last blocker) → guest `enp0s6` reaches
-`State: routable (configured)`, DHCP `10.3.1.110/24` via `10.3.1.1`, 1Gbps
-full duplex. The critical **second boot** (fresh `net-vfio.con` launch, fresh
-`systemd-networkd` PID, uptime seconds) came up clean — no ENOMEM, no VFIO
-reset failure — proving `disable_idle_d3=1` holds across a guest reboot cycle.
-The RTL8125↔USB role swap is now functionally permanent (RTL8125 = netVM
-uplink; USB-NIC r8152 = host dev uplink). Architectural decision this session:
-**netVM is a separate component class (sysVM), NOT an appVM** — it gets its own
-build/update pipeline and manifest, outside foundation/app-layer and
-`katmate-update`. Captured as pending **ADR-021** (next session).
-**Milestone:** v0.2 (in development)
+**Last updated:** 2026-07-09 — **netVM sysVM DECLARATIVE BUILD PROVEN
+end-to-end.** The `build/netvm.sh` image (ADR-021) now boots and reaches the
+network unaided: a fresh `net-sys.con` launch of `vm_sys_netvm` comes up through
+full systemd, mounts root on `/dev/vda`, brings the passed-through RTL8125
+(`enp0s5`, MAC-matched) to `Link is Up 1Gbps/Full`, and **pulls a DHCP lease —
+confirmed `10.3.1.110` on the LAN by ARP scan** (MAC `38:05:25:34:7c:47`). Every
+uplink delta that previously lived only in the hand-installed netinst pet
+(`firmware-realtek`, `20-uplink.network`, cleaned `interfaces`) is now
+reproduced from the declarative build. The netinst pet is retired-in-principle
+(kept only until `netvm-agent` gives a control path — root is locked in the
+image, so there is no console login yet). Two build-blocking bugs were fixed
+this session (initrd `MODULES=most`; conf.d seed via `install -D`), and the
+host's suspend targets were masked because hypridle twice killed a build
+mid-write. **Milestone:** v0.2 (in development)
 
 ## Current focus
 
@@ -43,6 +43,107 @@ never by building. `katmate-update` (ADR-019 version-lock backbone) is complete
 
 Direction unchanged: IOMMU-capable platforms only (VT-d/AMD-Vi); VT-x-only
 frozen (ADR-015). MINIS is primary host and merge target.
+
+## This session (2026-07-09) — netVM sysVM declarative build PROVEN
+
+The ADR-021 declarative build (`build/netvm.sh`, from the 2026-07-08 session)
+was taken from "builds cleanly" to "boots and reaches the network" on MINIS.
+Objective: prove the built `vm_sys_netvm` image boots unaided and reproduces the
+uplink that previously lived only in the hand-installed netinst pet. Done — with
+two real bugs fixed along the way and a host-side motiliec (suspend) neutralised.
+
+### Two build-blocking bugs fixed (both in `netvm.sh`, committed + pushed)
+
+1. **initrd `MODULES=dep` → `MODULES=most`.** The first sysVM boot dropped to an
+   initramfs shell: `ALERT! /dev/vda does not exist`. Root cause: `MODULES=dep`
+   resolves needed modules against the BUILD-time root (ext4-on-dm in the chroot),
+   so `virtio_blk`/`virtio_pci` were omitted — but the guest boots as a virtio
+   device with root on `/dev/vda`. `virtio-pci` transport was present (device
+   enumerated as `virtio2`), but without `virtio_blk` no `/dev/vda` node. Fix:
+   `MODULES=most` includes the full virtio + common-storage set regardless of
+   build context. Proof: initrd grew 11MB → 36MB; second boot showed
+   `virtio_blk virtio2: [vda] ... 4.00 GiB` and `EXT4-fs (vda): mounted`.
+   (`dep` was originally chosen for a trimmed initrd + to avoid the jbd2-inducing
+   post-apt `update-initramfs` — `most` keeps the "postinst generates it" path,
+   only widens the module set.)
+2. **conf.d seed `printf >` → `install -D`.** After the `most` edit, the build
+   aborted mid-write: `.../initramfs-tools/conf.d/modules-most: No such file or
+   directory`. Cause: `printf > path` does NOT create parent dirs, and
+   `/etc/initramfs-tools/conf.d/` does not exist yet on a fresh debootstrap. The
+   original `dep` code used `install -D` (creates dir + mode + content in one).
+   Fix: restore `install -D -m 0644 /dev/stdin ... <<< 'MODULES=most'`. (A stray
+   deleted `)` on the adjacent `mapfile` line was caught by `git diff` + `bash -n`
+   before commit — the reason to always `bash -n` a build script after editing.)
+
+Conf renamed `modules-dep` → `modules-most` to match. Both fixes GPG-signed and
+pushed (commits `bd96a21`, `37c3fb0`).
+
+### Host suspend masked (the real time-sink this session)
+
+hypridle put MINIS to sleep TWICE mid-build while attention was elsewhere,
+each time killing the build and leaving a stuck `jbd2` kthread on the new LV
+(the documented "build failure mid-`/boot` write" pattern → host reboot the only
+cure). Neutralised for good:
+`systemctl mask sleep.target suspend.target hibernate.target hybrid-sleep.target`
+— a hard, reboot-surviving block independent of any idle daemon. UNMASK after
+the build sessions are over. General rule now: mask suspend before any netVM
+build run; the build host must stay awake through debootstrap + `/boot` write.
+
+### Boot + uplink gate — PASSED
+
+Built via `sudo bash -c 'DEBIAN_MIRROR=http://ftp.ch.debian.org/debian bash
+netvm.sh'` (CH mirror because MINIS's ProtonVPN exit is in Switzerland; the
+Ljubljana `deb.debian.org` fastly timeouts do not apply from a CH exit, and an
+SI mirror over a CH tunnel would be worse). Build ran clean to `Exporting
+vmlinuz + initrd` + `netvm.meta` + `Unmounting`. Boot via a fresh minimal
+`~/net-sys.con` (uplink only — internal TAP dropped for this gate):
+
+- `virtio_blk virtio2: [vda] 8388608 512-byte logical blocks (4.00 GiB)` — the
+  `most` fix working; `/dev/vda` present.
+- `EXT4-fs (vda): mounted filesystem ... r/w` — root mounted (was the failure
+  point).
+- Full systemd to `multi-user.target` / `graphical.target` — sysVM, not
+  katmate-init (correct for netVM).
+- `r8169 ... enp0s5: RTL8125B, 38:05:25:34:7c:47` — firmware loaded (no `-2`;
+  `firmware-realtek` from the manifest), then
+  `enp0s5: Link is Up - 1Gbps/Full`.
+- **DHCP lease confirmed from the host:** `nmap -sn 10.3.1.0/24` shows
+  `10.3.1.110` up with MAC `38:05:25:34:7c:47`. (ICMP ping did NOT answer —
+  netVM nftables drops it — but the ARP scan proves L2 presence + lease. This is
+  the correct security posture, not a fault.)
+
+Interface is `enp0s5` here, not `enp0s6` — this minimal launcher omits the
+internal TAP NIC, so the RTL8125 lands on a different PCI slot / name. Irrelevant
+by design: `20-uplink.network` matches by MAC, not `Name=`, which is the whole
+reason for the MAC match. `Open count: 0` after `QEMU: Terminated` — clean
+teardown, no jbd2.
+
+### What this closes, what it does not
+
+- **Closes:** the netVM pet-drift class (Open problem #6). The uplink is now
+  reproduced from `netvm.sh`, not from a hand-installed instance. ADR-021's
+  central claim (declarative sysVM build) is proven end-to-end for the uplink.
+- **Does NOT close yet:** there is no way INTO the guest — `netvm.sh` locks root
+  ("dev sets a console password out-of-band", which was never done), so console
+  login fails and there is no `netvm-agent` yet. `networkctl status` /
+  WireGuard bring-up / inner-segment (personalVM p2p) are all unverified from
+  inside because of this. The `netvm-agent` is now the unblocking next step, not
+  a nicety.
+
+### Follow-ups noticed this session
+
+- **`netvm.sh` cleanup leaves a hot jbd2 even on SUCCESS.** The successful build
+  ended with `Open count: 1` + live `jbd2/dm-17` despite `mount` empty and
+  `lsof`/`fuser` clean — the umount returned before jbd2 committed. Harden
+  cleanup: `umount -R "$NETVM_MNT"` → `sync` → `udevadm settle` → short `sleep`
+  before the script returns, so a successful build does not force a reboot.
+- **`W: No zstd ... using gzip`** during initramfs generation — the image lacks
+  `zstd`, so initrd is gzip-compressed (larger, works). Add `zstd` to the netVM
+  manifest if a smaller/faster initrd is wanted. Cosmetic.
+- **`net-sys.con` vs `net-vfio.con` naming + location.** The new sysVM launcher
+  is `~/net-sys.con` (host-local, not in git); the retired pet used
+  `~/net-vfio.con`. `netvm.sh` comment still says `net-vfio.con`. Settle the
+  canonical launcher name + location when the pet is formally retired.
 
 ## This session (2026-07-08) — netVM uplink complete; netVM = sysVM decision
 
@@ -499,16 +600,21 @@ by init (isolated under `#ifdef DEV_HOSTSHARE` for later if ever needed).
   volatile (`ip addr`), not yet a persistent profile.
 - **foundation** (`vm_tpl_foundation`, thin RO): clean, systemd-free,
   init/agent/waypipe/user baked in.
-- **netVM** (CID 3, Debian trixie, q35, **sysVM class — see ADR-021 pending**):
-  launched via `net-vfio.con` with the RTL8125 assigned by
-  `-device vfio-pci,host=0000:01:00.0` (guest `enp0s6`). netVM `memlock` drop-in
-  gives it `LimitMEMLOCK=infinity`. **Uplink COMPLETE**: `firmware-realtek` +
-  MAC-matched `20-uplink.network` → `enp0s6` routable, DHCP `10.3.1.110/24`,
-  1Gbps. Second-boot FLReset- test PASSED. WireGuard/ProtonVPN + inner-segment
-  routing (`enp0s4`, `10.100.1.1` p2p to personalVM) carried over. Still a
-  hand-installed netinst pet — the uplink fixes live only in the running
-  instance (see "netVM manual deltas PENDING pipeline"). Runs independently of
-  app_web.
+- **netVM** (CID 3, Debian trixie, q35, **sysVM class — ADR-021**): two
+  artefacts now exist. (a) The old hand-installed **netinst pet**
+  (`net-vfio.con`, `vm_net_overlay.qcow2`, guest `enp0s6`) — retired in
+  principle, superseded. (b) The **declarative build** `vm_sys_netvm` (linear RW
+  4G) from `build/netvm.sh`, booted via `~/net-sys.con` (RTL8125 via
+  `-device vfio-pci,host=0000:01:00.0`, `-kernel`/`-initrd` direct boot, kernel
+  `6.12.95+deb13-amd64`). **PROVEN this session:** boots through full systemd,
+  root on `/dev/vda`, `enp0s5` (MAC-matched) `Link is Up 1Gbps/Full`,
+  firmware-realtek loaded, DHCP lease `10.3.1.110` confirmed by host ARP scan.
+  The uplink deltas (`firmware-realtek`, `20-uplink.network`, cleaned
+  `interfaces`) are now baked by the manifest, not hand-applied. NOT yet
+  verified from inside (root locked, no `netvm-agent` — see 2026-07-09 session):
+  `networkctl` state, WireGuard/ProtonVPN bring-up, inner-segment `enp0s4` p2p
+  to personalVM. `memlock` via `LimitMEMLOCK=infinity` (unit) or `ulimit -l
+  unlimited` (manual launch). Runs independently of app_web.
 - **personalVM** (CID 4, Debian trixie, microvm): still on the **old**
   systemd-user model (pre-foundation linear root). Migration to the
   init+foundation model is pending (Next steps).
@@ -543,34 +649,44 @@ by init (isolated under `#ifdef DEV_HOSTSHARE` for later if ever needed).
 5. **ext4 lazy-init warning on vda** — `EXT4-fs error (vda) ... bad block
    bitmap checksum` from `ext4lazyinit` during boot. Cosmetic on a disposable
    delta, but suggests `vm_app_web` may want a clean `e2fsck`.
-6. **netVM is a hand-installed netinst pet** (NEW, 2026-07-08). No declarative
-   build; configs are installer-written and drift silently (the stale
-   `enx00e04c3961b8` block in `/etc/network/interfaces` was one such leak). The
-   uplink fixes (firmware-realtek, `20-uplink.network`, cleaned `interfaces`)
-   currently live only in the running instance. Blocks ROADMAP step 3 (installer
-   provisions netVM) and ADR-020 (user never builds). Resolution = `build/
-   netvm.sh` + netVM manifest + ADR-021 (see Next steps). Supersedes the old
-   #6 (which noted the app-build mechanism was resolved end-to-end — still true).
+6. **RESOLVED 2026-07-09 — netVM pet-drift.** `build/netvm.sh` + netVM manifest
+   (ADR-021) now build the sysVM declaratively, and the image was PROVEN to boot
+   and reproduce the uplink (DHCP `10.3.1.110`, firmware, MAC-matched networkd)
+   from the manifest alone — no hand-applied deltas. The netinst pet is retired
+   in principle (kept only until `netvm-agent` provides a control path). Residual
+   work is NOT the pet: (a) `netvm-agent` for a way into the guest, (b)
+   in-guest verification of WireGuard + inner segment, (c) DNS-leak policy in the
+   manifest. Kept as a closed marker so the number is not reused.
 7. **RESOLVED 2026-07-06 — USB-NIC (r8152, `0bda:8153`) host recovery.** (See
    Archived threads + invariants.) Kept as a closed marker so the number is not
    reused.
 
 ## Next steps
 
-**Primary (netVM sysVM pipeline — ADR-021 track):**
+**Primary (netVM sysVM — ADR-021 track, build now PROVEN):**
 
-- **Write ADR-021** — netVM as a separate sysVM component class: own
-  `build/netvm.sh` (debootstrap-based, q35/systemd/firmware, NOT foundation),
-  own package + config manifest, own `netvm-update` track outside
-  `katmate-update`. Record the alternatives considered (fold into foundation /
-  leave hand-maintained / separate pipeline) and why separate-but-declarative
-  won. This is an Opus/thinking-session task.
-- **`build/netvm.sh` + netVM manifest** — bake the pending manual deltas so they
-  survive a rebuild: `firmware-realtek`, `/etc/systemd/network/20-uplink.network`
-  (MAC-matched DHCP), cleaned `/etc/network/interfaces`, WireGuard/ProtonVPN
-  config template, nft/routing rules. Decide the DNS-leak policy at this point
-  (override the uplink's `DNS=1.1.1.1` with ProtonVPN `10.2.0.1` +
-  `Domains=~.`, or drop the uplink DNS). Unblocks ROADMAP step 3.
+- **`netvm-agent`** — THE unblocking next step. The declarative image locks root
+  ("dev sets a console password out-of-band", never done), so there is no way
+  into the guest and no in-guest verification. Build the privileged systemd-run
+  control agent (Rust workspace: `netvm-agent` bin crate sharing `protocol` +
+  `error` with the appVM `vm-agent`; `CAP_NET_ADMIN`; NETCFG + PING + SHUTDOWN
+  opcodes, per ADR-021). Bake it (`$OUT/netvm-agent`; build currently prints
+  `NOTICE: netvm-agent binary not found` and ships without it). Opus/thinking
+  task (workspace restructure + agent design).
+- **In-guest verification** (once there is a control path): `networkctl status`
+  routable, WireGuard/ProtonVPN tunnel up, inner-segment `enp0s4` p2p to
+  personalVM. These are unproven from the declarative image so far — only
+  link-up + DHCP lease are confirmed (from the host).
+- **DNS-leak policy in the manifest** — the uplink DHCP offers `DNS=1.1.1.1`
+  (LAN router). netVM must push DNS through ProtonVPN (`10.2.0.1`). Decide:
+  override with `DNS=10.2.0.1` + `Domains=~.` in `20-uplink.network`, or drop
+  the uplink DNS entirely. Security-relevant; fold into the manifest.
+- **WireGuard key provisioning automation** (ADR-021 open item) — keys are
+  deploy-time (placeholders in the image, per image/state separation). Needs a
+  provisioning step; do NOT bake keys.
+- **Harden `netvm.sh` cleanup** — `umount -R` + `sync` + `udevadm settle` +
+  `sleep` before return, so a successful build does not leave a hot jbd2 forcing
+  a reboot (bit twice this session).
 
 **Secondary / carried:**
 
@@ -607,6 +723,49 @@ by init (isolated under `#ifdef DEV_HOSTSHARE` for later if ever needed).
   "as soon as feasible", not urgent. (The agent is already Rust.)
 
 ## Invariants & gotchas (quick reminders — detail in git/ADRs)
+
+- **netVM initrd needs `MODULES=most`, NOT `dep`.** `netvm.sh` builds in a chroot
+  on a mounted LV (root = ext4-on-dm), but the guest BOOTS as a virtio device
+  (root = `/dev/vda` on virtio-blk). `MODULES=dep` resolves modules against the
+  BUILD root and omits `virtio_blk`/`virtio_pci` → guest drops to an initramfs
+  shell with `ALERT! /dev/vda does not exist` (the virtio-pci transport is
+  present and enumerates the device as `virtio2`, but with no `virtio_blk` there
+  is no `/dev/vda` node). `most` includes the full virtio + storage set
+  regardless of build context (initrd ~11MB → ~36MB). This is the general trap
+  for ANY image built in a context whose root differs from its runtime root.
+  (Proven 2026-07-09.)
+- **Seed image config files with `install -D`, not `printf >`/`cat >`.** On a
+  fresh debootstrap the target dir often does not exist yet (e.g.
+  `/etc/initramfs-tools/conf.d/`); a bare redirect fails with "No such file or
+  directory" and aborts the build mid-write (→ stuck jbd2 → reboot). `install -D`
+  creates parent dir + mode + content atomically. Always `bash -n` a build
+  script after editing — a stray deleted `)` will only surface at runtime
+  otherwise.
+- **Mask suspend before a netVM build.** hypridle/logind can put the build host
+  to sleep mid-build (twice on 2026-07-09), killing the build and leaving a stuck
+  jbd2 (→ reboot). `systemctl mask sleep.target suspend.target hibernate.target
+  hybrid-sleep.target` is a hard, reboot-surviving block; UNMASK when done.
+  Disabling hypridle alone is NOT enough (it can be re-launched).
+- **netVM `netvm.sh` cleanup can leave a hot jbd2 even on a SUCCESSFUL build.**
+  Symptom: build finishes (`netVM image built`), yet `Open count: 1` + live
+  `jbd2/dm-<n>` while `mount`/`lsof`/`fuser` are all clean — the umount returned
+  before jbd2 committed. Until cleanup is hardened (`umount -R`+`sync`+`settle`+
+  `sleep`), a reboot clears it before the boot-test. Do NOT force `lvremove`;
+  reboot.
+- **netVM declarative image locks root — no console login.** `netvm.sh` locks the
+  root account ("dev sets a console password out-of-band"); a `localhost login:`
+  attempt fails. This is intended (control goes via `netvm-agent`/VSOCK, not the
+  console). Until the agent exists, verify the guest FROM THE HOST (ARP scan for
+  the uplink MAC, LAN reachability), not by logging in.
+- **netVM uplink verifies by ARP scan, not ping.** netVM nftables drops inbound
+  ICMP, so `ping <lease>` from the host stays silent even when the uplink is up.
+  `nmap -sn 10.3.1.0/24` (ARP at L2) shows the guest by its uplink MAC
+  (`38:05:25:34:7c:47`) + DHCP lease. Silent ping is correct posture, not a fault.
+- **netVM build mirror: pick by VPN exit, not by home geography.** MINIS's
+  ProtonVPN exit is in CH; use `DEBIAN_MIRROR=http://ftp.ch.debian.org/debian`
+  (via `sudo bash -c 'DEBIAN_MIRROR=... bash netvm.sh'` — `sudo` env_reset drops
+  a bare `VAR=... sudo` prefix). An SI mirror over a CH tunnel is worse, and the
+  Ljubljana `deb.debian.org` fastly timeout does not apply from a CH exit.
 
 - **netVM needs `firmware-realtek` for the passed-through RTL8125.** vfio hands
   the card to the guest as a plain PCI device; the guest's own `r8169` needs
