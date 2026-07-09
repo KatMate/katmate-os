@@ -152,15 +152,21 @@ APT
 # Manifest: one package per line, '#' comments and blanks ignored. Parser is
 # bit-for-bit identical to app-layer.sh so the two never diverge on the format.
 #
-# Set MODULES=dep BEFORE installing the kernel: linux-image-amd64's postinst
+# Set MODULES=most BEFORE installing the kernel: linux-image-amd64's postinst
 # generates the initramfs itself, and with this conf already in place it makes a
-# TRIMMED initrd on first generation — no separate regeneration step later (that
-# step used to write /boot again after apt, and a failure there left a hot ext4
-# journal / stuck jbd2, forcing host reboots). This is the robust path: the only
-# initramfs write is the kernel's own postinst, inside the apt transaction.
-log "Pre-seeding initramfs MODULES=dep (trimmed initrd at kernel install time)"
-install -D -m 0644 /dev/stdin \
-  "$NETVM_MNT/etc/initramfs-tools/conf.d/modules-dep" <<< 'MODULES=dep'
+# correctly-populated initrd at kernel install time — the only initramfs write
+# is the kernel's own postinst, inside the apt transaction.
+#
+# NOTE: MODULES=most, not dep. This image is built in a chroot on a mounted LV
+# (root = ext4-on-dm), but BOOTS as a virtio guest (root = /dev/vda on
+# virtio-blk). MODULES=dep resolves modules against the BUILD root and omits
+# virtio_blk/virtio_pci, leaving the guest unable to find /dev/vda
+# ("ALERT! /dev/vda does not exist"). MODULES=most includes the full virtio +
+# common-storage set regardless of build context. The extra few MB of initrd are
+# irrelevant for a sysVM. (dep failed the first sysVM boot, 2026-07-09.)
+log "Pre-seeding initramfs MODULES=most (build ctx != virtio runtime ctx)"
+printf 'MODULES=most\n' > \
+  "$NETVM_MNT/etc/initramfs-tools/conf.d/modules-most"
 
 log "Installing netVM package manifest"
 mapfile -t PKGS < <(grep -vE '^[[:space:]]*(#|$)' "$NETVM_PKGS")
@@ -237,12 +243,14 @@ else
 fi
 
 # --- 8. export kernel + initrd host-side (no in-guest bootloader) -------------
-# linux-image-amd64's postinst already generated a TRIMMED initramfs in /boot
-# (MODULES=dep was pre-seeded in step 4, before the install). We therefore only
+# linux-image-amd64's postinst already generated the initramfs in /boot with the
+# full virtio + common-storage module set (MODULES=most was pre-seeded before the
+# install). We therefore only
 # COPY vmlinuz + initrd out to the host-side artifact dir — NO regeneration here
 # (that avoided the fragile /boot re-write that kept leaving a stuck jbd2). The
 # launcher (net-vfio.con) passes these via -kernel/-initrd; nothing in the guest
 # boots them (no GRUB, no /boot partition).
+
 log "Exporting vmlinuz + initrd to $NETVM_OUT"
 mkdir -p "$NETVM_OUT"
 KVER="$(chroot "$NETVM_MNT" sh -c 'ls -1 /boot/vmlinuz-* 2>/dev/null | sed s#/boot/vmlinuz-##' | head -n1)"
