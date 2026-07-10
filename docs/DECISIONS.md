@@ -1055,21 +1055,32 @@ agent, outside foundation/app-layer and outside `katmate-update`.
   behaviour at runtime would leave RUN code physically present in a process
   holding `CAP_NET_ADMIN`, and NETCFG code physically present in the
   least-trusted guest — both avoided here by separate compilation. Opcode
-  definitions are per-bin-crate; only framing/transport/error are shared.
-
+  *values* live in a shared registry in `katmate-protocol` (alongside
+  framing/transport/error) — one source of truth for the wire; opcode *enums
+  and handlers* are per-bin-crate. That split is exactly where the
+  absent-not-disabled boundary sits: each binary's `Op` enum (`TryFrom<u8>`)
+  maps only the values it handles, so an opcode it must not run does not parse
+  into a variant at all — it fails at decode, not at a runtime gate.
+  
   Opcode model:
 
-  | Opcode | Shared `protocol` | `netvm-agent` | `vm-agent` (appVM) |
+  | Opcode | Value (shared registry) | `netvm-agent` | `vm-agent` (appVM) |
   |---|---|---|---|
-  | PING | definition | handler | handler |
-  | SHUTDOWN | definition | handler | handler |
-  | NETCFG | — | handler (privileged) | absent |
-  | RUN / FILEPUT / FILEGET | — | absent | handler (uid 1000, whitelist) |
+  | PING | ✓ | handler | handler |
+  | NETCFG | ✓ | handler (privileged) | absent |
+  | SHUTDOWN | ✓ | absent — host QMP/ACPI | handler (→ katmate-init) |
+  | RUN / FILEPUT / FILEGET | ✓ | absent | handler (uid 1000, whitelist) |
 
-  PING and SHUTDOWN are shared because **both** agents are legitimate targets
-  for them — shared legitimate functionality is not "dead code"; the principle
-  forbids a *privileged* opcode present where it is not needed, not a
-  common opcode present where it is.
+  PING is the only opcode both agents *handle*. SHUTDOWN is handled by the
+  appVM `vm-agent` only: appVMs are microvm — no ACPI — so they must carry an
+  in-guest SHUTDOWN that asks katmate-init (PID 1) to call `reboot(2)`. netVM
+  is q35 and therefore has ACPI, so it is powered down gracefully by the host
+  over QMP (below) and its agent carries **no** SHUTDOWN handler. The registry
+  holds every opcode's wire value so the host client (`ping-client`) can encode
+  any of them; the security property — a `CAP_NET_ADMIN` binary that physically
+  cannot execute RUN, an unprivileged binary that physically cannot execute
+  NETCFG — is carried by the per-bin enum and handler set, never by presence in
+  the registry.
 
 - **`NETCFG` is a typed network-config command, never a generic RUN.** It
   installs a **validated** `systemd-networkd` `.network` fragment (a per-appVM
@@ -1081,13 +1092,22 @@ agent, outside foundation/app-layer and outside `katmate-update`.
   delivered fragment persists as runtime state and is correctly discarded on
   image rebuild (when no appVM is running anyway).
 
-- **`SHUTDOWN` exists for graceful teardown**, matching the existing appVM
-  agent and the `ping-client shutdown` subcommand — needed for clean netVM
-  restart (e.g. the second-boot FLReset- cycle). Operational caveat, not a
-  vulnerability: netVM is the gateway for all appVMs, so shutting it down while
-  appVMs run severs their network. *When* it is safe to call is launch-daemon
-  policy (the `katmate-update` MVP already refuses to tear down CID 3 blindly),
-  not the agent's concern.
+- **netVM shutdown is host-driven over QMP, not an agent opcode.** netVM is the
+  project's only q35 guest (PCI topology for vfio), hence the only guest with
+  ACPI. The host powers it down with QMP `system_powerdown` — an ACPI
+  power-button event that `systemd-logind` (default `HandlePowerKey=poweroff`)
+  turns into a clean stop of networkd / wg-quick / nftables, releasing the
+  RTL8125 for the FLReset- restart cycle. Consequences, all deliberate: no
+  SHUTDOWN opcode in `netvm-agent`, no shutdown-related privilege
+  (`CAP_SYS_BOOT` unnecessary), and no dbus/polkit dragged into the most
+  network-exposed VM. This is the principled counterpart to the appVM path, not
+  an inconsistency: the asymmetry follows from the machine type. The appVM
+  in-guest SHUTDOWN exists precisely because microvm has no ACPI (see
+  `state.md`, "Shutdown without ACPI"); netVM has ACPI, so it needs neither an
+  agent opcode nor an init delegate. The launcher exposes
+  `-qmp unix:/run/katmate/netvm-qmp.sock,server,wait=off`; the send-side is a
+  small host tool (or subcommand), host surface only — never reachable from a
+  guest.
 
 - **Privilege: `netvm-agent` runs with `CAP_NET_ADMIN`** (plus write access to
   `/etc/systemd/network/`), granted via its systemd unit — the minimum for
@@ -1095,7 +1115,9 @@ agent, outside foundation/app-layer and outside `katmate-update`.
   than full root if capabilities suffice. This is deliberately **more** than the
   appVM `vm-agent` (uid 1000, unprivileged, RUN whitelist): the same protocol,
   two trust/privilege levels by VM class. It runs under systemd (a unit), not
-  under katmate-init.
+  under katmate-init. With SHUTDOWN handled off-agent (QMP, above),
+  `CAP_NET_ADMIN` now covers exactly one job — the NETCFG internal-route
+  lifecycle — and no shutdown capability is granted at all.
 
 - **No bootloader in the guest: direct-kernel boot.** q35 supports QEMU
   `-kernel`/`-initrd`/`-append` (SeaBIOS linuxboot), so netVM boots with no
@@ -1156,6 +1178,16 @@ agent, outside foundation/app-layer and outside `katmate-update`.
   `rtl8125b-2.fw` load (the blob issue closed 2026-07-08) — soluble only via
   `CONFIG_EXTRA_FIRMWARE`, which raises firmware-licensing questions for ISO
   distribution. Deferred, not adopted.
+- **In-agent SHUTDOWN via `CAP_SYS_BOOT`, or via logind over dbus/polkit.**
+  Rejected. netVM is q35 and therefore has ACPI, so the host can power it down
+  gracefully with QMP `system_powerdown` (an ACPI power-button event that
+  `systemd-logind` turns into a clean stop) without granting the agent any
+  shutdown privilege at all. `CAP_SYS_BOOT` would widen the privileged binary's
+  capability set beyond its one job (NETCFG); the logind path would drag
+  dbus + polkitd — a privileged daemon with a poor CVE history — into the most
+  network-exposed VM. Both add surface to buy nothing the machine type does not
+  already provide. The appVM in-guest SHUTDOWN is not the same case: microvm has
+  no ACPI, so there the host has no equivalent lever.
 
 **Consequences:**
 
