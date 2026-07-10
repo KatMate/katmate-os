@@ -5,20 +5,24 @@
 > each working session. Detailed proofs and command sequences live in git
 > history and the ADRs — this file references them rather than repeating them.
 
-**Last updated:** 2026-07-09 — **netVM sysVM DECLARATIVE BUILD PROVEN
-end-to-end.** The `build/netvm.sh` image (ADR-021) now boots and reaches the
-network unaided: a fresh `net-sys.con` launch of `vm_sys_netvm` comes up through
-full systemd, mounts root on `/dev/vda`, brings the passed-through RTL8125
-(`enp0s5`, MAC-matched) to `Link is Up 1Gbps/Full`, and **pulls a DHCP lease —
-confirmed `10.3.1.110` on the LAN by ARP scan** (MAC `38:05:25:34:7c:47`). Every
-uplink delta that previously lived only in the hand-installed netinst pet
-(`firmware-realtek`, `20-uplink.network`, cleaned `interfaces`) is now
-reproduced from the declarative build. The netinst pet is retired-in-principle
-(kept only until `netvm-agent` gives a control path — root is locked in the
-image, so there is no console login yet). Two build-blocking bugs were fixed
-this session (initrd `MODULES=most`; conf.d seed via `install -D`), and the
-host's suspend targets were masked because hypridle twice killed a build
-mid-write. **Milestone:** v0.2 (in development)
+**Last updated:** 2026-07-10 — **netvm-agent architecture FINALIZED (design
+session, no live boot).** The agent Cargo-workspace split and the netVM control
+model are decided; ADR-021 revised to match. Resolutions: (1) `agent/` becomes a
+Cargo workspace — ONE shared `katmate-protocol` crate (framing/transport/error +
+a shared opcode *value* registry) plus per-bin crates `vm-agent` (appVM,
+unprivileged) and `netvm-agent` (netVM, `CAP_NET_ADMIN`); `ping-client` moves in
+as a member, `protocol.rs`/`error.rs` symlinks dropped. (2) Opcode *values* in
+the shared registry; opcode *enums + handlers* per-bin — `read_request` now
+returns a raw `u8` opcode, each bin maps only what it handles via `TryFrom<u8>`,
+so a forbidden opcode fails at DECODE (absent-not-disabled, mechanically). (3)
+**netVM shutdown is host-driven over QMP, not an agent opcode**: netVM is q35 →
+has ACPI → `system_powerdown` → logind poweroff, so `netvm-agent` is **NETCFG +
+PING only** — no SHUTDOWN, no shutdown privilege. appVM `vm-agent` keeps its
+in-guest SHUTDOWN (microvm has no ACPI; the asymmetry follows from machine type).
+(4) In-guest verification uses a dev-only console password (decision B), separate
+from the agent. Next session is CODE (thinking off): build the workspace,
+regression-gate `ping-client ping 5 → OK`, then netvm-agent. **Milestone:** v0.2
+(in development)
 
 ## Current focus
 
@@ -43,6 +47,52 @@ never by building. `katmate-update` (ADR-019 version-lock backbone) is complete
 
 Direction unchanged: IOMMU-capable platforms only (VT-d/AMD-Vi); VT-x-only
 frozen (ADR-015). MINIS is primary host and merge target.
+
+## This session (2026-07-10) — netvm-agent architecture + QMP shutdown (design)
+
+Design/thinking session, no live boot. Turned "netvm-agent is the unblocking
+next step" into a finished, buildable design and revised ADR-021. Read the
+actual sources (`agent/src/{main,protocol,error,config}.rs`, `bin/ping-client/`)
+and `build/netvm.sh` before deciding — resolutions follow the code, not memory.
+
+### Decisions (all confirmed)
+
+1. **Cargo workspace, one shared crate.** `agent/` is the workspace root; ONE
+   shared `katmate-protocol` (framing + VSOCK transport + `error` module +
+   shared opcode value registry). Two guest bins: `vm-agent` (uid 1000) and
+   `netvm-agent` (`CAP_NET_ADMIN`). `ping-client` moves `bin/ping-client →
+   agent/crates/ping-client` as a member; symlinks dropped. Per-package guest
+   builds (`cargo build --release -p vm-agent -p netvm-agent` in the trixie
+   chroot); host builds `-p ping-client`. One `[profile.release]` at root.
+2. **Opcode values shared, enums + handlers per-bin.** Shared `read_request`
+   returns a RAW `u8` opcode (`RawRequest`), not `Cmd`; length validation stays
+   shared, opcode→handler is per-bin `TryFrom<u8>`. Forbidden opcode fails at
+   decode. Registry exists so `ping-client` can encode any opcode (drives both).
+3. **netVM shutdown = host QMP, not an agent opcode.** q35 → ACPI. Host sends
+   `system_powerdown` → logind `HandlePowerKey=poweroff` → clean networkd/wg/nft
+   stop, releasing the RTL8125 for FLReset-. So `netvm-agent` = **NETCFG + PING
+   only**; no SHUTDOWN, no `CAP_SYS_BOOT`, no dbus/polkit. appVM `vm-agent` KEEPS
+   SHUTDOWN (→ katmate-init; microvm has no ACPI). ("graceful ⟹ root" was wrong —
+   graceful = ask PID 1 / the host, not privilege the agent.)
+4. **In-guest verification uses a dev-only console password** (decision B),
+   out-of-band, same "remove before release" class as sshd. The agent has no
+   RUN, so it is NOT the verification path.
+
+### ADR-021 revised (committed, GPG-signed, pushed)
+
+Four blocks: opcode table + registry/absent-not-disabled wording; QMP shutdown
+bullet (replaces old "SHUTDOWN … graceful teardown"); `CAP_NET_ADMIN` scope (now
+one job, NETCFG); rejected alternative (in-agent SHUTDOWN via `CAP_SYS_BOOT` or
+logind/polkit — q35 ACPI makes host QMP graceful without guest privilege).
+
+### Next (CODE session, thinking off)
+
+Ordered, each with a gate: (a) `katmate-protocol` (codec split, raw-opcode
+`read_request`); (b) `vm-agent` onto it, UNCHANGED behaviour — regression gate
+`ping-client ping 5 → OK` before touching netVM; (c) `netvm-agent` (PING +
+NETCFG); (d) `ping-client` moved in. Then bake `$OUT/netvm-agent` (netvm.sh step
+7, already scaffolded), boot-test `ping-client ping 3 → OK` as first live
+control-path proof.
 
 ## This session (2026-07-09) — netVM sysVM declarative build PROVEN
 
@@ -665,18 +715,21 @@ by init (isolated under `#ifdef DEV_HOSTSHARE` for later if ever needed).
 
 **Primary (netVM sysVM — ADR-021 track, build now PROVEN):**
 
-- **`netvm-agent`** — THE unblocking next step. The declarative image locks root
-  ("dev sets a console password out-of-band", never done), so there is no way
-  into the guest and no in-guest verification. Build the privileged systemd-run
-  control agent (Rust workspace: `netvm-agent` bin crate sharing `protocol` +
-  `error` with the appVM `vm-agent`; `CAP_NET_ADMIN`; NETCFG + PING + SHUTDOWN
-  opcodes, per ADR-021). Bake it (`$OUT/netvm-agent`; build currently prints
-  `NOTICE: netvm-agent binary not found` and ships without it). Opus/thinking
-  task (workspace restructure + agent design).
-- **In-guest verification** (once there is a control path): `networkctl status`
-  routable, WireGuard/ProtonVPN tunnel up, inner-segment `enp0s4` p2p to
-  personalVM. These are unproven from the declarative image so far — only
-  link-up + DHCP lease are confirmed (from the host).
+- **`netvm-agent` (CODE session, thinking off)** — architecture CLOSED (see
+  2026-07-10 + revised ADR-021). Build the workspace: `katmate-protocol` (codec
+  split, raw-`u8` `read_request`), `vm-agent` moved onto it UNCHANGED (regression
+  gate `ping-client ping 5 → OK`), `netvm-agent` opcode model **NETCFG + PING
+  only** (`CAP_NET_ADMIN`; NO SHUTDOWN — host QMP), `ping-client` moved in. Bake
+  `$OUT/netvm-agent` (netvm.sh step 7 scaffolded); prove live path `ping-client
+  ping 3 → OK`.
+- **netVM QMP shutdown wiring** — add `-qmp unix:/run/katmate/netvm-qmp.sock,
+  server,wait=off` to `net-sys.con` + a small host-side tool/subcommand sending
+  `system_powerdown`. Host surface only. (Decided 2026-07-10; not yet wired.)
+- **In-guest verification via a dev-only console password** (out-of-band; remove
+  before release, sshd class): `networkctl status` routable, WireGuard/ProtonVPN
+  up, inner-segment `enp0s4` p2p to personalVM. Only link-up + DHCP lease
+  confirmed so far (from the host). The agent is NOT the verification path (no
+  RUN).
 - **DNS-leak policy in the manifest** — the uplink DHCP offers `DNS=1.1.1.1`
   (LAN router). netVM must push DNS through ProtonVPN (`10.2.0.1`). Decide:
   override with `DNS=10.2.0.1` + `Domains=~.` in `20-uplink.network`, or drop
