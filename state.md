@@ -5,24 +5,21 @@
 > each working session. Detailed proofs and command sequences live in git
 > history and the ADRs — this file references them rather than repeating them.
 
-**Last updated:** 2026-07-10 — **netvm-agent architecture FINALIZED (design
-session, no live boot).** The agent Cargo-workspace split and the netVM control
-model are decided; ADR-021 revised to match. Resolutions: (1) `agent/` becomes a
-Cargo workspace — ONE shared `katmate-protocol` crate (framing/transport/error +
-a shared opcode *value* registry) plus per-bin crates `vm-agent` (appVM,
-unprivileged) and `netvm-agent` (netVM, `CAP_NET_ADMIN`); `ping-client` moves in
-as a member, `protocol.rs`/`error.rs` symlinks dropped. (2) Opcode *values* in
-the shared registry; opcode *enums + handlers* per-bin — `read_request` now
-returns a raw `u8` opcode, each bin maps only what it handles via `TryFrom<u8>`,
-so a forbidden opcode fails at DECODE (absent-not-disabled, mechanically). (3)
-**netVM shutdown is host-driven over QMP, not an agent opcode**: netVM is q35 →
-has ACPI → `system_powerdown` → logind poweroff, so `netvm-agent` is **NETCFG +
-PING only** — no SHUTDOWN, no shutdown privilege. appVM `vm-agent` keeps its
-in-guest SHUTDOWN (microvm has no ACPI; the asymmetry follows from machine type).
-(4) In-guest verification uses a dev-only console password (decision B), separate
-from the agent. Next session is CODE (thinking off): build the workspace,
-regression-gate `ping-client ping 5 → OK`, then netvm-agent. **Milestone:** v0.2
-(in development)
+**Last updated:** 2026-07-13 — **AGENT WORKSPACE SPLIT COMPLETE (ADR-021),
+regression gate PASSED.** The monolithic `agent/` crate + symlinked
+`bin/ping-client/` are gone, replaced by a Cargo workspace with a shared
+`katmate-protocol` crate (framing, transport, error, opcode VALUE registry) and
+three binaries: `vm-agent`, `netvm-agent`, `ping-client`. The security property
+is now structural: `read_request` returns a RAW `u8` opcode (`RawRequest`) and
+forms no opinion about it; each binary's own `Op` enum + `TryFrom<u8>` maps only
+the opcodes it may execute. **A forbidden opcode fails at DECODE, not at a
+runtime gate someone could later invert** — NETCFG does not parse in `vm-agent`,
+RUN/FILEGET/FILEPUT/SHUTDOWN do not parse in `netvm-agent`. Absent, not
+disabled. 9/9 tests pass; live gate against a running appVM (CID 5, still the
+pre-split image) confirms the wire is byte-identical: `ping 5 → OK`,
+`run 5 nautilus → OK` + GUI renders. `netvm-agent::main()` is still `todo!()` —
+next session. Merged to `main` (`c2ec000`, GPG-signed, fast-forward).
+**Milestone:** v0.2 (in development)
 
 ## Current focus
 
@@ -31,10 +28,12 @@ The RTL8125 passthrough backbone is COMPLETE and proven across a reboot cycle:
 netVM with `-device vfio-pci,host=0000:01:00.0`, the guest enumerates it as
 `enp0s6`, and with `firmware-realtek` present + a MAC-matched networkd profile
 the link is routable with a DHCP lease. Both the first and the critical second
-boot succeeded. The remaining netVM work is no longer runtime bring-up but
-**making these deltas survive a rebuild** — netVM is still a hand-installed
-netinst pet, and the fixes below live only in the running instance. That is the
-motivation for the sysVM pipeline (ADR-021).
+boot succeeded. The uplink deltas now survive a rebuild: `build/netvm.sh`
+reproduces them declaratively (proven 2026-07-09), and the netinst pet is retired
+in principle. The remaining netVM work is **a control path into the guest** —
+root is locked in the declarative image, so nothing inside it has ever been
+verified. That is `netvm-agent`, whose workspace landed 2026-07-13 and whose
+`main()` is the next code to write.
 
 The **entire build chain remains scripted and proven from nothing** (unchanged
 this session): `make foundation` builds the shared systemd-free base
@@ -47,6 +46,68 @@ never by building. `katmate-update` (ADR-019 version-lock backbone) is complete
 
 Direction unchanged: IOMMU-capable platforms only (VT-d/AMD-Vi); VT-x-only
 frozen (ADR-015). MINIS is primary host and merge target.
+
+## This session (2026-07-13) — agent Cargo workspace split
+
+Mechanical migration of the existing Rust agent into the workspace skeleton
+designed in the 2026-07-10 architecture session. No behaviour change intended in
+`vm-agent`; the split had to be provably transparent on the wire before
+`netvm-agent` could be written against it.
+
+### What moved where
+
+| from | to | change |
+|---|---|---|
+| `agent/src/protocol.rs` (codec) | `katmate-protocol/src/frame.rs` | `Cmd` + `from_u8`/`to_u8` **removed, no replacement**; `Request` → `RawRequest{opcode: u8}`; `encode_request(op: u8, …)` |
+| `agent/src/protocol.rs` (policy consts) | `vm-agent/src/main.rs` | `WHITELIST`, `HOME_PREFIX`, `INIT_SOCK`, `SHUTDOWN_CMD`, `DEFAULT_HOST_CID`, `DEFAULT_WAYPIPE_PORT` |
+| `agent/src/error.rs` | `katmate-protocol/src/error.rs` | verbatim; only `UnknownCommand`'s doc + `Display` reworded |
+| `agent/src/config.rs` | `vm-agent/src/config.rs` | fallbacks re-pointed |
+| `agent/src/main.rs` | `vm-agent/src/main.rs` | `match req.cmd` → `Op::try_from(req.opcode)?` |
+| `bin/ping-client/` | `crates/ping-client/` | symlinks into `agent/src/` gone; encodes raw `opcode::OP_*`, has no `Op` of its own |
+| `agent/vm-agent.c` | — | legacy C agent deleted |
+
+The constant split is the whole point and is worth restating: `frame.rs` keeps
+only what is genuinely shared wire (`PROTOCOL_VERSION`, `STATUS_*`, `MAX_*`,
+`DEFAULT_CONTROL_PORT`). Everything else was never protocol — it was appVM
+policy, and `netvm-agent` must not inherit it.
+
+### One judgement call worth recording
+
+An unmapped opcode no longer closes the connection. Previously `Cmd::from_u8`
+lived *inside* `read_request`, so a bad opcode surfaced as a decode error and
+`handle_connection` dropped the peer. Now decode and mapping are separate steps,
+so this had to be chosen rather than inherited: `Op::try_from` failure → log +
+ERR + **`continue`**. Rationale: the peer did not corrupt the stream, it asked
+for something this binary does not implement. Keep serving. (Reverting to
+drop-the-connection is a one-line change if that turns out wrong.)
+
+### Regression gate — PASSED
+
+Deliberately run against the **pre-split guest image** (`vm_app_web` still
+carries the old monolithic `vm-agent`), because that is the one thing this test
+can prove and the new image cannot: **the wire did not change.** New workspace
+`ping-client` → old in-guest agent:
+
+- `ping-client ping 5` → `status=0x00 (OK)`
+- `ping-client run 5 nautilus` → `OK`, nautilus renders on host Hyprland
+
+If the split had broken the codec, this fails. It did not. Any future failure
+against a *new* image is therefore in `vm-agent`, not in `katmate-protocol` —
+which is exactly the isolation the two-stage gate buys.
+
+Baking the new `vm-agent` into an app layer is a separate step (app-layer
+rebuild), not done this session.
+
+### Housekeeping
+
+- **Binary path changed:** `agent/target/release/ping-client`
+  (was `bin/ping-client/target/release/ping-client`). Anything on MINIS that
+  invokes it — and the rsync exclude set — needs the update.
+- Stale `agent/src/`, `agent/vm-agent.c`, `bin/ping-client/` removed from the
+  MINIS build copy by hand before rsync (the sync runs without `--delete`).
+- Boot log re-confirms the 2026-07-01 kernel flags are live: `landlock: Up and
+  running`, `ALSA #0: Loopback 1`, `crng init done` @ 0.010s. No kernel rebuild
+  pending.
 
 ## This session (2026-07-10) — netvm-agent architecture + QMP shutdown (design)
 
@@ -715,13 +776,22 @@ by init (isolated under `#ifdef DEV_HOSTSHARE` for later if ever needed).
 
 **Primary (netVM sysVM — ADR-021 track, build now PROVEN):**
 
-- **`netvm-agent` (CODE session, thinking off)** — architecture CLOSED (see
-  2026-07-10 + revised ADR-021). Build the workspace: `katmate-protocol` (codec
-  split, raw-`u8` `read_request`), `vm-agent` moved onto it UNCHANGED (regression
-  gate `ping-client ping 5 → OK`), `netvm-agent` opcode model **NETCFG + PING
-  only** (`CAP_NET_ADMIN`; NO SHUTDOWN — host QMP), `ping-client` moved in. Bake
-  `$OUT/netvm-agent` (netvm.sh step 7 scaffolded); prove live path `ping-client
-  ping 3 → OK`.
+- **`netvm-agent` — write `main()`** (still `todo!()`). THE unblocking step: the
+  declarative image locks root, so there is no control path into netVM at all.
+  The workspace itself is DONE (2026-07-13) — `katmate-protocol`, `vm-agent`
+  migrated + regression-gated, `ping-client` moved in, `netvm-agent/op.rs`
+  written and tested. What remains splits cleanly in two:
+  - *Mechanical:* the VSOCK listener + per-connection loop, modelled on
+    `vm-agent` (bind/listen/accept, reject non-`VMADDR_CID_HOST`), dispatching
+    two branches. Pure SUBTRACTION — no `spawn()`, no init socket, no path
+    guard, no `config.rs`.
+  - *Architectural (ADR):* the **NETCFG payload design** — the one open decision,
+    and the one carrying `CAP_NET_ADMIN`. Typed payload (NOT a shell string),
+    validation of the `/32` against a legitimate appVM CID, `networkd` fragment,
+    `networkctl reload`.
+  Opcode model is **NETCFG + PING only** (NO SHUTDOWN — that is host QMP, see
+  2026-07-10 + revised ADR-021). Then bake `$OUT/netvm-agent` (netvm.sh step 7
+  scaffolded); prove `ping-client ping 3 → OK`.
 - **netVM QMP shutdown wiring** — add `-qmp unix:/run/katmate/netvm-qmp.sock,
   server,wait=off` to `net-sys.con` + a small host-side tool/subcommand sending
   `system_powerdown`. Host surface only. (Decided 2026-07-10; not yet wired.)
@@ -759,8 +829,10 @@ by init (isolated under `#ifdef DEV_HOSTSHARE` for later if ever needed).
 - **systemd purge from foundation** (minimal-TCB): the binary still ships unused.
 - **udisks2 check:** confirm nautilus works with udisks2 disabled, then bake
   `systemctl disable udisks2` into the app-layer build.
-- **FILEPUT streaming** (currently buffers payload in memory); promote
-  `protocol.rs` to a shared `katmate-protocol` crate.
+- **FILEPUT streaming** — still buffers the whole payload in memory
+  (`read_request` fills `RawRequest::payload`); the streaming helpers
+  (`write_response_header`/`write_raw`/`read_raw`) exist in `frame.rs` but
+  FILEPUT does not use them. FILEGET already streams.
 - **ISO bake pipeline** (ADR-020): download → verify → bake USB → boot →
   provision. Not yet designed; terminal step of the developer pipeline.
 - **Installer:** secrets removal (v0.2 blocker); create `/var/lib/katmate/`.
@@ -772,8 +844,6 @@ by init (isolated under `#ifdef DEV_HOSTSHARE` for later if ever needed).
   USB-path name.
 - **sshd exposure with ProtonVPN active** (ties into #4): bind sshd to
   `10.3.1.3` / restrict nft so SSH is not reachable over the VPN tunnel.
-- **vm-agent lean / protocol-crate split** — wanted while the codebase is small;
-  "as soon as feasible", not urgent. (The agent is already Rust.)
 
 ## Invariants & gotchas (quick reminders — detail in git/ADRs)
 
@@ -941,5 +1011,21 @@ by init (isolated under `#ifdef DEV_HOSTSHARE` for later if ever needed).
   concrete LVM names (`vm_tpl_foundation`, `vm_app_web`) only here and in live
   inspection.
 - **Source of truth = Acer `~/katmate-os/` git repo.** MINIS
-  `katmate-build/{agent,ping-client}/` are build copies — synced FROM the repo,
-  never edited on MINIS and left to diverge. Git lives ONLY on Acer.
+  `~/katmate-build/katmate-os/` is a build copy — synced FROM the repo, never
+  edited on MINIS and left to diverge. Git lives ONLY on Acer. The rsync runs
+  WITHOUT `--delete`, so a restructuring that REMOVES files needs a manual `rm`
+  on MINIS first, or stale files linger (bit us at the workspace split: leftover
+  `agent/src/` beside the new `agent/crates/`).
+- **`git rm`, never `rm`, when restructuring a tracked tree.** `git rm -r <path>`
+  removes from index AND worktree, but the content stays safely in `HEAD`; a bare
+  `rm -rf` has bitten this project before. Corollary: check `git ls-files`, not
+  `find`, to see what is actually TRACKED. During the workspace split the skeleton
+  `agent/crates/` turned out to be already committed, so the naive
+  `git rm -r agent` would have destroyed it — `git ls-files agent` caught that
+  before any damage.
+- **Two-stage gate for a refactor: OLD artefact first, new artefact second.**
+  Testing the new client against the OLD guest image proves the wire is intact,
+  and nothing else. Testing against a NEW image proves the new agent works. The
+  second does not subsume the first: if only the second is run and it fails, you
+  cannot tell whether the codec, the dispatch, or the build broke. The first test
+  costs seconds and buys that separation. (Workspace split, 2026-07-13.)
