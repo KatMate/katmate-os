@@ -1,0 +1,10 @@
+[package]
+name = "katmate-protocol"
+version = "0.1.0"
+edition = "2021"
+
+# Minimal TCB: only libc for raw VSOCK syscalls. No async, no tokio.
+# (Unchanged from the pre-workspace agent crate — the dependency set is the
+# reason the codec could be shared at all.)
+[dependencies]
+libc = { workspace = true }

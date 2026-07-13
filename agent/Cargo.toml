@@ -1,15 +1,32 @@
-[package]
-name = "vm-agent"
-version = "0.1.0"
-edition = "2021"
+[workspace]
+resolver = "2"
+members = [
+    "crates/katmate-protocol",
+    "crates/vm-agent",
+    "crates/netvm-agent",
+    "crates/ping-client",
+]
 
-# Minimal TCB: only libc for raw VSOCK syscalls. No async, no tokio.
-[dependencies]
+# Single source of truth for shared dependency versions. Members refer to these
+# with `libc = { workspace = true }` so the three binaries can never drift onto
+# different libc releases — the same "one pinned version, no drift" discipline
+# ADR-019 applies to waypipe.
+[workspace.dependencies]
 libc = "0.2"
+katmate-protocol = { path = "crates/katmate-protocol" }
 
-# Smaller, simpler binary for the foundation image.
+# NOTE: [profile.*] is ONLY honoured at the workspace ROOT. Cargo ignores (and
+# warns about) profile sections in member manifests, so the per-crate blocks
+# that lived in agent/Cargo.toml and bin/ping-client/Cargo.toml are merged here.
+#
+# The old member profiles differed: the agent had lto/panic=abort, ping-client
+# did not. A workspace has one release profile, so the agent's stricter settings
+# win for everyone. That is the right direction (smaller guest binaries; the
+# host client is not hurt by it) — but it IS a behaviour change for ping-client:
+# panic=abort means a client-side panic aborts instead of unwinding. It has no
+# catch_unwind and exits on error anyway, so this is inert in practice.
 [profile.release]
-opt-level = "s"
+opt-level = "s"     # size, not speed: these are control-plane daemons
 lto = true
-panic = "abort"
+panic = "abort"     # no unwinder in the guest binaries -> smaller TCB
 strip = true
