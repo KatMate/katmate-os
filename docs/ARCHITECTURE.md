@@ -5,10 +5,13 @@
 ```
                           Internet
                              │
-                        [ NetVM ]            USB-NIC (r8152) passthrough; WireGuard/ProtonVPN
-                             │
+                    ┌────────┴────────┐
+                    │  NetVM (sysVM)  │  q35 · RTL8125 vfio passthrough
+                    │  CID 3          │  WireGuard/ProtonVPN · nftables
+                    └────────┬────────┘
+                             │  per-AppVM /32 p2p links
 ┌──────────────────── Host — Arch Linux (linux-hardened) ────────────────────┐
-│  systemd-boot · LUKS2 + LVM · nftables · QEMU/KVM · waypipe · Hyprland     │
+│  systemd-boot · LUKS2 + LVM · nftables · QEMU/KVM · waypipe · Sway         │
 └──┬──────────────┬──────────────┬──────────────┬────────────────────────────┘
    │              │              │              │       AF_VSOCK only:
 [Browser VM]  [Office VM]    [Dev VM]   [Disposable VM]   control · files · GUI
@@ -16,8 +19,52 @@
 ```
 
 The host owns VM lifecycle, storage, policy enforcement, GUI compositing and
-network routing. Guests execute applications and hold isolated user data.
-All host↔guest communication crosses explicitly exposed VSOCK channels.
+**the network topology**. Guests execute applications and hold isolated user
+data. All host↔guest communication crosses explicitly exposed VSOCK channels.
+
+## Object model
+
+([ADR-022](DECISIONS.md#adr-022))
+
+The core defines five object classes. The network is a **graph of VMs**; the
+physical NIC is an **assignable host resource**. Topology is data, not structure
+baked into code.
+
+| Class | Nature | Fields / notes |
+|---|---|---|
+| `Nic` | host inventory | PCI address, IOMMU group, binding (host / `vfio-pci`), `assigned_to: Option<VmRef>`. Assignable to **at most one** VM. The same shape later serves USB controllers and audio. |
+| `Image` | build artifact | foundation (thin, RO) / `app-<type>` (thin snapshot, RO) / sysVM image (linear RW LV) / instance qcow2 delta. Orthogonal to runtime. |
+| `Vm` | runtime unit | name, class (`app` \| `sys`), CID, image ref, resources, **`netvm: Option<VmRef>`**, **`provides_network: bool`**. |
+| `Link` | runtime, host-owned | one p2p segment: TAP, `/32` addressing, the fragment delivered by NETCFG. Created at launch, destroyed at teardown. Owned by the launch daemon; never by a guest. |
+| `Policy` | two-layer | (a) compile-time opcode set per VM class (absent-not-disabled); (b) the static nft ruleset **baked into a netVM image**. |
+
+The entire topology is two fields on `Vm`: `netvm` (whom do I route through) and
+`provides_network` (may others route through me). A graph edge is a `Link`.
+
+**Consequences of the model:**
+
+- **Policy is a netVM, not a rule.** An AppVM's network *access* is exactly
+  which netVM it attaches to. Each netVM image bakes one fixed policy
+  (`netvm-vpn`, `netvm-clearnet`, `netvm-lan-only`, …). The nft ruleset inside a
+  netVM never changes as AppVMs come and go; isolation is carried by **topology**
+  (per-AppVM `/32` p2p links), never by per-AppVM firewall rules
+  ([ADR-021](DECISIONS.md#adr-021)).
+- **`netvm: None` is a first-class offline AppVM.** No `Link`, no TAP, no route.
+  Air-gap is the *absence of an object*, not a rule denying traffic.
+- **One physical NIC = one q35 driver domain.** A VM holding a passed-through NIC
+  runs `-machine q35` (PCI topology for vfio), full systemd + networkd +
+  initramfs + firmware — and holds **no secrets**.
+- **Proxy netVMs are microVMs and may be chained.** A netVM with no physical NIC
+  (VPN terminator, aggregating firewall) has only virtio links → no PCI topology
+  → **microvm**. Its uplink is just another `Link`. Chaining
+  (`appVM → netvm-vpn → netvm-driver → NIC`) is therefore cheap here.
+- **The launch daemon is the only component that understands the graph.** It
+  walks `netvm` references, allocates CIDs and `/32`s, creates `Link`s, calls
+  NETCFG on each node of the path at launch and teardown, and refuses to tear
+  down a `provides_network` VM while dependents run. Agents stay dumb executors.
+- **v1 instantiates the simplest graph:** one driver domain terminating the
+  uplink and carrying the VPN — exactly the netVM running today. The split
+  driver/VPN chain is a post-v1 *paranoid profile*, not a v1 blocker.
 
 ## Host
 
@@ -46,10 +93,22 @@ GPT
                             instance deltas, persistent home LVs)
 ```
 
-VM storage uses a three-level LVM-thin chain for system images and raw thin LVs
+VM storage uses a three-level LVM-thin chain for AppVM images and raw thin LVs
 for persistent home ([ADR-010](DECISIONS.md#adr-010)): `foundation` (thin, RO)
 ← `app-<type>` (thin snapshot of foundation, RO-frozen) ← per-instance qcow2 RW
 delta. See **Base image & template model** below.
+
+sysVMs are **outside** this chain: a netVM lives on a **standalone linear RW LV**
+(not thin, not frozen, nobody's backing store — [ADR-021](DECISIONS.md#adr-021)),
+so none of the `-K -ay` skip-activation handling applies to it.
+
+## VM classes
+
+| Class | Machine | Init | Storage | Kernel | Agent |
+|---|---|---|---|---|---|
+| **AppVM** | `microvm` | `katmate-init` | thin chain + qcow2 delta | custom monolithic, `-kernel` | `vm-agent` (uid 1000, whitelist) |
+| **sysVM — driver domain** | `q35` (vfio needs PCI) | systemd | standalone linear RW LV | stock Debian `linux-image-amd64` + initrd, `-kernel`/`-initrd` | `netvm-agent` (`CAP_NET_ADMIN`) |
+| **sysVM — proxy** (post-v1) | `microvm` (no PCI needed) | open (`katmate-init` viable) | standalone linear RW LV | custom monolithic, `-kernel` | `netvm-agent` |
 
 ## Guest MicroVMs
 
@@ -64,8 +123,16 @@ delta. See **Base image & template model** below.
   loadable modules. It is passed to QEMU via `-kernel` at launch and does
   **not** live inside the guest rootfs; the foundation image therefore carries
   no kernel and no `/lib/modules` tree.
+- `CONFIG_HW_RANDOM_VIRTIO` and `CONFIG_SECURITY_LANDLOCK` are **live** (built
+  2026-07-01, re-confirmed in the 2026-07-13 boot log: `landlock: Up and
+  running`, `crng init done` @ 0.010s). No rebuild pending.
+- Proxy sysVMs ([ADR-022](DECISIONS.md#adr-022)) will require `CONFIG_WIREGUARD`
+  + the nft/netfilter set in this same shared kernel. That code is unreachable
+  from an AppVM (uid 1000, no `CAP_NET_ADMIN`) but *present* — a conscious
+  departure from absent-not-disabled at the kernel level, taken up when the first
+  proxy is built.
 
-## Base image & template model
+  # Base image & template model
 
 ([ADR-007](DECISIONS.md#adr-007), [ADR-010](DECISIONS.md#adr-010),
 [ADR-011](DECISIONS.md#adr-011))
@@ -121,6 +188,10 @@ pacman hook and nothing to detect.
    new external `-kernel` for the next foundation release. Waypipe fixes
    that do not build on trixie are backported onto the pinned tag (same
    practice).
+
+`katmate-update` **never touches sysVMs**: netVM has no waypipe and no shared
+foundation. It has its own track, `netvm-update`, driven by Debian security
+updates and network-configuration changes ([ADR-021](DECISIONS.md#adr-021)).
 
 Principles: immutability, reproducibility (foundation rebuilt from defined
 sources, never hand-edited), strict system/data separation, user transparency,
@@ -178,31 +249,74 @@ base carries runtime libs only (libzstd1, liblz4-1, libgcc-s1, libc6,
 libxxhash0) and no compiler. Verify with `ldd` after purge; a missing runtime
 lib means reinstalling the non-`-dev` variant before freeze.
 
+### sysVM build
+
+netVM is built by its own declarative pipeline, `build/netvm.sh`
+([ADR-021](DECISIONS.md#adr-021)): debootstrap onto a standalone linear RW LV →
+mount → chroot → bake from a netVM-specific package + config manifest → export
+`vmlinuz` + `initrd` to a host-side artifact → unmount. Full systemd (not
+`--variant=minbase`), `non-free-firmware` enabled (`firmware-realtek` is
+**mandatory** for the RTL8125), an initramfs (`MODULES=most`), **no waypipe, no
+katmate-init**. The image is **AppVM-agnostic**: it bakes no internal topology
+at all — every internal route arrives at runtime via NETCFG.
+
 ## Communication
 
-AF_VSOCK exclusively ([ADR-003](DECISIONS.md#adr-003)). Channels: control
-(vm-agent), file transfer, GUI forwarding. No TCP exposure; guests have no
-network path to the host control plane.
+AF_VSOCK exclusively ([ADR-003](DECISIONS.md#adr-003)). No TCP exposure; guests
+have no network path to the host control plane.
 
-### VM agent
-
-Minimal command channel, implemented in C (Rust rewrite planned while the
-codebase is still small). Commands:
-
-| Command | Purpose |
+| Port | Channel |
 |---|---|
-| `PING` | health check |
-| `RUN` | launch whitelisted GUI applications (`firefox-esr`, `foot`, `nautilus`) |
-| `FILEGET` / `FILEPUT` | file transfer VM↔host, path-whitelisted, size-limited |
-| `SHUTDOWN` | graceful VM shutdown |
+| 1024 | GUI forwarding (waypipe) |
+| 1025 | control (agent) |
+| 1026 | audio (planned) |
 
-Security controls are specified in [SECURITY-MODEL.md](SECURITY-MODEL.md#controls-by-component).
+### CID allocation
+
+([ADR-017](DECISIONS.md#adr-017), re-scoped by [ADR-022](DECISIONS.md#adr-022))
+
+| Range | Class |
+|---|---|
+| 2 | host |
+| 3–19 | sysVMs (3 = primary/default netVM) |
+| 20–99 | fixed persistent AppVMs |
+| ≥ 100 | dynamic disposable AppVM pool |
+
+The launch daemon and the domain indicator both read this map. It replaces the
+earlier single-sysVM scheme (3 = netVM, 4–8 = fixed AppVM): fixed AppVMs move to
+20+ to leave room for chained sysVMs.
+
+### VM agents
+
+Rust Cargo workspace ([ADR-021](DECISIONS.md#adr-021)): a shared
+`katmate-protocol` crate (framing, VSOCK transport, error types, opcode
+wire-value registry) plus **two** bin crates. The split is a security measure —
+*absent code paths are stronger than disabled ones*. Opcode enums and handlers
+are per-binary; a forbidden opcode fails at **decode** (`TryFrom<u8>`), not at a
+runtime gate.
+
+| Opcode | `vm-agent` (AppVM, uid 1000) | `netvm-agent` (sysVM, `CAP_NET_ADMIN`) |
+|---|---|---|
+| `PING` | handler | handler |
+| `RUN` (whitelist: `firefox-esr`, `foot`, `nautilus`) | handler | **absent** |
+| `FILEGET` / `FILEPUT` (path-whitelisted, size-limited) | handler | **absent** |
+| `SHUTDOWN` | handler (microvm has no ACPI) | **absent** — host-driven over QMP `system_powerdown` (q35 has ACPI) |
+| `NETCFG` | **absent** | handler (privileged) |
+
+`NETCFG` describes **a link, never an AppVM** ([ADR-023](DECISIONS.md#adr-023)):
+a structured p2p link payload (interface match, local/peer address, `/32`
+prefix, route, metric) with `add` / `remove` operations and no `modify`. It
+carries **no policy** — no nft rule, no shell string, no VM name, no role. The
+same opcode therefore serves an AppVM downlink, a proxy uplink and a future
+sysVM-to-sysVM edge. The host is always the caller.
+
+Security controls: [SECURITY-MODEL.md](SECURITY-MODEL.md#controls-by-component).
 
 ## GUI forwarding
 
-Waypipe over AF_VSOCK; host side is a socket-activated systemd user service.
-Guest runs waypipe built from source; the version **must** match the host
-([ADR-008](DECISIONS.md#adr-008)) — mismatched versions negotiate
+Waypipe over AF_VSOCK (port 1024); host side is a socket-activated systemd user
+service. Guest runs waypipe built from source; the version **must** match the
+host ([ADR-008](DECISIONS.md#adr-008)) — mismatched versions negotiate
 incompatible compression and the connection is refused or crashes. Both
 binaries are built from the same project-pinned tree and the launch preflight
 enforces the match against `foundation.meta`
@@ -212,52 +326,72 @@ Benefits: no X11, no network listener, native Wayland path. Clipboard
 
 ## Networking
 
-**Live state (MINIS/UM870, v0.2):** NetVM is operational and is the sole
-network-facing domain — as targeted by [ADR-009](DECISIONS.md#adr-009).
-WireGuard (ProtonVPN) terminates in the NetVM, not on the host.
+**Live state (MINIS/UM870, v0.2):** netVM is operational and is the sole
+network-facing domain ([ADR-009](DECISIONS.md#adr-009)). WireGuard (ProtonVPN)
+terminates in netVM, not on the host. netVM is a **sysVM**
+([ADR-021](DECISIONS.md#adr-021)) and, in [ADR-022](DECISIONS.md#adr-022) terms,
+a **driver domain**.
 
-NetVM topology:
-- **External leg:** USB-NIC passthrough (Realtek r8152, `usb-host`) — physical
-  uplink `10.3.1.3/24`, gw `10.3.1.1`.
-- **VPN:** `wg-quick@proton`, iface `10.2.0.2/32`; NAT masquerade out `proton`;
-  `ip_forward=1`.
-- **Inner segment:** virtio NIC via TAP bridge on host, `10.100.1.1/32`;
-  AppVMs connect here and route all traffic through the VPN.
-- nft: input drop (+ WireGuard port 51820); forward limited to segment↔proton.
+netVM topology:
+- **Uplink:** RTL8125 (`10ec:8125`, IOMMU group 12) passed through via
+  `vfio-pci` (`disable_idle_d3=1`, `softdep r8169 pre: vfio-pci`). The guest's
+  own `r8169` needs `firmware-realtek` (`rtl_nic/rtl8125b-2.fw`) or the PHY stays
+  down. `20-uplink.network` matches by **MAC**, not interface name, so a PCI
+  slot change cannot break it. DHCP.
+- **VPN:** `wg-quick@proton`; NAT masquerade out `proton`; `ip_forward=1`.
+- **Internal segment:** `10.100.1.0/24`. Each AppVM gets its own p2p `Link` with
+  a link-scoped `/32` route, delivered by **NETCFG at launch** and withdrawn at
+  teardown. **Nothing is baked** — on a clean boot netVM has no internal route,
+  which is correct: with no AppVMs running there is nowhere to route.
+- **nft:** static, AppVM-agnostic. Input drop; forward limited to
+  segment ↔ `proton`, referencing only the aggregate `10.100.1.0/24`, never a
+  per-AppVM rule. Per-`/32` isolation is **topology**, not firewall.
 
-AppVMs (e.g. personalVM) have a virtio NIC on the inner segment (`10.100.1.2/32`),
-DNS via `10.2.0.1` (ProtonVPN resolver). No direct host network access.
+AppVMs have no direct host network access and no guest-to-guest path.
 
-Note: NetVM currently runs as a **q35** machine (not MicroVM), 1 vCPU, ~1 GiB
-RAM. MicroVM migration is a future cleanup item.
+**Known v1 co-location** ([ADR-022](DECISIONS.md#adr-022)): the WireGuard key and
+the `r8169` driver + Realtek firmware blob share one address space. Resolved
+post-v1 by splitting into a driver domain (hardware, no secrets) and a proxy
+netVM (secrets, no hardware).
 
 ## Disposable VMs (planned, v0.3)
 
 Created on demand, temporary storage, automatic destruction. Use cases:
 unknown PDFs, suspicious downloads, throwaway browsing sessions. CID allocated
-dynamically from the pool ([ADR-017](DECISIONS.md#adr-017)).
+dynamically from the ≥ 100 pool.
 
 ## Desktop layer
 
-greetd + tuigreet login manager → Hyprland 0.55.2 (Wayland compositor),
-Plymouth boot splash ("katmate" theme), fish shell.
+The host compositor is **part of the TCB**: it hosts waypipe windows and draws
+the domain indicator that visually guarantees the boundary between domains. That
+indicator must be drawn by trusted host-side code keyed on **waypipe CID
+identity** — never on guest-controlled properties (`app_id`, window title are
+spoofable).
 
-The Hyprland configuration uses the **CYBRland** theme
-(`github.com/scherrer-txt/cybrland`): teal/cyan accent palette, GeistMono
-Nerd Font, single-monitor layout (eDP-1), animations disabled for performance.
-Supporting tools: hypridle, hyprlock, hyprpaper, hyprpicker, pyprland, Rofi,
-waybar, swaync, kitty, yazi.
+**Sway is the single shipped profile** ([ADR-016](DECISIONS.md#adr-016)): stable
+config format, conservative churn, one implementation of the security-critical
+indicator to write and audit. greetd + tuigreet → Sway, Plymouth boot splash,
+fish shell.
 
-Two-profile model ([ADR-016](DECISIONS.md#adr-016)): a shared visual layer with
-**Sway** as the stable default and **Hyprland/CYBRland** as the optional
-profile. MINIS currently runs Sway (dual head DP-3 / HDMI-A-1); the CYBRland
-Hyprland layer is configured on the Acer dev machine and migration to MINIS is
-in progress. Installer integration will require adding `kms` to the mkinitcpio
-`HOOKS` for Plymouth.
+**Hyprland/CYBRland is a dev/demo profile, not a release artifact** — configured
+on the Acer (`github.com/scherrer-txt/cybrland`: teal/cyan palette, GeistMono
+Nerd Font, waybar, rofi, swaync, hyprpaper). It stands as proof that the DE
+profile is a replaceable contract, and becomes a second shipped profile only
+when its indicator implementation is separately verified.
+
+The DE profile contract: (1) host waypipe client per domain, (2) domain identity
+hook (border colour by CID, host-side), (3) bar module reading launch-daemon
+state, (4) keybindings → katmate CLI.
+
+Installer integration will require adding `kms` to the mkinitcpio `HOOKS` for
+Plymouth.
 
 ## Target hardware class
 
-x86-64 UEFI with **VT-d / AMD-Vi** (IOMMU required — VT-x-only platforms
-frozen per ADR-015). Performance floor: Apollo Lake-class (Pentium N6000,
-8 GB RAM). Full matrix of reference machines:
-[INSTALL.md](INSTALL.md#tested--reference-hardware).
+x86-64 UEFI with **VT-d / AMD-Vi** (IOMMU required — VT-x-only platforms frozen
+per [ADR-015](DECISIONS.md#adr-015)). Because a driver domain requires the NIC to
+sit in a **cleanly isolable IOMMU group**
+([ADR-022](DECISIONS.md#adr-022)), IOMMU-group quality is a hard hardware
+requirement, not an implementation detail — implying an HCL and an installer
+preflight check. Performance floor: Apollo Lake-class (Pentium N6000, 8 GB RAM).
+Reference machines: [INSTALL.md](INSTALL.md#tested--reference-hardware).
