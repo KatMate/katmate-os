@@ -1236,3 +1236,277 @@ by [ADR-020](DECISIONS.md#adr-020) (netVM must be a prebuilt, provisioned
 artifact) and by [ROADMAP.md](../ROADMAP.md) step 3; the shared-protocol,
 whitelisted appVM agent it splits from is the one specified in
 [ADR-018](DECISIONS.md#adr-018).
+
+## ADR-022 — Network topology is a graph; the physical NIC is an assignable object
+
+**Status:** Accepted (2026-07-14)
+
+**Context:**
+
+KatMate's release target ([ADR-020](DECISIONS.md#adr-020)) is a prebuilt host OS
+that a user provisions and then *composes* into their own microVM desktop:
+their own AppVMs, their own network exposure per AppVM. [ADR-021](DECISIONS.md#adr-021)
+established netVM as a first-class **sysVM** class with a declarative build, a
+privileged `netvm-agent`, a **static, appVM-agnostic** firewall, and isolation
+carried by **topology** (per-appVM `/32` p2p links) rather than by per-appVM
+firewall rules. It left the network *shape* of the system unstated: it described
+one netVM, terminating one uplink, gatewaying every appVM.
+
+That single-netVM picture cannot express the product requirement — "different
+AppVMs with different network access" — without breaking ADR-021's own central
+guarantee. Expressing per-appVM access *inside* one netVM would mean NETCFG
+delivering firewall policy, which hands the `CAP_NET_ADMIN`-holding agent a
+policy-mutation surface and re-introduces exactly the per-appVM firewall churn
+ADR-021 removed. The isolation mechanism and the access-control mechanism would
+collapse into one.
+
+There is a second, independent problem the single netVM hides. Today netVM runs
+the `r8169` driver plus a non-free Realtek firmware blob (`rtl8125b-2.fw`,
+required per [ADR-021](DECISIONS.md#adr-021)) — the most exposed code in the
+system, driving attacker-reachable hardware — **in the same VM that holds the
+WireGuard private key**. Compromise of the NIC driver is compromise of the VPN
+credentials. These are two different jobs at two different trust levels sharing
+one address space.
+
+Both problems have the same root: the network layer has no object model. There
+is no object for "a physical NIC", no object for "a network policy", and no
+object for "which network a VM is attached to".
+
+**Decision:** the core models the network as a **graph of VMs**, and the
+physical NIC as an **assignable host resource object**. The graph is data, not
+structure baked into the code.
+
+- **Object classes.** The core defines five, and only these:
+
+  | Class | Nature | Notes |
+  |---|---|---|
+  | `Nic` | host inventory | PCI address, IOMMU group, binding (host / `vfio-pci`), `assigned_to: Option<VmRef>`. Assignable to **at most one** VM. The same shape later serves USB controllers and audio. |
+  | `Image` | build artifact | foundation (RO) / `app-<type>` (RO thin snapshot) / sysVM image / instance delta. Orthogonal to runtime; unchanged by this ADR. |
+  | `Vm` | runtime unit | name, class (`app` \| `sys`), CID, image ref, resources, **`netvm: Option<VmRef>`**, **`provides_network: bool`**. |
+  | `Link` | runtime, host-owned | one p2p segment: TAP pair, `/32` addressing, the `.network` fragment delivered by NETCFG. Created at launch, destroyed at teardown. Owned by the launch daemon, never by a guest. |
+  | `Policy` | two-layer | (a) compile-time opcode set per VM class (absent-not-disabled, [ADR-021](DECISIONS.md#adr-021)); (b) the static nft ruleset **baked into a netVM image**. |
+
+  The entire topology is expressed by two fields on `Vm`: `netvm` (whom do I
+  route through) and `provides_network` (may others route through me). Nothing
+  else. A graph edge is a `Link`.
+
+- **Policy is a netVM, not a rule.** An AppVM's network *access* is exactly
+  *which netVM it is attached to*. Each netVM image bakes one fixed, immutable
+  policy (`netvm-vpn`, `netvm-clearnet`, `netvm-lan-only`, …); differentiating
+  access means attaching AppVMs to different netVMs, never mutating rules inside
+  one. This preserves ADR-021's static, appVM-agnostic firewall verbatim: the
+  ruleset still never changes as AppVMs come and go, and NETCFG still carries no
+  policy.
+
+- **`netvm: None` is a first-class offline AppVM.** An AppVM with no netVM
+  reference gets no `Link` at all — no TAP, no route, no gateway. Air-gap is the
+  absence of an object, not a firewall rule denying traffic. This is the
+  strongest possible expression of the absent-not-disabled principle and is
+  supported from v1.
+
+- **One physical NIC = one q35 driver domain.** A VM holding a passed-through
+  NIC is a **driver domain**: `-machine q35` (PCI topology for vfio,
+  [ADR-009](DECISIONS.md#adr-009)), full systemd + networkd + initramfs +
+  firmware ([ADR-021](DECISIONS.md#adr-021)), DHCP on the uplink — and **no
+  secrets**. It terminates raw hardware and nothing else. Each physical NIC gets
+  its own driver domain; a NIC is never shared between VMs.
+
+- **Proxy netVMs are microVMs and may be chained.** A netVM that holds **no**
+  physical NIC (a VPN terminator, an aggregating firewall) has only virtio
+  links, therefore needs no PCI topology, therefore is a **microVM** — not q35,
+  no initramfs, no firmware. Its uplink is just another p2p `Link`, delivered by
+  the same NETCFG. Chaining (`appVM → netvm-vpn → netvm-driver → NIC`) is
+  therefore cheap here in a way it is not in Xen/Qubes, where every domain
+  carries the same weight.
+
+  This chain is also the resolution of the driver/secret co-location problem:
+  the WireGuard key moves into a proxy that **cannot see hardware at all**, and
+  the NIC driver runs in a domain that **holds no key**. Compromise of `r8169`
+  or the Realtek blob yields raw, already-encrypted traffic and nothing else.
+
+- **v1 instantiates the simplest graph.** The shipped default is one driver
+  domain terminating the uplink and carrying the VPN — i.e. exactly the netVM
+  that runs today, unchanged. The split driver/VPN chain is a *paranoid profile*
+  and a post-v1 configuration, not a v1 blocker. **The model is the graph; v1 is
+  one node of it.** No existing work is discarded.
+
+- **CID ranges are re-scoped for multiple sysVMs.** The current allocation
+  (2 = host, 3 = netVM, 4–8 fixed AppVM, ≥100 disposable) assumes a single
+  sysVM. Superseded by:
+
+  | Range | Class |
+  |---|---|
+  | 2 | host |
+  | 3–19 | sysVMs (3 remains the primary/default netVM) |
+  | 20–99 | fixed persistent AppVMs |
+  | ≥100 | dynamic disposable AppVM pool |
+
+  The launch daemon and the domain indicator both read this range map; it is
+  recorded in `state.md`.
+
+- **The launch daemon is the only component that understands the graph.** It
+  walks `netvm` references, allocates CIDs and `/32`s, creates `Link`s, and
+  calls NETCFG on **each node of the path** at launch and teardown. It refuses
+  to tear down a VM with `provides_network: true` while dependents are running.
+  The agents stay dumb executors: `netvm-agent` installs the link it is handed
+  and knows nothing of the graph it belongs to.
+
+**Alternatives considered:**
+
+- **One netVM with per-AppVM firewall rules** (the "single netVM does
+  everything" model). Rejected: it makes NETCFG a policy-delivery channel,
+  giving the privileged agent a rule-mutation surface, and re-introduces the
+  per-appVM firewall churn ADR-021 removed. Isolation-by-topology and
+  access-control-by-topology are the same mechanism here, deliberately.
+- **Full Qubes-style mandatory chain (sys-net → sys-firewall → sys-vpn) from
+  v1.** Rejected as v1 scope, not as an architecture: it multiplies the number
+  of VMs that must boot before a desktop is usable, on a system with exactly one
+  developer and no proven launch daemon. The graph model *permits* it; v1 does
+  not *require* it.
+- **NIC shared between VMs / hot-reassignable at runtime.** Rejected: vfio
+  ownership is exclusive, FLR behaviour on the reference RTL8125 is already
+  fragile (`disable_idle_d3=1`, [ADR-009](DECISIONS.md#adr-009)), and a
+  reassignable NIC is a boundary that moves at runtime — the thing this design
+  consistently refuses.
+- **Keeping the VPN key in the driver domain** (status quo). Not rejected for
+  v1 — it *is* v1 — but recorded as a known co-location, resolved by the proxy
+  chain post-v1.
+
+**Consequences:**
+
+- **`Nic` becomes a host inventory object the installer must populate**, which
+  makes IOMMU-group quality a **hard hardware requirement** for KatMate, not an
+  implementation detail. A driver domain is only possible where the NIC sits in
+  a clean, isolable IOMMU group. This implies an **HCL and an installer preflight
+  check** (Qubes ships an HCL for precisely this reason). Recorded in
+  `ROADMAP.md`; not a v1 blocker, but a product blocker.
+- **The shared microVM kernel will need `CONFIG_WIREGUARD` + the nft/netfilter
+  set** once proxy netVMs exist, because proxies are microVMs and there is only
+  one microVM kernel ([ADR-021](DECISIONS.md#adr-021) rejected a second kernel).
+  This code is dead in an AppVM — `vm-agent` runs as uid 1000 without
+  `CAP_NET_ADMIN` and cannot reach it — but it is *present*, which is a real (if
+  small) departure from absent-not-disabled at the kernel level. **Not folded
+  into the pending rebuild** (`HW_RANDOM_VIRTIO` + `SECURITY_LANDLOCK`); it is
+  taken up with the proxy work, deliberately.
+- **The init model of a proxy netVM is left open.** ADR-021 binds netVM to
+  systemd because of `networkd`/DHCP **on the uplink**. A proxy has no uplink
+  DHCP — its uplink is a static p2p link delivered by NETCFG — and `wg` + `nft`
+  need no networkd. A proxy may therefore be a `katmate-init` sysVM. That is a
+  separate decision, taken when the first proxy is built.
+- **The domain indicator gains meaning it did not have.** With a graph, "which
+  domain am I looking at" also implies "which network is it on". The
+  waybar/border indicator should ultimately encode the netVM attachment, not
+  merely the CID.
+- **`state.md` CID map and `ARCHITECTURE.md` object model are updated by this
+  ADR.**
+
+**Cross-reference:** gives the netVM of [ADR-021](DECISIONS.md#adr-021) a
+topology it lacked, without weakening any of its guarantees (static firewall,
+appVM-agnostic image, absent-not-disabled opcode split) — it generalises them.
+Retains the vfio/passthrough constraints of [ADR-009](DECISIONS.md#adr-009) and
+scopes them to the driver-domain class. Constrains the NETCFG payload, which is
+specified in [ADR-023](DECISIONS.md#adr-023). The launch daemon it presupposes
+remains a future ADR.
+
+## ADR-023 — NETCFG describes a link, never an AppVM
+
+**Status:** Accepted (2026-07-14) — wire format and semantics normative;
+in-guest implementation mechanism deferred to `netvm-agent` implementation.
+
+**Context:**
+
+[ADR-021](DECISIONS.md#adr-021) introduced NETCFG as a typed, privileged opcode
+on `netvm-agent`: it installs a validated network-configuration fragment and is
+called by the **host** at AppVM launch and teardown. It deliberately left the
+payload unspecified.
+
+[ADR-022](DECISIONS.md#adr-022) now makes that payload's shape decidable — and
+constrains it hard. In a graph, the same NETCFG call must serve two structurally
+identical but semantically different edges:
+
+- host → `netvm-driver`: "add a p2p link to the AppVM at CID 42"
+- host → `netvm-driver`: "add a p2p link to the **proxy netVM** at CID 4"
+- host → `netvm-proxy`:  "your **uplink** is a p2p link to CID 3"
+
+If the payload names AppVMs, it can only ever express the first. If it names
+*links*, it expresses all three with one opcode and one validator — and the
+privileged agent never learns what a graph is.
+
+**Decision:** the NETCFG payload is a **structured description of one p2p link**
+and contains **no notion of AppVM, no notion of role, and no policy**.
+
+- **Payload is link-scoped, VM-agnostic.** The wire structure describes:
+  interface selection (match), local address, peer address, prefix (`/32`),
+  route(s), and metric. It does **not** contain: a VM name, a VM class, the
+  words *app* or *proxy*, a trust level, a firewall rule, an nft expression, or
+  a shell string. A reader of the payload cannot tell whether the peer is an
+  AppVM, a proxy netVM, or the host.
+- **Direction is expressed by the link, not by a flag.** An "uplink" and a
+  "downlink" differ only in addressing and route — not in opcode, not in payload
+  type. There is exactly one link concept.
+- **Two operations: `add` and `remove`.** NETCFG installs a link or withdraws
+  it, identified by a stable link id supplied by the host. It is idempotent per
+  id. There is no `modify` — a changed link is a remove followed by an add,
+  because a mutable link is a boundary that moves in place.
+- **Validation is total and structural.** `netvm-agent` accepts only a
+  well-typed payload with a `/32` prefix on the internal segment
+  (`10.100.1.0/24`) and a link id it owns; anything else is rejected at decode,
+  not sanitised. The agent never concatenates, never templates, never shells
+  out. Consistent with [ADR-021](DECISIONS.md#adr-021)'s "typed command, never a
+  generic RUN".
+- **Policy stays out.** No NETCFG variant may deliver an nft rule or alter the
+  baked firewall. Differentiated network access is expressed by *which netVM a
+  VM attaches to* ([ADR-022](DECISIONS.md#adr-022)), never by NETCFG. This is the
+  hard boundary of the opcode and the reason the privileged agent's surface stays
+  at exactly one job.
+- **The host is always the caller.** NETCFG is never initiated by a guest, never
+  relayed guest-to-guest. The mutation always arrives from the more-trusted side
+  ([ADR-003](DECISIONS.md#adr-003), [ADR-021](DECISIONS.md#adr-021)).
+- **Opcode wire value** is registered in the shared `katmate-protocol` opcode
+  wire-value registry, but the **handler exists only in `netvm-agent`**; `Op` in
+  `vm-agent` cannot name it and fails at `TryFrom<u8>` (absent, not disabled).
+- **Deferred to implementation:** *how* the agent effects the link in the guest
+  — writing a `systemd-networkd` `.network` fragment plus `networkctl reload`
+  (ADR-021's assumption, correct for a systemd driver domain) versus programming
+  it directly over `rtnetlink` (which would also serve a future `katmate-init`
+  proxy, [ADR-022](DECISIONS.md#adr-022)) — is **not fixed here**. Both satisfy
+  this ADR: the wire contract is what is being decided, and it is
+  mechanism-independent by construction. The choice is made in the
+  `netvm-agent/main.rs` implementation session, with the fragment path as the
+  default until a proxy forces the question.
+
+**Alternatives considered:**
+
+- **Payload names the AppVM** (`{cid, name, addr}` with AppVM semantics).
+  Rejected: cannot express a proxy's uplink, so a chained topology would need a
+  *second* privileged opcode — doubling the privileged surface to say the same
+  thing twice.
+- **Payload carries an nft snippet or firewall rule.** Rejected outright: it
+  converts `netvm-agent` from a link installer into a policy engine, hands a
+  `CAP_NET_ADMIN` process a rule-injection surface, and destroys ADR-021's static
+  firewall guarantee. Policy is an image property; see
+  [ADR-022](DECISIONS.md#adr-022).
+- **A generic `NETCMD` taking a config string.** Rejected: it is `RUN` with
+  extra steps, in the most privileged guest in the system.
+- **`modify` as a third operation.** Rejected: in-place mutation of a live
+  boundary. `remove` + `add` is auditable, idempotent and has one failure mode.
+
+**Consequences:**
+
+- One opcode, one validator, one payload type covers AppVM links, proxy uplinks
+  and future sysVM-to-sysVM edges. The privileged agent's code does not grow when
+  the topology does.
+- `netvm-agent` remains a **dumb executor**: it installs the link it is handed
+  and has no representation of the graph, no list of AppVMs, no policy. The graph
+  lives entirely in the host-side launch daemon
+  ([ADR-022](DECISIONS.md#adr-022)).
+- Because the payload is mechanism-independent, a future `katmate-init` proxy
+  netVM (no systemd, no networkd) is reachable **without a wire-format change**.
+- The immediate implementation gate is unchanged: `netvm-agent` listener first
+  (`ping-client ping 3 → OK`), NETCFG handler second.
+
+**Cross-reference:** specifies the payload
+[ADR-021](DECISIONS.md#adr-021) deferred; constrained by the object model of
+[ADR-022](DECISIONS.md#adr-022); stays within the vsock-only, host-as-caller
+channel rule of [ADR-003](DECISIONS.md#adr-003); the opcode registry and split
+`Op` enums are those of ADR-021 / the `katmate-protocol` workspace.
