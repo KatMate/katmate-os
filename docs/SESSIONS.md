@@ -19,6 +19,71 @@
 
 ---
 
+## This session (2026-07-15) — netvm-agent listener + per-connection loop (code)
+
+Code session, thinking off. Wrote the mechanical half of `netvm-agent` — the
+one designed on 2026-07-10 and unblocked by the 2026-07-13 workspace split. No
+live boot: this landed the transport, not the network operation. NETCFG's real
+handler (ADR-023 payload) is still a separate session.
+
+### What was written
+
+`agent/crates/netvm-agent/src/main.rs` — a deliberate SUBTRACTION from
+`vm-agent/src/main.rs`, keeping only the skeleton both agents genuinely share:
+
+- **Kept:** `AF_VSOCK` socket, `bind(VMADDR_CID_ANY, DEFAULT_CONTROL_PORT)`,
+  `listen`, the accept loop with its `peer.svm_cid != VMADDR_CID_HOST` reject +
+  close, and the synchronous single-client per-connection loop (`read_request`
+  → `Op::try_from` → dispatch → per-request ERR on handler error, EOF ends the
+  loop quietly).
+- **Dropped (all appVM policy, none of it protocol):** `config.rs` (no config
+  surface), `posix_spawn` + `environ` (no child — there is no `spawn()` in this
+  binary at all), `signal_init_shutdown` (no SHUTDOWN), `path_is_allowed` (no
+  file surface), the `WHITELIST`/`HOME_PREFIX`/`INIT_SOCK`/`SHUTDOWN_CMD`
+  constants, and the `SIGCHLD` `SIG_IGN` (nothing forks here, so there is
+  nothing to reap).
+- **Dispatch is two branches:** `Op::Ping → frame::write_ok`;
+  `Op::Netcfg → handle_netcfg`.
+
+### Two judgement calls worth recording
+
+1. **NETCFG is an ERR stub, not `todo!()`.** NETCFG *decodes* here — it is a
+   genuine capability of this binary (unlike RUN/FILEGET/FILEPUT/SHUTDOWN, which
+   have no variant in `netvm-agent`'s `Op` and die at `Op::try_from`). But its
+   real handler (the ADR-023 payload) is a separate session, so the handler
+   currently logs and returns ERR with `Rejected("NETCFG not yet implemented")`.
+   `todo!()` was rejected on purpose: a panic would crash the agent and drop the
+   connection the first time the host sent NETCFG. An honest "I decode this, I
+   just don't do it yet" is the right seam to leave.
+
+2. **Port is the shared default, no env override.** `netvm-agent` uses
+   `frame::DEFAULT_CONTROL_PORT` directly, with no `CONTROL_PORT` env read. This
+   is not an omission — it follows the note already written in
+   `vm-agent/config.rs`: *"netvm-agent has NO config.rs … its control port is
+   the shared default. If it ever needs one, it gets its own."* Same port,
+   different CID, exactly as the wire intends. `vm-agent` keeps its env override
+   because it also carries a waypipe target; netVM carries neither.
+
+### Verification (Acer only — host toolchain)
+
+- `cargo build -p netvm-agent` → clean (dev + release).
+- `cargo test -p netvm-agent` → `2 passed` (`forbidden_opcodes_fail_at_decode`,
+  `handled_opcodes_map`) — the security-boundary assertions in `op.rs` still
+  hold through this `main`.
+- clippy: no new warnings from `main.rs` (the 8 `overindented` notes are
+  pre-existing, from `op.rs` doc comments).
+- Committed + GPG-signed on Acer as `4538e29` ("netvm-agent: implement listener
+  + per-connection loop").
+
+### What this does NOT close
+
+The **live gate is not reached.** Acer is a host-toolchain syntax/type check
+only; the shipped binary must come from the **trixie chroot on MINIS**
+(`cargo build --release -p netvm-agent`), then bake into `$OUT/netvm-agent`
+(netvm.sh step 7) and boot netVM for `ping-client ping 3 → OK`. Until that
+runs, "nothing inside the declarative netVM image has ever been verified" still
+stands — the listener exists in source, not yet on the wire.
+
 ## This session (2026-07-10) — netvm-agent architecture + QMP shutdown (design)
 
 Design/thinking session, no live boot. Turned "netvm-agent is the unblocking

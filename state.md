@@ -5,28 +5,29 @@
 > each working session. Detailed proofs and command sequences live in git
 > history and the ADRs — this file references them rather than repeating them.
 
-**Last updated:** 2026-07-14 — **network object model FINALIZED (design session,
-no code, no live boot).** Two ADRs: **ADR-022** — topology is a *graph* and the
-physical NIC an *assignable object*; five classes (`Nic`/`Image`/`Vm`/`Link`/
-`Policy`), the whole topology being two fields on `Vm` (`netvm: Option<VmRef>`,
-`provides_network: bool`). Policy is a **netVM, never a rule** (differentiated
-access = attach to a different netVM; ADR-021's static firewall survives intact);
-`netvm: None` = first-class offline AppVM (air-gap by *absence of an object*);
-**one NIC = one q35 driver domain**, proxy netVMs are **microVMs** and chainable
-(`appVM → netvm-vpn → netvm-driver → NIC`) — so the driver/secret split that
-removes the v1 VPN-key co-location is cheap here. **v1 ships the simplest graph =
-the netVM running today; nothing built so far is discarded.** **ADR-023** —
-NETCFG describes **a link, never an AppVM**: one p2p-link payload
-(match/addr/`/32`/route/metric), `add`+`remove` only, no `modify`, no policy, no
-nft, no shell string — so one opcode serves an AppVM downlink, a proxy uplink and
-a future sysVM↔sysVM edge, and `netvm-agent` stays a dumb executor with no
-representation of the graph. In-guest mechanism (networkd fragment vs
-`rtnetlink`) deliberately left open until implementation. **Breaking:** CID map
-re-scoped for multiple sysVMs — `2` host / `3–19` sysVM / `20–99` fixed AppVM /
-`≥100` disposable; **personalVM 4 → 20, app_web 5 → 21**. Also decided: **Sway
-ships alone** as the host compositor (it is in the TCB — it draws the domain
-indicator); Hyprland stays dev/demo. Next session is CODE (thinking off):
-`netvm-agent/main.rs` listener, gate `ping-client ping 3 → OK`.
+**Last updated:** 2026-07-15 — **netVM control path OPENED: `netvm-agent`
+listener + per-connection loop written, compiles clean, op-tests pass (code
+session, thinking off; NOT yet live-gated).** `netvm-agent/main.rs` is a
+deliberate SUBTRACTION from `vm-agent`: shared transport skeleton kept
+(`AF_VSOCK` socket, `bind(VMADDR_CID_ANY, DEFAULT_CONTROL_PORT)`, listen, accept
+loop with host-CID reject, synchronous single-client per-connection loop);
+everything that was appVM policy dropped (no `config.rs`, no `spawn()`, no init
+socket, no path guard, no `SIGCHLD` — nothing here forks). Two-branch dispatch:
+`Op::Ping → write_ok`; `Op::Netcfg → ERR stub`. **NETCFG decodes** (a real
+capability of this binary, unlike RUN which fails at `Op::try_from`) but the
+handler returns ERR with `Rejected("NETCFG not yet implemented")` — an honest
+"decodes, not yet built", deliberately NOT `todo!()` (a panic would kill the
+agent and drop the connection on the first NETCFG). Port is the shared
+`frame::DEFAULT_CONTROL_PORT`, no env override — netVM has no `config.rs` by
+design (see the note in `vm-agent/config.rs`: "netvm-agent has NO config.rs …
+if it ever needs one, it gets its own"). Verified on Acer: `cargo build -p
+netvm-agent` clean, `cargo test -p netvm-agent` = 2 passed
+(`forbidden_opcodes_fail_at_decode`, `handled_opcodes_map`). Committed +
+GPG-signed (`4538e29`). **Live gate `ping-client ping 3 → OK` NOT yet reached**
+— it requires the trixie-chroot release build on MINIS, bake into
+`$OUT/netvm-agent` (netvm.sh step 7), and a netVM boot. That is the next step.
+The ADR-023 NETCFG payload (typed p2p-link, in-guest networkd-fragment
+mechanism) remains a separate architecture session.
 **Milestone:** v0.2 (in development)
 
 ## Current focus
@@ -280,22 +281,24 @@ scripts still hardcode them. Fixing that is a Next step.
 
 **Primary (netVM sysVM — ADR-021 track, build now PROVEN):**
 
-- **`netvm-agent` — write `main()`** (still `todo!()`). THE unblocking step: the
-  declarative image locks root, so there is no control path into netVM at all.
-  The workspace itself is DONE (2026-07-13) — `katmate-protocol`, `vm-agent`
-  migrated + regression-gated, `ping-client` moved in, `netvm-agent/op.rs`
-  written and tested. What remains splits cleanly in two:
-  - *Mechanical:* the VSOCK listener + per-connection loop, modelled on
-    `vm-agent` (bind/listen/accept, reject non-`VMADDR_CID_HOST`), dispatching
-    two branches. Pure SUBTRACTION — no `spawn()`, no init socket, no path
-    guard, no `config.rs`.
-  - *Architectural (ADR):* the **NETCFG payload design** — the one open decision,
-    and the one carrying `CAP_NET_ADMIN`. Typed payload (NOT a shell string),
-    validation of the `/32` against a legitimate appVM CID, `networkd` fragment,
-    `networkctl reload`.
+- **`netvm-agent` — bake + live-gate `main()`** (listener DONE 2026-07-15,
+  committed `4538e29`). The mechanical half is written and green on Acer:
+  listener + per-connection loop as pure subtraction from `vm-agent`, PING
+  handled, NETCFG decoding to an ERR stub. What remains before the control path
+  is real:
+  - *Build + bake:* `cargo build --release -p netvm-agent` in the **trixie
+    chroot on MINIS** (host-toolchain build on Acer is a syntax/type check only),
+    then bake into `$OUT/netvm-agent` (netvm.sh step 7, already scaffolded).
+  - *Live gate:* boot netVM, `ping-client ping 3 → OK` — the first proof of a
+    live control path into the guest, and the close of "nothing inside the
+    declarative image has ever been verified".
+  - *Architectural (ADR-023 impl):* the **NETCFG payload** — typed p2p-link
+    (match / local+peer addr / `/32` / route / metric), `add`/`remove` only,
+    validation against a legitimate appVM CID, in-guest mechanism (networkd
+    fragment is the default; `rtnetlink` the alternative). Separate thinking-on
+    session; the ERR stub holds the seam until then.
   Opcode model is **NETCFG + PING only** (NO SHUTDOWN — that is host QMP, see
-  2026-07-10 + revised ADR-021). Then bake `$OUT/netvm-agent` (netvm.sh step 7
-  scaffolded); prove `ping-client ping 3 → OK`.
+  2026-07-10 + revised ADR-021).
 - **netVM QMP shutdown wiring** — add `-qmp unix:/run/katmate/netvm-qmp.sock,
   server,wait=off` to `net-sys.con` + a small host-side tool/subcommand sending
   `system_powerdown`. Host surface only. (Decided 2026-07-10; not yet wired.)
