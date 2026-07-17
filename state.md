@@ -5,29 +5,34 @@
 > each working session. Detailed proofs and command sequences live in git
 > history and the ADRs — this file references them rather than repeating them.
 
-**Last updated:** 2026-07-15 — **netVM control path OPENED: `netvm-agent`
-listener + per-connection loop written, compiles clean, op-tests pass (code
-session, thinking off; NOT yet live-gated).** `netvm-agent/main.rs` is a
-deliberate SUBTRACTION from `vm-agent`: shared transport skeleton kept
-(`AF_VSOCK` socket, `bind(VMADDR_CID_ANY, DEFAULT_CONTROL_PORT)`, listen, accept
-loop with host-CID reject, synchronous single-client per-connection loop);
-everything that was appVM policy dropped (no `config.rs`, no `spawn()`, no init
-socket, no path guard, no `SIGCHLD` — nothing here forks). Two-branch dispatch:
-`Op::Ping → write_ok`; `Op::Netcfg → ERR stub`. **NETCFG decodes** (a real
-capability of this binary, unlike RUN which fails at `Op::try_from`) but the
-handler returns ERR with `Rejected("NETCFG not yet implemented")` — an honest
-"decodes, not yet built", deliberately NOT `todo!()` (a panic would kill the
-agent and drop the connection on the first NETCFG). Port is the shared
-`frame::DEFAULT_CONTROL_PORT`, no env override — netVM has no `config.rs` by
-design (see the note in `vm-agent/config.rs`: "netvm-agent has NO config.rs …
-if it ever needs one, it gets its own"). Verified on Acer: `cargo build -p
-netvm-agent` clean, `cargo test -p netvm-agent` = 2 passed
-(`forbidden_opcodes_fail_at_decode`, `handled_opcodes_map`). Committed +
-GPG-signed (`4538e29`). **Live gate `ping-client ping 3 → OK` NOT yet reached**
-— it requires the trixie-chroot release build on MINIS, bake into
-`$OUT/netvm-agent` (netvm.sh step 7), and a netVM boot. That is the next step.
-The ADR-023 NETCFG payload (typed p2p-link, in-guest networkd-fragment
-mechanism) remains a separate architecture session.
+**Last updated:** 2026-07-17 — **LIVE GATE PASSED: first control path into
+netVM proven. `ping-client ping 3 → OK`.** `netvm-agent` built on MINIS host
+(`cargo build --release -p netvm-agent`, glibc max `GLIBC_2.34` < trixie 2.41 —
+safe, same profile as vm-agent), copied to `$OUT/netvm-agent`, and hand-baked
+into the standalone linear RW `vm_sys_netvm` LV (mount → `install -D -m 0755`
+→ write `netvm-agent.service` unit verbatim from netvm.sh step 7 → `systemctl
+enable` → clean umount with sync+settle). Booted via `~/net-sys.con` (q35, CID
+3, RTL8125 vfio passthrough, stock Debian kernel `6.12.95+deb13-amd64` +
+initramfs). Boot reached `multi-user.target`/`graphical.target`;
+`netvm-agent.service` started; `PF_VSOCK` registered. From the host:
+`ping-client ping 3` → `connected: cid=3 port=1025 op=PING (0x01)` →
+`status=0x00 (OK)`. This closes "nothing inside the declarative netVM image has
+ever been verified" — the guest now has a working control surface.
+**"absent, not disabled" proven live:** `ping-client shutdown 3` →
+`status=0x01 (ERR)` — SHUTDOWN (0x05) has no variant in netvm-agent's `Op`, so
+it fails at `Op::try_from` (log + ERR + connection kept alive), not at a runtime
+gate. NETCFG could not be live-tested: `ping-client` has no `netcfg` subcommand
+yet (it predates the opcode); NETCFG live test waits on a client + the ADR-023
+payload. **NEW OPEN PROBLEM (#10): host QMP `system_powerdown` does NOT shut
+netVM down.** Diagnosed to root cause: `netvm.list` ships neither `dbus` nor
+`libpam-systemd`, so `systemd-logind` (binary + unit present, but inert without
+dbus) never runs, so the ACPI power-button event (`Power Button [PWRF]` is
+registered) has no handler. ADR-021's shutdown model (`system_powerdown` →
+logind → clean stop) is NOT disproven — its precondition (a running logind) was
+simply absent from the image. One-line fix: add `dbus` (+`libpam-systemd`) to
+`netvm.list`, rebuild, re-test. Worth weighing first (thinking-on): dbus in the
+most-exposed VM is added attack surface; a narrow `acpid` power-button path is a
+lower-surface alternative — ADR-worthy, not automatic.
 **Milestone:** v0.2 (in development)
 
 ## Current focus
@@ -277,28 +282,55 @@ scripts still hardcode them. Fixing that is a Next step.
    product installed on unknown hardware. Needs an HCL + an installer preflight
    check. SECURITY-MODEL gap #9.
 
+10. **netVM has no working graceful shutdown (host QMP `system_powerdown` is
+   inert).** Proven live 2026-07-17: `system_powerdown` in the qemu monitor did
+   not power netVM off. Root cause: `netvm.list` ships neither `dbus` nor
+   `libpam-systemd`, so `systemd-logind` (binary + `systemd-logind.service` both
+   present in the image) never runs, so the registered ACPI power button
+   (`Power Button [PWRF]`) has no handler. ADR-021's shutdown design
+   (`system_powerdown` → logind → clean networkd/wg/nft stop → RTL8125 released)
+   is sound; only its precondition was missing. Fix: add `dbus`
+   (+`libpam-systemd`) to the manifest and rebuild. Weigh first: extra dbus
+   surface in the most-exposed VM vs a narrow `acpid` power-button path
+   (ADR-worthy, not automatic). Until fixed, dev shutdown is `quit` in the qemu
+   monitor (ungraceful; ext4 on the RW LV — sync after).
+
 ## Next steps
 
 **Primary (netVM sysVM — ADR-021 track, build now PROVEN):**
 
-- **`netvm-agent` — bake + live-gate `main()`** (listener DONE 2026-07-15,
-  committed `4538e29`). The mechanical half is written and green on Acer:
-  listener + per-connection loop as pure subtraction from `vm-agent`, PING
-  handled, NETCFG decoding to an ERR stub. What remains before the control path
-  is real:
-  - *Build + bake:* `cargo build --release -p netvm-agent` in the **trixie
-    chroot on MINIS** (host-toolchain build on Acer is a syntax/type check only),
-    then bake into `$OUT/netvm-agent` (netvm.sh step 7, already scaffolded).
-  - *Live gate:* boot netVM, `ping-client ping 3 → OK` — the first proof of a
-    live control path into the guest, and the close of "nothing inside the
-    declarative image has ever been verified".
+- **`netvm-agent` — DONE + LIVE-GATED (2026-07-17).** Listener + per-connection
+  loop written (`4538e29`), built on MINIS host (glibc 2.34, safe), hand-baked
+  into `vm_sys_netvm`, booted (CID 3), and proven: `ping-client ping 3 →
+  status=0x00 (OK)`. First live control path into netVM. "absent, not disabled"
+  proven live too: `shutdown 3 → ERR` (SHUTDOWN has no variant here). Remaining
+  on this track:
+  - *NETCFG live test:* blocked on tooling — `ping-client` has no `netcfg`
+    subcommand (predates opcode 0x06). Needs a client that can encode NETCFG,
+    which in turn needs the ADR-023 payload shape.
   - *Architectural (ADR-023 impl):* the **NETCFG payload** — typed p2p-link
     (match / local+peer addr / `/32` / route / metric), `add`/`remove` only,
     validation against a legitimate appVM CID, in-guest mechanism (networkd
     fragment is the default; `rtnetlink` the alternative). Separate thinking-on
     session; the ERR stub holds the seam until then.
+  - *Deterministic bake:* today's bake was manual (mount + install + unit +
+    enable). Fold into a `netvm.sh` re-run once `dbus` lands (see shutdown fix
+    below) so the declarative build reproduces exactly what was hand-placed.
   Opcode model is **NETCFG + PING only** (NO SHUTDOWN — that is host QMP, see
   2026-07-10 + revised ADR-021).
+- **netVM graceful shutdown — BLOCKED by missing `dbus` (Open problem #10).**
+  `system_powerdown` was tested live 2026-07-17 and did NOT power netVM off:
+  `netvm.list` ships no `dbus`/`libpam-systemd`, so `systemd-logind` (binary +
+  unit present) never runs, so the ACPI power-button has no handler. Fix: add
+  `dbus` (+`libpam-systemd`) to `netvm.list` → rebuild → re-test
+  `system_powerdown`. This also unblocks the QMP wiring below (there is no point
+  wiring QMP until logind can act on it). Weigh first: dbus attack surface in the
+  most-exposed VM vs a narrow `acpid`-only power path (ADR-worthy).
+- **netVM QMP shutdown wiring** — add `-qmp unix:/run/katmate/netvm-qmp.sock,
+  server,wait=off` to `net-sys.con` + a small host-side tool/subcommand sending
+  `system_powerdown`. Host surface only. (Decided 2026-07-10; not yet wired.)
+  **Depends on the dbus/logind fix above** — proven 2026-07-17 that
+  `system_powerdown` is inert without logind.
 - **netVM QMP shutdown wiring** — add `-qmp unix:/run/katmate/netvm-qmp.sock,
   server,wait=off` to `net-sys.con` + a small host-side tool/subcommand sending
   `system_powerdown`. Host surface only. (Decided 2026-07-10; not yet wired.)

@@ -19,6 +19,87 @@
 
 ---
 
+## This session (2026-07-17) — netvm-agent LIVE-GATED; shutdown gap found
+
+Code + live session, thinking off. Took `netvm-agent` from "compiles on Acer"
+to "answers on the wire inside a booted netVM". The listener gate passed; a real
+shutdown gap surfaced and was diagnosed to root cause.
+
+Also: a long detour reconciling MINIS, which had drifted. `~/katmate-build/`
+carried a stale git (behind origin by several sessions) whose "modified" flags
+were an artifact of the old commit it compared against, not local edits — every
+tracked file was either identical to Acer or older, never newer, so nothing was
+orphaned (the "never edit on MINIS" invariant held). Resolved by rsync
+(Acer→MINIS, `--delete` with explicit excludes: `.git/`, `target/`, `out/`,
+`trixie-build/`, `katmate-os/`). MINIS git is henceforth ignored as authority;
+MINIS realigns by rsync only (Path A).
+
+### Build + bake (all on MINIS)
+
+- **Build is host-toolchain, NOT chroot.** Fish history + `foundation.sh:56`
+  settled the open question from the 2026-07-10 memory note: the agent is built
+  with MINIS host `cargo build --release`, not inside the trixie chroot. It works
+  because the host binary links a low-enough glibc: `objdump -T … | grep GLIBC`
+  → max `GLIBC_2.34` < trixie 2.41. Same check, same result as vm-agent.
+- **`netvm.sh` is monolithic (no `--bake-only`).** Running it overwrites the
+  whole `vm_sys_netvm` LV (debootstrap → apt → config → step-7 agent bake →
+  kernel/initrd export). So for a first iteration the agent was **hand-baked**
+  into the existing image instead: `vm_sys_netvm` is a standalone linear RW LV
+  (not thin, not frozen — no `-K -ay`), so mount RW → `install -D -m 0755
+  netvm-agent /usr/local/bin/` → write `netvm-agent.service` verbatim from step 7
+  (`CAP_NET_ADMIN`, `NoNewPrivileges`, `ProtectSystem=strict`) → chroot
+  `systemctl enable` → sync + udevadm settle + umount (the anti-jbd2 pattern; the
+  umount was clean). The `systemctl enable` `/proc not mounted` warning is
+  harmless — enable is a pure symlink op.
+
+### Live gate — PASSED
+
+Booted via `~/net-sys.con` (q35, CID 3, RTL8125 vfio, stock Debian kernel
+`6.12.95+deb13-amd64` + initramfs). Boot reached `multi-user.target` /
+`graphical.target`; `netvm-agent.service` started; `PF_VSOCK` registered. From
+the host:
+
+- `ping-client ping 3` → `connected: cid=3 port=1025 op=PING (0x01)` →
+  `status=0x00 (OK)`. **First live control path into netVM.** Closes "nothing
+  inside the declarative image has ever been verified".
+- `ping-client shutdown 3` → `status=0x01 (ERR)`. **"absent, not disabled"**
+  proven on the wire: SHUTDOWN (0x05) has no variant in netvm-agent's `Op`, so it
+  dies at `Op::try_from` (log + ERR + connection kept alive), not at a runtime
+  gate. The unit-test assertion, now confirmed live.
+- NETCFG could **not** be live-tested: `ping-client` has no `netcfg` subcommand
+  (it predates opcode 0x06 and only knows ping/run/shutdown). NETCFG live test
+  waits on a client that can encode it — which waits on the ADR-023 payload.
+
+### Shutdown gap — found and diagnosed (NEW open problem #10)
+
+Attempting a clean stop, `system_powerdown` in the qemu monitor did **nothing**
+(sent twice; VM stayed up). This matters because ADR-021's netVM shutdown model
+IS `system_powerdown` → logind → clean stop. Diagnosed, not left as a mystery:
+
+- Boot log already said it: `getty-static.service … dbus and logind are not
+  available`.
+- `netvm.list` ships neither `dbus` nor `libpam-systemd`.
+- Mount-inspect of the image: `systemd-logind` binary (309768 B) **and**
+  `systemd-logind.service` unit are **present** — but `dbus-daemon` is **absent**.
+
+So logind cannot register on the system bus → never runs → the registered ACPI
+power button (`Power Button [PWRF]`) has no handler → `system_powerdown` is
+inert. **ADR-021 is NOT disproven** — its precondition (a running logind) was
+simply missing from the image. One-line fix: add `dbus` (+`libpam-systemd`) to
+`netvm.list`, rebuild, re-test. Worth weighing first (thinking-on): dbus in the
+most-exposed VM is added attack surface; a narrow `acpid` power-button path is a
+lower-surface alternative — ADR-worthy. Dev shutdown meanwhile was `quit` in the
+monitor (ungraceful; LV confirmed healthy after, `-wi-a-----`, clean, unmounted).
+
+### Next
+
+1. Add `dbus` (+`libpam-systemd`) to `netvm.list` (or decide the `acpid`
+   alternative first); rebuild via `netvm.sh`; re-test `system_powerdown` → clean
+   poweroff. This also makes the manual bake reproducible declaratively.
+2. Then wire QMP (`-qmp …` in `net-sys.con` + host tool) — pointless before
+   logind can act on it.
+3. ADR-023 NETCFG payload (thinking-on) + a client subcommand to live-test it.
+
 ## This session (2026-07-15) — netvm-agent listener + per-connection loop (code)
 
 Code session, thinking off. Wrote the mechanical half of `netvm-agent` — the
