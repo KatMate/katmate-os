@@ -223,9 +223,10 @@ Wants=systemd-networkd.service
 
 [Service]
 ExecStart=/usr/local/bin/netvm-agent
-# Minimum privilege for writing /etc/systemd/network/ + networkctl reload + nft.
-AmbientCapabilities=CAP_NET_ADMIN
-CapabilityBoundingSet=CAP_NET_ADMIN
+# CAP_NET_ADMIN: /etc/systemd/network/ writes + networkctl reload + nft (NETCFG).
+# CAP_KILL: signal PID 1 (systemd) with SIGRTMIN+4 for graceful poweroff (SHUTDOWN, ADR-024).
+AmbientCapabilities=CAP_NET_ADMIN CAP_KILL
+CapabilityBoundingSet=CAP_NET_ADMIN CAP_KILL
 NoNewPrivileges=yes
 ProtectSystem=strict
 ReadWritePaths=/etc/systemd/network /run
