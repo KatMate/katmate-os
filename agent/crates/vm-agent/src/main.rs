@@ -30,10 +30,13 @@
 //! call reboot(2). Instead it asks PID 1 (katmate-init) — the single
 //! root process in the guest — over a local Unix socket. This replaces
 //! the former setuid power-helper, removing that root binary entirely.
-//! It exists here at all only because appVMs are microvm: no ACPI, so
-//! the host has no power-button to press. netVM is q35 and therefore
-//! has no SHUTDOWN opcode — the host uses QMP `system_powerdown`
-//! instead. The asymmetry follows from the machine type (ADR-021).
+//! It exists here because appVMs are microvm: no ACPI, so the host has no
+//! power-button to press, and there is no init but katmate-init to ask.
+//! netVM ALSO carries a SHUTDOWN opcode, but a different mechanism: it runs
+//! systemd, so its agent signals PID 1 with SIGRTMIN+4 rather than writing
+//! INIT_SOCK (ADR-024). The QMP `system_powerdown` path once assumed for
+//! netVM was proven inert — it needs logind, hence dbus, which netVM omits.
+//! Both agents therefore do the same thing: ask their own PID 1.
 //!
 //! WORKSPACE SPLIT (ADR-021): the codec now comes from the shared
 //! `katmate-protocol` crate; the opcode SET does not. Dispatch matches

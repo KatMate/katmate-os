@@ -1,12 +1,11 @@
 //! netvm-agent — VSOCK control agent for the KatMate netVM (sysVM).
 //!
 //! Runs inside the netVM. Unlike vm-agent it is NOT the unprivileged
-//! session user: its systemd unit grants it CAP_NET_ADMIN, and that one
-//! capability buys exactly one operation — NETCFG, the internal /32 route
-//! lifecycle. Everything else the appVM agent can do is ABSENT here, not
-//! merely refused: RUN, FILEGET, FILEPUT and SHUTDOWN have no variant in
-//! this binary's `Op`, so they die in `Op::try_from` at decode (op.rs is
-//! the security boundary; ADR-021).
+//! session user: its systemd unit grants it CAP_NET_ADMIN (for NETCFG, the
+//! internal /32 route lifecycle) and CAP_KILL (for SHUTDOWN, signalling
+//! PID 1). RUN, FILEGET and FILEPUT have no variant in this binary's `Op`,
+//! so they die in `Op::try_from` at decode (op.rs is the security boundary;
+//! ADR-021, ADR-024).
 //!
 //! This file is a deliberate SUBTRACTION from `vm-agent/src/main.rs`. It
 //! keeps only the transport skeleton the two agents genuinely share and
@@ -18,9 +17,20 @@
 //!   dropped — config.rs (no per-appVM config surface), the WHITELIST /
 //!             HOME_PREFIX / INIT_SOCK / SHUTDOWN_CMD policy constants,
 //!             posix_spawn + environ (no child to launch — no spawn() at
-//!             all in this binary), signal_init_shutdown (no SHUTDOWN),
-//!             path_is_allowed (no file surface), and the SIGCHLD SIG_IGN
-//!             (nothing here forks, so there are no children to reap).
+//!             all in this binary), path_is_allowed (no file surface), and
+//!             the SIGCHLD SIG_IGN (nothing here forks, so there are no
+//!             children to reap).
+//!
+//! SHUTDOWN (ADR-024): unlike RUN/FILE*, SHUTDOWN is NOT dropped — it is
+//! handled here. It does NOT go through katmate-init (there is none; netVM
+//! runs systemd) and it does NOT go through vm-agent's INIT_SOCK. It asks
+//! netVM's own PID 1 — systemd — for a clean stop, by sending SIGRTMIN+4,
+//! systemd's documented signal for poweroff.target. This reverses ADR-021's
+//! "no SHUTDOWN in netvm-agent": that rule assumed the host could power netVM
+//! down over QMP -> ACPI -> logind, but logind needs dbus and the manifest
+//! deliberately omits it, so the path was proven inert (ADR-024). The
+//! mechanism costs one capability (CAP_KILL) and no daemon: no dbus, no
+//! polkit, no acpid, no CAP_SYS_BOOT.
 //!
 //! Design, unchanged from vm-agent (ADR):
 //!   * Synchronous, single-client. One peer (the host launch daemon); one
@@ -73,8 +83,7 @@ fn log_error(context: &str, err: &AgentError) {
 // --- command handlers ----------------------------------------------
 // Each returns Result<()>. An Err is logged once by the caller and turned
 // into an ERR response; the connection stays open for the next request
-// unless the error indicates the peer is gone. Only two handlers exist —
-// that is the whole point of this binary.
+// unless the error indicates the peer is gone.
 
 /// PING → OK. Liveness. The only opcode both agents handle, and the one
 /// this listener gate proves (`ping-client ping 3 → OK`).
@@ -83,8 +92,7 @@ fn handle_ping(fd: RawFd) -> Result<()> {
 }
 
 /// NETCFG → install / withdraw an appVM's internal /32 p2p link. The sole
-/// privileged operation in the binary and the sole justification for
-/// CAP_NET_ADMIN.
+/// justification for CAP_NET_ADMIN.
 ///
 /// STUB for the listener gate. The typed, link-scoped payload (ADR-023) and
 /// its in-guest mechanism (networkd fragment vs rtnetlink) are a separate
@@ -98,6 +106,48 @@ fn handle_netcfg(fd: RawFd, _req: &RawRequest) -> Result<()> {
     frame::write_err(fd)
 }
 
+/// SHUTDOWN → OK, then ask PID 1 (systemd) to power the netVM off.
+///
+/// Reply-first, exactly as vm-agent's handle_shutdown: the host gets its
+/// acknowledgement before the signal, because the poweroff sequence stops
+/// `netvm-agent.service` early (observed live, ADR-024 E7/E8) — a reply
+/// attempted after the signal would race this process's own death.
+///
+/// The signal is SIGRTMIN+4, systemd's documented request to start
+/// poweroff.target — byte-for-byte the same clean stop as `systemctl
+/// poweroff`, but with no bus, no logind, no polkit. It is delivered under
+/// CAP_KILL (granted by the unit); a plain uid without it gets EPERM (proven,
+/// ADR-024 E6). Best-effort after the ack: if kill(2) fails we log it, but the
+/// host already has its OK and can still force the VM down as a last resort.
+fn handle_shutdown(fd: RawFd) -> Result<()> {
+    frame::write_ok(fd)?;
+
+    // SIGRTMIN is not a constant under glibc (the first few RT signals are
+    // reserved for the NPTL implementation, so the runtime base is typically
+    // 34, not 32); libc exposes it as a function. SIGRTMIN+4 is systemd's
+    // documented signal for poweroff.target.
+    let sig = libc::SIGRTMIN() + 4;
+
+    // SAFETY: kill(2) with a valid signal number to PID 1. We hold CAP_KILL
+    // (unit-granted), so this is permitted; without it the kernel returns
+    // EPERM and the VM stays up. PID 1 (systemd) is always present. No memory
+    // is touched; the only effect is the queued signal.
+    let rc = unsafe { libc::kill(1, sig) };
+    if rc != 0 {
+        let os = std::io::Error::last_os_error();
+        log_error(
+            "SHUTDOWN signal PID 1",
+            &AgentError::Rejected("kill(1, SIGRTMIN+4) failed"),
+        );
+        log_debug!("kill errno: {os}");
+    }
+
+    // Return Ok regardless: the host has its ack, and poweroff (if it fired)
+    // is asynchronous — this function returns normally and the connection loop
+    // ends on the disconnect that follows as the VM goes down.
+    Ok(())
+}
+
 // --- per-connection loop -------------------------------------------
 
 /// Handle one accepted connection until the peer disconnects or a fatal
@@ -106,7 +156,7 @@ fn handle_netcfg(fd: RawFd, _req: &RawRequest) -> Result<()> {
 /// (EOF at a frame boundary) ends the loop quietly.
 ///
 /// Mirrors vm-agent's handle_connection exactly, minus the `cfg` argument
-/// (no config) and with the two-branch dispatch of this binary's `Op`.
+/// (no config) and with the three-branch dispatch of this binary's `Op`.
 fn handle_connection(fd: RawFd) {
     loop {
         let req = match frame::read_request(fd) {
@@ -123,13 +173,14 @@ fn handle_connection(fd: RawFd) {
         };
 
         // Map the raw opcode into THIS binary's op set. RUN / FILEGET /
-        // FILEPUT / SHUTDOWN exist on the wire but have no variant here, so
-        // they die right at this line: answered with ERR, no handler ever
-        // reached. Absent, not disabled (ADR-021). An unmapped opcode is NOT
-        // fatal to the connection — the peer asked for something this binary
-        // does not implement, it did not corrupt the stream — so we log, ERR,
-        // and keep serving. (Matches the judgement recorded for the workspace
-        // split; reverting to drop-the-connection is a one-line change.)
+        // FILEPUT exist on the wire but have no variant here, so they die
+        // right at this line: answered with ERR, no handler ever reached.
+        // Absent, not disabled (ADR-021). SHUTDOWN now DOES decode here
+        // (ADR-024). An unmapped opcode is NOT fatal to the connection — the
+        // peer asked for something this binary does not implement, it did not
+        // corrupt the stream — so we log, ERR, and keep serving. (Matches the
+        // judgement recorded for the workspace split; reverting to
+        // drop-the-connection is a one-line change.)
         let op = match Op::try_from(req.opcode) {
             Ok(op) => op,
             Err(e) => {
@@ -142,6 +193,7 @@ fn handle_connection(fd: RawFd) {
         let result = match op {
             Op::Ping => handle_ping(fd),
             Op::Netcfg => handle_netcfg(fd, &req),
+            Op::Shutdown => handle_shutdown(fd),
         };
 
         if let Err(e) = result {
