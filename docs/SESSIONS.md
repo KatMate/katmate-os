@@ -19,6 +19,60 @@
 
 ---
 
+## This session (2026-07-18) — netVM SHUTDOWN via agent; #10 closed (ADR-024)
+Code + live session, split model: empirical + mechanical parts thinking-off,
+ADR-024 authoring thinking-on. Closed Open problem #10 (netVM graceful shutdown)
+— not by shipping dbus, but by returning SHUTDOWN to `netvm-agent`.
+### The contradiction, not an oversight
+The QMP `system_powerdown` path ADR-021 assumed was proven inert last session:
+logind needs dbus, and the manifest deliberately omits it — ADR-021's OWN
+exclusion. So ADR-021 rejected the dependency and kept the design that stands on
+it: a contradiction, not a patchable gap. Fix = replace the shutdown model, not
+add dbus.
+### Empirical, not guessed (E1-E8, tabulated in ADR-024)
+Eight live probes on the running `vm_sys_netvm` settled the mechanism: QMP/logind
+inert; non-root `systemctl` has no bus; `/run/systemd/private` root-only; a
+negative control (`nobody`, no CAP_KILL → EPERM) bounded the claim; and both root
+`kill` and a `setpriv` non-root+CAP_KILL run gave the full graceful poweroff.
+Winner: `kill(1, SIGRTMIN+4)` — systemd's documented signal for `poweroff.target`
+— under one added capability, `CAP_KILL`. `CAP_SYS_BOOT` stayed rejected (not
+graceful under systemd PID 1; also unlocks kexec); dbus/polkit/acpid stayed out.
+Symmetry with vm-agent deepened rather than broke: both agents ask their own
+PID 1 (vm-agent → INIT_SOCK → katmate-init; netvm-agent → SIGRTMIN+4 → systemd),
+transport differing only by init system.
+### Code + bake
+`Op` gained `Shutdown` (0x05 now decodes; RUN/FILE* stay absent — boundary test
+narrowed); `handle_shutdown` is reply-first then best-effort
+`libc::kill(1, libc::SIGRTMIN()+4)` (SIGRTMIN is a runtime function under glibc,
+not a constant); unit gained `CAP_KILL` (ambient+bounding); vm-agent's doc
+comment (claimed netVM carries no SHUTDOWN) corrected. Committed `d609ada`
+(code) + ADR-024/unit; ADR-021 status now points to ADR-024. Bake was a FULL
+`netvm.sh` rebuild (unit changed — hand-bake would miss `CAP_KILL`), which also
+erased the acpid + unlocked-root experiment remnants; root re-locked, manifest
+clean. New stock kernel pulled in passing (KVER 6.12.95+deb13-amd64).
+### Live gate — PASSED
+`ping-client ping 3 → OK` (regression clean), then `ping-client shutdown 3 →
+status=0x00 (OK)` with the console running the full stop to `EXT4-fs (vda):
+re-mounted … ro` → `reboot: Power down`. Reply-first confirmed by the console
+stopping `netvm-agent.service` mid-sequence — OK reached the wire before the
+agent died. #10 closed.
+### Snags worth remembering
+- The `CAP_KILL` unit edit was first made in a non-authoritative tree, missing
+  both the commit and MINIS — caught by `grep CAP_KILL` coming back empty on both
+  machines; re-done on Acer. (Same class as last session's MINIS drift: edit only
+  on Acer source-of-truth.)
+- An `--amend` landed on the wrong HEAD (docs commit, not code commit); left as
+  is since nothing was pushed. `netvm.sh` thus sits in the ADR-024 docs commit.
+- A stale `/mnt/netvm-build` mount (pseudo-fs included) from an interrupted build
+  held `vm_sys_netvm` open and blocked `lvremove`; `umount -R` cleared it.
+- `netvm.sh` has a duplicated vmlinuz/initrd export block (harmless; cleanup).
+### Next
+NETCFG payload (ADR-023 impl) is now the only ERR-stub handler and gates the
+AppVM internal network — live test first needs a `netcfg` subcommand in
+`ping-client` (opcode 0x06 postdates the client).
+
+---
+
 ## This session (2026-07-17) — netvm-agent LIVE-GATED; shutdown gap found
 
 Code + live session, thinking off. Took `netvm-agent` from "compiles on Acer"
