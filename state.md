@@ -5,6 +5,27 @@
 > each working session. Detailed proofs and command sequences live in git
 > history and the ADRs — this file references them rather than repeating them.
 
+**2026-07-20 (design session — ADR-025 NETCFG payload):** the NETCFG wire
+contract ADR-023 left abstract is now fixed. **Wire:** fixed binary layout,
+opcode `0x06`, count-prefixed bounded route array (`route_count 1..=4`); no
+version byte (new shape → new registry value); byte order deferred to
+`katmate-protocol::frame`. Locally-administered MAC check = structural uplink
+protection; `local_addr == 10.100.1.1`, `peer ∈ 10.100.1.0/24 /32`. **Semantics:**
+idempotent per host `link_id`; **convergence, not rollback**; state is the
+filesystem, boot-scoped under `/run`; **act-first / reply-second** (mirror of
+ADR-024). **Mechanism deferred, E-gated** (Path A networkd-fragment vs Path B
+rtnetlink; E1–E5 next session decide — ADR-024 method, since ADR-021's shutdown
+died of an assumed mechanism precondition; predicted winner B, no dbus for
+`networkctl reload`). Done: ADR-025 committed; ADR-021 status line repaired;
+`net-sys.con` **committed for the first time** (`f5f8ef2` — was MINIS-only since
+07-09, invariant breach now closed) with a static internal netdev (tap `tap-int0`
++ `virtio-net-pci`, MAC `52:54:0a:64:01:01`); host-side `tap-int0` persisted via
+networkd. (Forensic aside: the retired pet netdev MAC `52:54:0A:64:11:01`
+byte-encoded `10.100.17.1` — the wrong-subnet bug the pet's nftables carried,
+preserved in the MAC; the new MAC encodes `10.100.1.1` correctly.) Next:
+boot → confirm guest sees the netdev → E1–E5 → `handle_netcfg` +
+`ping-client netcfg-*` → minimal live gate.
+
 **2026-07-20 housekeeping:** vm_sys_netvm actually rebuilt from clean
 netvm.sh today (dm-17 open-flag needed host reboot first); acpid/dev-root/
 ffc08537 remnants gone only now, not 07-18. Stale vm_tpl_net_root +
@@ -324,6 +345,17 @@ scripts still hardcode them. Fixing that is a Next step.
 - **Harden `netvm.sh` cleanup** — `umount -R` + `sync` + `udevadm settle` +
   `sleep` before return, so a successful build does not leave a hot jbd2 forcing
   a reboot (bit twice this session).
+
+- **`tap-int0` host-side persistence — RESOLVED 2026-07-20.** Was manual-only
+  (`ip tuntap add`) → gone on host reboot. Now declared via networkd
+  `/etc/systemd/network/tap-int0.{netdev,network}` (tap-work pattern, `User=host`,
+  no L3 — pure L2 conduit into netVM). Minor: inherits `RequiredForOnline=yes` from
+  defaults → `networkd-wait-online` may wait on it at boot; add
+  `[Link] RequiredForOnline=no` if it ever slows boot.
+- **`net-sys.con` under git — RESOLVED 2026-07-20** (`f5f8ef2`). Was MINIS-only
+  from 07-09, never committed. Sync wart persists: the standing rsync excludes
+  `katmate-os/`, so the file lands in `~/katmate-build/`, not the repo path —
+  copied to live `~/net-sys.con` by hand.
 
 - **Docs hygiene (deferred) — reconcile the state.md session section.** It
   holds 07-14 + 07-13 while SESSIONS.md already has 07-18/07-17/07-15/07-10; the
