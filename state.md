@@ -5,6 +5,11 @@
 > each working session. Detailed proofs and command sequences live in git
 > history and the ADRs — this file references them rather than repeating them.
 
+**2026-07-20 housekeeping:** vm_sys_netvm actually rebuilt from clean
+netvm.sh today (dm-17 open-flag needed host reboot first); acpid/dev-root/
+ffc08537 remnants gone only now, not 07-18. Stale vm_tpl_net_root +
+vm_net_overlay.qcow2 removed. netvm.sh export-block dedupe (9149e17).
+
 **Last updated:** 2026-07-18 — **LIVE GATE PASSED: netVM graceful shutdown
 via the agent. `ping-client shutdown 3 → OK` + clean poweroff; Open problem #10
 CLOSED (ADR-024).** SHUTDOWN returns to `netvm-agent` as opcode 0x05: reply-OK
