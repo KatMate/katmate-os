@@ -261,14 +261,6 @@ cp -v "$NETVM_MNT/boot/vmlinuz-$KVER"    "$NETVM_OUT/vmlinuz"
 cp -v "$NETVM_MNT/boot/initrd.img-$KVER" "$NETVM_OUT/initrd.img"
 echo "$KVER" > "$NETVM_OUT/kernel.version"
 
-log "Exporting vmlinuz + initrd to $NETVM_OUT"
-mkdir -p "$NETVM_OUT"
-KVER="$(chroot "$NETVM_MNT" sh -c 'ls -1 /boot/vmlinuz-* 2>/dev/null | sed s#/boot/vmlinuz-##' | head -n1)"
-[[ -n "$KVER" ]] || die "no vmlinuz found in image /boot"
-cp -v "$NETVM_MNT/boot/vmlinuz-$KVER"    "$NETVM_OUT/vmlinuz"
-cp -v "$NETVM_MNT/boot/initrd.img-$KVER" "$NETVM_OUT/initrd.img"
-echo "$KVER" > "$NETVM_OUT/kernel.version"
-
 # --- 9. netvm.meta (parallel to foundation.meta; for netvm-update) ------------
 # Flat KEY=value, POSIX-sourceable. NO secrets.
 log "Writing netvm.meta"
