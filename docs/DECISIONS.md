@@ -1661,7 +1661,9 @@ stop as `systemctl poweroff`, with no bus, no logind, no polkit involved.
   them — no manual cleanup of a live image.
 - ADR-021's status line gains a pointer: shutdown model and agent privilege
   set superseded by this ADR; all else in force.
-- Open problem #10 closes on the live gate; the QMP-wiring Next-step i## ADR-025 — NETCFG payload: fixed binary layout, v1-tight total validation, convergence over rollback
+- Open problem #10 closes on the live gate; the QMP-wiring Next-step i## ADR-025 —
+  NETCFG payload: fixed binary layout, v1-tight total validation, convergence over
+  rollback.
 
 **Status:** Accepted (2026-07-20). Implements the wire contract
 [ADR-023](DECISIONS.md#adr-023) left abstract. Partially supersedes one
@@ -2065,6 +2067,22 @@ methodology):
 
 Decision rule: **A stands iff (E1 or E2 yields a working trigger) and E4's
 manifest line is accepted; otherwise B.** Stated prediction, honestly: B wins.
+
+**Mechanism resolved (2026-07-21): Path B.** E1–E5 run live under the
+agent's capability profile. No dbus-less reload trigger exists: the
+classical bus call is inert (E1), the varlink surface carries no
+config-mutation method (E2, introspected — only `SetPersistentStorage`,
+itself inert on the RO image), and the `notify-reload` unit type does not
+honour `SIGRTMIN+1` as reload — the signal terminates networkd rather than
+reconfiguring it (E3). Path B's rtnetlink programming (address + `/32`
+route + `IFF_UP`) succeeds under `CAP_NET_ADMIN` alone — no bus, no DAC, no
+root (E5, via `setpriv` mirroring the unit's ambient profile). The internal
+netdev is networkd-`unmanaged` as the load-bearing corollary requires, so
+rtnetlink-programmed state is undisturbed. `handle_netcfg` therefore
+programs `AF_NETLINK` directly; the E4 `tmpfiles.d` DAC line is not needed.
+Security note logged: the `io.systemd.Network` varlink socket is
+world-writable (`srw-rw-rw-`) but its sole mutator is inert here — no
+Path-A vector and no residual surface beyond it.
 
 **Decision — launcher precondition.** `net-sys.con` gains one static internal
 netdev (tap + `virtio-net-pci`, MAC `52:54:0a:64:01:01` — locally-administered

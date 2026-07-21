@@ -5,6 +5,35 @@
 > each working session. Detailed proofs and command sequences live in git
 > history and the ADRs — this file references them rather than repeating them.
 
+**2026-07-21 (E-gate — NETCFG mechanism RESOLVED, Path B).** ADR-025's
+E1–E5 run live on `vm_sys_netvm` (root unlocked via offline chroot
+`passwd`, dev-only, image otherwise untouched — `passwd -l root` still the
+release state). Internal netdev confirmed: `enp0s5`, MAC
+`52:54:0a:64:01:01`, **`unmanaged`** by networkd (only `20-uplink.network`
+baked, matching `enp0s4` uplink) — the load-bearing fact for Path B.
+**Result: Path A dead on all three trigger probes, Path B proven.** E1:
+`networkctl reload` inert (`Failed to connect to system bus` — no dbus, the
+ADR-021-class precondition failure). E2: the varlink surface
+`/run/systemd/netif/io.systemd.Network` **exists** (introspected via
+`varlinkctl`, world-writable `srw-rw-rw-`) but exposes **no config-mutation
+method** — only `GetStates`/`GetLLDPNeighbors`/`GetNamespaceId`/
+`SetPersistentStorage` (the last returns `StorageReadOnly` on the RO image).
+Stronger than the predicted "absent": surface present, introspected,
+provably no reload. E3: `Type=notify-reload` promised a signal path, but
+`SIGRTMIN+1` to networkd **kills it** (`code=killed, status=35/RTMIN+1` →
+systemd restart), not a reload — empirics overriding introspection, the
+ADR-021 trap avoided. E5: a full Path-B dry run under the agent's exact
+profile (`setpriv --reuid nobody --inh-caps +net_admin --ambient-caps
++net_admin` — the ADR-024 E8 both-sets pattern) drove `ip addr add
+10.100.1.1/24` + `ip link set up` + `ip route add 10.100.1.2/32` on
+`enp0s5`, all `=0`, `UP,LOWER_UP`, no bus/DAC/root. Decision rule (A iff
+(E1∨E2) trigger ∧ E4): no trigger → **B**, exactly as ADR-025 predicted. E4
+(DAC) moot, not tested. Next: `handle_netcfg` (thinking-on/Fable session —
+includes the hand-rolled `RTM_*` vs netlink-crate dependency call, ADR-025
+§ mechanism). Aside: `SIGRTMIN+1` to networkd is a config-plane DoS
+(kill+restart) — noted, immaterial to the trust model (agent already holds
+`CAP_NET_ADMIN`).
+
 **2026-07-20 (design session — ADR-025 NETCFG payload):** the NETCFG wire
 contract ADR-023 left abstract is now fixed. **Wire:** fixed binary layout,
 opcode `0x06`, count-prefixed bounded route array (`route_count 1..=4`); no
@@ -309,9 +338,25 @@ scripts still hardcode them. Fixing that is a Next step.
    (`EXT4-fs (vda): re-mounted … ro`). See ADR-024 (E1-E8 evidence table). Kept
    as a closed marker so the number is not reused.
 
+11. **Dev-root re-opened (2026-07-21).** `vm_sys_netvm` carries a dev
+   console password (set via offline chroot `passwd`) for the NETCFG
+   E-gate — root login was needed for the in-guest E1–E5 probes. The image
+   is NOT release-clean. Cleared automatically by the next `netvm.sh`
+   rebuild (which the `handle_netcfg` session runs anyway for the fresh
+   agent binary). Do not ship this image; do not treat it as the
+   reproducible artefact. Re-locking now is work the rebuild undoes.
+
 ## Next steps
 
 **Primary (netVM sysVM — ADR-021 track, build now PROVEN):**
+
+- **`handle_netcfg` — dependency call FIRST.** Hand-rolled `RTM_*` vs a
+  netlink crate (`rtnetlink`/`neli`). Minimal-TCB leans hand-rolled — no
+  dependency in a `CAP_NET_ADMIN` binary, mirroring the deliberately
+  non-serde wire — but netlink subtlety (NLMSG alignment, attribute TLV,
+  ACK handling) warrants a short explicit judgement at the top of the
+  thinking-on/Fable session, before any code. Mechanism is settled (Path B,
+  E-gate 2026-07-21); this is the one open design point left in the handler.
 
 - **NETCFG payload — the next handler (ADR-023 impl).** `handle_netcfg` is the
   ONLY ERR-stub left in netvm-agent; it gates the AppVM internal /32 network
