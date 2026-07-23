@@ -206,7 +206,9 @@ chroot_run "$NETVM_MNT" passwd -l root || true
 # DEV ONLY — remove before release (Open problem #11, sshd class).
 # The ADR-025 NETCFG live gate needs in-guest observation: netvm-agent has
 # no RUN, and NETCFG replies OK/ERR only. Undoes the passwd -l above.
-chroot_run "$NETVM_MNT" bash -c 'echo "root:katmate" | chpasswd'
+
+# usermod, not chpasswd: the manifest has passwd(1) but not chpasswd(8).
+chroot_run "$NETVM_MNT" usermod -p '$6$katmate$Fs3iXjSNXhSujelKQXR/hpn7bp1DppCJBkzlHKAsSMHf9r0GmiTQKzZWkFWKfW6C3JBTdvSPfyxTKUOu5nQnV0' root
 
 # --- 7. netvm-agent: bake binary + systemd unit -------------------------------
 # The privileged control agent (NETCFG/PING/SHUTDOWN) runs under systemd with
