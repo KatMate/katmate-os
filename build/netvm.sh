@@ -208,7 +208,7 @@ chroot_run "$NETVM_MNT" passwd -l root || true
 # no RUN, and NETCFG replies OK/ERR only. Undoes the passwd -l above.
 
 # usermod, not chpasswd: the manifest has passwd(1) but not chpasswd(8).
-chroot_run "$NETVM_MNT" usermod -p '$6$katmate$Fs3iXjSNXhSujelKQXR/hpn7bp1DppCJBkzlHKAsSMHf9r0GmiTQKzZWkFWKfW6C3JBTdvSPfyxTKUOu5nQnV0' root
+chroot_run "$NETVM_MNT" /usr/sbin/usermod -p '$6$katmate$Fs3iXjSNXhSujelKQXR/hpn7bp1DppCJBkzlHKAsSMHf9r0GmiTQKzZWkFWKfW6C3JBTdvSPfyxTKUOu5nQnV0' root
 
 # --- 7. netvm-agent: bake binary + systemd unit -------------------------------
 # The privileged control agent (NETCFG/PING/SHUTDOWN) runs under systemd with
