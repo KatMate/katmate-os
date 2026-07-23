@@ -5,6 +5,93 @@
 > each working session. Detailed proofs and command sequences live in git
 > history and the ADRs — this file references them rather than repeating them.
 
+**2026-07-23 (ADR-025 CLOSED — NETCFG live-gated; netvm-agent functionally
+complete).** `handle_netcfg` was the last ERR stub in the agent; all three
+opcodes (PING / NETCFG / SHUTDOWN) are now implemented and live-gated. Path B
+(rtnetlink) carried out per the 07-21 E-gate.
+
+**Method — golden fixtures.** Before any code, the bytes iproute2 sends over
+`AF_NETLINK` were captured (`strace -e trace=sendmsg`, dummy iface, local
+10.100.1.1 peer 10.100.1.2/32 metric 100). Five shapes: `RTM_NEWADDR` 40 B,
+`RTM_NEWLINK` 32 B, `RTM_NEWROUTE` 52 B, `RTM_DELROUTE` 52 B, `RTM_DELADDR`
+40 B. Each is pinned by a unit test comparing the encoder's output against the
+capture. "Did I build the message correctly" is therefore PROVEN against a
+reference implementation rather than remembered from a header — the ADR-024
+method applied to code.
+
+Two structural findings from the capture: `IFA_LOCAL` = local, `IFA_ADDRESS` =
+**peer** (the p2p form matches the ADR-025 payload with no translation; the E5
+`/24` form would install a connected route for the whole segment and break
+"REMOVE → state gone"); and DEL uses a **wildcard body** (`RTPROT_UNSPEC` /
+`RT_SCOPE_NOWHERE` / `RTN_UNSPEC`), it does not mirror ADD.
+
+**Empirical finding that corrects the ADR-025 gate.** A peer address installs
+the kernel's own route to the peer (`10.100.1.2 proto kernel scope link src
+10.100.1.1`, metric 0). Consequences: (a) in v1 the payload's route is
+ADDITIVE, not what carries reachability — the kernel's lower metric always
+wins; (b) the gate criterion "a route to the peer is visible" is TOO WEAK — it
+would pass even if `RTM_NEWROUTE` had never been sent. The gate must assert the
+line bearing `metric N`. (c) Teardown is complete without extra work:
+`DELADDR` takes the kernel's route with it.
+
+**Dependency call: hand-rolled, not a crate.** The first possible runtime
+dependency in the only privileged agent (CAP_NET_ADMIN + CAP_KILL, sharing an
+address space with r8169 + the Realtek blob + the v1 WG key). The deciding
+inversion: the netlink UAPI is frozen by kernel contract, the crate APIs are
+not (`netlink-packet-route` broke across 0.17/0.19/0.21, `neli` across
+0.6/0.7, `rtnetlink` is async-only → a tokio runtime in a binary serving one
+synchronous request at a time). A crate does not remove netlink semantics, it
+relocates them and adds churn. Same conclusion as the non-serde wire. The
+multipart `RTM_GETLINK` dump — the one genuinely hard part of netlink — drops
+out: MAC→ifindex resolution goes through sysfs.
+
+**Code.** `netlink.rs` (~350 lines, 5 `unsafe`: socket/sendto/recvfrom/close/
+zeroed — the same class as `libc::kill`): five message builders, an `NlSocket`
+owning its sequence counter, reply validation on two axes (`nl_pid == 0` =
+from the kernel, sequence match), and an errno policy following the
+convergence contract (`EEXIST` on ADD → OK, `ESRCH`/`ENOENT`/`EADDRNOTAVAIL`
+on REMOVE → OK, `ENODEV` = retryable ERR). `netcfg.rs`: total validation per
+the ADR-025 table, the record set under `RuntimeDirectory=`, convergent
+ADD/REMOVE. `ping-client`: `netcfg-add` / `netcfg-remove`, plus repair of
+stale comments claiming netVM does not implement SHUTDOWN (ADR-024 reversed
+that on 07-18).
+
+Byte order (implementation reading of ADR-025): LE governs GENUINE INTEGERS
+(`link_id`, `metric`); addresses and the MAC are byte arrays in network order,
+the same class of field as `match_mac`. Consequence: there is NO address
+conversion anywhere in the privileged path — and therefore none to get wrong.
+
+**Live gate — 7/7.** All five ADR-025 criteria plus two extra:
+
+| criterion | result |
+|---|---|
+| ADD → address + route + UP | OK; `10.100.1.2 scope link metric 100` visible |
+| identical re-ADD | OK |
+| conflicting ADD (same id, different peer) | ERR |
+| REMOVE of an absent id | OK |
+| REMOVE → state gone | OK; `enp0s5` has no IPv4, record dir empty, iface still UP |
+| RUN aimed at netVM | ERR (absent-not-disabled, on the fresh binary) |
+| ADD naming the uplink's OUI MAC (`38:05:25:34:7c:47`) | ERR (structural fence, rejected in the parser) |
+
+The last one is quiet but load-bearing: across seven operations — including one
+that named the uplink's MAC explicitly — `enp0s4` never moved (DHCP lease
+`10.3.1.110` untouched). The agent does not know which MAC the uplink has; one
+bit test makes it unreachable.
+
+**19 unit tests** (2 op + 7 netlink + 10 netcfg), all green.
+
+**Rebuild.** `vm_sys_netvm` rebuilt from a clean `netvm.sh`, KVER
+**6.12.96+deb13-amd64** (was 6.12.95). Boot clean: `landlock: Up and running`,
+`crng init done` @ 0.010s, `PF_VSOCK registered`, `getty-static … because dbus
+and logind are not available` (the manifest stays dbus-free). SHUTDOWN
+regression passed on the new kernel. The agent binary in the image was
+ultimately replaced BY HAND (mount + install), not by a rebuild — see debt #14
+below.
+
+Next architectural piece: the **launch daemon** (owns the graph; allocates CIDs
+and `/32`s, orders `device_add` before NETCFG, refuses to tear down a VM with
+live dependents). ADR-sized, thinking-on.
+
 **2026-07-21 (E-gate — NETCFG mechanism RESOLVED, Path B).** ADR-025's
 E1–E5 run live on `vm_sys_netvm` (root unlocked via offline chroot
 `passwd`, dev-only, image otherwise untouched — `passwd -l root` still the
@@ -338,13 +425,37 @@ scripts still hardcode them. Fixing that is a Next step.
    (`EXT4-fs (vda): re-mounted … ro`). See ADR-024 (E1-E8 evidence table). Kept
    as a closed marker so the number is not reused.
 
-11. **Dev-root re-opened (2026-07-21).** `vm_sys_netvm` carries a dev
-   console password (set via offline chroot `passwd`) for the NETCFG
-   E-gate — root login was needed for the in-guest E1–E5 probes. The image
-   is NOT release-clean. Cleared automatically by the next `netvm.sh`
-   rebuild (which the `handle_netcfg` session runs anyway for the fresh
-   agent binary). Do not ship this image; do not treat it as the
-   reproducible artefact. Re-locking now is work the rebuild undoes.
+11. **Dev-root open (2026-07-23).** `vm_sys_netvm` carries a dev console
+      password for NETCFG observation — the agent has no RUN and NETCFG replies
+      OK/ERR only, so the console is the only route to `journalctl`. This now
+      lives **in `netvm.sh` and in git** rather than as a hand-applied chroot
+      step outside the source of truth (an improvement over 07-21): it is removed
+      in one place. The image is NOT release-clean; do not ship it.
+
+12. **The password hash in `netvm.sh` is invalid.** The `usermod -p` line
+   carries an invented SHA-512 crypt hash matching no password. A rebuild
+   therefore produces an image nobody can log into; the password was fixed via
+   `mount` + `chroot chpasswd`, not by rebuilding. Fix:
+   `openssl passwd -6 <password>` and substitute the real hash. Until then
+   every rebuild needs the manual chroot step.
+
+13. **The comment at `netvm.sh` line 210 is wrong.** It claims the manifest
+   lacks `chpasswd(8)`. Both `chpasswd` and `usermod` ARE in the image (under
+   `/usr/sbin`, confirmed by mount on 07-23). The actual cause of the original
+   failure is that `chroot_run`'s PATH does not carry `/usr/sbin` — hence the
+   absolute path. Cosmetic.
+
+14. **`netvm.sh` does not verify agent binary freshness.** A missing
+   `NETVM_AGENT_BIN` only produces a `NOTICE` and the build continues (line
+   247); a stale one produces nothing at all. On 07-23 this baked an agent
+   carrying the old NETCFG stub and the gate failed on `NETCFG not yet
+   implemented` — costing one boot cycle to diagnose. Fix: `die` if the binary
+   is absent, plus a `sha256sum` in `netvm.meta` so the failure class is
+   visible immediately.
+
+15. **Executable bit on `build/netvm.sh` flipped** `100755 → 100644` (`micro`
+   strips it; commit `d6d9267`). Hence `sudo bash build/netvm.sh`. Fix on
+   Acer: `git update-index --chmod=+x build/netvm.sh`.
 
 ## Next steps
 
@@ -368,25 +479,27 @@ scripts still hardcode them. Fixing that is a Next step.
   subcommand (opcode 0x06 postdates it) — the live test needs the client
   extended once the payload shape is fixed.
 
-- **`netvm-agent` — PING + SHUTDOWN DONE + LIVE-GATED.** PING gated 2026-07-17;
-  SHUTDOWN gated 2026-07-18 (ADR-024): `ping-client shutdown 3 → OK` + clean
-  poweroff via `kill(1, SIGRTMIN+4)` under `CAP_KILL`. Deterministic bake solved
-  too — the image is now a full `netvm.sh` rebuild (fresh binary + `CAP_KILL`
-  unit), not a hand-bake. Opcode model is **PING + NETCFG + SHUTDOWN**; RUN /
-  FILEGET / FILEPUT stay absent (boundary test in op.rs). The ONE remaining
-  handler on this track is NETCFG — see Primary below.
+- **`netvm-agent` — FUNCTIONALLY COMPLETE.** PING (07-17), SHUTDOWN (07-18,
+  ADR-024), NETCFG (07-23, ADR-025) — all live-gated. The opcode model is
+  final: PING + NETCFG + SHUTDOWN; RUN / FILEGET / FILEPUT stay absent
+  (boundary test in `op.rs`, confirmed live against the fresh binary). Further
+  work on this agent answers launch-daemon needs, not missing handlers.
+
 - **In-guest verification via a dev-only console password** (out-of-band; remove
   before release, sshd class): `networkctl status` routable, WireGuard/ProtonVPN
   up, inner-segment `enp0s4` p2p to personalVM. Only link-up + DHCP lease
   confirmed so far (from the host). The agent is NOT the verification path (no
   RUN).
+
 - **DNS-leak policy in the manifest** — the uplink DHCP offers `DNS=1.1.1.1`
   (LAN router). netVM must push DNS through ProtonVPN (`10.2.0.1`). Decide:
   override with `DNS=10.2.0.1` + `Domains=~.` in `20-uplink.network`, or drop
   the uplink DNS entirely. Security-relevant; fold into the manifest.
+
 - **WireGuard key provisioning automation** (ADR-021 open item) — keys are
   deploy-time (placeholders in the image, per image/state separation). Needs a
   provisioning step; do NOT bake keys.
+
 - **Harden `netvm.sh` cleanup** — `umount -R` + `sync` + `udevadm settle` +
   `sleep` before return, so a successful build does not leave a hot jbd2 forcing
   a reboot (bit twice this session).
@@ -401,6 +514,33 @@ scripts still hardcode them. Fixing that is a Next step.
   from 07-09, never committed. Sync wart persists: the standing rsync excludes
   `katmate-os/`, so the file lands in `~/katmate-build/`, not the repo path —
   copied to live `~/net-sys.con` by hand.
+
+- **`sync.fish` wrapper — now with a second reason.** Besides the `--exclude`
+  set that suppresses `Permission denied` noise: rsync preserves mtime from
+  Acer, so cargo on MINIS skips compilation and `cargo build` reports
+  `Finished in 0.05s` while leaving the OLD binary in place. This misled twice
+  on 07-23 (`ping-client`, `netvm-agent`), both diagnosed only via
+  `strings | grep`. The wrapper should `touch agent/crates/**/*.rs` after a
+  sync, or run rsync with `--no-times` for that subtree.
+
+- **Post-sync verification: `grep`, not `git log`.** MINIS git is
+  non-authoritative under Path A; `git log -1` there shows an old commit even
+  when rsync has already updated the files, and vice versa. The only valid
+  test is file content.
+
+- **`Harden netvm.sh cleanup` — sharper diagnosis.** The jbd2 lock is now
+  empirically characterised: `lsof` and `fuser` show NOTHING (a kthread has no
+  fds), while `ps aux | grep jbd2` shows `[jbd2/dm-N-8]` for exactly that
+  `dm-N`. Additional `sync`/`udevadm settle` AFTER the die therefore cannot
+  help — on failure the script never reaches its unmount at all. The real fix
+  is a trap that unmounts before exit. Bit three times on 07-23, costing two
+  host reboots.
+
+- **ERR reason codes (ADR-025, deferred).** The gate showed the practical
+  cost: `netcfg-add` against a live record returns a bare ERR and the reason
+  is only in the guest journal — reachable only through the console. That is
+  expensive for development. Revisit once the launch daemon demonstrates a
+  need to branch on failure class.
 
 - **Docs hygiene (deferred) — reconcile the state.md session section.** It
   holds 07-14 + 07-13 while SESSIONS.md already has 07-18/07-17/07-15/07-10; the

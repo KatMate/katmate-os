@@ -1909,12 +1909,12 @@ launch daemon anticipated by [ADR-021](DECISIONS.md#adr-021) and
 
 ## ADR-025 — NETCFG payload: fixed binary layout, v1-tight total validation, convergence over rollback
 
-**Status:** Accepted (2026-07-20). Implements the wire contract
-[ADR-023](DECISIONS.md#adr-023) left abstract. Partially supersedes one
-ADR-023 clause: the networkd-fragment mechanism is demoted from *default* to
-*co-candidate*, pending an empirical gate (E1–E5, below); every other ADR-023
-decision remains in force. The mechanism itself is deliberately **not** fixed
-here.
+**Status:** Accepted (2026-07-20); mechanism resolved to Path B (2026-07-21);
+implemented and live-gated (2026-07-23, 7/7 criteria). Implements the wire
+contract [ADR-023](DECISIONS.md#adr-023) left abstract. Partially supersedes
+one ADR-023 clause: the networkd-fragment mechanism was demoted from *default*
+to *co-candidate* pending an empirical gate (E1–E5, below), and that gate
+rejected it; every other ADR-023 decision remains in force.
 
 **Context:**
 
@@ -2133,6 +2133,16 @@ derivation for real appVM links stays with the launch-daemon ADR.
   conflicting ADD → ERR; `netcfg-remove → OK` → state gone; REMOVE of absent
   id → OK. End-to-end (an appVM routing through) belongs to the launch-daemon
   milestone, not here.
+- **Gate criterion corrected (empirical).** Installing a point-to-point
+  address causes the kernel to install its own route to the peer, at the
+  default metric and under the kernel's own protocol id. A gate asserting
+  merely that a route to the peer exists therefore passes even when the
+  route-installing message was never sent; the gate must assert the route
+  bearing the payload's metric. Two consequences follow: under the v1
+  validator the payload's route is additive rather than load-bearing, since
+  the implicit route's lower metric always wins; and teardown requires no
+  separate step, because withdrawing the address withdraws the implicit route
+  with it.
 - **New Known Gap (SECURITY-MODEL.md, next free number):** the 9p hostshare
   in `net-sys.con` (`security_model=none`, `/home/host`, into the most
   exposed VM) — dev-only remnant class (sshd/dev-root), documented in no ADR,
