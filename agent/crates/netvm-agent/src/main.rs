@@ -48,6 +48,7 @@
 //! config.rs: "netvm-agent has NO config.rs … if it ever needs one, it
 //! gets its own.")
 
+mod netlink;
 mod op;
 
 use std::os::fd::RawFd;
