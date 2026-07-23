@@ -48,6 +48,7 @@
 //! config.rs: "netvm-agent has NO config.rs … if it ever needs one, it
 //! gets its own.")
 
+mod netcfg;
 mod netlink;
 mod op;
 
@@ -95,16 +96,22 @@ fn handle_ping(fd: RawFd) -> Result<()> {
 /// NETCFG → install / withdraw an appVM's internal /32 p2p link. The sole
 /// justification for CAP_NET_ADMIN.
 ///
-/// STUB for the listener gate. The typed, link-scoped payload (ADR-023) and
-/// its in-guest mechanism (networkd fragment vs rtnetlink) are a separate
-/// architecture session — this session lands the transport only. Until that
-/// handler exists, NETCFG is answered honestly with ERR: the opcode DECODES
-/// here (it is a real capability of this binary, unlike RUN), but there is no
-/// implementation yet, so it is rejected at the handler rather than pretended
-/// to have succeeded.
-fn handle_netcfg(fd: RawFd, _req: &RawRequest) -> Result<()> {
-    log_error("NETCFG", &AgentError::Rejected("NETCFG not yet implemented"));
-    frame::write_err(fd)
+/// Reply AFTER the act — the deliberate mirror of SHUTDOWN's reply-first
+/// (ADR-024). There the reply must precede an act that kills the agent; here
+/// the reply IS the postcondition report, and the agent survives it. OK means
+/// the desired state was reached; ERR means re-issue or escalate, never
+/// "nothing was touched" (ADR-025: convergence, not rollback).
+///
+/// Payload validation, the record set and the rtnetlink mechanism live in
+/// `netcfg.rs` / `netlink.rs`; this stays a thin wire adapter.
+fn handle_netcfg(fd: RawFd, req: &RawRequest) -> Result<()> {
+    match netcfg::handle(req) {
+        Ok(()) => frame::write_ok(fd),
+        Err(e) => {
+            log_error("NETCFG", &e);
+            frame::write_err(fd)
+        }
+    }
 }
 
 /// SHUTDOWN → OK, then ask PID 1 (systemd) to power the netVM off.
