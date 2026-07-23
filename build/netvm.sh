@@ -203,6 +203,10 @@ rm -rf "$NETVM_MNT"/var/lib/apt/lists/* 2>/dev/null || true
 # --- 6. root account: locked (release-safe; dev unlocks out-of-band) ----------
 log "Locking root account (dev sets a console password out-of-band)"
 chroot_run "$NETVM_MNT" passwd -l root || true
+# DEV ONLY — remove before release (Open problem #11, sshd class).
+# The ADR-025 NETCFG live gate needs in-guest observation: netvm-agent has
+# no RUN, and NETCFG replies OK/ERR only. Undoes the passwd -l above.
+chroot_run "$NETVM_MNT" bash -c 'echo "root:katmate" | chpasswd'
 
 # --- 7. netvm-agent: bake binary + systemd unit -------------------------------
 # The privileged control agent (NETCFG/PING/SHUTDOWN) runs under systemd with
@@ -222,6 +226,8 @@ After=systemd-networkd.service
 Wants=systemd-networkd.service
 
 [Service]
+RuntimeDirectory=netvm-agent
+RuntimeDirectoryMode=0700
 ExecStart=/usr/local/bin/netvm-agent
 # CAP_NET_ADMIN: /etc/systemd/network/ writes + networkctl reload + nft (NETCFG).
 # CAP_KILL: signal PID 1 (systemd) with SIGRTMIN+4 for graceful poweroff (SHUTDOWN, ADR-024).
