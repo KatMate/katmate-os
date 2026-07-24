@@ -19,6 +19,86 @@
 
 ---
 
+## This session (2026-07-24) — netVM housekeeping closed; host boot pipeline recorded
+
+Short mechanical session, deliberately cut before the Sway work so the netVM
+track closes clean.
+
+### `netvm.sh` — three fixes, one commit
+
+- **Cleanup ordering.** `netvm_cleanup` ran `sync` before `umount_root`; a sync
+  on a still-open mount does not settle jbd2. Reordered to umount → `sync` →
+  `udevadm settle`.
+- **`netvm_umount` added.** `lib.sh:umount_root` swallows failure
+  (`2>/dev/null || true`), which is wrong here: a failed umount *is* the
+  hot-jbd2 case the loud warning exists for. The local helper returns non-zero
+  and says so. Step 10 uses it too, so under `set -e` an incompletely unmounted
+  image no longer reports as built.
+- **Unit aligned with ADR-025 Path B.** `ReadWritePaths=/etc/systemd/network /run`
+  → `/run`. The agent programs rtnetlink directly; `networkctl reload` is inert
+  without dbus (E1–E3), so the networkd fragment directory is never written and
+  the E4 `tmpfiles.d` DAC line was never needed. The `CAP_NET_ADMIN` comment,
+  which still described the dead Path A, was rewritten.
+- **Executable bit restored** — `git update-index --chmod=+x build/netvm.sh`
+  (`micro` strips it; commit `d6d9267`). Open problem #15 closed.
+
+### What the review actually found
+
+The "Harden `netvm.sh` cleanup" item had been carrying a prescription that could
+not have worked (`sync` + `settle` + `sleep` *before* return — on failure the
+script never reaches its unmount). The trap itself had existed since the ADR-021
+build. The real defect was ordering, and it was three lines. Recorded because the
+next stale next-steps entry will look just as authoritative as this one did.
+
+### Documentation corrections
+
+- **Open problem #12 re-aimed.** It read "the password hash in `netvm.sh` is
+  invalid" and prescribed substituting a valid one. The debt is that the
+  `usermod -p` line exists at all: step 6 locks root and then unlocks it in the
+  next breath. Deliberate — the console is the only in-guest observation path
+  while the agent has no RUN — but it is a release blocker beside #3 and #4, not
+  a hash to correct. (#11 already recorded this correctly; #12 did not.)
+- **Interface-name inconsistency resolved in favour of the MAC.** The uplink has
+  been written up as `enp0s6`, `enp0s4` and `enp0s5` in different entries. The
+  match is and always was on `MACAddress=38:05:25:34:7c:47`; the name is
+  incidental and the `10-personal.network` / `Name=enp0s4` convention is void
+  (it described the retired pet).
+- **DNS-leak entry narrowed.** Override with `Domains=~.` is the stronger
+  candidate, but `systemd-resolved` is deliberately not enabled and the image is
+  dbus-free — so whether `.network` DNS settings do anything at all is an
+  unverified mechanism precondition, the same class that killed ADR-021 shutdown
+  and ADR-025 Path A. Probe before deciding; probing needs the console.
+
+### Host boot pipeline (MINIS) — recorded, not decided
+
+`minis_dela.md` documents work already carried out on the host: `linux` →
+`linux-hardened` (ADR-004) and GRUB → systemd-boot (ADR-006) — implementation of
+decisions already accepted and already ticked in `ROADMAP.md` — plus a UKI at
+`/boot/efi/EFI/Linux/arch-linux-hardened.efi`, a `katmate` Plymouth theme
+(graphical LUKS unlock + spinner) and a `splash-katmate.bmp` from `katmate-a.png`.
+`mkinitcpio` HOOKS put `plymouth` before `encrypt` (otherwise the LUKS prompt is
+not graphical) and add `kms`; MODULES carries `amdgpu vfio_pci vfio
+vfio_iommu_type1`.
+
+Two notes worth keeping. The `kms` hook is not only cosmetic — `ROADMAP.md` build
+step 5 already lists it as a prerequisite for the Sway/installer desktop
+integration. And the boot ends in Hyprland, not Sway: consistent with ADR-016's
+build state (Sway is target and reference, only the Hyprland profile exists
+today) and with the ARCHITECTURE.md release target (greetd + tuigreet → Sway,
+Plymouth). Not a defect.
+
+This covers Open problem #1 except the **greetd swap**, which remains open.
+
+### Not done, deliberately
+
+The "next steps" listed at the end of `minis_dela.md` — TPM2 auto-unlock,
+Secure Boot, Measured Boot, PCR sealing, `systemd-cryptenroll`, signed UKI,
+removal of the GRUB EFI entry, "zero console" boot — are that document's own
+horizon, not this session's agenda. They are not in `ROADMAP.md`; they are
+backlog candidates.
+
+---
+
 ## This session (2026-07-18) — netVM SHUTDOWN via agent; #10 closed (ADR-024)
 Code + live session, split model: empirical + mechanical parts thinking-off,
 ADR-024 authoring thinking-on. Closed Open problem #10 (netVM graceful shutdown)

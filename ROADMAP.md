@@ -90,6 +90,14 @@ remove dev sshd (#4).
 - [ ] GUI management tools
 - [ ] Base image signing & verification (ADR-013)
 
+## Boot chain hardening (backlog — from the 2026-07-23 host boot pipeline work)
+
+- [ ] TPM2 auto-unlock for LUKS (`systemd-cryptenroll`, PCR sealing)
+- [ ] Secure Boot + signed UKI
+- [ ] Measured Boot
+- [ ] Remove the leftover GRUB EFI entry
+- [ ] "Zero console" boot (no text frame between firmware and greeter)
+
 ## Product requirements (not code milestones)
 
 - [ ] **Hardware Compatibility List (HCL)** + **installer IOMMU preflight

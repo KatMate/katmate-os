@@ -432,12 +432,17 @@ scripts still hardcode them. Fixing that is a Next step.
       step outside the source of truth (an improvement over 07-21): it is removed
       in one place. The image is NOT release-clean; do not ship it.
 
-12. **The password hash in `netvm.sh` is invalid.** The `usermod -p` line
-   carries an invented SHA-512 crypt hash matching no password. A rebuild
-   therefore produces an image nobody can log into; the password was fixed via
-   `mount` + `chroot chpasswd`, not by rebuilding. Fix:
-   `openssl passwd -6 <password>` and substitute the real hash. Until then
-   every rebuild needs the manual chroot step.
+12. **The `usermod -p` line in `netvm.sh` is the debt — not its hash.**
+   Earlier wording framed this as "the hash is invalid" and proposed
+   substituting a real one. That measures the wrong thing: the release problem
+   is that step 6 locks root (`passwd -l root`) and then immediately unlocks it
+   again, so the line's *existence* is the debt, not its correctness. It is
+   there deliberately — `netvm-agent` has no RUN and NETCFG replies OK/ERR
+   only, so the serial console is the sole route to in-guest observation
+   (ADR-025 live gate; see #11). Removed together with the dev sshd (#4) and
+   the installer secrets (#3), not "fixed" by a valid hash. Practical note
+   while it stands: the baked hash matches no password, so a rebuild still
+   needs `mount` + `chroot chpasswd` to make the console usable.
 
 13. **The comment at `netvm.sh` line 210 is wrong.** It claims the manifest
    lacks `chpasswd(8)`. Both `chpasswd` and `usermod` ARE in the image (under
@@ -494,15 +499,35 @@ scripts still hardcode them. Fixing that is a Next step.
 - **DNS-leak policy in the manifest** — the uplink DHCP offers `DNS=1.1.1.1`
   (LAN router). netVM must push DNS through ProtonVPN (`10.2.0.1`). Decide:
   override with `DNS=10.2.0.1` + `Domains=~.` in `20-uplink.network`, or drop
-  the uplink DNS entirely. Security-relevant; fold into the manifest.
+  the uplink DNS entirely. Security-relevant; fold into the manifest. Of the
+  two, override is the stronger candidate, and `Domains=~.` is the load-bearing
+  half: without it the resolver is merely *one* among several and per-link DHCP
+  DNS can still leak. Dropping DNS outright is weaker than it looks — fail-closed
+  belongs in the baked nftables killswitch, not in the absence of a resolver.
+  **Verify the mechanism before deciding.** `netvm.sh` step 5 deliberately does
+  NOT enable `systemd-resolved`, and the image is dbus-free by manifest while
+  `resolved` is dbus-oriented. If `resolved` does not run, `DNS=`/`Domains=` in
+  a `.network` file buy nothing and the real path is `/etc/resolv.conf` in the
+  conf tree. This is the same class of unverified mechanism precondition that
+  killed the ADR-021 shutdown model and ADR-025 Path A — probe it, do not assume
+  it. Probing needs the console (#11, #12).
 
 - **WireGuard key provisioning automation** (ADR-021 open item) — keys are
   deploy-time (placeholders in the image, per image/state separation). Needs a
   provisioning step; do NOT bake keys.
 
-- **Harden `netvm.sh` cleanup** — `umount -R` + `sync` + `udevadm settle` +
-  `sleep` before return, so a successful build does not leave a hot jbd2 forcing
-  a reboot (bit twice this session).
+- **`netvm.sh` cleanup — RESOLVED 2026-07-24.** The trap already existed
+  (`netvm_cleanup` + `trap … EXIT`, its own linear-LV model, deliberately not
+  `lib.sh`'s thin one); what was missing was **ordering**. `sync` ran *before*
+  `umount_root`, and a sync on a still-open mount does not settle jbd2. Now:
+  umount first, then `sync` + `udevadm settle`. Added `netvm_umount`, a local
+  helper that surfaces umount failure instead of swallowing it the way
+  `lib.sh:umount_root` does (`2>/dev/null || true`) — a failed umount is
+  exactly the hot-jbd2 case the loud warning exists for. Step 10 uses the same
+  helper, so under `set -e` an incompletely unmounted image no longer counts as
+  built. Supersedes the earlier prescription (`sync` + `settle` + `sleep`
+  *before* return), which could not have worked: on failure the script never
+  reached its unmount at all.
 
 - **`tap-int0` host-side persistence — RESOLVED 2026-07-20.** Was manual-only
   (`ip tuntap add`) → gone on host reboot. Now declared via networkd
@@ -510,6 +535,7 @@ scripts still hardcode them. Fixing that is a Next step.
   no L3 — pure L2 conduit into netVM). Minor: inherits `RequiredForOnline=yes` from
   defaults → `networkd-wait-online` may wait on it at boot; add
   `[Link] RequiredForOnline=no` if it ever slows boot.
+
 - **`net-sys.con` under git — RESOLVED 2026-07-20** (`f5f8ef2`). Was MINIS-only
   from 07-09, never committed. Sync wart persists: the standing rsync excludes
   `katmate-os/`, so the file lands in `~/katmate-build/`, not the repo path —
@@ -642,6 +668,7 @@ scripts still hardcode them. Fixing that is a Next step.
   ICMP, so `ping <lease>` from the host stays silent even when the uplink is up.
   `nmap -sn 10.3.1.0/24` (ARP at L2) shows the guest by its uplink MAC
   (`38:05:25:34:7c:47`) + DHCP lease. Silent ping is correct posture, not a fault.
+
 - **netVM build mirror: pick by VPN exit, not by home geography.** MINIS's
   ProtonVPN exit is in CH; use `DEBIAN_MIRROR=http://ftp.ch.debian.org/debian`
   (via `sudo bash -c 'DEBIAN_MIRROR=... bash netvm.sh'` — `sudo` env_reset drops
@@ -655,21 +682,32 @@ scripts still hardcode them. Fixing that is a Next step.
   `sources.list`. This MUST be in the netVM manifest (`build/netvm.sh`), or a
   rebuild loses the uplink. (The old USB-NIC r8152 did not need a separate blob,
   which is why the netinst image never had it.)
-- **netVM `enp0s6` netconf is MAC-matched, not name-matched.**
-  `/etc/systemd/network/20-uplink.network` matches `MACAddress=38:05:25:34:7c:47`
-  (the RTL8125 as seen in the guest), DHCP, `RouteMetric=100`. MAC match is
-  deliberate so a PCI slot / interface-name change does not break it. The
-  internal p2p segment `10-personal.network` stays `Name=enp0s4`-matched.
+
+- **netVM uplink netconf is MAC-matched, not name-matched — the interface name
+  is NOT normative.** `/etc/systemd/network/20-uplink.network` matches
+  `MACAddress=38:05:25:34:7c:47` (the RTL8125 as seen in the guest), DHCP,
+  `RouteMetric=100`. MAC match is deliberate so a PCI slot / interface-name
+  change does not break it — and it has already paid off: this file has been
+  written up as `enp0s6` (netinst pet), `enp0s4` and `enp0s5` (declarative
+  build) across sessions, because the name moved with the machine type and slot
+  layout while the MAC did not. **When these disagree, the MAC is authoritative
+  and the name is incidental.** The internal p2p segment is likewise matched on
+  its locally-administered MAC `52:54:0a:64:01:01` (ADR-025), not on a name; the
+  older `10-personal.network` / `Name=enp0s4` convention described the retired
+  pet launcher and is void.
+
 - **A netinst netVM writes stale installer configs.** The recurring first-boot
   `[FAILED] Raise network interfaces` came from a leftover static block for the
   HOST's USB-NIC MAC (`enx00e04c3961b8`) in `/etc/network/interfaces`, written
   by the original netinst installer. General lesson: the hand-installed netVM
   drifts; do not trust its configs — this is why it must become a declarative
   build (ADR-021).
+
 - **Thin-LV activation:** an RO-frozen thin LV keeps the skip-activation `k`
   flag permanently; `lvchange -K -ay <lv>` is mandatory before every instance
   boot, on both the app-layer AND the foundation, or QEMU fails with "Could not
   open backing image". The `app_web.con` launcher does this in pre-flight.
+
 - **vfio passthrough — memlock (RTL8125):** VFIO pins the ENTIRE guest RAM
   regardless of `-overcommit mem-lock=off` or hugepages. A manual
   `bash net-vfio.con` inherits the SHELL's `ulimit -l` (default 8192 KB) → QEMU
@@ -680,6 +718,7 @@ scripts still hardcode them. Fixing that is a Next step.
   the manual `ulimit` is a dev-only workaround. A plain user cannot raise
   `ulimit -l` above the hard cap — but here the user manager did not cap it, so
   the drop-in alone sufficed (no `/etc/security/limits.d/` needed).
+
 - **vfio passthrough — FLReset- (RTL8125):** the RTL8125 reports `FLReset-` (no
   function-level reset) with small BARs (~80K, so NOT a large-BAR/memory-hole
   problem — that earlier diagnosis was a myth). Without a workaround, vfio's
@@ -689,17 +728,20 @@ scripts still hardcode them. Fixing that is a Next step.
   `options vfio-pci ids=10ec:8125 disable_idle_d3=1` + `softdep r8169 pre:
   vfio-pci`. **Both first AND second boot now PROVEN (2026-07-08)** — the reset
   workaround holds across a guest reboot cycle.
+
 - **vfio device node permission:** `/dev/vfio/<group>` is root-only by default;
   QEMU as user `host` gets `permission denied`. Production fix = `vfio` group +
   udev rule (`SUBSYSTEM=="vfio", GROUP="vfio", MODE="0660"`) + user in the
   group (login-scoped). This is the template for the future launch daemon's
   non-root QEMU.
+
 - **USB-NIC (r8152) is DEV-ONLY churn, not a product concern.** The whole
   "device did not come back" class exists only because the dev workflow shuffles
   one NIC between host and netVM live. In production devices do not migrate —
   each VM has a fixed declarative assignment — so this class vanishes. Universal
   NIC passthrough is a build/provision-time job (read IOMMU groups, resolve BDF,
   generate vfio bind once), NOT per-boot runtime recovery.
+
 - **`driver=[none]` AFTER a clean enumeration → check `/etc/udev/rules.d/`
   FIRST, not the kernel.** This is the #7 lesson, learned the hard way. When a
   USB device enumerates fine (strings, product, serial all read) and then ends
@@ -708,79 +750,100 @@ scripts still hardcode them. Fixing that is a Next step.
   kernel driver. The actual culprit was our own
   `30-usb-nic-qemu.rules` running `r8152/unbind` on plug. Grep
   `udev/rules.d` + `modprobe.d` for the VID/PID before touching kernel config.
+
 - **`r8152-cfgselector` is NOT a separable module and NOT the enemy.** It is
   built into `r8152.ko` (registers two drivers from one module: the cfgselector
   interposer for the USB *device*, `r8152` for the *interface*). It cannot be
   blacklisted, and on the working Cubi it is present in the chain too
   (`2-3` → cfgselector, `2-3:1.0` → r8152). Any note about "blacklist the
   cfgselector" (a prior #7 hypothesis) is void.
+
 - **Do NOT blacklist `cdc_ether`/`r8153_ecm` for the RTL8153 USB-NIC.** Removing
   them has no effect on the bind path and only removes the ECM fallback. An
   earlier session blacklisted them; removed.
+
 - **USB fallback NIC: prefer a native port, avoid a USB4/TB hub.** On the TB hub
   the RTL8153 throws `error -71` (EPROTO) on SuperSpeed setup-address. On MINIS
   the device is happiest on a rear/native SuperSpeed port (bus 002, 5000M); the
   front panel and the VIA USB2.0 hub path drop it to 480M. (This mattered less
   than we thought — the real bug was the udev rule — but the topology note holds.)
+
 - **The running kernel on MINIS is Arch stock `7.0.12-arch1-1`, NOT a 6.12.y
   microvm kernel.** `~/src/kernel/linux-6.12.y/` (and any 6.12.94 tree) is the
   GUEST microvm kernel source, unrelated to the host. Do not build host modules
   against it (vermagic mismatch) and do not reason about host USB/driver
   behaviour from 6.12.y. The custom `6.12.87`/`6.12.94` kernels are `-kernel`
   payloads for guests only.
+
 - **Root device has no partition table:** debootstrap is directly on the LV, so
   `root=/dev/vda` (NOT `vda1`).
+
 - **Serial console:** microvm + `-nographic` does NOT auto-wire the serial
   console (changed ~QEMU 10.x). Must add `-serial mon:stdio` explicitly.
+
 - **Shutdown without ACPI:** init calls `reboot(RB_AUTOBOOT)` (NOT
   `RB_POWER_OFF`). Requires host-side `-no-reboot` + kernel cmdline `reboot=t`.
+
 - **Agent PATH:** init launches vm-agent with `PATH=/usr/local/bin:/usr/bin:/bin`
   — waypipe is the source-built `/usr/local/bin/waypipe`, not apt.
+
 - **GUI launch:** GTK apps refuse to run as root; require user 1000 with
   `XDG_RUNTIME_DIR`. waypipe ≥0.11 self-resolves the host CID (no `2:` prefix).
+
 - **VSOCK ports:** 1025 = vm-agent control, 1024 = waypipe GUI, 1026 = audio
   (planned).
+
 - **CID map is now range-based (ADR-022), because there can be more than one
   sysVM.** `2` host · `3–19` sysVM · `20–99` fixed AppVM · `≥100` disposable.
   The old flat scheme (3 = netVM, 4–8 = fixed AppVM) assumed a single sysVM and
   cannot hold a chained topology (`appVM → netvm-vpn → netvm-driver → NIC`).
   Anything reading a CID — launcher, launch daemon, domain indicator — reads this
   map. Numbers in SESSIONS.md are pre-ADR-022 and are not rewritten.
+
 - **`amd_iommu=on` is a DEAD cmdline param** (kernel prints `AMD-Vi: Unknown
   option` and ignores it). IOMMU actually runs via `iommu=pt` + IVHD/IVRS. The
   MINIS cmdline still carries the dead `amd_iommu=on`; harmless, clean up
   someday. IOMMU group 12 (RTL8125) is clean/isolated — passthrough-safe.
+
 - **`foundation.meta` (ADR-019):** host-side source of truth at
   `/var/lib/katmate/foundation.meta`, flat `KEY=value`. Read without
   booting/mounting. Launch preflight compares host `waypipe --version` (bare
   `x.y.z`) against `WAYPIPE_TAG` and refuses to start on mismatch. config.sh
   variable is `WAYPIPE_VERSION`; meta KEY is `WAYPIPE_TAG` — same value, two
   names.
+
 - **Re-bake invalidates deltas:** recreate with `qemu-img create -f qcow2 -F raw
   -b /dev/vg0/vm_app_web <delta> 10G`. Fails with "write lock" if a QEMU still
   holds the delta (kill the old VM first; do NOT kill netVM/CID-3).
+
 - **Custom microvm kernel** is monolithic, passed via `-kernel` (no initrd, no
   `/lib/modules`); delivered as an external vmlinuz (NOT a `.deb`).
+
 - **Never rsync a kernel *build* tree with broad `--exclude` patterns.**
   `--exclude='vmlinux.*'` matches the SOURCE `vmlinux.lds.S` too. Use `git
   clone`/`git archive` + copy only `.config`. Interrupted builds leave truncated
   `.o` files that pass make's timestamp check but fail at link.
+
 - **Kernel build host is MINIS (Ryzen), not Acer** (N4200 thermally shuts down
   under a full build in summer). `-j16` on MINIS. Source at
   `~/src/kernel/linux-6.12.y/` on both; Acer is reference, MINIS is build copy.
+
 - **foundation build gotchas:** (a) pseudo-fs mount AFTER debootstrap; (b) ext4
   label ≤16 chars (`katmate-found`); (c) no `useradd`/`passwd` in minbase —
   write the user directly; (d) `$(HOME)` under `sudo` is `/root`, so
   `KERNEL_SRC_DIR` hardcoded to `/home/host/katmate-kernels`.
+
 - **Abstract vs concrete naming:** ADRs use `foundation`/`app`/`instance`;
   concrete LVM names (`vm_tpl_foundation`, `vm_app_web`) only here and in live
   inspection.
+
 - **Source of truth = Acer `~/katmate-os/` git repo.** MINIS
   `~/katmate-build/katmate-os/` is a build copy — synced FROM the repo, never
   edited on MINIS and left to diverge. Git lives ONLY on Acer. The rsync runs
   WITHOUT `--delete`, so a restructuring that REMOVES files needs a manual `rm`
   on MINIS first, or stale files linger (bit us at the workspace split: leftover
   `agent/src/` beside the new `agent/crates/`).
+
 - **`git rm`, never `rm`, when restructuring a tracked tree.** `git rm -r <path>`
   removes from index AND worktree, but the content stays safely in `HEAD`; a bare
   `rm -rf` has bitten this project before. Corollary: check `git ls-files`, not
@@ -788,6 +851,7 @@ scripts still hardcode them. Fixing that is a Next step.
   `agent/crates/` turned out to be already committed, so the naive
   `git rm -r agent` would have destroyed it — `git ls-files agent` caught that
   before any damage.
+
 - **Two-stage gate for a refactor: OLD artefact first, new artefact second.**
   Testing the new client against the OLD guest image proves the wire is intact,
   and nothing else. Testing against a NEW image proves the new agent works. The
