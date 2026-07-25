@@ -96,7 +96,7 @@ Two binaries from one workspace, split by **absent-not-disabled**
 - **Contains no network-configuration code** — the least-trusted guest cannot
   even *name* the NETCFG opcode
 
-**`netvm-agent` (sysVM, `CAP_NET_ADMIN` only, not root):**
+**`netvm-agent` (sysVM, `CAP_NET_ADMIN` + `CAP_KILL`, not root):**
 
 - **Contains no `RUN`, no `FILEPUT`/`FILEGET`** — no general execution path
   exists inside the process holding network privilege
@@ -105,8 +105,17 @@ Two binaries from one workspace, split by **absent-not-disabled**
   `/32` prefix, route, metric; `add` / `remove` only, no `modify`. It cannot
   deliver an nft rule and cannot alter the baked firewall. Validation is
   structural and total — malformed payloads are rejected, never sanitised.
-- **No `SHUTDOWN` opcode and no shutdown privilege.** netVM is q35 → has ACPI →
-  the host powers it down over QMP `system_powerdown`. Graceful ≠ root.
+- **`SHUTDOWN` (0x05) IS present, and carries `CAP_KILL`** — corrected
+  2026-07-18 ([ADR-024](DECISIONS.md#adr-024)); the earlier "no SHUTDOWN, no
+  shutdown privilege" claim in this document was stale. The QMP
+  `system_powerdown` path is **inert**: `logind` requires dbus and the manifest
+  omits it. Rather than ship dbus into the most-exposed VM, the agent signals
+  PID 1 with `SIGRTMIN+4` (systemd's documented poweroff signal) under
+  `CAP_KILL`. `CAP_SYS_BOOT` was explicitly rejected — it unlocks
+  `kexec_load(2)` and is not graceful under systemd as PID 1. **Honest
+  privilege delta:** `CAP_KILL` lets the agent signal any process in the guest.
+  Bounded by absent `RUN` and a compile-time-constant signal target, but it is
+  a real widening over `CAP_NET_ADMIN` alone and belongs in the ledger.
 
 ### Network isolation
 

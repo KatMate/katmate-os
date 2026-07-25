@@ -75,9 +75,9 @@ The entire topology is two fields on `Vm`: `netvm` (whom do I route through) and
   evaluation to shrink the TCB (MicroVM machine type needs no GUI frontends).
 - Operational consequence of the hardened kernel: io_uring is disabled
   (`kernel.io_uring_disabled = 2`), so VM launch scripts use `aio=threads`
-  instead of `aio=io_uring`. (Live MINIS still runs stock `linux`, where
-  `aio=io_uring` is active; the `aio=threads` switch lands with the hardened
-  migration.)
+  instead of `aio=io_uring`. Live on MINIS since 2026-07-23. Not merely a
+  constraint: io_uring is among the most CVE-dense kernel subsystems and this
+  path runs host-side, driven by guest I/O patterns.
 
 ### Storage layout
 
@@ -107,8 +107,8 @@ so none of the `-K -ay` skip-activation handling applies to it.
 | Class | Machine | Init | Storage | Kernel | Agent |
 |---|---|---|---|---|---|
 | **AppVM** | `microvm` | `katmate-init` | thin chain + qcow2 delta | custom monolithic, `-kernel` | `vm-agent` (uid 1000, whitelist) |
-| **sysVM — driver domain** | `q35` (vfio needs PCI) | systemd | standalone linear RW LV | stock Debian `linux-image-amd64` + initrd, `-kernel`/`-initrd` | `netvm-agent` (`CAP_NET_ADMIN`) |
-| **sysVM — proxy** (post-v1) | `microvm` (no PCI needed) | open (`katmate-init` viable) | standalone linear RW LV | custom monolithic, `-kernel` | `netvm-agent` |
+| **sysVM — driver domain** | `q35` (vfio needs PCI) | systemd | standalone linear RW LV | stock Debian `linux-image-amd64` + initrd, `-kernel`/`-initrd` | `netvm-agent` (`CAP_NET_ADMIN`+ CAP_KILL) |
+| **sysVM — proxy** (post-v1) | `microvm` (no PCI needed) | open (`katmate-init` viable) | standalone linear RW LV | custom monolithic, `-kernel` | `netvm-agent` `netvm-agent` (caps TBD — no ADR; note `microvm` has no ACPI, so `SHUTDOWN` will be needed) |
 
 ## Guest MicroVMs
 
@@ -300,7 +300,7 @@ runtime gate.
 | `PING` | handler | handler |
 | `RUN` (whitelist: `firefox-esr`, `foot`, `nautilus`) | handler | **absent** |
 | `FILEGET` / `FILEPUT` (path-whitelisted, size-limited) | handler | **absent** |
-| `SHUTDOWN` | handler (microvm has no ACPI) | **absent** — host-driven over QMP `system_powerdown` (q35 has ACPI) |
+| `SHUTDOWN` | handler (microvm has no ACPI) | handler — `kill(1, SIGRTMIN+4)` under `CAP_KILL` ([ADR-024](DECISIONS.md#adr-024)); the QMP `system_powerdown` path is inert without dbus |
 | `NETCFG` | **absent** | handler (privileged) |
 
 `NETCFG` describes **a link, never an AppVM** ([ADR-023](DECISIONS.md#adr-023)):

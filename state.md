@@ -630,7 +630,18 @@ scripts still hardcode them. Fixing that is a Next step.
   `10.3.1.3` / restrict nft so SSH is not reachable over the VPN tunnel.
 
 ## Invariants & gotchas (quick reminders — detail in git/ADRs)
-
+- **netVM is `dbus`-free by manifest — bus-dependent mechanisms are INERT, not
+  merely unconfigured.** `netvm.sh` ships neither `dbus` nor `libpam-systemd`
+  (ADR-021's own exclusion, reaffirmed by ADR-024). Consequence: `logind`,
+  `systemd-resolved`, `networkctl reload`, `polkit` and any non-root
+  `systemctl` fail **at the bus** (`Failed to connect to system bus`), not at
+  their own logic. This has now invalidated the mechanism of three accepted
+  decisions after the fact: ADR-021's QMP→ACPI→logind shutdown (ADR-024 E1),
+  ADR-025's networkd-fragment Path A (E1–E3), and it is the open precondition
+  under the DNS-leak policy (`resolved` is dbus-oriented). **Rule: an ADR whose
+  mechanism is a systemd component that talks over the system bus must gate the
+  mechanism empirically BEFORE acceptance.** The design layer may be decided
+  first only where it is mechanism-independent (the ADR-023 → ADR-025 split).
 - **netVM initrd needs `MODULES=most`, NOT `dep`.** `netvm.sh` builds in a chroot
   on a mounted LV (root = ext4-on-dm), but the guest BOOTS as a virtio device
   (root = `/dev/vda` on virtio-blk). `MODULES=dep` resolves modules against the
@@ -653,17 +664,24 @@ scripts still hardcode them. Fixing that is a Next step.
   jbd2 (→ reboot). `systemctl mask sleep.target suspend.target hibernate.target
   hybrid-sleep.target` is a hard, reboot-surviving block; UNMASK when done.
   Disabling hypridle alone is NOT enough (it can be re-launched).
-- **netVM `netvm.sh` cleanup can leave a hot jbd2 even on a SUCCESSFUL build.**
-  Symptom: build finishes (`netVM image built`), yet `Open count: 1` + live
-  `jbd2/dm-<n>` while `mount`/`lsof`/`fuser` are all clean — the umount returned
-  before jbd2 committed. Until cleanup is hardened (`umount -R`+`sync`+`settle`+
-  `sleep`), a reboot clears it before the boot-test. Do NOT force `lvremove`;
-  reboot.
-- **netVM declarative image locks root — no console login.** `netvm.sh` locks the
-  root account ("dev sets a console password out-of-band"); a `localhost login:`
-  attempt fails. This is intended (control goes via `netvm-agent`/VSOCK, not the
-  console). Until the agent exists, verify the guest FROM THE HOST (ARP scan for
-  the uplink MAC, LAN reachability), not by logging in.
+- **netVM `netvm.sh` cleanup — hardened 2026-07-24; the residual rule is
+  `reboot`, not `lvremove`.** The symptom (build finishes, yet `Open count: 1`
+  + live `jbd2/dm-<n>` while `mount`/`lsof`/`fuser` are clean) came from
+  ORDERING: `sync` ran before `umount_root`, and a sync on a still-open mount
+  does not settle jbd2. Now umount → `sync` → `udevadm settle`, via
+  `netvm_umount`, which surfaces umount failure instead of swallowing it the
+  way `lib.sh:umount_root` does. The prescription this entry used to carry
+  (`umount -R`+`sync`+`settle`+`sleep` before return) could not have worked —
+  on failure the script never reached its unmount at all. If a hot jbd2 still
+  appears: reboot, do NOT force `lvremove`.
+- **netVM root is DELIBERATELY UNLOCKED in dev — this invariant inverted.**
+    `netvm.sh` step 6 locks root (`passwd -l`) and unlocks it in the next breath
+    (`usermod -p`). Intentional: `netvm-agent` has no `RUN` and `NETCFG` replies
+    bare `OK`/`ERR`, so the serial console is the only in-guest observation path
+    (open problems #11/#12). The console password is a **release blocker** beside
+    the dev sshd (#4) and installer secrets (#3), not a bug to correct. Host-side
+    verification (ARP scan for the uplink MAC, LAN reachability) stays the
+    preferred route and is unaffected.
 - **netVM uplink verifies by ARP scan, not ping.** netVM nftables drops inbound
   ICMP, so `ping <lease>` from the host stays silent even when the uplink is up.
   `nmap -sn 10.3.1.0/24` (ARP at L2) shows the guest by its uplink MAC
