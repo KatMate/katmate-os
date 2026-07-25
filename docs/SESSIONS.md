@@ -19,6 +19,27 @@
 
 ---
 
+## This session (2026-07-25) — doc drift sweep, ADR-004/024 propagation, MINIS housekeeping
+
+Found that ADR-024 never reached `SECURITY-MODEL.md` or `ARCHITECTURE.md`: both
+still claimed netVM had no SHUTDOWN opcode and no shutdown privilege, six days
+after the opcode went live. Corrected, and `CAP_KILL` added to the agent's
+recorded capability set. Recorded the underlying cause as a first-class
+invariant — netVM is dbus-free by manifest, so bus-dependent systemd mechanisms
+are *inert*, not merely unconfigured; this had already invalidated ADR-021's
+shutdown path and ADR-025's Path A, and is the open precondition under the
+DNS-leak policy. Rule now written down: gate the mechanism empirically before
+accepting an ADR that depends on one.
+
+Also: yesterday's `netvm.sh` cleanup fix existed only in the working tree while
+`state.md` already called it resolved (committed, `47ece34`). `aio=threads`
+landed in both launchers per ADR-004 — empirically `kernel.io_uring_disabled=1`,
+not `2`, so only unprivileged QEMU was affected, which is why `app_web.con` broke
+and root-launched `net-sys.con` did not. MINIS `~/` and `vg0` cleared of
+pre-sysVM remnants.
+
+Commits: `47ece34`, `894d7e3`, `c31dff7`, `e4afc40`.
+
 ## This session (2026-07-24) — netVM housekeeping closed; host boot pipeline recorded
 
 Short mechanical session, deliberately cut before the Sway work so the netVM

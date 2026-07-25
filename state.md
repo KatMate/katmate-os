@@ -328,6 +328,17 @@ The renumbering (**personalVM 4 → 20, app_web 5 → 21**) is decided but **NOT
 applied** — the live VMs below still run the old numbers, and launchers/`.con`
 scripts still hardcode them. Fixing that is a Next step.
 
+- **MINIS `~/` housekeeping, 2026-07-25.** Removed the pre-sysVM launcher set
+  (`net.con`, `net_dev.con`, `net-vfio.con`, `personal*.con`, `work.con`,
+  `new_qemu-kvm.con`), the dead `~/.config/systemd/user/netVM.service`, the
+  orphaned `vm_personal_overlay.qcow2` / `vm_work_overlay.qcow2`, and the
+  pre-sysVM LVs (`vm_tpl_all_root`, `vm_tpl_all_root_golden`, `vm_tpl_debian`,
+  `vm_tpl_work_root`, `vm_tpl_personal_root`, `vm_work_home`) — ~131 G
+  reclaimed. Kept: `vm_personal_home` (40 G thin, for the planned personalVM)
+  and `vm_app_vault` (frozen app-layer, `Data%` empty). `~/net-sys.con` is now
+  a symlink into `~/katmate-build/`, so rsync updates the live launcher and
+  that duplicate cannot drift again.
+
 - **Host** (Arch): Ryzen 7 8745H, AMD-Vi + vfio. `vg0`: `root` 100G, `swap`
   12G, `vm_pool` thin pool. Custom microvm kernel `6.12.87` at
   `/home/host/katmate-kernels/` (monolithic, `-kernel`, no initrd). nft input
@@ -728,14 +739,15 @@ scripts still hardcode them. Fixing that is a Next step.
 
 - **vfio passthrough — memlock (RTL8125):** VFIO pins the ENTIRE guest RAM
   regardless of `-overcommit mem-lock=off` or hugepages. A manual
-  `bash net-vfio.con` inherits the SHELL's `ulimit -l` (default 8192 KB) → QEMU
-  dies with "cannot allocate memory" at `VFIO_MAP_DMA`, NOT a real OOM. Fixes:
-  either `ulimit -l unlimited` in the shell before a manual launch, OR launch
-  via `netVM.service` (which carries `LimitMEMLOCK=infinity` via the
-  `netVM.service.d/memlock.conf` drop-in). The unit path is the production one;
-  the manual `ulimit` is a dev-only workaround. A plain user cannot raise
-  `ulimit -l` above the hard cap — but here the user manager did not cap it, so
-  the drop-in alone sufficed (no `/etc/security/limits.d/` needed).
+  `sudo bash net-sys.con` inherits the SHELL's `ulimit -l` (default 8192 KB) →
+  QEMU dies with "cannot allocate memory" at `VFIO_MAP_DMA`, NOT a real OOM.
+  `ulimit -l unlimited` before launch is therefore **mandatory, and today it is
+  the only path: there is no `netVM.service`.** This entry used to name one as
+  "the production path" with a `LimitMEMLOCK=infinity` drop-in — the only unit
+  that ever existed was a March *user* unit pointing at the retired `net.con`,
+  long disabled and removed 2026-07-25. A real unit, or the launch daemon, will
+  need `LimitMEMLOCK=infinity`; until then the manual `ulimit` is not a
+  workaround, it is the mechanism.
 
 - **vfio passthrough — FLReset- (RTL8125):** the RTL8125 reports `FLReset-` (no
   function-level reset) with small BARs (~80K, so NOT a large-BAR/memory-hole
