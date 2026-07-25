@@ -127,9 +127,9 @@ qemu-system-x86_64 \
   -append "root=/dev/vda rw rootfstype=ext4 console=ttyS0 reboot=t" \
   \
   -object iothread,id=iothread0 \
-  -drive file=$DELTA,if=none,id=disk0,format=qcow2,cache=none,aio=io_uring \
+  -drive file=$DELTA,if=none,id=disk0,format=qcow2,cache=none,aio=threads \
   -device virtio-blk-device,drive=disk0,iothread=iothread0 \
-  -drive file=/dev/$VG/$LV_HOME,if=none,id=disk1,format=raw,cache=none,aio=io_uring \
+  -drive file=/dev/$VG/$LV_HOME,if=none,id=disk1,format=raw,cache=none,aio=threads \
   -device virtio-blk-device,drive=disk1,iothread=iothread0 \
   \
   -device virtio-rng-device \
