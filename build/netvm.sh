@@ -64,11 +64,25 @@ DEV="/dev/$VG/$NETVM_LV"
 # --- own cleanup / rollback (linear LV; not lib.sh's thin model) --------------
 # On any failure mid-write (e.g. a bad chroot call during initramfs/boot
 # writes), the ext4 journal can stay busy if we umount while it is still hot.
-# So: sync + settle BEFORE umount, then deactivate explicitly, and if the LV is
-# still busy, say so LOUDLY with the exact manual command rather than silently
-# leaving a stuck LV behind (which previously masqueraded as a successful
-# rollback and forced a host reboot).
+# So: umount FIRST (a sync on a still-open mount does not settle jbd2), then
+# sync + settle, then deactivate explicitly, and if the LV is still busy, say
+# so LOUDLY with the exact manual command rather than silently leaving a stuck
+# LV behind (which previously masqueraded as a successful rollback and forced a
+# host reboot).
 NETVM_LV_CREATED=""
+
+# lib.sh:umount_root() swallows failure (2>/dev/null || true). Here we need to
+# KNOW: a failed umount is exactly the hot-jbd2 case the warning below exists
+# for. Same MOUNTED state variable, louder contract.
+netvm_umount() {
+  [[ -n "${MOUNTED:-}" ]] || return 0
+  if ! umount -R "$MOUNTED"; then
+    echo "WARNING: umount -R $MOUNTED failed — pseudo-fs or ext4 journal still busy." >&2
+    return 1
+  fi
+  MOUNTED=""
+}
+
 netvm_cleanup() {
   local rc=$?
   sync
@@ -282,7 +296,7 @@ META
 
 # --- 10. teardown -------------------------------------------------------------
 log "Unmounting"
-umount_root
+netvm_umount || log "WARNING: image built, but umount left the LV busy — see above"
 
 log "netVM image built: $DEV (linear, RW, NOT frozen)"
 log "  kernel+initrd exported: $NETVM_OUT (KVER=$KVER)"
