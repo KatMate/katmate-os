@@ -380,8 +380,11 @@ profile is a replaceable contract, and becomes a second shipped profile only
 when its indicator implementation is separately verified.
 
 The DE profile contract: (1) host waypipe client per domain, (2) domain identity
-hook (border colour by CID, host-side), (3) bar module reading launch-daemon
-state, (4) keybindings → katmate CLI.
+hook keyed on waypipe CID, host-side — the *carrier* is compositor-specific and
+is not part of the contract (Sway offers per-window border width, opacity and
+marks; border colour is global and therefore only usable for the focused
+window), (3) bar module reading launch-daemon state, (4) keybindings → katmate
+CLI.
 
 Installer integration will require adding `kms` to the mkinitcpio `HOOKS` for
 Plymouth.
