@@ -194,123 +194,104 @@ never by building. `katmate-update` (ADR-019 version-lock backbone) is complete
 Direction unchanged: IOMMU-capable platforms only (VT-d/AMD-Vi); VT-x-only
 frozen (ADR-015). MINIS is primary host and merge target.
 
-## This session (2026-07-14) — network object model FINALIZED (design, no code)
+## This session (2026-07-26) — Sway profile built and live on Acer
 
-Two ADRs written, no live work. The network layer gets an object model.
+First desktop-layer session. Hyprland/CYBRland ported to Sway from scratch on
+the Acer; the profile now lives in git under `desktop/` where nothing of the
+DE ever was. Sway is running as the default session via greetd/tuigreet.
 
-**ADR-022 — topology is a graph; the NIC is an assignable object.** Five object
-classes (`Nic`, `Image`, `Vm`, `Link`, `Policy`). The whole topology is two
-fields on `Vm`: `netvm: Option<VmRef>` + `provides_network: bool`. Consequences:
-policy is a *netVM*, never a rule (differentiated access = attach to a different
-netVM, each baking one immutable policy — ADR-021's static firewall survives
-intact); `netvm: None` = first-class offline/air-gap AppVM (absence of an object,
-not a deny rule); one physical NIC = one **q35 driver domain** (hardware, no
-secrets); **proxy netVMs are microVMs** (no PCI → no q35) and may be chained, so
-`appVM → netvm-vpn → netvm-driver → NIC` is cheap here in a way it is not in
-Xen/Qubes. **v1 ships the simplest graph = the netVM running today.** Nothing
-built so far is discarded.
+No decision was recorded. ADR-016 revision and the indicator ADR are held back
+deliberately — see "Gated on empirics" below.
 
-**ADR-023 — NETCFG describes a link, never an AppVM.** Payload = one p2p link
-(match, local/peer addr, `/32`, route, metric), ops `add`/`remove` only (no
-`modify` — a mutable link is a boundary that moves in place). No VM name, no
-role, no policy, no nft, no shell string. One opcode therefore serves an AppVM
-downlink, a proxy uplink and a future sysVM↔sysVM edge; `netvm-agent` stays a
-dumb executor with no representation of the graph. **In-guest mechanism left
-open** (networkd fragment vs direct `rtnetlink`) — decided in the
-`netvm-agent/main.rs` session, fragment path is the default.
+### What was built
 
-### Consequences to act on
+`desktop/` tree, new:
 
-- **CID renumbering (breaking).** New map: `2` host / `3–19` sysVM (3 = primary
-  netVM) / `20–99` fixed AppVM / `≥100` disposable. **personalVM 4 → 20,
-  app_web 5 → 21.** Launchers, `.con` scripts and any hardcoded CID must follow.
-- **Kernel:** proxy sysVMs will need `CONFIG_WIREGUARD` + nft/netfilter in the
-  shared microvm kernel — which all AppVMs also run. The code is unreachable from
-  an AppVM (uid 1000, no `CAP_NET_ADMIN`) but *present*: a conscious departure
-  from absent-not-disabled at the kernel level, accepted because ADR-021 already
-  rejected a second kernel (doubled config maintenance, firmware-licensing issues
-  for ISO distribution). Taken up when the first proxy is built, not before.
-  (Note: there is NO pending rebuild — `HW_RANDOM_VIRTIO` and
-  `SECURITY_LANDLOCK` went in on 2026-07-01 and are live.)
-- **Proxy init model is open:** ADR-021 binds netVM to systemd for *uplink* DHCP;
-  a proxy has no uplink DHCP (static p2p link via NETCFG) and `wg`+`nft` need no
-  networkd → a proxy may be a `katmate-init` sysVM. Separate decision, when the
-  first proxy is built.
-- **Known gap #7 (new):** in v1 the WireGuard key and the `r8169` driver + Realtek
-  blob share one address space. Accepted for v1; the model already permits the
-  split.
-- **Known gap #9 (new):** IOMMU-group quality is now a *hard* requirement →
-  HCL + installer preflight. Product blocker, not a v1 code blocker.
-- **DE decided (→ ADR-016 revision, next session):** the host compositor is in the
-  TCB (it draws the domain indicator). **Sway ships alone**, no installer choice,
-  no dual install. Hyprland/CYBRland stays a dev/demo profile until its indicator
-  implementation is separately verified. DE profile contract documented in
-  ARCHITECTURE.md.
+| file | note |
+|---|---|
+| `sway/config` | full port; `VERIFY` comments mark three uncertain points |
+| `waybar/config-sway.jsonc` | parallel to `config.jsonc`; Hyprland untouched |
+| `waybar/modules-sway.jsonc` | `sway/{workspaces,window,language}` |
+| `waybar/style-sway.css` | `@import "style.css"` + `.focused` (sway) vs `.active` (hyprland) |
+| `bin/sway-session` | env wrapper — sway config has no `env =` directive |
+| `bin/km-shot` | grim/slurp + notification actions; replaces hyprshot |
+| `bin/km-scratch` | sway scratchpad toggle; replaces pyprland and `toggle_scratchpad.sh` |
+| `greetd/` | reference copies of `config.toml` + two `.desktop` entries |
 
-**Next session unchanged:** `netvm-agent/main.rs` listener (mechanical, thinking
-off). Live gate: `ping-client ping 3 → OK`.
+User files are symlinked out of the repo (same anti-drift pattern as
+`~/net-sys.con`); system files under `/etc` are copies, deployed by hand.
 
-## This session (2026-07-13) — agent Cargo workspace split
+greetd was already tuigreet, pinned to one command by `--cmd hyprland-quiet`.
+Removing that flag restored the session picker; the two `.desktop` entries were
+moved from `/usr/share/wayland-sessions/` to `/etc/greetd/sessions/` so a
+package upgrade cannot inject an entry that bypasses `sway-session`.
 
-Mechanical migration of the existing Rust agent into the workspace skeleton
-designed in the 2026-07-10 architecture session. No behaviour change intended in
-`vm-agent`; the split had to be provably transparent on the wire before
-`netvm-agent` could be written against it.
+Three shared rofi scripts were made compositor-neutral rather than forked:
+`powermenu` → `loginctl terminate-session`, `keybindings` → class at launch.
+`wallpaper` was left alone: it targets `DP-2`, which exists on neither machine,
+so it has never worked under Hyprland either.
 
-### What moved where
+### What the port cost
 
-| from | to | change |
-|---|---|---|
-| `agent/src/protocol.rs` (codec) | `katmate-protocol/src/frame.rs` | `Cmd` + `from_u8`/`to_u8` **removed, no replacement**; `Request` → `RawRequest{opcode: u8}`; `encode_request(op: u8, …)` |
-| `agent/src/protocol.rs` (policy consts) | `vm-agent/src/main.rs` | `WHITELIST`, `HOME_PREFIX`, `INIT_SOCK`, `SHUTDOWN_CMD`, `DEFAULT_HOST_CID`, `DEFAULT_WAYPIPE_PORT` |
-| `agent/src/error.rs` | `katmate-protocol/src/error.rs` | verbatim; only `UnknownCommand`'s doc + `Display` reworded |
-| `agent/src/config.rs` | `vm-agent/src/config.rs` | fallbacks re-pointed |
-| `agent/src/main.rs` | `vm-agent/src/main.rs` | `match req.cmd` → `Op::try_from(req.opcode)?` |
-| `bin/ping-client/` | `crates/ping-client/` | symlinks into `agent/src/` gone; encodes raw `opcode::OP_*`, has no `Op` of its own |
-| `agent/vm-agent.c` | — | legacy C agent deleted |
+Dropped, because Sway has none of them: coloured glow (`shadow range 30,
+render_power 5`), bevelled corners (`rounding 28, rounding_power 1.0` — a 45°
+chamfer, not a radius), background blur (`size 6, passes 4`). Borders, gaps,
+palette, fonts and terminal transparency transferred exactly. Animations were
+already off upstream.
 
-The constant split is the whole point and is worth restating: `frame.rs` keeps
-only what is genuinely shared wire (`PROTOCOL_VERSION`, `STATUS_*`, `MAX_*`,
-`DEFAULT_CONTROL_PORT`). Everything else was never protocol — it was appVM
-policy, and `netvm-agent` must not inherit it.
+SwayFX evaluated and rejected: a fork needing a manual rebase per Sway release
+(0.5 on 1.10.1, upstream at 1.12), and `scenefx` replaces the wlroots scene
+graph rather than adding a render pass. Wrong shape for a TCB component.
 
-### One judgement call worth recording
+The GUI is visibly faster. On the N4200 that is expected rather than
+surprising — Hyprland was doing four blur passes over what was effectively the
+whole desktop (kitty runs `background_opacity 0`), plus a shadow and a
+non-rectangular window shape that defeats occlusion culling.
 
-An unmapped opcode no longer closes the connection. Previously `Cmd::from_u8`
-lived *inside* `read_request`, so a bad opcode surfaced as a decode error and
-`handle_connection` dropped the peer. Now decode and mapping are separate steps,
-so this had to be chosen rather than inherited: `Op::try_from` failure → log +
-ERR + **`continue`**. Rationale: the peer did not corrupt the stream, it asked
-for something this binary does not implement. Keep serving. (Reverting to
-drop-the-connection is a one-line change if that turns out wrong.)
+### Findings worth keeping
 
-### Regression gate — PASSED
+- **Sway has no per-window border colour.** `client.focused` is global. This
+  does *not* block the domain indicator: inactive windows carry no visible
+  border, so only the focused window's colour matters, and one global value
+  set over IPC on each focus change is sufficient. Cost per frame: zero. The
+  layer-shell overlay considered earlier is unnecessary.
+- **Marks are host-set and unspoofable.** Settable only via IPC, drawn by the
+  compositor. The strongest candidate carrier for a text-shaped indicator.
+- **Per-window channels that a guest cannot reach**, all keyed on PID: border
+  width, opacity, mark, workspace. `app_id` and window title are not among
+  them and must never be used.
+- **The transparency was never Hyprland's.** `active_opacity = 1` in
+  `vars.conf`; the effect comes from kitty's `background_opacity 0`. It ports
+  unchanged. What does not port is the blur *behind* it — which matters only
+  over busy content, since both wallpapers measure near-black (mean RGB
+  (11,14,20) and (10,8,10)).
+- **Qubes solves the same problem by writing its own GUI daemon**
+  (`qubes-gui-daemon` draws per-VM borders under X11). The Sway + IPC route is
+  cheaper because Wayland already provides the input isolation Qubes had to
+  build.
 
-Deliberately run against the **pre-split guest image** (`vm_app_web` still
-carries the old monolithic `vm-agent`), because that is the one thing this test
-can prove and the new image cannot: **the wire did not change.** New workspace
-`ping-client` → old in-guest agent:
+### Gated on empirics
 
-- `ping-client ping 5` → `status=0x00 (OK)`
-- `ping-client run 5 nautilus` → `OK`, nautilus renders on host Hyprland
+Two facts remain untested, and both feed the indicator decision:
 
-If the split had broken the codec, this fails. It did not. Any future failure
-against a *new* image is therefore in `vm-agent`, not in `katmate-protocol` —
-which is exactly the isolation the two-stage gate buys.
+1. does Sway accept `#RRGGBBAA` in `client.*`? (Hyprland's
+   `col.inactive_border` was `#29BECC00`; the port approximates with opaque
+   near-black)
+2. does `show_marks` draw anything under `border pixel`, which has no
+   titlebar? If not, marks need `default_border normal`.
 
-Baking the new `vm-agent` into an app layer is a separate step (app-layer
-rebuild), not done this session.
+ADR-016 revision and ADR-026 (indicator carriers) are deliberately not written
+until these are gated. Writing them first would repeat the ADR-021 and
+ADR-025 Path A failure mode: mechanism accepted, then found not to exist.
 
-### Housekeeping
+### Carried
 
-- **Binary path changed:** `agent/target/release/ping-client`
-  (was `bin/ping-client/target/release/ping-client`). Anything on MINIS that
-  invokes it — and the rsync exclude set — needs the update.
-- Stale `agent/src/`, `agent/vm-agent.c`, `bin/ping-client/` removed from the
-  MINIS build copy by hand before rsync (the sync runs without `--delete`).
-- Boot log re-confirms the 2026-07-01 kernel flags are live: `landlock: Up and
-  running`, `ALSA #0: Loopback 1`, `crng init done` @ 0.010s. No kernel rebuild
-  pending.
+- `desktop/` needs a licence decision before it is useful to anyone else: the
+  Sway config and `style-sway.css` are derived from CYBRland (GPL-3.0) and
+  `README.md` declares no project licence.
+- MINIS: the two-output block is not written. Acer only, so far.
+- swayidle/swaylock deliberately absent — `hypridle.conf` was never supplied.
+- `~/.config/rofi/scripts/wallpaper/wallpaper` still Hyprland-only.
 
 
 ## Session archive

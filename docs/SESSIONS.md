@@ -6,16 +6,20 @@
 > sections (live state, open problems, next steps, invariants). Everything older
 > lands here, verbatim, newest first.
 >
-> **This file is append-only and is never rewritten.** Entries are records of what
+> **Entries are append-only and are never rewritten.** They are records of what
 > was true on the day they were written, not statements about the current target.
+> On 2026-07-26 the 07-14 and 07-13 entries were *inserted* into their
+> chronological slot: they had been stranded in `state.md` while every later
+> session went straight to this file. That was a repair of the ordering
+> invariant, not an edit to any entry, and it is the only such insertion.
 >
-> **Reading note — CIDs.** Every CID in this archive predates
-> [ADR-022](DECISIONS.md#adr-022) and uses the old single-sysVM map
-> (`3` = netVM, `4` = personalVM, `5` = app_web). The current map is
-> `2` host / `3–19` sysVM / `20–99` fixed AppVM / `≥100` disposable, under which
-> **personalVM becomes 20 and app_web becomes 21** (netVM stays 3). The old numbers
-> are left as written — they are what actually ran at the time. `state.md` carries
-> the authoritative map.
+> **Reading note — CIDs.** [ADR-022](DECISIONS.md#adr-022) was written in the
+> 2026-07-14 session. Entries dated **2026-07-13 and earlier** use the old
+> single-sysVM map (`3` = netVM, `4` = personalVM, `5` = app_web). The current
+> map is `2` host / `3–19` sysVM / `20–99` fixed AppVM / `≥100` disposable, under
+> which **personalVM becomes 20 and app_web becomes 21** (netVM stays 3). Old
+> numbers are left as written — they are what actually ran at the time.
+> `state.md` carries the authoritative map.
 
 ---
 
@@ -319,6 +323,124 @@ only; the shipped binary must come from the **trixie chroot on MINIS**
 (netvm.sh step 7) and boot netVM for `ping-client ping 3 → OK`. Until that
 runs, "nothing inside the declarative netVM image has ever been verified" still
 stands — the listener exists in source, not yet on the wire.
+
+## This session (2026-07-14) — network object model FINALIZED (design, no code)
+
+Two ADRs written, no live work. The network layer gets an object model.
+
+**ADR-022 — topology is a graph; the NIC is an assignable object.** Five object
+classes (`Nic`, `Image`, `Vm`, `Link`, `Policy`). The whole topology is two
+fields on `Vm`: `netvm: Option<VmRef>` + `provides_network: bool`. Consequences:
+policy is a *netVM*, never a rule (differentiated access = attach to a different
+netVM, each baking one immutable policy — ADR-021's static firewall survives
+intact); `netvm: None` = first-class offline/air-gap AppVM (absence of an object,
+not a deny rule); one physical NIC = one **q35 driver domain** (hardware, no
+secrets); **proxy netVMs are microVMs** (no PCI → no q35) and may be chained, so
+`appVM → netvm-vpn → netvm-driver → NIC` is cheap here in a way it is not in
+Xen/Qubes. **v1 ships the simplest graph = the netVM running today.** Nothing
+built so far is discarded.
+
+**ADR-023 — NETCFG describes a link, never an AppVM.** Payload = one p2p link
+(match, local/peer addr, `/32`, route, metric), ops `add`/`remove` only (no
+`modify` — a mutable link is a boundary that moves in place). No VM name, no
+role, no policy, no nft, no shell string. One opcode therefore serves an AppVM
+downlink, a proxy uplink and a future sysVM↔sysVM edge; `netvm-agent` stays a
+dumb executor with no representation of the graph. **In-guest mechanism left
+open** (networkd fragment vs direct `rtnetlink`) — decided in the
+`netvm-agent/main.rs` session, fragment path is the default.
+
+### Consequences to act on
+
+- **CID renumbering (breaking).** New map: `2` host / `3–19` sysVM (3 = primary
+  netVM) / `20–99` fixed AppVM / `≥100` disposable. **personalVM 4 → 20,
+  app_web 5 → 21.** Launchers, `.con` scripts and any hardcoded CID must follow.
+- **Kernel:** proxy sysVMs will need `CONFIG_WIREGUARD` + nft/netfilter in the
+  shared microvm kernel — which all AppVMs also run. The code is unreachable from
+  an AppVM (uid 1000, no `CAP_NET_ADMIN`) but *present*: a conscious departure
+  from absent-not-disabled at the kernel level, accepted because ADR-021 already
+  rejected a second kernel (doubled config maintenance, firmware-licensing issues
+  for ISO distribution). Taken up when the first proxy is built, not before.
+  (Note: there is NO pending rebuild — `HW_RANDOM_VIRTIO` and
+  `SECURITY_LANDLOCK` went in on 2026-07-01 and are live.)
+- **Proxy init model is open:** ADR-021 binds netVM to systemd for *uplink* DHCP;
+  a proxy has no uplink DHCP (static p2p link via NETCFG) and `wg`+`nft` need no
+  networkd → a proxy may be a `katmate-init` sysVM. Separate decision, when the
+  first proxy is built.
+- **Known gap #7 (new):** in v1 the WireGuard key and the `r8169` driver + Realtek
+  blob share one address space. Accepted for v1; the model already permits the
+  split.
+- **Known gap #9 (new):** IOMMU-group quality is now a *hard* requirement →
+  HCL + installer preflight. Product blocker, not a v1 code blocker.
+- **DE decided (→ ADR-016 revision, next session):** the host compositor is in the
+  TCB (it draws the domain indicator). **Sway ships alone**, no installer choice,
+  no dual install. Hyprland/CYBRland stays a dev/demo profile until its indicator
+  implementation is separately verified. DE profile contract documented in
+  ARCHITECTURE.md.
+
+**Next session unchanged:** `netvm-agent/main.rs` listener (mechanical, thinking
+off). Live gate: `ping-client ping 3 → OK`.
+
+## This session (2026-07-13) — agent Cargo workspace split
+
+Mechanical migration of the existing Rust agent into the workspace skeleton
+designed in the 2026-07-10 architecture session. No behaviour change intended in
+`vm-agent`; the split had to be provably transparent on the wire before
+`netvm-agent` could be written against it.
+
+### What moved where
+
+| from | to | change |
+|---|---|---|
+| `agent/src/protocol.rs` (codec) | `katmate-protocol/src/frame.rs` | `Cmd` + `from_u8`/`to_u8` **removed, no replacement**; `Request` → `RawRequest{opcode: u8}`; `encode_request(op: u8, …)` |
+| `agent/src/protocol.rs` (policy consts) | `vm-agent/src/main.rs` | `WHITELIST`, `HOME_PREFIX`, `INIT_SOCK`, `SHUTDOWN_CMD`, `DEFAULT_HOST_CID`, `DEFAULT_WAYPIPE_PORT` |
+| `agent/src/error.rs` | `katmate-protocol/src/error.rs` | verbatim; only `UnknownCommand`'s doc + `Display` reworded |
+| `agent/src/config.rs` | `vm-agent/src/config.rs` | fallbacks re-pointed |
+| `agent/src/main.rs` | `vm-agent/src/main.rs` | `match req.cmd` → `Op::try_from(req.opcode)?` |
+| `bin/ping-client/` | `crates/ping-client/` | symlinks into `agent/src/` gone; encodes raw `opcode::OP_*`, has no `Op` of its own |
+| `agent/vm-agent.c` | — | legacy C agent deleted |
+
+The constant split is the whole point and is worth restating: `frame.rs` keeps
+only what is genuinely shared wire (`PROTOCOL_VERSION`, `STATUS_*`, `MAX_*`,
+`DEFAULT_CONTROL_PORT`). Everything else was never protocol — it was appVM
+policy, and `netvm-agent` must not inherit it.
+
+### One judgement call worth recording
+
+An unmapped opcode no longer closes the connection. Previously `Cmd::from_u8`
+lived *inside* `read_request`, so a bad opcode surfaced as a decode error and
+`handle_connection` dropped the peer. Now decode and mapping are separate steps,
+so this had to be chosen rather than inherited: `Op::try_from` failure → log +
+ERR + **`continue`**. Rationale: the peer did not corrupt the stream, it asked
+for something this binary does not implement. Keep serving. (Reverting to
+drop-the-connection is a one-line change if that turns out wrong.)
+
+### Regression gate — PASSED
+
+Deliberately run against the **pre-split guest image** (`vm_app_web` still
+carries the old monolithic `vm-agent`), because that is the one thing this test
+can prove and the new image cannot: **the wire did not change.** New workspace
+`ping-client` → old in-guest agent:
+
+- `ping-client ping 5` → `status=0x00 (OK)`
+- `ping-client run 5 nautilus` → `OK`, nautilus renders on host Hyprland
+
+If the split had broken the codec, this fails. It did not. Any future failure
+against a *new* image is therefore in `vm-agent`, not in `katmate-protocol` —
+which is exactly the isolation the two-stage gate buys.
+
+Baking the new `vm-agent` into an app layer is a separate step (app-layer
+rebuild), not done this session.
+
+### Housekeeping
+
+- **Binary path changed:** `agent/target/release/ping-client`
+  (was `bin/ping-client/target/release/ping-client`). Anything on MINIS that
+  invokes it — and the rsync exclude set — needs the update.
+- Stale `agent/src/`, `agent/vm-agent.c`, `bin/ping-client/` removed from the
+  MINIS build copy by hand before rsync (the sync runs without `--delete`).
+- Boot log re-confirms the 2026-07-01 kernel flags are live: `landlock: Up and
+  running`, `ALSA #0: Loopback 1`, `crng init done` @ 0.010s. No kernel rebuild
+  pending.
 
 ## This session (2026-07-10) — netvm-agent architecture + QMP shutdown (design)
 
