@@ -1,0 +1,342 @@
+# ---------------------------------------------------------------
+# KatMate OS — Sway
+# Port of CYBRland (scherrer-txt, GPL-3.0) from Hyprland
+# Target: Acer ES1-633, single output eDP-1
+# Source of values: vars.conf, theme.conf, hyprland.conf
+# ---------------------------------------------------------------
+
+### VARIABLES ####################################################
+
+    set $mod  Mod4
+    set $alt  Mod1
+
+    set $left  h
+    set $down  j
+    set $up    k
+    set $right l
+
+    # Applications (hyprland.conf § BINDS)
+    set $term        kitty
+    set $term_float  kitty --class=com.center-float
+    set $browser     firefox
+    set $private     --private-window
+    set $editor      code
+    set $filemgr     kitty --class=yazi-term -e yazi
+    set $alt_filemgr nemo
+    set $notes       obsidian
+    set $music       spotify-launcher
+    set $office      libreoffice
+
+    # Rofi
+    set $rofi_scripts /home/winterbox/.config/rofi/scripts
+    set $launcher     rofi -show drun -theme /home/winterbox/.config/rofi/launcher.rasi
+    set $powermenu    $rofi_scripts/powermenu/powermenu
+    set $clipboard    $rofi_scripts/clipboard/clipboard
+    set $keybindings  $rofi_scripts/keybindings/keybindings
+    set $emoji        $rofi_scripts/emoji/emoji
+
+    # Waybar (parallel config — Hyprland's own is untouched)
+    set $bar waybar -c /home/winterbox/.config/waybar/config-sway.jsonc \
+                    -s /home/winterbox/.config/waybar/style-sway.css
+
+    set $wallpaper /home/winterbox/.config/sway/walls/ikebukuro-2560x1440.png
+# Black-Screen-Wallpaper-3-1.jpg
+# 8544377.jpg
+
+### PALETTE (vars.conf) ##########################################
+
+    set $no0 #030408
+    set $no1 #05070D
+    set $no2 #0A0E1A
+    set $re0 #2DD4BF
+    set $re1 #0F766E
+    set $re2 #042F2E
+    set $gr0 #30F291
+    set $ye0 #F2D230
+    set $cy0 #29BECC
+    set $or0 #F26118
+    set $wh0 #898D99
+
+
+### DECORATION ###################################################
+
+    font pango:GeistMono Nerd Font 12
+
+    # theme.conf: $border = 1 · $gapS = 4 · $gapM = 8
+    default_border          pixel 1
+    default_floating_border pixel 1
+    gaps inner 4
+    gaps outer 8
+    smart_gaps  off
+    smart_borders off
+
+    # client.<state> <border> <background> <text> <indicator> <child_border>
+    #
+    # Hyprland had col.inactive_border = rgba($cy0 00) — alpha 00, i.e. the
+    # inactive border is INVISIBLE. Sway's client colours are documented as
+    # #RRGGBB. Approximated here with $no0 (near black) so unfocused windows
+    # read as borderless against the wallpaper.
+    #   VERIFY: if sway 1.12 accepts #RRGGBBAA, try  #29BECC00  for an exact
+    #   match and report back.
+    client.focused          $re0 $no1 $re0 $re0 $re0
+    client.focused_inactive $no0 $no1 $wh0 $no0 $no0
+    client.unfocused        $no0 $no1 $wh0 $no0 $no0
+    client.urgent           $ye0 $ye0 $no0 $ye0 $ye0
+    client.background       $no0
+
+    # Marks are host-set via IPC and unspoofable by a guest — the candidate
+    # carrier for the domain indicator. NOTE: with `border pixel` there is no
+    # titlebar, so marks are not drawn. To test them, switch temporarily to:
+    #   default_border normal 1
+    show_marks yes
+
+
+### OUTPUT #######################################################
+
+    output eDP-1 {
+        position 0,0
+        bg $wallpaper fill
+    }
+
+    # MINIS (DP-3 @ 0x0 + HDMI-A-1 @ 1920x0) — later, separate block.
+
+
+### INPUT ########################################################
+
+    input type:keyboard {
+        xkb_layout  "si"
+        xkb_options "compose:rctrl,level3:ralt_switch,grp:alt_space_toggle"
+        xkb_numlock enabled
+    }
+    #   NOTE: grp:alt_space_toggle switches between layouts, but only one
+    #   layout ("si") is configured — carried over from hyprland.conf as-is.
+    #   If you want the toggle to do anything, use  xkb_layout "si,us".
+
+    input type:touchpad {
+        natural_scroll enabled
+        dwt            enabled
+        tap            enabled
+    }
+
+    focus_follows_mouse yes
+    floating_modifier $mod normal
+
+
+### KEYBINDINGS — APPLICATIONS ###################################
+
+    bindsym $mod+Return    exec $term
+    bindsym $mod+w         exec $browser
+    bindsym $mod+Shift+w   exec $browser $private
+    bindsym $mod+e         exec $filemgr
+    bindsym $mod+Shift+e   exec $alt_filemgr
+    bindsym $mod+BackSpace exec $editor
+    bindsym $mod+o         exec $notes
+    bindsym $mod+Shift+o   exec $office
+    bindsym $mod+s         exec $music
+
+    #   NOTE: hyprland.conf routed these through $scripts/launch_app (focus if
+    #   running, else launch). That script uses hyprctl. Bound directly here;
+    #   a swaymsg equivalent is a separate task.
+
+
+### KEYBINDINGS — LAUNCHERS ######################################
+
+    bindsym $mod+space   exec $launcher
+    bindsym $mod+Escape  exec $powermenu
+    bindsym $mod+v       exec $clipboard
+    bindsym $mod+slash   exec $keybindings
+    bindsym $mod+period  exec $emoji
+
+    bindsym $mod+n       exec swaync-client -t -sw
+    bindsym $mod+Shift+r exec swaync-client -R && swaync-client -rs
+
+    bindsym $mod+Ctrl+r  exec killall waybar; $bar
+    bindsym $mod+Ctrl+t  exec killall -SIGUSR1 waybar
+
+
+### KEYBINDINGS — WINDOWS ########################################
+
+    bindsym $mod+q       kill
+    bindsym $mod+a       floating toggle
+    bindsym $mod+f       fullscreen toggle
+    bindsym $mod+c       move position center
+
+    # Focus
+    bindsym $mod+$left   focus left
+    bindsym $mod+$down   focus down
+    bindsym $mod+$up     focus up
+    bindsym $mod+$right  focus right
+    bindsym $mod+Left    focus left
+    bindsym $mod+Down    focus down
+    bindsym $mod+Up      focus up
+    bindsym $mod+Right   focus right
+
+    # Move
+    bindsym $mod+Shift+$left   move left
+    bindsym $mod+Shift+$down   move down
+    bindsym $mod+Shift+$up     move up
+    bindsym $mod+Shift+$right  move right
+    bindsym $mod+Shift+Left    move left
+    bindsym $mod+Shift+Down    move down
+    bindsym $mod+Shift+Up      move up
+    bindsym $mod+Shift+Right   move right
+
+    # Layout
+    bindsym $mod+Shift+s layout toggle split
+    bindsym $mod+g       layout toggle tabbed stacking split
+    bindsym $alt+Tab     focus next sibling
+    #   NOTE: $mod+g and $alt+Tab approximate Hyprland's togglegroup /
+    #   changegroupactive. Sway has no window groups; tabbed containers are
+    #   the nearest concept.  VERIFY that `focus next sibling` parses.
+
+	bindsym $mod+Shift+q exec swaymsg exit
+
+    # Resize (Hyprland submap "resize", 40px steps)
+    mode "resize" {
+        bindsym $right resize grow   width  40px
+        bindsym $left  resize shrink width  40px
+        bindsym $up    resize shrink height 40px
+        bindsym $down  resize grow   height 40px
+        bindsym Right  resize grow   width  40px
+        bindsym Left   resize shrink width  40px
+        bindsym Up     resize shrink height 40px
+        bindsym Down   resize grow   height 40px
+        bindsym Escape mode "default"
+        bindsym Return mode "default"
+    }
+    bindsym $mod+r mode "resize"
+
+    # Scratchpad (native — pyprland dropped)
+    bindsym $mod+Shift+minus move scratchpad
+    bindsym $mod+minus       scratchpad show
+
+
+### KEYBINDINGS — WORKSPACES #####################################
+
+    bindsym $mod+1 workspace number 1
+    bindsym $mod+2 workspace number 2
+    bindsym $mod+3 workspace number 3
+    bindsym $mod+4 workspace number 4
+    bindsym $mod+5 workspace number 5
+    bindsym $mod+6 workspace number 6
+    bindsym $mod+7 workspace number 7
+    bindsym $mod+8 workspace number 8
+    bindsym $mod+9 workspace number 9
+
+    bindsym $mod+Shift+1 move container to workspace number 1
+    bindsym $mod+Shift+2 move container to workspace number 2
+    bindsym $mod+Shift+3 move container to workspace number 3
+    bindsym $mod+Shift+4 move container to workspace number 4
+    bindsym $mod+Shift+5 move container to workspace number 5
+    bindsym $mod+Shift+6 move container to workspace number 6
+    bindsym $mod+Shift+7 move container to workspace number 7
+    bindsym $mod+Shift+8 move container to workspace number 8
+    bindsym $mod+Shift+9 move container to workspace number 9
+
+    bindsym $mod+Ctrl+Left  workspace prev_on_output
+    bindsym $mod+Ctrl+Right workspace next_on_output
+    bindsym $mod+Ctrl+$left  workspace prev_on_output
+    bindsym $mod+Ctrl+$right workspace next_on_output
+
+    bindsym --whole-window $mod+button4 workspace prev_on_output
+    bindsym --whole-window $mod+button5 workspace next_on_output
+
+
+### KEYBINDINGS — SCREENSHOT & MEDIA #############################
+
+    bindsym $mod+Print   exec grim -g "$(slurp)" - | wl-copy
+    bindsym Shift+Escape exec $rofi_scripts/screenshot/screenshot
+    #   NOTE: that rofi script calls hyprshot. Needs a grim/slurp rewrite.
+
+    bindsym --locked XF86AudioMute        exec wpctl set-mute   @DEFAULT_AUDIO_SINK@ toggle
+    bindsym --locked XF86AudioRaiseVolume exec wpctl set-volume -l 1.0 @DEFAULT_AUDIO_SINK@ 5%+
+    bindsym --locked XF86AudioLowerVolume exec wpctl set-volume @DEFAULT_AUDIO_SINK@ 5%-
+    bindsym --locked XF86AudioPlay        exec playerctl play-pause
+    bindsym --locked XF86AudioPause       exec playerctl play-pause
+    bindsym --locked XF86AudioNext        exec playerctl next
+    bindsym --locked XF86AudioPrev        exec playerctl previous
+
+    bindsym --locked XF86MonBrightnessUp   exec brightnessctl s +5%
+    bindsym --locked XF86MonBrightnessDown exec brightnessctl s 5%-
+
+    bindsym $mod+Ctrl+v exec /home/winterbox/.local/bin/restartAudio
+
+
+### WINDOW RULES #################################################
+
+    # Wayland-native apps match on app_id; XWayland apps on class.
+
+	for_window [app_id="^km-keyb$"] \
+    	    floating enable, resize set width 45 ppt height 80 ppt, move position center
+
+    for_window [app_id="^com\.center-float-large$"] \
+        floating enable, resize set width 70 ppt height 70 ppt, move position center
+
+    for_window [app_id="^com\.center-float$"] \
+        floating enable, resize set width 50 ppt height 50 ppt, move position center
+
+    for_window [app_id="^com\.center-float-mini$"] \
+        floating enable, resize set width 30 ppt height 40 ppt, move position center
+    #   NOTE (pre-existing bug carried from hyprland.conf): the launcher uses
+    #   --class=com.center-float but the Hyprland rule matched ^(center-float)$
+    #   — so it never fired there. Matched on the real app_id here.
+
+    for_window [title="^(Open Folder|Open File|Save File|Save Folder|Delete File|Confirm File Delete|Save Image|Save As|Open As).*$"] \
+        floating enable, resize set width 50 ppt height 50 ppt, move position center
+
+    for_window [app_id="^(galculator|ytdlp-gui|udiskie)$"] \
+        floating enable, resize set width 30 ppt height 40 ppt, move position center
+
+    for_window [app_id="^(xfce-polkit|wleave|nwg-look|nm-connection-editor|org\.twosheds\.iwgtk|overskride|branchdialog)$"] \
+        floating enable
+    for_window [class="^(Xfce-polkit|Nm-connection-editor)$"] floating enable
+
+    for_window [app_id="^scrcpy$"] floating enable, move position center
+
+    # Idle inhibit
+    for_window [app_id="^(mpv|celluloid)$"] inhibit_idle fullscreen
+    for_window [class="^steam_app"]         inhibit_idle focus
+
+    # Scratchpad candidates (replaces pyprland)
+    for_window [app_id="^(overskride|org\.twosheds\.iwgtk)$"] move scratchpad
+
+
+### DOMAIN INDICATOR — placeholder ###############################
+#
+#   Reserved. The indicator is driven from OUTSIDE this file, by a host-side
+#   process subscribed to sway IPC. Three unspoofable channels, all keyed on
+#   PID (host knows it — it spawned the waypipe client):
+#
+#     border width   for_window [pid=N] border pixel <1|2|4>
+#     mark           swaymsg [pid=N] mark <domain>      (needs a titlebar)
+#     focused colour swaymsg client.focused '<c> <c> <c> <c> <c>'
+#
+#   client.focused is global, but only the focused window has a visible
+#   border (see DECORATION above), so one global value is sufficient.
+#
+#   Nothing here yet. ADR-016 revision decides the carrier set.
+
+
+### AUTOSTART ####################################################
+# (from ~/.config/hypr/scripts/services — hypr* replaced)
+
+    exec dbus-update-activation-environment --systemd \
+         WAYLAND_DISPLAY XDG_CURRENT_DESKTOP XDG_SESSION_TYPE XDG_SESSION_DESKTOP
+
+    exec $bar
+    exec swaync
+    exec wl-paste --watch cliphist store
+    exec /usr/lib/polkit-gnome/polkit-gnome-authentication-agent-1
+    exec udiskie
+    exec swayosd-server
+    exec easyeffects --gapplication-service
+
+    # hypridle → swayidle. Left commented: hypridle.conf was not supplied, so
+    # the timeouts are unknown and an unexpected lock mid-test is unwelcome.
+    # exec swayidle -w \
+    #      timeout 900 'swaylock -f' \
+    #      before-sleep 'swaylock -f'
+
+    # exec_always for anything that must survive `swaymsg reload`.
+
+include /etc/sway/config.d/*

@@ -1,0 +1,31 @@
+/*
+# ---------------------------------------
+# CYBRbar     style addendum — SWAY session
+# Imports the untouched Hyprland stylesheet and adds only what
+# differs: waybar's sway/workspaces module marks the active
+# button with .focused, hyprland/workspaces marks it .active.
+# Everything else is identical, so nothing is duplicated here.
+# ---------------------------------------
+*/
+
+@import url("style.css");
+
+#workspaces button.focused {
+	background-color: @re0;
+	color: @no1;
+}
+
+#workspaces button.focused label {
+	color: @no1;
+}
+
+#workspaces button.focused:hover {
+	background-color: @gr0;
+}
+
+/* sway marks empty-but-declared workspaces .persistent — keep them
+   visually identical to any other inactive button. */
+#workspaces button.persistent {
+	background: transparent;
+	color: @re0;
+}

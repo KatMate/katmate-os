@@ -1,0 +1,43 @@
+/*
+# ---------------------------------------
+# CYBRbar     sway module definitions
+# Sway equivalents of hyprland/workspaces, hyprland/window,
+# hyprland/language. Loaded after modules.jsonc; the hyprland/*
+# definitions in that file stay untouched and are simply unused
+# here, because nothing in modules-left/center/right names them.
+# ---------------------------------------
+*/
+{
+	/* WORKSPACES */
+	"sway/workspaces": {
+		"disable-scroll": true,
+		"all-outputs": false,
+		"enable-bar-scroll": true,
+		"format": "{name}",
+		"persistent-workspaces": {
+			"eDP-1": [1, 2, 3, 4]
+		}
+	},
+
+	/* WINDOW */
+	"sway/window": {
+		"format": "{}",
+		"max-length": 80,
+		"rewrite": {
+			"(.*) - Mozilla Firefox": "$1 󰈹",
+			"(.*) - Visual Studio Code": "$1 󰨞",
+			"(.*)Spotify": "Spotify 󰓇",
+			"(.*) - Obsidian": "Obsidian ",
+			"(.*)Steam": "Steam 󰓓"
+		},
+		"separate-outputs": false
+	},
+
+	/* LANGUAGE */
+	"sway/language": {
+		"format": "{short}",
+		"on-click": "swaymsg input type:keyboard xkb_switch_layout next",
+		"on-scroll-up": "swaymsg input type:keyboard xkb_switch_layout next",
+		"on-scroll-down": "swaymsg input type:keyboard xkb_switch_layout prev"
+	}
+}

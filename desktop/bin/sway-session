@@ -1,0 +1,35 @@
+#!/usr/bin/env bash
+# ---------------------------------------------------------------
+# KatMate OS — sway session wrapper
+# Install as ~/.local/bin/sway-session  (chmod +x)
+#
+# Sway's config has no `env =` directive — unlike hyprland.conf,
+# which set these inline. They must be exported before sway starts,
+# so this wrapper is not optional.
+#
+# Values carried over verbatim from hyprland.conf § ENV. Where that
+# file set a variable twice (QT_QPA_PLATFORMTHEME: qt5ct then qt6ct;
+# QT_STYLE_OVERRIDE: commented, then kvantum), the effective last
+# value is used.
+# ---------------------------------------------------------------
+
+# XDG
+export XDG_CURRENT_DESKTOP=sway
+export XDG_SESSION_TYPE=wayland
+export XDG_SESSION_DESKTOP=sway
+
+# Qt
+export QT_QPA_PLATFORM=wayland
+export QT_QPA_PLATFORMTHEME=qt6ct
+export QT_STYLE_OVERRIDE=kvantum
+export QT_WAYLAND_DISABLE_WINDOWDECORATION=1
+export QT_AUTO_SCREEN_SCALE_FACTOR=1
+
+# GTK
+export GTK_THEME=Adwaita-dark
+
+# Firefox on Wayland (hyprland.conf relied on XDG_SESSION_TYPE alone;
+# explicit here because it is cheap and removes one variable)
+export MOZ_ENABLE_WAYLAND=1
+
+exec sway "$@"

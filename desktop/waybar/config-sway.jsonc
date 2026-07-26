@@ -1,0 +1,50 @@
+/*
+# ---------------------------------------
+# CYBRbar     waybar config — SWAY session
+# Parallel to config.jsonc (Hyprland). Neither touches the other.
+# Launch: waybar -c ~/.config/waybar/config-sway.jsonc \
+#                -s ~/.config/waybar/style-sway.css
+# ---------------------------------------
+*/
+[
+	{
+		"include": [
+			"~/.config/waybar/modules.jsonc",
+			"~/.config/waybar/modules-sway.jsonc"
+		],
+		"height": 31,
+		"layer": "top",
+		"output": "eDP-1",
+		"mode": "dock",
+		"exclusive": true,
+		"passthrough": false,
+		"gtk-layer-shell": true,
+		"margin-top": 0,
+		"margin-left": 0,
+		"margin-bottom": 0,
+		"margin-right": 0,
+		"on-scroll-threshold": 1,
+
+		"modules-left": [
+			"custom/arch",
+			"sway/workspaces"
+		],
+
+		"modules-center": [
+			"clock#date",
+			"sway/window",
+			"clock#time"
+		],
+
+		"modules-right": [
+			"custom/arrow-right-no1",
+			"memory",
+			"cpu",
+			"custom/brightness",
+			"network",
+			"battery",
+			"bluetooth",
+			"pulseaudio"
+		]
+	}
+]

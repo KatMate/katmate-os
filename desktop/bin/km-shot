@@ -1,0 +1,35 @@
+#!/usr/bin/env bash
+# km-shot — region screenshot with post-capture actions. Replaces hyprshot.
+# Requires: grim slurp wl-clipboard libnotify>=0.8 swaync
+# Optional: swappy
+
+set -u
+
+dir="${HOME}/Pictures/screenshots"
+mkdir -p "$dir"
+f="${dir}/shot-$(date +%Y-%m-%d-%H%M%S).png"
+
+region=$(slurp -d) || exit 0
+grim -g "$region" "$f" || exit 1
+
+wl-copy < "$f"
+
+action=$(notify-send \
+    --app-name="Screenshot" \
+    --icon="$f" \
+    --action="view=Odpri" \
+    --action="edit=Uredi" \
+    --action="dir=Mapa" \
+    --action="del=Izbriši" \
+    "Screenshot" "$(basename "$f")")
+
+case "$action" in
+    view) xdg-open "$f" ;;
+    edit) if command -v swappy >/dev/null 2>&1; then
+              swappy -f "$f"
+          else
+              xdg-open "$f"
+          fi ;;
+    dir)  xdg-open "$dir" ;;
+    del)  rm -f "$f" ;;
+esac

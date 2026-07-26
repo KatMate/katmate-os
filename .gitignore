@@ -6,3 +6,4 @@ install.env
 *.swp
 agent/target/
 git-cli.txt
+desktop/walls/

@@ -1,0 +1,19 @@
+#!/usr/bin/env bash
+# km-scratch <app_id> <command> [args...]
+# Sway replacement for CYBRland's toggle_scratchpad.sh.
+
+set -u
+
+if [ "$#" -lt 2 ]; then
+    echo "usage: km-scratch <app_id> <command> [args...]" >&2
+    exit 2
+fi
+
+id="$1"
+shift
+
+if swaymsg -t get_tree | grep -qF "\"app_id\": \"$id\""; then
+    swaymsg "[app_id=\"^${id}\$\"] scratchpad show" >/dev/null
+else
+    exec "$@"
+fi
