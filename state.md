@@ -194,7 +194,87 @@ never by building. `katmate-update` (ADR-019 version-lock backbone) is complete
 Direction unchanged: IOMMU-capable platforms only (VT-d/AMD-Vi); VT-x-only
 frozen (ADR-015). MINIS is primary host and merge target.
 
-## This session (2026-07-26) — Sway profile built and live on Acer
+## This session (2026-07-27) — Sway deployed to MINIS, greetd swap done
+
+Mechanical session. The Sway profile built on the Acer on 07-26 is now live on
+MINIS, and greetd offers a session picker instead of one pinned command. No new
+code; three empirical findings, all of which feed ADR-016 and ADR-026.
+
+Sway 1.12 was purged and reinstalled clean — the machine carried a 1408-byte
+generic skeleton config from March, unrelated to CYBRland. `pacman -Rs --print`
+confirmed only `wlroots0.20` and `gnu-free-fonts` came with it; Hyprland uses
+`aquamarine`, not wlroots, so the live session on tty1 was never at risk.
+
+### Portability fixes to `desktop/`
+
+The profile was written against the Acer and would not have started on MINIS:
+
+| was | now |
+|---|---|
+| `/home/winterbox/…` ×6 | `$HOME/…` |
+| `output eDP-1 { … }` | no output block; `include outputs.conf` |
+| `"output": "eDP-1"` (waybar) | removed — bar draws on all outputs |
+| `"eDP-1": [1,2,3,4]` (modules) | `"*": [1,2,3,4]` |
+| `$rofi_scripts/screenshot/…` | `$HOME/.local/bin/km-shot` |
+| `restartAudio` bind | removed — script exists on neither machine |
+
+**Absence of an `output` block is a decision, not a debt.** A hardcoded output
+name that does not match is *silently ignored* by sway, which is worse than no
+block at all: it looks configured. Sway's default lays outputs out horizontally
+in discovery order, which on MINIS came out correct (left/right as cabled).
+This is the same failure shape as matching a NIC by interface name instead of
+MAC (cf. `20-uplink.network`) — third instance of this pattern in the
+project.
+Per-machine geometry belongs in an installer-generated file.
+
+### Findings
+
+- **`include` tolerates a missing file.** `outputs.conf` did not exist and sway
+  started without complaint. The installer therefore writes the file only when
+  it has something to write; no empty placeholder is needed.
+- **`$HOME` works in `set`.** Sway leaves undefined `$vars` as literal text and
+  the shell expands them at `exec` time. Valid only in `exec` context — it
+  would NOT work in `output … bg`, but that line is gone.
+- **`--sessions <dir>` replaces the default, it does not merge.** Verified
+  live: `hyprland-uwsm.desktop` did not leak in from
+  `/usr/share/wayland-sessions/`. The anti-injection pattern holds against
+  package upgrades.
+- `$mod+Tab` (`focus next sibling`) parses and works — last `VERIFY` in the
+  config closed.
+- Neither `hyprctl`, `swaymsg` nor `sway --validate` works over SSH: no seat.
+  `--validate` fails in the backend before it ever parses the config. Desktop
+  work needs a physical console or a running session, full stop.
+
+### greetd
+
+`--cmd hyprland-quiet` removed; `/etc/greetd/sessions/` holds two entries,
+`Exec=` pointing at wrappers under `/usr/local/bin` so no entry reaches the
+compositor without `sway-session`'s Qt/GTK/XDG environment. `sway-quiet`
+mirrors the existing `hyprland-quiet` (ANSI clear before handing over). The
+`hyprland-uwsm` entry was deliberately not carried: uwsm wraps the session in
+its own systemd-user scope and bypasses the wrapper by construction.
+
+Picker verified live (F3). **Open problem #1 is closed.**
+
+### Deployment shape
+
+User files are symlinks out of `~/katmate-build/desktop/`; `/etc` and
+`/usr/local/bin` files are copies, with reference copies committed back into
+`desktop/greetd/` and `desktop/bin/`. `~/.config/sway/outputs.conf` is local
+and ungitted by design — the wallpaper line lives there.
+
+### Carried
+
+- `desktop/` still needs a licence decision (derived from CYBRland, GPL-3.0).
+- swayidle/swaylock still absent — `hypridle.conf` was never supplied.
+- `~/.config/rofi/` on MINIS is a separate CYBRland checkout with its own
+  `.git`. Two sources of truth for the rofi layer; not reconciled.
+- MINIS `~/katmate-build/` carried a nested stale `katmate-os/` with a live
+  `.git` whose work tree was the parent — removed. It was the reason
+  `--exclude='katmate-os/'` sat in the standard rsync line; that exclude is
+  now unnecessary and was dropped.
+
+## Previous session (2026-07-26) — Sway profile built and live on Acer
 
 First desktop-layer session. Hyprland/CYBRland ported to Sway from scratch on
 the Acer; the profile now lives in git under `desktop/` where nothing of the
@@ -272,7 +352,7 @@ non-rectangular window shape that defeats occlusion culling.
 
 ### Gated on empirics
 
-Two facts remain untested, and both feed the indicator decision:
+Two facts remained untested at the time, and both fed the indicator decision:
 
 1. does Sway accept `#RRGGBBAA` in `client.*`? (Hyprland's
    `col.inactive_border` was `#29BECC00`; the port approximates with opaque
@@ -280,16 +360,18 @@ Two facts remain untested, and both feed the indicator decision:
 2. does `show_marks` draw anything under `border pixel`, which has no
    titlebar? If not, marks need `default_border normal`.
 
-ADR-016 revision and ADR-026 (indicator carriers) are deliberately not written
-until these are gated. Writing them first would repeat the ADR-021 and
+ADR-016 revision and ADR-026 (indicator carriers) were deliberately not written
+until these were gated. Writing them first would repeat the ADR-021 and
 ADR-025 Path A failure mode: mechanism accepted, then found not to exist.
+
+**Both were gated on 2026-07-27** — see *Next steps*.
 
 ### Carried
 
 - `desktop/` needs a licence decision before it is useful to anyone else: the
   Sway config and `style-sway.css` are derived from CYBRland (GPL-3.0) and
   `README.md` declares no project licence.
-- MINIS: the two-output block is not written. Acer only, so far.
+- MINIS: no output block — resolved 2026-07-27 as a decision, not a debt.
 - swayidle/swaylock deliberately absent — `hypridle.conf` was never supplied.
 - `~/.config/rofi/scripts/wallpaper/wallpaper` still Hyprland-only.
 
@@ -366,8 +448,9 @@ scripts still hardcode them. Fixing that is a Next step.
 
 ## Open problems
 
-1. **Desktop migration Acer → MINIS** — CYBRland Hyprland config + Plymouth
-   theme to port; greetd swap.
+1. ~~**Desktop migration Acer → MINIS**~~ — **Resolved (2026-07-27):** Sway
+   profile deployed to MINIS, greetd session picker live and verified. Plymouth
+   theme was already done (ADR-004/006).
 2. **hyprlock-after-suspend (host)** — recurring: after host suspend, tty1
    Hyprland locks and will not unlock. Host DE issue, not Katmate, but it blocks
    visual inspection of guest render. Needs its own pass.
@@ -572,13 +655,21 @@ scripts still hardcode them. Fixing that is a Next step.
 - **CID renumbering** — apply the new map: personalVM `4 → 20`, app_web `5 → 21`.
   Touches the `.con` launchers, `katmate-cid`, and any hardcoded CID. netVM (3)
   is unaffected. Do this BEFORE the AppVM domain model lands, not after.
-- **ADR-016 revision** — the two-profile DE model becomes single-profile: **Sway
-  ships alone** (the host compositor is in the TCB — it draws the domain
-  indicator). Hyprland/CYBRland stays a dev/demo profile until its indicator
-  implementation is separately verified. The DE profile *contract* (waypipe
-  client per domain · host-side domain-identity hook keyed on **waypipe CID**,
-  never on spoofable `app_id`/title · bar module reading launch-daemon state ·
-  keybindings → katmate CLI) is now documented in ARCHITECTURE.md.
+- **ADR-016 revision + ADR-026 (indicator carriers)** — both now empirically
+  grounded except one gate. ADR-016: the two-profile DE model becomes
+  single-profile, **Sway ships alone** (the host compositor is in the TCB — it
+  draws the domain indicator); Hyprland/CYBRland stays a dev/demo profile until
+  its indicator implementation is separately verified. The DE profile *contract*
+  (waypipe client per domain · host-side domain-identity hook keyed on **waypipe
+  CID**, never on spoofable `app_id`/title · bar module reading launch-daemon
+  state · keybindings → katmate CLI) is now documented in ARCHITECTURE.md.
+  ADR-026, settled 2026-07-27: `#RRGGBBAA` is parsed *and rendered*, so alpha is
+  a usable dimension; `show_marks` draws only in a titlebar, so marks are
+  rejected under `border pixel`. Carrier set is the waybar module (authoritative,
+  host-fed — **never** `sway/window`, which shows guest-controlled titles) plus
+  focused border colour (hue + alpha). **Remaining gate:** confirm
+  `swaymsg -t get_tree` exposes a `pid` resolving to the waypipe client process.
+  Requires a live `app_web` instance — now possible, since Sway runs on MINIS.
 - **Launch daemon owns the graph** (ADR pending) — allocates CIDs and `/32`s,
   creates/destroys `Link`s, calls NETCFG along the path, refuses to tear down a
   `provides_network` VM with live dependents. This is where `netvm`/
