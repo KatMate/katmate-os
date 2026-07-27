@@ -1,0 +1,6 @@
+[Desktop Entry]
+Name=KatMate (Sway)
+Comment=KatMate OS reference session
+Exec=/usr/local/bin/sway-quiet
+Type=Application
+DesktopNames=sway;wlroots

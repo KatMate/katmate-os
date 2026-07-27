@@ -1,0 +1,6 @@
+[Desktop Entry]
+Name=Hyprland (dev profile)
+Comment=Development/demo profile - not a release artifact
+Exec=/usr/local/bin/hyprland-quiet
+Type=Application
+DesktopNames=Hyprland
