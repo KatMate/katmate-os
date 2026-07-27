@@ -1,7 +1,7 @@
 # ---------------------------------------------------------------
 # KatMate OS — Sway
 # Port of CYBRland (scherrer-txt, GPL-3.0) from Hyprland
-# Target: Acer ES1-633, single output eDP-1
+# Portable: no hardcoded $HOME, no hardcoded output names.
 # Source of values: vars.conf, theme.conf, hyprland.conf
 # ---------------------------------------------------------------
 
@@ -28,18 +28,19 @@
     set $office      libreoffice
 
     # Rofi
-    set $rofi_scripts /home/winterbox/.config/rofi/scripts
-    set $launcher     rofi -show drun -theme /home/winterbox/.config/rofi/launcher.rasi
+    set $rofi_scripts $HOME/.config/rofi/scripts
+    set $launcher     rofi -show drun -theme $HOME/.config/rofi/launcher.rasi
     set $powermenu    $rofi_scripts/powermenu/powermenu
     set $clipboard    $rofi_scripts/clipboard/clipboard
     set $keybindings  $rofi_scripts/keybindings/keybindings
     set $emoji        $rofi_scripts/emoji/emoji
 
     # Waybar (parallel config — Hyprland's own is untouched)
-    set $bar waybar -c /home/winterbox/.config/waybar/config-sway.jsonc \
-                    -s /home/winterbox/.config/waybar/style-sway.css
+    set $bar waybar -c $HOME/.config/waybar/config-sway.jsonc \
+                    -s $HOME/.config/waybar/style-sway.css
 
-    set $wallpaper /home/winterbox/.config/sway/walls/ikebukuro-2560x1440.png
+
+    
 # Black-Screen-Wallpaper-3-1.jpg
 # 8544377.jpg
 
@@ -93,13 +94,14 @@
 
 ### OUTPUT #######################################################
 
-    output eDP-1 {
-        position 0,0
-        bg $wallpaper fill
-    }
+# No output block by design — names differ per machine and a name that
+    # does not match is silently ignored, which is worse than no block.
+    # Sway's default lays outputs out horizontally in discovery order.
+    # Per-machine geometry belongs in an installer-generated file.
 
-    # MINIS (DP-3 @ 0x0 + HDMI-A-1 @ 1920x0) — later, separate block.
+    output * bg $no0 solid_color
 
+    include outputs.conf
 
 ### INPUT ########################################################
 
@@ -245,7 +247,7 @@
 ### KEYBINDINGS — SCREENSHOT & MEDIA #############################
 
     bindsym $mod+Print   exec grim -g "$(slurp)" - | wl-copy
-    bindsym Shift+Escape exec $rofi_scripts/screenshot/screenshot
+	bindsym Shift+Escape exec $HOME/.local/bin/km-shot
     #   NOTE: that rofi script calls hyprshot. Needs a grim/slurp rewrite.
 
     bindsym --locked XF86AudioMute        exec wpctl set-mute   @DEFAULT_AUDIO_SINK@ toggle
@@ -259,7 +261,6 @@
     bindsym --locked XF86MonBrightnessUp   exec brightnessctl s +5%
     bindsym --locked XF86MonBrightnessDown exec brightnessctl s 5%-
 
-    bindsym $mod+Ctrl+v exec /home/winterbox/.local/bin/restartAudio
 
 
 ### WINDOW RULES #################################################

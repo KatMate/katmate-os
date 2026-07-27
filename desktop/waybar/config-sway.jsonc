@@ -14,7 +14,6 @@
 		],
 		"height": 31,
 		"layer": "top",
-		"output": "eDP-1",
 		"mode": "dock",
 		"exclusive": true,
 		"passthrough": false,
