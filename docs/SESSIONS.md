@@ -23,6 +23,107 @@
 
 ---
 
+## This session (2026-07-26) — Sway profile built and live on Acer
+
+First desktop-layer session. Hyprland/CYBRland ported to Sway from scratch on
+the Acer; the profile now lives in git under `desktop/` where nothing of the
+DE ever was. Sway is running as the default session via greetd/tuigreet.
+
+No decision was recorded. ADR-016 revision and the indicator ADR are held back
+deliberately — see "Gated on empirics" below.
+
+### What was built
+
+`desktop/` tree, new:
+
+| file | note |
+|---|---|
+| `sway/config` | full port; `VERIFY` comments mark three uncertain points |
+| `waybar/config-sway.jsonc` | parallel to `config.jsonc`; Hyprland untouched |
+| `waybar/modules-sway.jsonc` | `sway/{workspaces,window,language}` |
+| `waybar/style-sway.css` | `@import "style.css"` + `.focused` (sway) vs `.active` (hyprland) |
+| `bin/sway-session` | env wrapper — sway config has no `env =` directive |
+| `bin/km-shot` | grim/slurp + notification actions; replaces hyprshot |
+| `bin/km-scratch` | sway scratchpad toggle; replaces pyprland and `toggle_scratchpad.sh` |
+| `greetd/` | reference copies of `config.toml` + two `.desktop` entries |
+
+User files are symlinked out of the repo (same anti-drift pattern as
+`~/net-sys.con`); system files under `/etc` are copies, deployed by hand.
+
+greetd was already tuigreet, pinned to one command by `--cmd hyprland-quiet`.
+Removing that flag restored the session picker; the two `.desktop` entries were
+moved from `/usr/share/wayland-sessions/` to `/etc/greetd/sessions/` so a
+package upgrade cannot inject an entry that bypasses `sway-session`.
+
+Three shared rofi scripts were made compositor-neutral rather than forked:
+`powermenu` → `loginctl terminate-session`, `keybindings` → class at launch.
+`wallpaper` was left alone: it targets `DP-2`, which exists on neither machine,
+so it has never worked under Hyprland either.
+
+### What the port cost
+
+Dropped, because Sway has none of them: coloured glow (`shadow range 30,
+render_power 5`), bevelled corners (`rounding 28, rounding_power 1.0` — a 45°
+chamfer, not a radius), background blur (`size 6, passes 4`). Borders, gaps,
+palette, fonts and terminal transparency transferred exactly. Animations were
+already off upstream.
+
+SwayFX evaluated and rejected: a fork needing a manual rebase per Sway release
+(0.5 on 1.10.1, upstream at 1.12), and `scenefx` replaces the wlroots scene
+graph rather than adding a render pass. Wrong shape for a TCB component.
+
+The GUI is visibly faster. On the N4200 that is expected rather than
+surprising — Hyprland was doing four blur passes over what was effectively the
+whole desktop (kitty runs `background_opacity 0`), plus a shadow and a
+non-rectangular window shape that defeats occlusion culling.
+
+### Findings worth keeping
+
+- **Sway has no per-window border colour.** `client.focused` is global. This
+  does *not* block the domain indicator: inactive windows carry no visible
+  border, so only the focused window's colour matters, and one global value
+  set over IPC on each focus change is sufficient. Cost per frame: zero. The
+  layer-shell overlay considered earlier is unnecessary.
+- **Marks are host-set and unspoofable.** Settable only via IPC, drawn by the
+  compositor. The strongest candidate carrier for a text-shaped indicator.
+- **Per-window channels that a guest cannot reach**, all keyed on PID: border
+  width, opacity, mark, workspace. `app_id` and window title are not among
+  them and must never be used.
+- **The transparency was never Hyprland's.** `active_opacity = 1` in
+  `vars.conf`; the effect comes from kitty's `background_opacity 0`. It ports
+  unchanged. What does not port is the blur *behind* it — which matters only
+  over busy content, since both wallpapers measure near-black (mean RGB
+  (11,14,20) and (10,8,10)).
+- **Qubes solves the same problem by writing its own GUI daemon**
+  (`qubes-gui-daemon` draws per-VM borders under X11). The Sway + IPC route is
+  cheaper because Wayland already provides the input isolation Qubes had to
+  build.
+
+### Gated on empirics
+
+Two facts remained untested at the time, and both fed the indicator decision:
+
+1. does Sway accept `#RRGGBBAA` in `client.*`? (Hyprland's
+   `col.inactive_border` was `#29BECC00`; the port approximates with opaque
+   near-black)
+2. does `show_marks` draw anything under `border pixel`, which has no
+   titlebar? If not, marks need `default_border normal`.
+
+ADR-016 revision and ADR-026 (indicator carriers) were deliberately not written
+until these were gated. Writing them first would repeat the ADR-021 and
+ADR-025 Path A failure mode: mechanism accepted, then found not to exist.
+
+**Both were gated on 2026-07-27** — see *Next steps*.
+
+### Carried
+
+- `desktop/` needs a licence decision before it is useful to anyone else: the
+  Sway config and `style-sway.css` are derived from CYBRland (GPL-3.0) and
+  `README.md` declares no project licence.
+- MINIS: no output block — resolved 2026-07-27 as a decision, not a debt.
+- swayidle/swaylock deliberately absent — `hypridle.conf` was never supplied.
+- `~/.config/rofi/scripts/wallpaper/wallpaper` still Hyprland-only.
+
 ## This session (2026-07-25) — doc drift sweep, ADR-004/024 propagation, MINIS housekeeping
 
 Found that ADR-024 never reached `SECURITY-MODEL.md` or `ARCHITECTURE.md`: both

@@ -43,6 +43,11 @@ else is assumed breachable.
 - **Boundaries move only from the more-trusted side.** Network configuration is
   mutated by netVM's *own* agent executing a *host* command
   ([ADR-021](DECISIONS.md#adr-021)); a guest can never move its own boundary.
+- **Where a boundary is enforced is part of the boundary.** AF_VSOCK limits are
+  enforced by the host kernel; a userspace device model substitutes process
+  correctness for that enforcement. This is a property to be stated in any ADR
+  that moves a device model, never assumed neutral
+  ([ADR-027](DECISIONS.md#adr-027), [ADR-028](DECISIONS.md#adr-028)).
 
 ## Principles
 
@@ -54,11 +59,54 @@ else is assumed breachable.
 6. Small, auditable management layer
 7. Separation of duties (system in base image, data in overlay)
 8. **Absent, not disabled** — a capability that must not exist in a VM class is
-   *not compiled into* the binary running there, rather than gated at runtime
-   ([ADR-021](DECISIONS.md#adr-021))
+   *not compiled into* the binary, or *not instantiated* on the command line,
+   rather than gated at runtime ([ADR-021](DECISIONS.md#adr-021)). This is the
+   test for **existence** only; see *Three axes of capability control* below.
+   Canonical instances: `netvm-agent` cannot decode `RUN`; an AppVM with
+   `netvm: None` has no `Link` object; a VM class needing no control channel
+   carries no `-device vhost-vsock-device`; netVM carries no `virtio-9p-pci`.
 9. **Isolation by topology, not by rule** — network separation is expressed by
    which links exist, not by firewall rules discriminating between AppVMs
    ([ADR-022](DECISIONS.md#adr-022))
+10. **Relocation is not removal** — moving a capability across a privilege
+    boundary (kernel → VMM, VMM → backend daemon) removes nothing. Its security
+    value is *conditional* on the target being more confined than the source,
+    and is zero until that is true ([ADR-027](DECISIONS.md#adr-027)).
+
+## Three axes of capability control
+
+Three separate questions, three separate tests. Conflating them dilutes the
+first into unfalsifiability ([ADR-027](DECISIONS.md#adr-027)).
+
+| # | Axis | Question | Test |
+|---|---|---|---|
+| 1 | **Existence** | Does the capability exist in this domain class at all? | Is it compiled / instantiated? |
+| 2 | **Placement** | Where is it implemented, and how confined is that place? | Is the target more confined than the source? |
+| 3 | **Enforcement** | Who holds the boundary? | Kernel-enforced, or dependent on userspace correctness? |
+
+*Absent, not disabled* (principle 8) answers axis 1 and nothing else.
+
+**Worked example — the vsock control channel.**
+
+- *Axis 1, satisfied today:* a VM class that must have no control channel is
+  launched without `-device vhost-vsock-device`. The device is absent.
+- *Axis 2, open:* whether the virtio-vsock device model lives in the host
+  kernel, the VMM process, or a separate backend daemon
+  ([ADR-028](DECISIONS.md#adr-028)). None of these options removes the channel.
+- *Axis 3, currently strong:* `vhost_vsock` boundaries are kernel-enforced, and
+  since Linux 7.0 the CID space is namespace-aware. Moving the device model to
+  userspace trades kernel enforcement for process correctness.
+
+**Worked example — the 9p host share, closed 2026-07-28.** The proof that netVM
+cannot reach the host filesystem is taken **host-side**: the running VMM's
+`/proc/<pid>/cmdline` contains neither `fsdev` nor `virtio-9p-pci`. That is an
+axis-1 proof — the device is absent from instantiation, so the guest cannot
+mount what does not exist — and it is *stronger* than an in-guest
+`mount | grep 9p`, which would only be an axis-3 observation.
+
+**Ordering rule.** Axis-2 changes are gated on axis-2 hygiene: no relocation is
+implemented before the target passes the C-gate
+([ADR-027](DECISIONS.md#adr-027)).
 
 ## Controls by component
 
@@ -143,19 +191,78 @@ identity**, i.e. host-side trusted state — never on guest-controlled propertie
 (`app_id`, window title are spoofable). This is why a single audited profile
 (Sway) ships, rather than two ([ADR-016](DECISIONS.md#adr-016)).
 
+The identity path is **two host-side steps and no guest input**
+([ADR-026](DECISIONS.md#adr-026)): the compositor supplies the window's `pid`,
+and that pid's AF_VSOCK connection supplies the peer CID. `app_id` and window
+title are excluded from the identity path at every level. Verified live
+2026-07-28: a rendered guest window reporting `app_id: org.gnome.Nautilus`
+resolved via its pid to the host waypipe client, whose vsock connection
+reported peer CID 5 — the domain. The resolving query does **not** require
+privilege (verified 2026-07-28: an unprivileged caller receives the same peer
+CID as root), so the resolver may run in the user session; the launch daemon
+remains the preferred owner of the map for other reasons.
+
 ### Guests
 
 Minimal Debian userspace, minimal services, direct kernel boot, custom
 MicroVM kernel with a reduced config surface. Nothing persists outside the
 per-AppVM overlay.
 
+### VMM process
+
+Both launchers run QEMU with
+`-sandbox on,obsolete=deny,elevateprivileges=deny,spawn=deny,resourcecontrol=deny`.
+Verified live 2026-07-28 on both machine types: `Seccomp: 2` with one filter
+loaded, no `SCMP_ACT_KILL` in `dmesg`, control path returning `0x00`, and the
+netVM vfio reset cycle (`FLReset-` workaround) unaffected.
+
+`resourcecontrol=deny` blocks the `sched_setscheduler` / `sched_setaffinity` /
+`setpriority` family. The concern that this would collide with
+`-object iothread` was tested rather than assumed, and did not materialise on
+either machine type ([ADR-027](DECISIONS.md#adr-027) C4).
+
+Privilege differs by launcher and is **not** yet uniform: `app_web.con` runs
+QEMU as the invoking user (`sudo` covers only `lvchange`); `net-sys.con` runs
+it as root. Gap #11.
+
+### Host block I/O
+
+`aio=threads`, not `aio=io_uring`. The immediate cause is the hardened kernel
+(`kernel.io_uring_disabled = 2`), but the choice is independently justified:
+io_uring is among the most defect-dense kernel subsystems, and this path runs
+host-side driven by guest I/O patterns. Public material bearing on this choice
+— including material about QEMU's own device models — is recorded in
+`docs/OBSERVATIONS.md` §1.
+
 ## Trusted computing base
 
 Host kernel (`linux-hardened`) + QEMU/KVM + systemd + host side of vm-agent +
 waypipe client + **host compositor (Sway — draws the domain indicator)** +
 **launch daemon (owns the topology graph)** + installer-provisioned
-configuration. Kept deliberately small; `qemu-full` → `qemu-base` reduction is
-under evaluation.
+configuration.
+
+Kept deliberately small — but TCB size is measured in *privilege*, not only in
+installed bytes. Two reductions are tracked separately:
+
+- **Binary surface:** `qemu-full` → `qemu-base` (the MicroVM machine type needs
+  no GUI frontends). Under evaluation.
+- **Process privilege:** partially closed. Both launchers now run QEMU under a
+  tightened seccomp filter (live-gated 2026-07-28), and no host filesystem is
+  exported into any guest. Outstanding: the **netVM VMM still runs as root**,
+  unconfined by chroot or Landlock, in `init_netns`, with `memlock` granted by
+  an interactive `ulimit` rather than a unit. The AppVM VMM already runs as the
+  invoking user. Gap #11; C-gate in [ADR-027](DECISIONS.md#adr-027).
+
+Until the second is closed for netVM, "minimal TCB" describes the intent of
+this design and only partly its current state. **netVM does not require a root
+VMM** — the three privileged steps (vfio node, TAP creation, LVM activation)
+are launcher-side and drop before `exec qemu`; the only real obstacle is
+`RLIMIT_MEMLOCK`, which is configuration.
+
+The domain indicator adds one host-kernel dependency: AF_VSOCK socket
+diagnostics (`vsock_diag`), used to resolve a window's pid to a guest CID
+([ADR-026](DECISIONS.md#adr-026)). Without it the indicator has no trustworthy
+identity source.
 
 ## Known gaps (tracked)
 
@@ -170,4 +277,6 @@ under evaluation.
 | 7 | **VPN key co-located with the NIC driver** — in v1 the WireGuard private key and the `r8169` driver + non-free Realtek firmware blob share one address space. Compromise of the most exposed code in the system (hardware-facing driver) is compromise of the VPN credentials. | Accepted for v1; the model already permits the fix. Post-v1: split into a **driver domain** (q35, hardware, no secrets) and a **proxy netVM** (microVM, secrets, no hardware) — [ADR-022](DECISIONS.md#adr-022). |
 | 8 | **Proxy sysVMs will add `CONFIG_WIREGUARD` + netfilter to the shared MicroVM kernel**, which all AppVMs also run. The code is unreachable from an AppVM (uid 1000, no `CAP_NET_ADMIN`) but is *present* — a departure from absent-not-disabled at the kernel level. | Accepted consciously ([ADR-021](DECISIONS.md#adr-021) rejected a second kernel: doubled config maintenance, firmware-licensing issues for ISO distribution). Revisit if a second kernel becomes cheap. |
 | 9 | **IOMMU-group quality is a hard requirement, unverified at install time.** A driver domain is only safe where the NIC is cleanly isolable; a bad grouping silently weakens passthrough isolation. | HCL + installer preflight check ([ADR-022](DECISIONS.md#adr-022)); on the ROADMAP, not a v1 code blocker. |
-| 10 | **9p hostshare into netVM** — `net-sys.con` carries `virtio-9p-pci` with `security_model=none` sharing `/home/host` into the most network-exposed VM. In no ADR; a dev-convenience remnant (same class as SSH #4, dev-root). | Dev-only. Remove the `-fsdev`/`virtio-9p-pci` pair from the release launcher; not present in any installer-provisioned config. |
+| 10 | ~~**9p hostshare into netVM** — `net-sys.con` carried `virtio-9p-pci` with `security_model=none` sharing `/home/host` into the most network-exposed VM~~ | **Resolved (2026-07-28):** `-fsdev` and `-device virtio-9p-pci` removed from `net-sys.con`. Verified host-side: the running VMM's `/proc/<pid>/cmdline` contains neither. C5b in [ADR-027](DECISIONS.md#adr-027). If a dev file path is ever needed again it must be a narrow subtree with `security_model=mapped-xattr`, in a **separate dev launcher**. |
+| 11 | **netVM VMM runs as root, unconfined.** `net-sys.con` is invoked with `sudo`; the QEMU process has no chroot or Landlock ruleset, sits in `init_netns`, and receives `memlock` from an interactive `ulimit -l unlimited` rather than a unit. Compromise of this process is, in practice, compromise of the host. Does **not** apply to `app_web.con`, where QEMU runs as the invoking user and `sudo` covers only `lvchange`. | Largest remaining privilege item in the TCB. C-gate in [ADR-027](DECISIONS.md#adr-027): C4 and C5b passed 2026-07-28; C1–C3 are the launch daemon's privilege split; C5a is a `setpriv`-style Landlock wrapper (no QEMU patch needed — Landlock rulesets are inherited across `execve`); C6 is per-VM netns. **Blocks all axis-2 work.** |
+| 12 | **vsock CID space is global on the host.** Any host process can reach any VM's agent on port 1025; the waypipe host user service can reach netVM's agent although it has no reason to. | Linux 7.0 makes vsock namespace-aware (`vhost-vsock` + `vsock_loopback`); available on the current MINIS host kernel. Per-VM netns with `child_ns_mode=local`. Note `child_ns_mode` is **write-once** and `ns_mode` immutable after namespace creation — a daemon-start decision, not a runtime toggle. Couples to [ADR-026](DECISIONS.md#adr-026): with CID reuse, indicator identity becomes **(netns, CID)**, not CID. C6 in [ADR-027](DECISIONS.md#adr-027); mechanism in [ADR-028](DECISIONS.md#adr-028). |
