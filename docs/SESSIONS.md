@@ -23,6 +23,86 @@
 
 ---
 
+## This session (2026-07-27) — Sway deployed to MINIS, greetd swap done
+
+Mechanical session. The Sway profile built on the Acer on 07-26 is now live on
+MINIS, and greetd offers a session picker instead of one pinned command. No new
+code; three empirical findings, all of which feed ADR-016 and ADR-026.
+
+Sway 1.12 was purged and reinstalled clean — the machine carried a 1408-byte
+generic skeleton config from March, unrelated to CYBRland. `pacman -Rs --print`
+confirmed only `wlroots0.20` and `gnu-free-fonts` came with it; Hyprland uses
+`aquamarine`, not wlroots, so the live session on tty1 was never at risk.
+
+### Portability fixes to `desktop/`
+
+The profile was written against the Acer and would not have started on MINIS:
+
+| was | now |
+|---|---|
+| `/home/winterbox/…` ×6 | `$HOME/…` |
+| `output eDP-1 { … }` | no output block; `include outputs.conf` |
+| `"output": "eDP-1"` (waybar) | removed — bar draws on all outputs |
+| `"eDP-1": [1,2,3,4]` (modules) | `"*": [1,2,3,4]` |
+| `$rofi_scripts/screenshot/…` | `$HOME/.local/bin/km-shot` |
+| `restartAudio` bind | removed — script exists on neither machine |
+
+**Absence of an `output` block is a decision, not a debt.** A hardcoded output
+name that does not match is *silently ignored* by sway, which is worse than no
+block at all: it looks configured. Sway's default lays outputs out horizontally
+in discovery order, which on MINIS came out correct (left/right as cabled).
+This is the same failure shape as matching a NIC by interface name instead of
+MAC (cf. `20-uplink.network`) — third instance of this pattern in the
+project.
+Per-machine geometry belongs in an installer-generated file.
+
+### Findings
+
+- **`include` tolerates a missing file.** `outputs.conf` did not exist and sway
+  started without complaint. The installer therefore writes the file only when
+  it has something to write; no empty placeholder is needed.
+- **`$HOME` works in `set`.** Sway leaves undefined `$vars` as literal text and
+  the shell expands them at `exec` time. Valid only in `exec` context — it
+  would NOT work in `output … bg`, but that line is gone.
+- **`--sessions <dir>` replaces the default, it does not merge.** Verified
+  live: `hyprland-uwsm.desktop` did not leak in from
+  `/usr/share/wayland-sessions/`. The anti-injection pattern holds against
+  package upgrades.
+- `$mod+Tab` (`focus next sibling`) parses and works — last `VERIFY` in the
+  config closed.
+- Neither `hyprctl`, `swaymsg` nor `sway --validate` works over SSH: no seat.
+  `--validate` fails in the backend before it ever parses the config. Desktop
+  work needs a physical console or a running session, full stop.
+
+### greetd
+
+`--cmd hyprland-quiet` removed; `/etc/greetd/sessions/` holds two entries,
+`Exec=` pointing at wrappers under `/usr/local/bin` so no entry reaches the
+compositor without `sway-session`'s Qt/GTK/XDG environment. `sway-quiet`
+mirrors the existing `hyprland-quiet` (ANSI clear before handing over). The
+`hyprland-uwsm` entry was deliberately not carried: uwsm wraps the session in
+its own systemd-user scope and bypasses the wrapper by construction.
+
+Picker verified live (F3). **Open problem #1 is closed.**
+
+### Deployment shape
+
+User files are symlinks out of `~/katmate-build/desktop/`; `/etc` and
+`/usr/local/bin` files are copies, with reference copies committed back into
+`desktop/greetd/` and `desktop/bin/`. `~/.config/sway/outputs.conf` is local
+and ungitted by design — the wallpaper line lives there.
+
+### Carried
+
+- `desktop/` still needs a licence decision (derived from CYBRland, GPL-3.0).
+- swayidle/swaylock still absent — `hypridle.conf` was never supplied.
+- `~/.config/rofi/` on MINIS is a separate CYBRland checkout with its own
+  `.git`. Two sources of truth for the rofi layer; not reconciled.
+- MINIS `~/katmate-build/` carried a nested stale `katmate-os/` with a live
+  `.git` whose work tree was the parent — removed. It was the reason
+  `--exclude='katmate-os/'` sat in the standard rsync line; that exclude is
+  now unnecessary and was dropped.
+
 ## This session (2026-07-26) — Sway profile built and live on Acer
 
 First desktop-layer session. Hyprland/CYBRland ported to Sway from scratch on

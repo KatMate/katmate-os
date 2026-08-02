@@ -201,13 +201,144 @@ passed the same day, leaving C1–C3, C5a and C6 attached to the launch daemon.
 ADR-028 settles that v1 stays on kernel `vhost_vsock` and records what would
 have to be true before that changes. ADR-026 closes the domain indicator's
 identity question, which unblocks the Sway indicator work. The next code to
-write is the launch daemon, and it must be designed with the privilege split in
-it rather than acquired afterwards.
+write is the launch daemon. **ADR-029 (2026-08-02) settles its supervision
+model: systemd owns the VMM process; the daemon orders units and holds no
+process relationship to any QEMU.** The privilege split is therefore unit
+configuration (C1, C3, C5a) rather than daemon code, and the daemon becomes
+restartable — and so updatable — without touching running VMs.
 
 Direction unchanged: IOMMU-capable platforms only (VT-d/AMD-Vi); VT-x-only
 frozen (ADR-015). MINIS is primary host and merge target.
 
-## This session (2026-07-28) — C-gate defined and half-passed; vsock placement settled; indicator carriers closed
+## This session (2026-08-02) — ADR-029: systemd owns the VMM process; four constraints re-examined and gone
+
+Architecture session (thinking-on) plus four live gates on MINIS. Scope was
+deliberately one question and nothing else: **who is the parent of the QEMU
+process.** Everything downstream — privilege split, allocation, netns — was
+treated as consequence, not as co-equal design surface.
+
+### Decided
+
+- **ADR-029 — the launch daemon orders units; systemd owns the VMM process.**
+  The daemon never `fork`s or `exec`s a VMM. Each VM is a systemd unit; PID 1
+  is the parent; the unit name and its cgroup are the durable identity. The
+  daemon retains everything the five prior ADRs assign it (graph, CID
+  allocation, NETCFG ordering and re-issue, CID→name, dependent-VM interlock)
+  and may die at any moment without any running VM noticing.
+
+### The four constraints, re-examined
+
+The question was reached by counting 4:1 in favour of daemon-as-parent. The
+count was not a weighing. Three of the four dissolve against the ADRs they were
+drawn from; the fourth was a question about a device that does not exist.
+
+| Constraint | Outcome |
+|---|---|
+| pid↔CID (ADR-026) | dissolves — `vsock_diag` resolves pid→CID in the kernel; the daemon's part is CID→name, persisted state |
+| `_is_alive` (ADR-017) | dissolves — ADR-017 already offers "active vsock endpoints for those CIDs". A live control endpoint **is** liveness here |
+| `child_ns_mode` write-once (C6) | measured, leaves the column — the write is in a *parent* namespace, children inherit at creation; produces a **named** namespace, not a descriptor |
+| TAP as `fd=` (C2) | dissolved by inspection — `app_web.con` carries **no network device at all** |
+
+### The argument that decided it, on neither list
+
+Daemon-as-parent makes the identity of a running VM a process relationship. On
+daemon death or update the QEMU processes survive (reparented) — that is not
+the problem. The problem is that the new daemon is not their parent: `waitpid`
+is gone, and reconstruction through a persisted pid + `pidfd_open` reintroduces
+**pid reuse**, the exact race ADR-017's monotonic counter and full-cycle
+`flock` exist to eliminate. Under C6 it is worse: identity is **(netns, CID)**
+(ADR-028), and an anonymous namespace held as a descriptor from
+`/proc/<child>/ns/net` dies with the daemon — the half that cannot be recovered
+by name. This project ships security updates; a model where
+`systemctl restart katmated` requires stopping every VM is a design defect.
+
+systemd is PID 1. It does not restart.
+
+### Gates passed (live, MINIS)
+
+| # | Observation | Result |
+|---|---|---|
+| G0 | `/proc/sys/net/vsock/child_ns_mode` `rw`, `ns_mode` `r--r--r--`, both `global` at boot | PASSED |
+| G1a | first write `rc=0`; second differing write → `EBUSY`. Write-once measured, not cited | PASSED |
+| G1b | child of `local` parent reads `local`; **control:** child of `init_netns` reads `global` | PASSED |
+| G1c | `nsenter --net=/run/netns/katmate-root` + `unshare --net` → child reads `local` — the daemon's actual sequence | PASSED |
+| G3 | `SIGKILL` to `MainPID` under `User=nobody` → `STOPPOST result=signal status=KILL code=killed uid=0`; unit `Result=signal` | PASSED |
+| G2 | tap is netns-scoped (`Device "tap-g2" does not exist`; control: only `lo`) | PASSED |
+| G2b | `ip link set tap-g2 netns g2-test` succeeds — migration is an alternative to fd inheritance | PASSED |
+
+`init_netns` `child_ns_mode` remains `global` — the host-wide write-once budget
+was never spent.
+
+### Measured, predicted by no ADR
+
+- **`ip netns add` is not nestable.** Under `ip netns exec` the bind mount is
+  made in a child mount namespace that immediately exits. What remains is a
+  `----------` placeholder; `setns` → `EINVAL`, and `ip netns list` still lists
+  it. Permission bits distinguish: live namespace `-r--r--r--` (nsfs inode under
+  the bind mount) vs placeholder `----------`. **Consequence: namespace creation
+  is daemon code** — `setns` → `unshare` → `mount --bind`, one process, alive
+  until the bind mount lands.
+- **`/proc` must be remounted to read per-netns sysctls.** After
+  `unshare --net`, `/proc/sys/net` shows the *old* namespace until `/proc` is
+  remounted. The failure mode is a **false negative** — a plausible wrong value,
+  silently returned. Same class that killed ADR-021's shutdown model: a
+  mechanism quietly consulting the wrong object. Applies to the daemon, not only
+  to tests.
+- **`ns_mode` is `r--r--r--`.** After a namespace exists there is no lever.
+  Whoever creates it has fixed its mode permanently.
+- **Tap migration clears `UP`, preserves MAC.** `ip link set … up` must run
+  *after* migration, inside the target namespace. The surviving MAC matters to
+  ADR-025's locally-administered-address check.
+
+### Correction to an earlier internal statement
+
+Mid-session it was asserted that AppVM links "probably need veth rather than tap
+because AppVMs route through netVM, not the host". The reasoning was right and
+the premise was wrong: it generalised from `net-sys.con`'s host-side `tap-int0`,
+which sits on the host only because until now there was no other namespace to
+put it in. Inspection of `app_web.con` settles it differently — **the AppVM
+launcher has no network device of any kind.** No `-netdev`, no
+`virtio-net-device`, no tap. AppVM networking does not exist yet, which is
+consistent with NETCFG having been live-gated against netVM itself and never
+through a live AppVM.
+
+C2 is therefore recorded as **neither passed nor failed**: it was not a
+constraint on parenthood. It returns as a link-topology question when the AppVM
+acquires an endpoint, to be settled by measurement then.
+
+### Refinement to ADR-028
+
+ADR-028 records `child_ns_mode` as "a decision taken once at **daemon start**".
+G1 refines: the write is in a *parent* namespace, children inherit at creation.
+It is a one-time preparation on a dedicated `katmate-root` namespace, not a
+daemon-start decision — so `init_netns` is never written and foreign namespaces
+on the host keep `global`. ADR-028's substance stands and is now measured rather
+than cited.
+
+### Not measured, recorded as not measured
+
+- **OOM-kill.** G3 used `SIGKILL`; systemd distinguishes `result=oom-kill`
+  separately. `ExecStopPost=+` behaving identically is likely and unverified.
+- **Tap ownership across migration** — whether `user <uid>` survives
+  `ip link set … netns`. Blocks nothing until an AppVM has an endpoint.
+- **AppVM link topology** — opened, not settled, by the C2 finding.
+- **Unit shape** — `StartTransientUnit` vs a `katmate-vm@.service` template.
+  Deliberately deferred; neither affects any ADR-029 decision.
+
+### Housekeeping
+
+`/etc/systemd/system/vhost-vsock-load.service:5` uses `ConditionKernelModule`,
+which systemd does not know; the line is silently ignored (visible in `dmesg`).
+The unit works — the condition does not exist. Drift, not a defect.
+
+### Docs debt raised this session
+
+The earlier 2026-08-02 session (CID renumbering `app_web` 5 → 21, personalVM
+deletion) is threaded through this file's live sections but **has no session
+heading**. It is therefore invisible as a session while its consequences are
+visible as state. Give it its own heading, or fold it in here — not left as is.
+
+## Previous session (2026-07-28) — C-gate defined and half-passed; vsock placement settled; indicator carriers closed
 
 Architecture session (thinking-on) plus three live gates. Origin: a review of
 alternative VMMs that turned into a correction of how this project applies
@@ -300,89 +431,9 @@ The open-problems list in this file already ran to **15**, not 12. An earlier
 draft of this session's additions assumed 12 and would have collided. Same rule
 as for ADRs: count the list, never the memory of it.
 
-## Previous session (2026-07-27) — Sway deployed to MINIS, greetd swap done
-
-Mechanical session. The Sway profile built on the Acer on 07-26 is now live on
-MINIS, and greetd offers a session picker instead of one pinned command. No new
-code; three empirical findings, all of which feed ADR-016 and ADR-026.
-
-Sway 1.12 was purged and reinstalled clean — the machine carried a 1408-byte
-generic skeleton config from March, unrelated to CYBRland. `pacman -Rs --print`
-confirmed only `wlroots0.20` and `gnu-free-fonts` came with it; Hyprland uses
-`aquamarine`, not wlroots, so the live session on tty1 was never at risk.
-
-### Portability fixes to `desktop/`
-
-The profile was written against the Acer and would not have started on MINIS:
-
-| was | now |
-|---|---|
-| `/home/winterbox/…` ×6 | `$HOME/…` |
-| `output eDP-1 { … }` | no output block; `include outputs.conf` |
-| `"output": "eDP-1"` (waybar) | removed — bar draws on all outputs |
-| `"eDP-1": [1,2,3,4]` (modules) | `"*": [1,2,3,4]` |
-| `$rofi_scripts/screenshot/…` | `$HOME/.local/bin/km-shot` |
-| `restartAudio` bind | removed — script exists on neither machine |
-
-**Absence of an `output` block is a decision, not a debt.** A hardcoded output
-name that does not match is *silently ignored* by sway, which is worse than no
-block at all: it looks configured. Sway's default lays outputs out horizontally
-in discovery order, which on MINIS came out correct (left/right as cabled).
-This is the same failure shape as matching a NIC by interface name instead of
-MAC (cf. `20-uplink.network`) — third instance of this pattern in the
-project.
-Per-machine geometry belongs in an installer-generated file.
-
-### Findings
-
-- **`include` tolerates a missing file.** `outputs.conf` did not exist and sway
-  started without complaint. The installer therefore writes the file only when
-  it has something to write; no empty placeholder is needed.
-- **`$HOME` works in `set`.** Sway leaves undefined `$vars` as literal text and
-  the shell expands them at `exec` time. Valid only in `exec` context — it
-  would NOT work in `output … bg`, but that line is gone.
-- **`--sessions <dir>` replaces the default, it does not merge.** Verified
-  live: `hyprland-uwsm.desktop` did not leak in from
-  `/usr/share/wayland-sessions/`. The anti-injection pattern holds against
-  package upgrades.
-- `$mod+Tab` (`focus next sibling`) parses and works — last `VERIFY` in the
-  config closed.
-- Neither `hyprctl`, `swaymsg` nor `sway --validate` works over SSH: no seat.
-  `--validate` fails in the backend before it ever parses the config. Desktop
-  work needs a physical console or a running session, full stop.
-
-### greetd
-
-`--cmd hyprland-quiet` removed; `/etc/greetd/sessions/` holds two entries,
-`Exec=` pointing at wrappers under `/usr/local/bin` so no entry reaches the
-compositor without `sway-session`'s Qt/GTK/XDG environment. `sway-quiet`
-mirrors the existing `hyprland-quiet` (ANSI clear before handing over). The
-`hyprland-uwsm` entry was deliberately not carried: uwsm wraps the session in
-its own systemd-user scope and bypasses the wrapper by construction.
-
-Picker verified live (F3). **Open problem #1 is closed.**
-
-### Deployment shape
-
-User files are symlinks out of `~/katmate-build/desktop/`; `/etc` and
-`/usr/local/bin` files are copies, with reference copies committed back into
-`desktop/greetd/` and `desktop/bin/`. `~/.config/sway/outputs.conf` is local
-and ungitted by design — the wallpaper line lives there.
-
-### Carried
-
-- `desktop/` still needs a licence decision (derived from CYBRland, GPL-3.0).
-- swayidle/swaylock still absent — `hypridle.conf` was never supplied.
-- `~/.config/rofi/` on MINIS is a separate CYBRland checkout with its own
-  `.git`. Two sources of truth for the rofi layer; not reconciled.
-- MINIS `~/katmate-build/` carried a nested stale `katmate-os/` with a live
-  `.git` whose work tree was the parent — removed. It was the reason
-  `--exclude='katmate-os/'` sat in the standard rsync line; that exclude is
-  now unnecessary and was dropped.
-
 ## Session archive
 
-Sessions older than the two above (2026-07-26 back to 2026-06-27) live in
+Sessions older than the two above (2026-07-27 back to 2026-06-27) live in
 [docs/SESSIONS.md](docs/SESSIONS.md), split out on 2026-07-14. That file is
 append-only; CIDs in it are the pre-ADR-022 numbering and are deliberately not
 rewritten. **This file carries the authoritative CID map** (see *Live state*).
@@ -590,19 +641,38 @@ touched.
    privileged preparation steps (vfio node, TAP creation, LVM activation) are
    all launcher-side and can drop before `exec qemu`; `RLIMIT_MEMLOCK` is the
    only real obstacle and it is configuration, not architecture. **Blocks all
-   axis-2 work** (ADR-027). C5a note: Landlock rulesets are inherited across
-   `execve`, so a small `setpriv`-style wrapper suffices — no QEMU patch
-   required. SECURITY-MODEL gap #11.
+   axis-2 work** (ADR-027). **Re-scoped by ADR-029 (2026-08-02):** C1, C3 and
+   C5a are no longer daemon implementation — they are unit directives (`User=`,
+   `LimitMEMLOCK=infinity`, a `setpriv`-style Landlock wrapper in `ExecStart=`),
+   with privileged preparation in `ExecStartPre=+` and cleanup in
+   `ExecStopPost=+` (measured to run as uid 0 after `SIGKILL`). C3 closes on
+   configuration exactly as ADR-027 predicted. C5a note stands: Landlock
+   rulesets are inherited across `execve`, so a small `setpriv`-style wrapper
+   suffices — no QEMU patch required. **C2 is under review as a C-gate item in
+   its present form:** `app_web.con` carries no network device, so there is no
+   AppVM tap to hand over, and netVM's `tap-int0` can be pre-created with
+   `ip tuntap add … user <uid>`. C2 returns as a link-topology question when the
+   AppVM acquires an endpoint. SECURITY-MODEL gap #11.
 
 18. **vsock CID space is global on the host (C6).** Any host process can reach
    any VM's agent on port 1025. Linux 7.0 makes vsock namespace-aware for
    `vhost-vsock` and `vsock_loopback`, and the MINIS host kernel
    (7.0.12-arch1-1) already has it. Per-VM netns with `child_ns_mode=local`
-   fixes it. *Two constraints that shape the launch daemon:* `child_ns_mode` is
-   **write-once** (`-EBUSY` on a differing second write) and `ns_mode` is
-   immutable after namespace creation — a daemon-start decision, not a runtime
-   toggle; and the daemon must reach every VM, so it must enter each namespace
-   or hold per-namespace sockets. *Coupling that must not be discovered late:*
+   fixes it. *Measured 2026-08-02 (ADR-029 G0/G1):* `child_ns_mode` is
+   **write-once** (`EBUSY` on a differing second write) and `ns_mode` is
+   `r--r--r--` — immutable after namespace creation. The write happens in a
+   **parent** namespace and children inherit at creation, so this is a one-time
+   preparation on a dedicated `katmate-root` namespace, **not** a daemon-start
+   decision as ADR-028 states; `init_netns` is never written. `ip netns add` is
+   **not nestable** — under `ip netns exec` it leaves a `----------` placeholder
+   that `setns` rejects with `EINVAL` — so the daemon creates namespaces itself
+   (`setns` → `unshare` → `mount --bind /proc/self/ns/net`) and hands the
+   **named** result to the unit via `NetworkNamespacePath=`. Reading per-netns
+   sysctls requires remounting `/proc`, or the value returned is the old
+   namespace's — a false-negative class, not a robustness detail. Still open:
+   the daemon must reach every VM, so `setns` on demand vs per-namespace
+   sockets is a socket-lifetime question. *Coupling that must not be discovered
+   late:*
    with CID reuse across namespaces the domain indicator's identity becomes
    **(netns, CID)**, not CID (ADR-026). C6 and ADR-026 are revisited together.
    SECURITY-MODEL gap #12; mechanism in ADR-028.
@@ -742,10 +812,16 @@ touched.
   focused border colour (hue + alpha). **Remaining gate:** confirm
   `swaymsg -t get_tree` exposes a `pid` resolving to the waypipe client process.
   Requires a live `app_web` instance — now possible, since Sway runs on MINIS.
-- **Launch daemon owns the graph** (ADR pending) — allocates CIDs and `/32`s,
-  creates/destroys `Link`s, calls NETCFG along the path, refuses to tear down a
+- **Launch daemon** — ADR-022 graph ownership, ADR-017 CID allocation, ADR-025
+  NETCFG ordering and re-issue, ADR-026 CID→name; refuses to tear down a
   `provides_network` VM with live dependents. This is where `netvm`/
-  `provides_network` become real.
+  `provides_network` become real. **Supervision model settled (ADR-029):
+  systemd is the parent, the daemon orders units.** Next design points, in
+  order: (1) unit shape — `StartTransientUnit` vs a `katmate-vm@.service`
+  template with per-instance `EnvironmentFile`; (2) namespace creation as
+  daemon code (`setns` → `unshare` → bind mount), since `ip netns add` is not
+  nestable; (3) how the daemon reaches every VM's namespace — `setns` on demand
+  vs per-namespace sockets.
 - **HCL + installer IOMMU preflight** — a driver domain is only safe where the
   NIC sits in a cleanly isolable IOMMU group. Product requirement, not a v1 code
   blocker (SECURITY-MODEL gap #9).
