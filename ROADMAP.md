@@ -26,10 +26,13 @@
       proven end-to-end; the netinst pet is retired (ADR-021)
 - [x] Network object model — topology as a graph, NIC as an assignable object
       (ADR-022); NETCFG payload is link-scoped (ADR-023)
-- [x] personalVM operational — microvm, hugepages, qcow2 overlay + raw home LV
-- [ ] `netvm-agent` — listener (gate: `ping-client ping 3 → OK`), then NETCFG
-      handler
-- [ ] CID renumbering to the ADR-022 map (fixed AppVMs 4–8 → 20+)
+- [x] personalVM operational — microvm, hugepages, qcow2 overlay + raw home LV.
+      *Pre-foundation artefact; retired 2026-08-02 (launcher, overlay and
+      `vm_personal_home` removed). The `personal` **domain** returns in v0.3 as
+      one of the default AppVMs, built from foundation + `web` manifest.*
+- [x] `netvm-agent` — listener (gate: `ping-client ping 3 → OK`), then NETCFG
+      handler (ADR-025, live-gated 2026-07-23; PING/NETCFG/SHUTDOWN complete)
+- [x] CID renumbering to the ADR-022 map (fixed AppVMs 4–8 → 20+)
 - [ ] AppVM domain model + three-layer composition (ADR-014, ADR-010)
 - [x] `katmate-update` implementation (MVP)
 - [ ] Base image build pipeline — foundation + app-`<type>` images, shell+Make (ADR-011)
@@ -57,10 +60,23 @@
       yet installer-integrated)
 - [ ] Domain indicator — waybar module (authoritative) + 2px border, drawn
       host-side from waypipe CID identity, encoding the netVM attachment
+      (carriers and identity path settled: ADR-026)
+- [ ] **VMM containment gate (C-gate)** — ADR-027. C4 (tightened seccomp) and
+      C5b (no host filesystem export into netVM) passed 2026-07-28. Remaining:
+      C1–C3 (non-root netVM VMM, vfio via group + udev, `memlock` from a unit),
+      C5a (Landlock or chroot wrapper), C6 (per-VM netns). C1–C3 land with the
+      launch daemon; C5a and C6 are separable. Gates all axis-2 / vhost-user
+      work.
 
 ## Build order (first release, critical path)
 
 Each step gates the next:
+
+**Precondition, not a step: C-gate C1–C3** (ADR-027) — the launch daemon's
+privilege split (prepare as root, drop to a per-VM uid, `exec qemu`). It is a
+*property of* the launch daemon rather than a stage before or after it: the
+daemon cannot be designed as "a thing that runs `.con` scripts" and acquire
+this later.
 
 1. **Foundation pipeline** (ADR-011) — reproducible foundation; manifest format
    + `app-<type>` generation. Gate: build `vault` and `web` layers, run an
@@ -77,7 +93,8 @@ Each step gates the next:
 
 **Parallel (off critical path, before releasing step 5):** remove installer
 secrets + rotate burned WG key + drop `Hidden=true` (SECURITY-MODEL #1–2);
-remove dev sshd (#4).
+remove dev sshd (#4); remove the `usermod -p` dev-root line from `netvm.sh`
+(#12) — see the operational note in `state.md`.
 **Opportunistic:** suspend/resume under linux-hardened; hibernation decision
 (resume hook or shrink swap); `qemu-full` → `qemu-base`.
 

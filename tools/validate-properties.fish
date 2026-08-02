@@ -14,6 +14,7 @@
 #   2  napaka pri rabi / datoteka ne obstaja
 #
 # Validira proti shemi ADR-015 + semantičnim pravilom iz archetipov ADR-014.
+# CID pasovi po ADR-022 (glej točko 4).
 # Ne kliče tomlc99 — flat key=value TOML parsira interno (shema nima tabel/array).
 # Dev-time orodje, ni del TCB.
 
@@ -131,19 +132,24 @@ function validate_file
         end
     end
 
-    # 4) cid: int 4-8, ali >=100, ali "auto" (dinamični pool, dodeljen ob deployu)
+    # 4) cid: int 20-99 (fiksni AppVM), ali >=100 (dinamični pool), ali "auto".
+    #    Pasovi po ADR-022: 0-2 rezervirani · 3-19 sysVM · 20-99 fiksni AppVM ·
+    #    >=100 disposable. properties.toml opisuje IZKLJUČNO AppVM-e, zato je
+    #    sysVM pas napaka z razlogom, ne tiho sprejeta vrednost.
     set -q kv_cid; and begin
         if test "$kv_cid" = auto
             # dovoljeno samo za disposable / dinamični pool
             test "$kv_disposable" = true
             or warn "cid=auto naj se rabi le pri disposable=true (dinamični pool ≥100)"
         else if is_int $kv_cid
-            if test $kv_cid -ge 4 -a $kv_cid -le 8
-                # fiksni pas — ok
+            if test $kv_cid -ge 20 -a $kv_cid -le 99
+                # fiksni AppVM pas — ok
             else if test $kv_cid -ge 100
                 # dinamični pool — ok
+            else if test $kv_cid -ge 3 -a $kv_cid -le 19
+                err "cid=$kv_cid je v sysVM pasu 3–19 (ADR-022); properties.toml opisuje samo AppVM-e — sysVM-i se gradijo deklarativno (build/netvm.sh, ADR-021) in nimajo properties.toml"
             else
-                err "cid=$kv_cid izven veljavnih pasov (fiksni 4–8 ali ≥100); 0–2 rezervirani (host/local/netVM)"
+                err "cid=$kv_cid izven veljavnih pasov (fiksni AppVM 20–99 ali ≥100); 0–2 rezervirani (hypervisor/local/host)"
             end
         else
             err "cid='$kv_cid' ni int niti 'auto'"

@@ -22,6 +22,11 @@
 #
 # Interni podukazi (__locked_*) tečejo ŽE pod lockom — ne kliči jih neposredno.
 
+# CID mapa (ADR-022, avtoritativna v state.md):
+#   2 host · 3–19 sysVM · 20–99 fiksni AppVM (avtorirani v properties.toml) ·
+#   >=100 dinamični disposable pool. To orodje upravlja IZKLJUČNO zadnji pas;
+#   CID_FLOOR je njegovo dno in ga preštevilčenje fiksnega pasu ne premakne.
+
 set -g POOL_DIR  /var/lib/katmate
 set -g POOL_FILE $POOL_DIR/cid-pool
 set -g LOCK_FILE $POOL_DIR/cid-pool.lock

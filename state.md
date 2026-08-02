@@ -191,10 +191,116 @@ output is a signed ISO; the user installs by verify → bake → boot → provis
 never by building. `katmate-update` (ADR-019 version-lock backbone) is complete
 — and, per this session, deliberately does NOT cover netVM.
 
+**As of 2026-07-28 the focus has moved to the host side of the TCB.** The netVM
+control path is no longer the open question — `netvm-agent` is live-gated
+through NETCFG and SHUTDOWN (ADR-024, ADR-025), and the paragraph above is kept
+only as the historical framing of how the track was entered. What is open now
+is the **VMM process itself**: ADR-027 defines a containment gate (C-gate) of
+which C4 (tightened seccomp) and C5b (no host filesystem export into netVM)
+passed the same day, leaving C1–C3, C5a and C6 attached to the launch daemon.
+ADR-028 settles that v1 stays on kernel `vhost_vsock` and records what would
+have to be true before that changes. ADR-026 closes the domain indicator's
+identity question, which unblocks the Sway indicator work. The next code to
+write is the launch daemon, and it must be designed with the privilege split in
+it rather than acquired afterwards.
+
 Direction unchanged: IOMMU-capable platforms only (VT-d/AMD-Vi); VT-x-only
 frozen (ADR-015). MINIS is primary host and merge target.
 
-## This session (2026-07-27) — Sway deployed to MINIS, greetd swap done
+## This session (2026-07-28) — C-gate defined and half-passed; vsock placement settled; indicator carriers closed
+
+Architecture session (thinking-on) plus three live gates. Origin: a review of
+alternative VMMs that turned into a correction of how this project applies
+*absent, not disabled*.
+
+### Decided
+
+- **ADR-026 — domain indicator carriers.** Accepted, gate closed. Identity
+  resolves in two host-side steps: the compositor gives a window `pid`, and
+  that pid's AF_VSOCK connection gives the peer CID. `app_id` and window title
+  are guest-controlled and excluded from the identity path at every level.
+- **ADR-027 — VMM containment is a precondition, not an alternative.**
+  Introduces three axes of capability control and scopes *absent, not disabled*
+  to axis 1 (existence). Adds principle 10, *relocation is not removal*.
+  Defines the C-gate; no axis-2 work is implemented until it passes.
+- **ADR-028 — virtio-vsock transport placement.** v1 stays on `vhost_vsock`.
+  Hybrid placement rejected with reasons recorded so it is not re-proposed.
+  `vhost-user-vsock` with `--forward-cid` identified as the only viable
+  alternative, gated behind the C-gate, with H1–H3 open.
+
+### Gates passed (live, MINIS)
+
+- **C4 — tightened seccomp filter.** `resourcecontrol=deny` added to both
+  launchers. `app_web` (CID 5): `Seccomp: 2`, one filter, `dmesg` clean,
+  `ping 5 → 0x00`. netVM (CID 3): `Seccomp: 2`, one filter, `ping 3 → 0x00`,
+  and `vfio-pci 0000:01:00.0: resetting / reset done` twice — the `FLReset-`
+  workaround is unaffected. The hypothesis that `resourcecontrol=deny` would
+  collide with `-object iothread` is **refuted empirically on both machine
+  types**, not reasoned about.
+- **C5b — 9p removed from netVM** (SECURITY-MODEL gap #10 closed). `-fsdev` and
+  `-device virtio-9p-pci` deleted from `net-sys.con`; `/proc/<pid>/cmdline` of
+  the running VMM contains neither. Proof taken host-side deliberately — the
+  device is absent from instantiation, which is an axis-1 proof and stronger
+  than an in-guest `mount` check. See the operational note added to open
+  problem #12.
+- **ADR-026 gate.** `swaymsg -t get_tree` on a rendered `nautilus` window
+  reported `app_id: org.gnome.Nautilus`, `name: Home`, and a `pid`. That pid
+  resolved to `waypipe -s 1024 --vsock --threads 0 -c lz4 client-conn`, and
+  `ss -f vsock -p` on it reported `v_str ESTAB 2:1024 ↔ 5:287463193` — peer
+  CID 5. The gate as written asked only whether a pid resolves to the waypipe
+  client; it resolved further, through the client to the CID. **Also
+  verified:** the query needs no privilege — an unprivileged caller receives
+  the same peer CID as root, so the resolver is not forced into a privileged
+  process.
+
+### Still open on ADR-026
+
+Pid stability with **two concurrent windows from one domain** (a second
+`client-conn`), and across close/reopen, is unverified. If per-connection pids
+differ, the resolver must handle a set rather than a single value. A host
+reboot between observations says nothing about this — a new boot means new pids
+by definition.
+
+### Corrections to earlier internal statements
+
+Recorded so the error mode stays visible, in the spirit of the ADR-025 gate
+correction.
+
+1. **"`-sandbox` is not enabled / unused."** Wrong.
+   `-sandbox on,obsolete=deny,elevateprivileges=deny,spawn=deny` was already
+   present in **both** launchers; only `resourcecontrol=deny` was missing. The
+   claim was made without reading the launchers.
+2. **"The VMM runs as root."** Over-generalised. True of `net-sys.con` only.
+   `app_web.con` uses `sudo` solely for `lvchange`; QEMU runs as the invoking
+   user, so C1 is already satisfied for AppVMs. The correction is in the
+   project's favour and would have been lost.
+3. **"The hybrid vsock model is an instance of absent-not-disabled."** Wrong,
+   and the correction is the substance of ADR-027. It is relocation of
+   privilege; the principle applies to existence, not placement.
+4. **"`share=on` may be avoidable on the `--forward-cid` path."** Void — shared
+   guest memory is required by vhost-user generally, in both backend modes.
+   **What this does not settle:** `app_web.con` uses `share=on` on a hugetlbfs
+   backing file with kernel `vhost-vsock` and *no* vhost-user. Whether it is
+   needed there is still open and unmeasured.
+5. **"Spectrum has no network design."** Wrong. Asserted from a design document
+   of around 2020 without checking the repository or the lists. The failure was
+   the one this project has a standing rule against: a claim made without
+   capturing the reference fixture first.
+
+### New file
+
+`docs/OBSERVATIONS.md` — append-only, newest-first log of publicly available
+material bearing on recorded decisions. Conventions live in the file header;
+the central one is that **the subject of every entry is one of our decisions**,
+and that our own stack is held to the same standard as anything else.
+
+### Numbering note
+
+The open-problems list in this file already ran to **15**, not 12. An earlier
+draft of this session's additions assumed 12 and would have collided. Same rule
+as for ADRs: count the list, never the memory of it.
+
+## Previous session (2026-07-27) — Sway deployed to MINIS, greetd swap done
 
 Mechanical session. The Sway profile built on the Acer on 07-26 is now live on
 MINIS, and greetd offers a session picker instead of one pinned command. No new
@@ -274,111 +380,9 @@ and ungitted by design — the wallpaper line lives there.
   `--exclude='katmate-os/'` sat in the standard rsync line; that exclude is
   now unnecessary and was dropped.
 
-## Previous session (2026-07-26) — Sway profile built and live on Acer
-
-First desktop-layer session. Hyprland/CYBRland ported to Sway from scratch on
-the Acer; the profile now lives in git under `desktop/` where nothing of the
-DE ever was. Sway is running as the default session via greetd/tuigreet.
-
-No decision was recorded. ADR-016 revision and the indicator ADR are held back
-deliberately — see "Gated on empirics" below.
-
-### What was built
-
-`desktop/` tree, new:
-
-| file | note |
-|---|---|
-| `sway/config` | full port; `VERIFY` comments mark three uncertain points |
-| `waybar/config-sway.jsonc` | parallel to `config.jsonc`; Hyprland untouched |
-| `waybar/modules-sway.jsonc` | `sway/{workspaces,window,language}` |
-| `waybar/style-sway.css` | `@import "style.css"` + `.focused` (sway) vs `.active` (hyprland) |
-| `bin/sway-session` | env wrapper — sway config has no `env =` directive |
-| `bin/km-shot` | grim/slurp + notification actions; replaces hyprshot |
-| `bin/km-scratch` | sway scratchpad toggle; replaces pyprland and `toggle_scratchpad.sh` |
-| `greetd/` | reference copies of `config.toml` + two `.desktop` entries |
-
-User files are symlinked out of the repo (same anti-drift pattern as
-`~/net-sys.con`); system files under `/etc` are copies, deployed by hand.
-
-greetd was already tuigreet, pinned to one command by `--cmd hyprland-quiet`.
-Removing that flag restored the session picker; the two `.desktop` entries were
-moved from `/usr/share/wayland-sessions/` to `/etc/greetd/sessions/` so a
-package upgrade cannot inject an entry that bypasses `sway-session`.
-
-Three shared rofi scripts were made compositor-neutral rather than forked:
-`powermenu` → `loginctl terminate-session`, `keybindings` → class at launch.
-`wallpaper` was left alone: it targets `DP-2`, which exists on neither machine,
-so it has never worked under Hyprland either.
-
-### What the port cost
-
-Dropped, because Sway has none of them: coloured glow (`shadow range 30,
-render_power 5`), bevelled corners (`rounding 28, rounding_power 1.0` — a 45°
-chamfer, not a radius), background blur (`size 6, passes 4`). Borders, gaps,
-palette, fonts and terminal transparency transferred exactly. Animations were
-already off upstream.
-
-SwayFX evaluated and rejected: a fork needing a manual rebase per Sway release
-(0.5 on 1.10.1, upstream at 1.12), and `scenefx` replaces the wlroots scene
-graph rather than adding a render pass. Wrong shape for a TCB component.
-
-The GUI is visibly faster. On the N4200 that is expected rather than
-surprising — Hyprland was doing four blur passes over what was effectively the
-whole desktop (kitty runs `background_opacity 0`), plus a shadow and a
-non-rectangular window shape that defeats occlusion culling.
-
-### Findings worth keeping
-
-- **Sway has no per-window border colour.** `client.focused` is global. This
-  does *not* block the domain indicator: inactive windows carry no visible
-  border, so only the focused window's colour matters, and one global value
-  set over IPC on each focus change is sufficient. Cost per frame: zero. The
-  layer-shell overlay considered earlier is unnecessary.
-- **Marks are host-set and unspoofable.** Settable only via IPC, drawn by the
-  compositor. The strongest candidate carrier for a text-shaped indicator.
-- **Per-window channels that a guest cannot reach**, all keyed on PID: border
-  width, opacity, mark, workspace. `app_id` and window title are not among
-  them and must never be used.
-- **The transparency was never Hyprland's.** `active_opacity = 1` in
-  `vars.conf`; the effect comes from kitty's `background_opacity 0`. It ports
-  unchanged. What does not port is the blur *behind* it — which matters only
-  over busy content, since both wallpapers measure near-black (mean RGB
-  (11,14,20) and (10,8,10)).
-- **Qubes solves the same problem by writing its own GUI daemon**
-  (`qubes-gui-daemon` draws per-VM borders under X11). The Sway + IPC route is
-  cheaper because Wayland already provides the input isolation Qubes had to
-  build.
-
-### Gated on empirics
-
-Two facts remained untested at the time, and both fed the indicator decision:
-
-1. does Sway accept `#RRGGBBAA` in `client.*`? (Hyprland's
-   `col.inactive_border` was `#29BECC00`; the port approximates with opaque
-   near-black)
-2. does `show_marks` draw anything under `border pixel`, which has no
-   titlebar? If not, marks need `default_border normal`.
-
-ADR-016 revision and ADR-026 (indicator carriers) were deliberately not written
-until these were gated. Writing them first would repeat the ADR-021 and
-ADR-025 Path A failure mode: mechanism accepted, then found not to exist.
-
-**Both were gated on 2026-07-27** — see *Next steps*.
-
-### Carried
-
-- `desktop/` needs a licence decision before it is useful to anyone else: the
-  Sway config and `style-sway.css` are derived from CYBRland (GPL-3.0) and
-  `README.md` declares no project licence.
-- MINIS: no output block — resolved 2026-07-27 as a decision, not a debt.
-- swayidle/swaylock deliberately absent — `hypridle.conf` was never supplied.
-- `~/.config/rofi/scripts/wallpaper/wallpaper` still Hyprland-only.
-
-
 ## Session archive
 
-Sessions older than the two above (2026-07-10 back to 2026-06-27) live in
+Sessions older than the two above (2026-07-26 back to 2026-06-27) live in
 [docs/SESSIONS.md](docs/SESSIONS.md), split out on 2026-07-14. That file is
 append-only; CIDs in it are the pre-ADR-022 numbering and are deliberately not
 rewritten. **This file carries the authoritative CID map** (see *Live state*).
@@ -387,9 +391,13 @@ rewritten. **This file carries the authoritative CID map** (see *Live state*).
 
 **CID map (authoritative, ADR-022).** `2` = host · `3–19` = sysVMs (3 = primary
 netVM) · `20–99` = fixed persistent AppVMs · `≥100` = dynamic disposable pool.
-The renumbering (**personalVM 4 → 20, app_web 5 → 21**) is decided but **NOT yet
-applied** — the live VMs below still run the old numbers, and launchers/`.con`
-scripts still hardcode them. Fixing that is a Next step.
+The renumbering was **applied 2026-08-02**: `app_web` 5 → **21** in
+`app_web.con`, and the normative band 4–8 → 20–99 in ADR-015 / ADR-017 /
+`tools/validate-properties.fish`. personalVM was **not** renumbered — it was
+deleted instead (see below), so 20 is now simply the lowest free fixed AppVM
+CID, reserved for nothing in particular. netVM (3) is unchanged by the new map.
+No instantiated `properties.toml` existed at the time, so no instance file was
+touched.
 
 - **MINIS `~/` housekeeping, 2026-07-25.** Removed the pre-sysVM launcher set
   (`net.con`, `net_dev.con`, `net-vfio.con`, `personal*.con`, `work.con`,
@@ -397,10 +405,19 @@ scripts still hardcode them. Fixing that is a Next step.
   orphaned `vm_personal_overlay.qcow2` / `vm_work_overlay.qcow2`, and the
   pre-sysVM LVs (`vm_tpl_all_root`, `vm_tpl_all_root_golden`, `vm_tpl_debian`,
   `vm_tpl_work_root`, `vm_tpl_personal_root`, `vm_work_home`) — ~131 G
-  reclaimed. Kept: `vm_personal_home` (40 G thin, for the planned personalVM)
-  and `vm_app_vault` (frozen app-layer, `Data%` empty). `~/net-sys.con` is now
+  reclaimed. Kept at the time: `vm_personal_home` (40 G thin) and
+  `vm_app_vault` (frozen app-layer, `Data%` empty). `~/net-sys.con` is now
   a symlink into `~/katmate-build/`, so rsync updates the live launcher and
   that duplicate cannot drift again.
+
+- **personalVM artefacts removed, 2026-08-02.** `vm_personal_home` (40 G thin)
+  deleted; the launcher and overlay had already gone in the 2026-07-25 pass.
+  The old personalVM ran the **pre-foundation** systemd-user / linear-root
+  model, which nothing will boot again — migrating it would have meant
+  renumbering and then rebuilding an artefact that the v0.3 AppVM work
+  regenerates from foundation + `web` manifest anyway. **The artefact is gone;
+  the `personal` archetype (ADR-014) is not.** It returns as one of the four
+  default AppVMs, with a CID allocated from 20–99 at that point.
 
 - **Host** (Arch): Ryzen 7 8745H, AMD-Vi + vfio. `vg0`: `root` 100G, `swap`
   12G, `vm_pool` thin pool. Custom microvm kernel `6.12.87` at
@@ -431,10 +448,11 @@ scripts still hardcode them. Fixing that is a Next step.
   `networkctl` state, WireGuard/ProtonVPN bring-up, inner-segment `enp0s4` p2p
   to personalVM. `memlock` via `LimitMEMLOCK=infinity` (unit) or `ulimit -l
   unlimited` (manual launch). Runs independently of app_web.
-- **personalVM** (CID 4 → **renumber to 20**; Debian trixie, microvm): still on
-  the **old** systemd-user model (pre-foundation linear root). Migration to the
-  init+foundation model is pending (Next steps).
-- **app_web** (CID 5 → **renumber to 21**): the proven appliance. Backing `vm_app_web` (thin snap
+- **personalVM** — **gone (2026-08-02).** Launcher, overlay and
+  `vm_personal_home` all removed; it was the last pre-foundation artefact.
+  Returns as a domain, not as this VM.
+- **app_web** (CID **21**, renumbered from 5 on 2026-08-02): the proven
+  appliance. Backing `vm_app_web` (thin snap
   RO) ← `/var/lib/katmate/instances/test_web.qcow2`. `/home` =
   `vm_app_web_home` (10G ext4 raw LV, `/home/user` owned 1000:1000). init +
   Rust vm-agent + user 1000 baked in.
@@ -518,6 +536,17 @@ scripts still hardcode them. Fixing that is a Next step.
    the installer secrets (#3), not "fixed" by a valid hash. Practical note
    while it stands: the baked hash matches no password, so a rebuild still
    needs `mount` + `chroot chpasswd` to make the console usable.
+   **Operational cost demonstrated 2026-07-28.** During the ADR-027 C5b gate the
+   in-guest confirmation (`mount | grep 9p`) could not be run at all: the baked
+   hash matches no password, so the console was unusable. The only alternative
+   would have been to unlock root on a declaratively built LV — reintroducing
+   exactly the pet-drift that #6 closed. The gate was satisfied host-side
+   instead, which turned out to be the *stronger* proof (the device is absent
+   from instantiation, an axis-1 fact), but the general point stands: **this
+   debt is not only a release blocker, it taxes every verification.** The real
+   fix is not a valid hash but a structured in-guest observation path in
+   `netvm-agent` — a RUN opcode or an equivalent — without which every internal
+   check costs either a console or a drift.
 
 13. **The comment at `netvm.sh` line 210 is wrong.** It claims the manifest
    lacks `chpasswd(8)`. Both `chpasswd` and `usermod` ARE in the image (under
@@ -536,6 +565,47 @@ scripts still hardcode them. Fixing that is a Next step.
 15. **Executable bit on `build/netvm.sh` flipped** `100755 → 100644` (`micro`
    strips it; commit `d6d9267`). Hence `sudo bash build/netvm.sh`. Fix on
    Acer: `git update-index --chmod=+x build/netvm.sh`.
+
+16. **`path_is_allowed` may not resolve symlinks (`vm-agent`) — HYPOTHESIS,
+   unproven, unrefuted.** The path check is believed to be lexical:
+   `starts_with(HOME_PREFIX)` plus rejection of `..` components. If so, a
+   symlink at `/home/user/x` → `/etc/passwd` would pass, permitting FILEGET
+   exfiltration. **Not verified against the source tree** — an earlier draft
+   cited specific line numbers that were never checked and are deliberately not
+   reproduced here. Kept in `state.md` rather than as a SECURITY-MODEL gap
+   precisely because it is unverified: gaps there carry claims about the
+   system. *Raised prior:* the same class was reported in Spectrum on
+   2026-07-22 (`/run/vm/by-id/${VM}` writable by the VMM, not secure against
+   symlink attacks) — `docs/OBSERVATIONS.md` §5. That raises the prior; it does
+   not confirm our instance. *Gate:* read `path_is_allowed`; if lexical, place
+   the symlink, call FILEGET, observe. *Two candidate fixes, not exclusive:*
+   resolve in the agent (`openat2(RESOLVE_BENEATH)` or canonicalise-then-check),
+   **and** a `nosymfollow` mount on the exposed subtree. Blocks nothing
+   currently scheduled.
+
+17. **C-gate remainder — netVM VMM privilege (C1, C2, C3, C5a).**
+   `net-sys.con` still runs QEMU as root under `sudo`, without chroot or
+   Landlock, in `init_netns`, with `memlock` from an interactive
+   `ulimit -l unlimited` and no unit. C4 and C5b passed 2026-07-28. The three
+   privileged preparation steps (vfio node, TAP creation, LVM activation) are
+   all launcher-side and can drop before `exec qemu`; `RLIMIT_MEMLOCK` is the
+   only real obstacle and it is configuration, not architecture. **Blocks all
+   axis-2 work** (ADR-027). C5a note: Landlock rulesets are inherited across
+   `execve`, so a small `setpriv`-style wrapper suffices — no QEMU patch
+   required. SECURITY-MODEL gap #11.
+
+18. **vsock CID space is global on the host (C6).** Any host process can reach
+   any VM's agent on port 1025. Linux 7.0 makes vsock namespace-aware for
+   `vhost-vsock` and `vsock_loopback`, and the MINIS host kernel
+   (7.0.12-arch1-1) already has it. Per-VM netns with `child_ns_mode=local`
+   fixes it. *Two constraints that shape the launch daemon:* `child_ns_mode` is
+   **write-once** (`-EBUSY` on a differing second write) and `ns_mode` is
+   immutable after namespace creation — a daemon-start decision, not a runtime
+   toggle; and the daemon must reach every VM, so it must enter each namespace
+   or hold per-namespace sockets. *Coupling that must not be discovered late:*
+   with CID reuse across namespaces the domain indicator's identity becomes
+   **(netns, CID)**, not CID (ADR-026). C6 and ADR-026 are revisited together.
+   SECURITY-MODEL gap #12; mechanism in ADR-028.
 
 ## Next steps
 
@@ -652,9 +722,11 @@ scripts still hardcode them. Fixing that is a Next step.
 
 **Carried from 2026-07-14 (ADR-022/023 consequences):**
 
-- **CID renumbering** — apply the new map: personalVM `4 → 20`, app_web `5 → 21`.
-  Touches the `.con` launchers, `katmate-cid`, and any hardcoded CID. netVM (3)
-  is unaffected. Do this BEFORE the AppVM domain model lands, not after.
+- ~~**CID renumbering**~~ — **done 2026-08-02.** `app_web` 5 → 21; normative
+  band 4–8 → 20–99 in ADR-015 / ADR-017 / `tools/validate-properties.fish`;
+  `properties.toml` restricted to the AppVM class, with 3–19 a hard error.
+  personalVM was deleted rather than renumbered. The agents needed no change —
+  they know only host CID 2 and the peer CID from `accept`.
 - **ADR-016 revision + ADR-026 (indicator carriers)** — both now empirically
   grounded except one gate. ADR-016: the two-profile DE model becomes
   single-profile, **Sway ships alone** (the host compositor is in the TCB — it
@@ -690,9 +762,10 @@ scripts still hardcode them. Fixing that is a Next step.
   shared `katmate-foundation.service` oneshot. NOTE: the netVM `memlock`
   drop-in + `vfio` group model are the template for how the launch daemon must
   grant memlock + vfio access to a non-root QEMU.
-- **Migrate live AppVMs** (personal) off the old systemd-user / linear-root
-  model onto the init+foundation chain. (netVM is NOT migrated — it is a sysVM,
-  stays systemd.)
+- ~~**Migrate live AppVMs** (personal) off the old systemd-user / linear-root
+  model~~ — **void 2026-08-02.** The only such VM was personalVM and it was
+  deleted, not migrated. No pre-foundation AppVM remains. (netVM was never in
+  scope — it is a sysVM and stays systemd.)
 - **systemd purge from foundation** (minimal-TCB): the binary still ships unused.
 - **udisks2 check:** confirm nautilus works with udisks2 disabled, then bake
   `systemctl disable udisks2` into the app-layer build.

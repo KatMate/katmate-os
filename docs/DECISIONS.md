@@ -473,7 +473,7 @@ with the ADR-011 TCB constraint.
 | `persistence` | enum | `persistent` \| `ephemeral` | yes | — |
 | `identity` | bool | — | yes | — |
 | `disposable` | bool | — | yes | — |
-| `cid` | int \| `"auto"` | fixed 4–8 for static domains, or `"auto"` for pool allocation | yes | — |
+| `cid` | int \| `"auto"` | fixed 20–99 for static domains, or `"auto"` for pool allocation | yes | — |
 | `reset_on_shutdown` | bool | — | no | `false` |
 
 `reset_on_shutdown` exists only for the `untrusted` archetype's optional
@@ -482,12 +482,20 @@ take the default.
 
 `cid` carries two opposite meanings depending on the domain. For **static**
 domains (vault, personal, untrusted) it is an *input*: a fixed value in
-4–8, authored in the file, part of the domain's identity. For **disposable**
+20–99, authored in the file, part of the domain's identity. For **disposable**
 domains it is an *output*: the literal string `"auto"` declares "not authored
 here — the deploy step allocates from the dynamic pool (≥100)" per ADR-017.
 A numeric `cid` ≥100 is also accepted (manual/debug pinning), but `"auto"`
 is the norm for disposables. CIDs 0–2 are reserved (hypervisor / local /
-host-loopback); 3 is the NetVM (ADR-009).
+host-loopback); 3–19 is the sysVM band (ADR-022).
+
+`properties.toml` describes **AppVMs only**. A `cid` in 3–19 is therefore an
+**error**, not a permitted value: sysVMs are built declaratively
+(`build/netvm.sh`, ADR-021) and carry no `properties.toml`. This restriction
+is deliberate and provisional — should sysVMs ever gain a machine-readable
+description, the schema needs a `class` field (ADR-022 `Vm.class`) and the
+band becomes a function of it. That is the launch daemon's business, not this
+ADR's.
 
 *Semantic invariants* (cross-key, derived from the ADR-014 archetypes;
 enforced by the pre-deploy validator, `tools/validate-properties.fish`):
@@ -533,6 +541,14 @@ The four default archetypes express as:
 
 **Revision note:** supersedes the loosely-structured early config style for VM
 definition. Manifest format (packages) is specified separately in ADR-011.
+
+**Revision note (2026-07-14, [ADR-022](DECISIONS.md#adr-022)):** the static
+`cid` band moves from 4–8 to **20–99**. ADR-022 re-scoped the CID map for a
+graph that may hold several sysVMs (`3–19`), which the original single-sysVM
+scheme could not express. The schema is normative input to
+`tools/validate-properties.fish`; the band is corrected here rather than left
+to supersession, so that the specification and the tool enforcing it cannot
+disagree. Nothing else in this ADR changes.
 ---
 
 ## ADR-016 — Two desktop profiles: shared visual layer, Sway default + Hyprland optional
@@ -622,10 +638,12 @@ points framed the decision:
 
 **Decision:**
 
-- **Space:** static domains use fixed CIDs 4–8 (authored in `properties.toml`);
-  the dynamic pool is every CID ≥ 100. CIDs 0–2 are reserved, 3 is the NetVM
-  ([ADR-009](DECISIONS.md#adr-009)). The 100 floor only separates the dynamic
-  pool from the static band; there is no upper bound from CID space.
+- **Space:** static domains use fixed CIDs 20–99 (authored in
+  `properties.toml`); the dynamic pool is every CID ≥ 100. CIDs 0–2 are
+  reserved, 3–19 is the sysVM band ([ADR-022](DECISIONS.md#adr-022); 3 remains
+  the primary netVM, [ADR-009](DECISIONS.md#adr-009)). The 100 floor only
+  separates the dynamic pool from the static band; there is no upper bound
+  from CID space.
 - **Policy: monotonically increasing counter** (PID-style), not lowest-free and
   not random. The allocator hands out `max(100, last_allocated + 1)`, skipping
   any CID currently marked in use, and wraps back to 100 only on reaching a
@@ -668,6 +686,11 @@ points framed the decision:
 [ADR-015](DECISIONS.md#adr-015); invoked by the deploy-time instance step of
 [ADR-011](DECISIONS.md#adr-011); pool floor and reserved CIDs align with the
 NetVM CID ([ADR-009](DECISIONS.md#adr-009)).
+
+**Revision note (2026-07-14, [ADR-022](DECISIONS.md#adr-022)):** static band
+4–8 → **20–99**, reserved band 3 → **3–19**. The allocation *policy* is
+untouched: monotonic counter, `flock` across the whole read-allocate-write
+cycle, reconcile on startup. Only the floor of the static band moves.
 
 ## ADR-018 — Foundation build: LVM-thin from scratch, external-vmlinuz kernel, systemd-free init
 
@@ -2161,3 +2184,506 @@ within the image/state separation of [ADR-021](DECISIONS.md#adr-021)
 (refined: NETCFG state is boot-scoped) and the host-caller channel rule of
 [ADR-003](DECISIONS.md#adr-003); segment and topology constants per
 [ADR-022](DECISIONS.md#adr-022) and ARCHITECTURE.md.
+
+---
+
+## ADR-026 — Domain indicator carriers: host-resolved waypipe CID, never guest-supplied window properties
+
+**Status:** Accepted (2026-07-28; design settled 2026-07-27, final gate
+closed 2026-07-28)
+
+**Context:** The host compositor is inside the TCB because it draws the
+domain indicator — the only visual separation between trust domains
+([ADR-016](DECISIONS.md#adr-016)). An indicator is worth exactly as much
+as the trustworthiness of the state it is keyed on. Sway exposes window
+properties (`app_id`, `name`/title) that originate **inside the guest**
+and are therefore attacker-controlled: a compromised AppVM can set
+`app_id` to whatever another domain uses. Any indicator keyed on those
+is decorative, not a security control.
+
+The open question was whether the compositor exposes anything that
+resolves to host-side state, and how.
+
+**Decision:**
+
+1. **Carrier set.** The indicator is carried by (a) a **waybar module**
+   fed from host-side state — authoritative — and (b) the **focused
+   border colour** (hue plus alpha). `sway/window` is never used: it
+   renders guest-controlled titles.
+
+2. **Rendering facts, verified 2026-07-27.** `#RRGGBBAA` is parsed *and
+   rendered*, so alpha is a usable dimension of the colour carrier.
+   `show_marks` draws only inside a titlebar, so marks are rejected
+   under `border pixel`.
+
+3. **Identity is resolved in two host-side steps, never read from the
+   guest:**
+
+   ```
+   swaymsg -t get_tree   →  pid of the host waypipe client
+   AF_VSOCK socket diag  →  peer CID of that pid's connection
+   ```
+
+   The compositor supplies a **pid**, not an identity. The pid is
+   resolved to a guest CID by inspecting the host waypipe client's vsock
+   connection. Both steps are host-side and trusted; no input crosses
+   from the guest.
+
+4. **`app_id` and window title are explicitly excluded** from the
+   identity path, at any level, for any purpose.
+
+**Evidence (live, MINIS, 2026-07-28):**
+
+| # | Observation |
+|---|---|
+| E1 | `app_web` instance running, CID 5; `ping-client run 5 nautilus` → `status=0x00` |
+| E2 | `swaymsg -t get_tree` exposes `pid` on the rendered window alongside `app_id: org.gnome.Nautilus`, `name: Home` |
+| E3 | That pid resolves to the **host** waypipe client: `waypipe -s 1024 --vsock --threads 0 -c lz4 client-conn` |
+| E4 | `ss -f vsock -p` on that pid: `v_str ESTAB 2:1024 ↔ 5:287463193` — local host CID 2 port 1024 (GUI), **peer CID 5** = the domain |
+| E5 | `app_id` and `name` in E2 are guest-supplied and were ignored; only E3→E4 was used |
+| E6 | The diag query requires no privilege: an unprivileged caller receives the same peer CID as `root` (verified 2026-07-28). The resolver is therefore not forced into a privileged process. |
+
+E4 is the closure of the gate carried in `state.md` since 2026-07-27
+("confirm `swaymsg -t get_tree` exposes a `pid` resolving to the waypipe
+client process"). It resolves *further* than the gate asked: not only to
+the process, but through it to the CID.
+
+**Consequences:**
+
+- **`vsock_diag` becomes a host-kernel dependency of the TCB.** The
+  indicator cannot resolve identity without socket diagnostics for
+  `AF_VSOCK`. Present on `linux-hardened` as shipped (verified by the
+  `ss -f vsock` call above). This is now a **stated requirement**, not a
+  convenience: a future host kernel configuration change that drops it
+  silently disables the indicator's identity path.
+- **The waybar module must not fork `ss`.** Forking a userspace tool per
+  focus change is unacceptable form in a TCB component. Either query
+  `SOCK_DIAG` over `AF_NETLINK` directly, or — preferred — have the
+  launch daemon maintain the pid↔CID map and expose it, with the module
+  as a pure reader. This makes the map a launch daemon responsibility,
+  which is consistent with it already owning the topology graph
+  ([ADR-022](DECISIONS.md#adr-022)).
+- Hyprland/CYBRland remains a dev/demo profile until its own indicator
+  implementation is separately verified ([ADR-016](DECISIONS.md#adr-016)
+  revision).
+
+**Open items (do not block acceptance):**
+
+- **O1 — privilege of the diag query.** ~~Unverified.~~ **Closed 2026-07-28:**
+  an unprivileged caller receives the same peer CID as `root`. The resolver is
+  not forced into a privileged process; the launch daemon remains the preferred
+  owner of the map for other reasons. See E6.
+
+- **O2 — pid stability across multiple windows.** The pid was stable
+  within one instance's lifetime. Behaviour with **two concurrent
+  windows from the same domain** (a second `client-conn`), and across
+  close/reopen, is **not verified**. If per-connection pids differ, the
+  resolver must handle a set, not a single value. A host reboot between
+  observations says nothing about this — a new boot means new pids by
+  definition.
+
+---
+
+## ADR-027 — VMM containment is a precondition, not an alternative
+
+**Status:** Accepted (2026-07-28)
+**Amends:** [ADR-021](DECISIONS.md#adr-021) — scope of *absent, not
+disabled*
+**Blocks:** [ADR-028](DECISIONS.md#adr-028), any vhost-user device work,
+sequencing of the `qemu-full` → `qemu-base` reduction
+
+**Context:** A review of alternative VMMs surfaced a class of argument
+this project had no vocabulary for, and consequently mis-filed.
+
+The argument runs: *move a capability out of the host kernel and into a
+userspace process; a bug there compromises one process rather than the
+kernel.* It underwrites Firecracker/Cloud-Hypervisor "hybrid vsock",
+vhost-user device backends, and device disaggregation generally.
+
+The project initially read this as an instance of **absent, not
+disabled**. It is not, and the distinction matters enough to write down,
+because the principle is load-bearing elsewhere — it is the whole
+justification for the two-binary agent split — and a diluted version of
+it stops being a usable test.
+
+### Three axes, not one
+
+| # | Axis | Question | Test |
+|---|---|---|---|
+| 1 | **Existence** | Does the capability exist in this domain class at all? | Is it compiled / instantiated? |
+| 2 | **Placement** | Where is it implemented, and how confined is that place? | Is the target more confined than the source? |
+| 3 | **Enforcement** | Who holds the boundary? | Kernel-enforced, or dependent on userspace correctness? |
+
+*Absent, not disabled* is the test for **axis 1 only**. Its canonical
+instances stand unchanged: `netvm-agent` cannot decode `RUN` — a
+forbidden opcode fails at `TryFrom<u8>`, not at a runtime gate
+([ADR-021](DECISIONS.md#adr-021)); an AppVM with `netvm: None` has no
+`Link` object, so the air-gap is the absence of an object
+([ADR-022](DECISIONS.md#adr-022)).
+
+Applied correctly to the vsock control channel, the same test gives: a
+VM class that must have no control channel carries no
+`-device vhost-vsock-device` on its command line. **The device is
+absent. This project already satisfies axis 1 on that channel and needs
+to change nothing to keep it.**
+
+Moving virtio-vsock from `vhost_vsock` in the host kernel into a VMM
+process or a vhost-user daemon removes **no** capability. The host↔guest
+channel exists in full; one implementation is exchanged for another.
+That is **relocation of privilege**, and it belongs on axis 2.
+
+### Why the distinction has teeth
+
+The relocation argument is not wrong. It is **conditional**, and the
+condition is unstated wherever it is made. With the condition visible:
+
+> Relocating a capability across a privilege boundary yields a security
+> benefit **only in proportion to how much more confined the target is
+> than the source.**
+
+Applied to this system as of 2026-07-28, **after** the C4/C5b work
+recorded below:
+
+| | AppVM launcher (`app_web.con`) | netVM launcher (`net-sys.con`) |
+|---|---|---|
+| uid | invoking user (`sudo` used **only** for `lvchange`) | **root** (`sudo bash net-sys.con`) |
+| seccomp | `-sandbox on` + four `deny` options | `-sandbox on` + four `deny` options |
+| filesystem confinement | none (no chroot, no Landlock) | none |
+| namespace | `init_netns` | `init_netns` |
+| host filesystem exposure | none | none (9p removed 2026-07-28) |
+| `memlock` | not required | shell `ulimit -l unlimited`, no unit |
+
+The netVM VMM is the outstanding case: compromise of that process is,
+for practical purposes, compromise of the host. Until it is confined,
+relocating code *into* it buys close to nothing. Hardening the VMM
+process is **not an alternative to the relocation argument — it is its
+precondition.**
+
+### netVM does not require a root VMM
+
+Checked, because netVM is the most exposed domain and was launched as
+root only as dev expedience. Three preparation steps need privilege.
+**None of them is the QEMU process itself:**
+
+| Step | Privileged today | Resolution |
+|---|---|---|
+| open `/dev/vfio/<group>` | yes | `vfio` group + udev rule (`SUBSYSTEM=="vfio", GROUP="vfio", MODE="0660"`) — already recorded in `state.md` as the template for the launch daemon's non-root QEMU |
+| create `tap-int0` | yes | pre-create with `ip tuntap add … user <uid>` and hand over as `fd=`; no `CAP_NET_ADMIN` in the VMM |
+| `lvchange -K -ay` | yes | already separated into launcher preflight; becomes `ExecStartPre=+` |
+
+The pattern is a privilege-dropping launcher: prepare as root, then drop
+to a per-VM uid before `exec qemu`. The one real obstacle is
+`RLIMIT_MEMLOCK` — vfio pins the whole guest RAM and a non-root uid
+needs the limit granted explicitly. Today this is an interactive
+`ulimit -l unlimited` and there is no unit at all; a unit with
+`LimitMEMLOCK=infinity` resolves it. **Configuration, not an
+architectural constraint.**
+
+**Decision:**
+
+1. Record the three axes in `SECURITY-MODEL.md` and **scope *absent, not
+   disabled* to axis 1**. Add a companion principle for axis 2:
+   *relocation is not removal.*
+
+2. Define a **containment gate (C-gate)** on the VMM process. Until it
+   passes, **no axis-2 decision is implemented** — not vhost-user-vsock,
+   not vhost-user block/net/fs, not a VMM change.
+
+3. Treat the C-gate as a v1 work item on the launch daemon's critical
+   path, not as post-v1 hygiene.
+
+### C-gate criteria
+
+Each is live-testable on MINIS in the ADR-024/ADR-025 style: a concrete
+observable, not a claim.
+
+| # | Criterion | Observable | Status |
+|---|---|---|---|
+| **C1** | VMM runs as a per-VM non-root uid | `ps -o user=` on the QEMU pid ≠ `root` | **partial** — holds for AppVMs today; open for netVM |
+| **C2** | vfio reachable without root | netVM starts as that uid with `vfio` group + udev rule; no `permission denied` on `/dev/vfio/<group>` | open |
+| **C3** | `memlock` granted by unit, not shell | `LimitMEMLOCK` visible in a unit; no interactive `ulimit` | open |
+| **C4** | VMM seccomp filter active and tightened | `-sandbox on,obsolete=deny,elevateprivileges=deny,spawn=deny,resourcecontrol=deny`; `Seccomp: 2` in `/proc/<pid>/status`; no `SCMP_ACT_KILL` in `dmesg`; control path returns `0x00` | **PASSED 2026-07-28** |
+| **C5a** | Filesystem confinement on the VMM | Landlock ruleset or chroot applied to the VMM process | open |
+| **C5b** | No host filesystem export into netVM | `/proc/<pid>/cmdline` contains no `fsdev` and no `virtio-9p-pci` | **PASSED 2026-07-28** — closes gap #10 |
+| **C6** | Per-VM network namespace | VMM process in its own netns; enables the vsock CID scoping in [ADR-028](DECISIONS.md#adr-028) | open |
+
+**C4 evidence (live, MINIS, 2026-07-28):**
+
+| # | VM | Observation |
+|---|---|---|
+| E1 | `app_web`, CID 5 | boots to `katmate-init`; `vm-agent launched as uid 1000 (pid 60)` |
+| E2 | `app_web` | `Seccomp: 2`, `Seccomp_filters: 1` |
+| E3 | `app_web` | `dmesg` grep for `seccomp`/`audit`: empty — no `SCMP_ACT_KILL` |
+| E4 | `app_web` | `ping-client ping 5` → `status=0x00 (OK)` |
+| E5 | netVM, CID 3 | `Seccomp: 2`, `Seccomp_filters: 1` |
+| E6 | netVM | `vfio-pci 0000:01:00.0: resetting` / `reset done`, twice, both successful — the `FLReset-` / `disable_idle_d3=1` workaround is unaffected by the tightened filter |
+| E7 | netVM | `ping-client ping 3` → `status=0x00 (OK)` |
+
+The hypothesis that `resourcecontrol=deny` would collide with
+`-object iothread` (QEMU setting thread scheduling properties) is
+**refuted empirically**, on both machine types, rather than reasoned
+about. E6 additionally clears the vfio path, which was the only
+substantive risk: the `sched_*` and `setpriority` family is not on
+QEMU's launch path here.
+
+**C5b evidence:** `tr '\0' '\n' < /proc/<pid>/cmdline | grep -i '9p\|fsdev'`
+returns empty for the running netVM. The proof is taken **host-side, and
+that is the stronger form**: the device is absent from instantiation, so
+the guest cannot mount what does not exist. This is an axis-1 proof, not
+an axis-3 one. In-guest confirmation (`mount | grep 9p`) was deliberately
+**not** performed: it would have required unlocking the guest root
+account on a declaratively built LV, i.e. reintroducing exactly the
+pet-drift that Open problem #6 closed. See the note under `state.md`
+Open problem #12.
+
+**Options considered:**
+
+*A — treat hardening as post-v1 hygiene.* No work now; leaves the
+largest single privilege item in the TCB unaddressed while the
+documentation claims a minimal TCB. Blocks nothing visibly, which is
+precisely why it would keep slipping. Rejected.
+
+*B — change VMM to inherit better defaults.* crosvm ships per-device
+processes with minijail and per-device seccomp, which is the strongest
+disaggregation available. But it does not remove the C-gate, it
+**renames** it: an unconfined crosvm is no better than an unconfined
+QEMU. Cloud Hypervisor additionally conflicts with
+[ADR-003](DECISIONS.md#adr-003) (see [ADR-028](DECISIONS.md#adr-028)).
+Both discard the vfio maturity this project depends on — the RTL8125
+passthrough with the `disable_idle_d3=1` / `FLReset-` workaround is
+proven on QEMU and unproven elsewhere. Rejected: it swaps a known,
+bounded hardening task for an unbounded porting task.
+
+*C — gate axis-2 work behind VMM containment.* **Chosen.** Correct
+dependency order; the work is bounded, local and already half-designed.
+Each criterion is independently testable. Unblocks all vhost-user paths
+at once rather than one at a time.
+
+**Consequences:**
+
+*Easier*
+- Every later vhost-user decision (vsock, blk, net, fs, gpu) inherits
+  one answered question instead of re-litigating containment per device.
+- `qemu-full` → `qemu-base` gains a motive and an ordering: reduce the
+  binary *and* confine the process, in that order.
+- The TCB claim in `SECURITY-MODEL.md` becomes true rather than
+  aspirational.
+
+*Harder*
+- The launch daemon can no longer be designed as "a thing that runs
+  `.con` scripts". It owns privileged preparation and the drop, which
+  makes it a larger ADR than currently scoped.
+- The dev workflow loses `sudo bash net-sys.con`. A dev profile keeping
+  the root path must be explicit and separate, in the ADR-016 style: one
+  audited profile ships, the convenient one is dev-only.
+
+*To revisit*
+- Whether the per-VM uid is allocated statically (one uid per fixed VM)
+  or dynamically for the disposable pool (CID ≥ 100). Interacts with the
+  CID allocation model in [ADR-022](DECISIONS.md#adr-022).
+- Landlock or chroot for C5a. Landlock does not require a prepared root
+  tree, and — decisive for feasibility — **Landlock restrictions are
+  inherited across `execve`**. A small `setpriv`-style wrapper can apply
+  a ruleset and then `exec qemu`, so C5a needs no QEMU patch. QEMU has no
+  built-in Landlock support and none is required.
+
+---
+
+## ADR-028 — virtio-vsock transport placement
+
+**Status:** Accepted — the v1 decision is *no change*; option 3 recorded
+and gated
+**Depends on:** [ADR-027](DECISIONS.md#adr-027) (C-gate)
+**Does not amend:** [ADR-003](DECISIONS.md#adr-003)
+
+**Context:** [ADR-003](DECISIONS.md#adr-003) fixes **AF_VSOCK
+exclusively** as the host↔guest channel. It governs the address family,
+the CID namespace and the port map (1024 waypipe · 1025 control · 1026
+audio). It says nothing about *where the virtio-vsock device model is
+implemented*, because until now there was only one answer.
+
+There are three, and the difference is material to the trust model.
+
+| # | Placement | Runs in | Host-side API | A bug there compromises | Kernel-enforced netns |
+|---|---|---|---|---|---|
+| **1** | `vhost_vsock` (**today**) | host kernel | `AF_VSOCK` | the host kernel | yes (Linux 7.0) |
+| **2** | hybrid, Firecracker-style | the VMM process | `AF_UNIX` + text framing | that VMM — which maps guest RAM and holds the KVM fd | no |
+| **3** | `vhost-user-vsock` | a separate backend daemon | `AF_UNIX` **or** `AF_VSOCK` | that daemon — maps guest RAM, **no** KVM fd | unverified, see H1 |
+
+QEMU and crosvm use placement 1. Firecracker and Cloud Hypervisor use
+placement 2. **Placement 3 is available in QEMU today** (`vhost-user-vsock`
+device, rust-vmm `vhost-device-vsock` backend) and therefore does not
+require changing VMM.
+
+### What placement 2 costs this project
+
+Cloud Hypervisor's `virtio-vsock` derives from Firecracker's; its host
+side is not `AF_VSOCK`. Host→guest requires connecting to the launch-time
+Unix socket and prefixing the stream with `CONNECT <port>`, once per
+connection. Guest→host requires the host to listen on a Unix socket whose
+path is the launch-time path with `_` and the port number appended; the
+guest dials the well-known CID 2. Full detail and provenance in
+`docs/OBSERVATIONS.md` §2.
+
+Consequences here, in order of severity:
+
+1. **`waypipe --vsock` speaks `AF_VSOCK` on the host.** Placement 2
+   requires either a per-connection proxy — a new component inside the
+   TCB, sitting on the GUI channel — or a waypipe patch implementing the
+   hybrid protocol. The latter is mechanically available
+   ([ADR-019](DECISIONS.md#adr-019) already carries a patch queue) but it
+   would make this project the maintainer of a behavioural divergence
+   from upstream, and the "both binaries from one tree" invariant would
+   no longer describe a tree that matches upstream in behaviour.
+
+2. **Loss of kernel-enforced isolation.** The Linux 7.0 namespace work
+   covers `vhost-vsock` and `vsock_loopback`. Placement 2 uses neither,
+   so the `local`/`global` mechanism does not apply. Isolation would rest
+   on DAC over Unix socket paths plus VMM correctness — userspace, not
+   kernel.
+
+3. **A new guest-influenced parsing surface:** text framing and host path
+   construction from a guest-supplied port number. Bounded, and the
+   implementations are mature, but this is a bug class that does not
+   exist at all under `AF_VSOCK`.
+
+4. **ADR-003's prose would need rewriting** even though its intent
+   survives. The "no netfilter traversal, trivially firewalled" argument
+   holds; the "AF_VSOCK exclusively" sentence would not.
+
+**One point in placement 2's favour, stated plainly:** with it,
+`vhost_vsock` need not be present in the host kernel at all, and future
+defects in that subsystem would be out of scope. Note the provenance,
+though — rust-vmm frames this as a *convenience* (testing vsock
+applications on hosts without vsock support), not as a security claim.
+Promoting a convenience note to a principle is exactly the error the
+three axes in [ADR-027](DECISIONS.md#adr-027) guard against: this is
+relocation, and its value is conditional on the C-gate.
+
+### What placement 3 offers
+
+`vhost-user-vsock` keeps the device model out of **both** the host kernel
+and the VMM process, in a separate daemon that can be confined
+independently — and, decisively for this project, it can still present
+`AF_VSOCK` on the host side. The rust-vmm backend has two modes: a UDS
+mode (Firecracker-compatible hybrid, inheriting all of placement 2's
+costs, of no interest here) and a `--forward-cid` mode giving direct
+`AF_VSOCK` ↔ `AF_VSOCK`, where guest connections are forwarded to a CID
+on the host and the host application listens over `AF_VSOCK`.
+
+In `--forward-cid` mode: guest virtqueue parsing happens in Rust in
+userspace, `vhost_vsock` need not be loaded, and **waypipe on the host
+still speaks `AF_VSOCK`**. ADR-003 survives untouched.
+
+### The price of vhost-user, stated plainly
+
+vhost-user requires **shared guest memory**: the backend maps the guest's
+entire RAM, because it reads virtqueue descriptors pointing into the
+guest address space. This holds in `--forward-cid` mode as much as in UDS
+mode. It is not vsock-specific — it is the generic entry price for any
+vhost-user backend. If the project moves toward device disaggregation at
+all (the natural follow-on to ADR-027), the price is paid once and vsock
+rides on infrastructure that already exists.
+
+**Decision:**
+
+1. **v1 stays on placement 1** (`vhost_vsock`). No change to launchers,
+   agents, waypipe or ADR-003.
+
+2. **Placement 2 is rejected** for this project, on grounds 1–3 above.
+   Recorded so it is not re-proposed: the deciding factor is not
+   performance or elegance but that it forces either a TCB-resident proxy
+   on the GUI channel or a behavioural fork of waypipe, and gives up
+   kernel enforcement to do so.
+
+3. **Placement 3 is the only viable alternative** and is **gated behind
+   the ADR-027 C-gate**. Its security value is conditional on the backend
+   daemon being confined — own uid, seccomp, no KVM fd, ideally own
+   netns. An unconfined backend is a lateral move, not an improvement.
+
+4. **ADR-003 is not amended.** It governs address family and namespace;
+   this ADR governs implementation location. Keeping them separate is
+   deliberate — it is the axis-1 / axis-2 split from ADR-027 applied to
+   one concrete channel.
+
+### Open verification items
+
+Hypotheses in the ADR-021 / ADR-025 Path-A class: mechanistic
+assumptions that must be gated before they are relied on.
+
+**H1 — netns isolation under `--forward-cid`.** The Linux 7.0 series adds
+namespace support to `vhost-vsock` (H2G) and `vsock_loopback` (local).
+`--forward-cid` to CID 1 traverses `vsock_loopback`, which is
+namespace-aware, so isolation *should* hold with `vhost_vsock` unloaded.
+**Not verified.** Gate: two backends forwarding to CID 1 in two
+`local`-mode namespaces, a listener in each, cross-namespace connect must
+fail.
+
+**H2 — `vhost-user-vsock-device` on this project's `microvm`.** The mmio
+variant exists, and QEMU's `nitro-enclave` machine type — itself based on
+`microvm` — instantiates `vhost-user-vsock` over `virtio-mmio` in
+mainline. **Not verified on this project's machine type with the
+monolithic 6.12.x guest kernel.** Gate:
+`-device vhost-user-vsock-device,chardev=…` instantiates on `vm_app_web`,
+guest reaches host on port 1025, `ping-client` PING returns `0x00`.
+
+**H3 — device-model equivalence.** Whether the rust-vmm backend's
+virtio-vsock feature set matches what `katmate-protocol` and waypipe
+assume. SEQPACKET is not used; STREAM only — likely fine, unverified.
+
+### netns scoping — separable, available today
+
+Independent of placement, Linux 7.0 makes vsock namespace-aware and this
+is usable **now**, on placement 1, on the current MINIS host kernel
+(7.0.12-arch1-1).
+
+Mechanism: `/proc/sys/net/vsock/child_ns_mode` (`global` | `local`) sets
+the mode inherited by *new child* namespaces;
+`/proc/sys/net/vsock/ns_mode` is read-only and immutable after namespace
+creation. A VM started by a VMM inside a `local` namespace is reachable
+only from that namespace. CIDs may then repeat across namespaces.
+
+**What it fixes here:** today any host process can reach *any* VM's agent
+on port 1025 — the CID space is global on the host. The waypipe host user
+service, for instance, has no need to reach netVM's agent and currently
+can. Tracked as `SECURITY-MODEL.md` gap #12.
+
+**Costs, all real:**
+
+- `child_ns_mode` is **write-once**: the first write locks the value, and
+  a subsequent differing write returns `-EBUSY`. This is an architectural
+  decision taken once at daemon start, not a runtime toggle.
+- The launch daemon must reach *every* VM, so it must enter each
+  namespace or hold per-namespace sockets. That shapes where the daemon
+  lives.
+- G2H transports (virtio, hyperv, vmci) are **not** namespace-aware yet:
+  a guest cannot create its own `local` namespace and still reach the
+  host. Irrelevant to the current flat topology; relevant if nesting is
+  ever considered.
+
+**Interaction with [ADR-026](DECISIONS.md#adr-026), important:** if CIDs
+may repeat across namespaces, then the domain indicator's identity is no
+longer a CID but the pair **(netns, CID)**. The pid→CID resolution in
+ADR-026 must be revisited at the same time as C6, not after. This is the
+single hardest coupling introduced by netns scoping and is the reason C6
+is listed separately in the C-gate rather than folded into C1–C3.
+
+**Consequences:**
+
+*Easier*
+- The VMM question is now decoupled from the vsock question. "Should we
+  move to a smaller VMM?" no longer drags ADR-003 with it.
+- If device disaggregation happens, vsock is a line item on existing
+  infrastructure, not a separate project.
+
+*Harder*
+- Three hypotheses to gate before placement 3 is even a candidate, on top
+  of the C-gate.
+- Shared guest memory becomes unavoidable on any vhost-user path: a
+  second process maps the guest RAM and must then be confined at least as
+  well as the VMM — the C-gate again, applied to a second binary.
+
+*To revisit*
+- If `vhost_vsock` accumulates a defect of the class recorded in
+  `docs/OBSERVATIONS.md` §1, the cost/benefit of placement 3 shifts
+  sharply. Re-open then, with H1–H3 already gated.

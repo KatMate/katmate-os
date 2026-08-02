@@ -22,7 +22,7 @@
 # ---- parameters (edit per instance) ---------------------------------------
 
 set INSTANCE   test_web                 # delta basename in INSTANCES_DIR
-set CID        5                        # guest VSOCK CID (>=4, fixed AppVM range)
+set CID        21                       # guest VSOCK CID (20-99, fixed AppVM range, ADR-022)
 set MEM        4G
 set SMP        2
 
@@ -135,7 +135,7 @@ qemu-system-x86_64 \
   -device virtio-rng-device \
   -device vhost-vsock-device,guest-cid=$CID \
   \
-  -sandbox on,obsolete=deny,elevateprivileges=deny,spawn=deny
-
+  -sandbox on,obsolete=deny,elevateprivileges=deny,spawn=deny,resourcecontrol=deny
+  
 # QEMU exits here when the guest triple-faults (reboot=t + -no-reboot).
 echo "[app_web] instance '$INSTANCE' exited"
