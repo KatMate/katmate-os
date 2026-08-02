@@ -1,3 +1,9 @@
+# Gap #10 CLOSED 2026-07-28: no 9p hostshare into netVM.
+# Was: -fsdev local,path=/home/host,security_model=none + virtio-9p-pci
+# The whole host home in the most network-exposed VM, unmapped uids.
+# If a dev file path is ever needed again, it must be a narrow subtree
+# with security_model=mapped-xattr, and it must be a separate dev launcher.
+
 qemu-system-x86_64 \
 	-enable-kvm \
 	-object memory-backend-memfd,id=mem,size=1G,share=on \
@@ -19,6 +25,4 @@ qemu-system-x86_64 \
 	-device vfio-pci,host=0000:01:00.0 \
 	-netdev tap,id=int0,ifname=tap-int0,script=no,downscript=no \
 	-device virtio-net-pci,netdev=int0,mac=52:54:0a:64:01:01 \
-	-fsdev local,id=fsdev0,path=/home/host,security_model=none \
-	-device virtio-9p-pci,fsdev=fsdev0,mount_tag=hostshare \
-	-sandbox on,obsolete=deny,elevateprivileges=deny,spawn=deny
+	-sandbox on,obsolete=deny,elevateprivileges=deny,spawn=deny,resourcecontrol=deny
