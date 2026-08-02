@@ -64,19 +64,24 @@
 - [ ] **VMM containment gate (C-gate)** — ADR-027. C4 (tightened seccomp) and
       C5b (no host filesystem export into netVM) passed 2026-07-28. Remaining:
       C1–C3 (non-root netVM VMM, vfio via group + udev, `memlock` from a unit),
-      C5a (Landlock or chroot wrapper), C6 (per-VM netns). C1–C3 land with the
-      launch daemon; C5a and C6 are separable. Gates all axis-2 / vhost-user
-      work.
+      C5a (Landlock or chroot wrapper), C6 (per-VM netns). **Re-scoped by
+      ADR-029:** C1, C3 and C5a are unit directives (`User=`,
+      `LimitMEMLOCK=infinity`, a Landlock wrapper in `ExecStart=`), not daemon
+      code; C6's namespace preparation *is* daemon code (`ip netns add` is not
+      nestable) but preparation only — the unit takes the named namespace with
+      `NetworkNamespacePath=`. Gates all axis-2 / vhost-user work.
 
 ## Build order (first release, critical path)
 
 Each step gates the next:
 
-**Precondition, not a step: C-gate C1–C3** (ADR-027) — the launch daemon's
-privilege split (prepare as root, drop to a per-VM uid, `exec qemu`). It is a
-*property of* the launch daemon rather than a stage before or after it: the
-daemon cannot be designed as "a thing that runs `.con` scripts" and acquire
-this later.
+**Precondition, not a step: C-gate C1–C3** (ADR-027) — the privilege split
+(prepare as root, drop to a per-VM uid, run QEMU). **After ADR-029 this is unit
+configuration** — `ExecStartPre=+`, `User=`, `LimitMEMLOCK=`, `ExecStopPost=+` —
+not daemon code. It remains a precondition because the *supervision model* is
+what cannot be acquired later: a daemon written as "a thing that runs `.con`
+scripts" is a daemon that `fork`s QEMU, and every identity in the system then
+depends on that daemon staying alive.
 
 1. **Foundation pipeline** (ADR-011) — reproducible foundation; manifest format
    + `app-<type>` generation. Gate: build `vault` and `web` layers, run an
