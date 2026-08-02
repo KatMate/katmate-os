@@ -20,7 +20,7 @@
     set $term_float  kitty --class=com.center-float
     set $browser     firefox
     set $private     --private-window
-    set $editor      code
+    set $editor      micro
     set $filemgr     kitty --class=yazi-term -e yazi
     set $alt_filemgr nemo
     set $notes       obsidian
@@ -40,7 +40,6 @@
                     -s $HOME/.config/waybar/style-sway.css
 
 
-    
 # Black-Screen-Wallpaper-3-1.jpg
 # 8544377.jpg
 
