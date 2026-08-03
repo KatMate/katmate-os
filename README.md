@@ -25,7 +25,7 @@ templates, kernels, or forwarding layers. See [ADR-001](docs/DECISIONS.md#adr-00
 - **Host:** Arch Linux, `linux-hardened` kernel, LUKS2 full-disk encryption, LVM (thin pool for VM storage), systemd-boot
 - **Guests:** minimal Debian stable MicroVMs with a custom-built LTS kernel, direct kernel boot
 - **Communication:** AF_VSOCK only — control, file transfer, GUI; no guest network exposure for the control plane
-- **GUI forwarding:** Waypipe over VSOCK into the host Wayland compositor (Hyprland)
+- **GUI forwarding:** Waypipe over VSOCK into the host Wayland compositor (Sway by default, Hyprland optional — [ADR-016](docs/DECISIONS.md#adr-016))
 - **Template model:** versioned immutable base images + per-AppVM overlays; updates handled by `katmate-update`, transparent to the user
 
 ## Documentation map
@@ -34,15 +34,16 @@ templates, kernels, or forwarding layers. See [ADR-001](docs/DECISIONS.md#adr-00
 |---|---|
 | [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) | System architecture: host, guests, kernels, storage/template model, communication, GUI, networking, desktop layer |
 | [docs/SECURITY-MODEL.md](docs/SECURITY-MODEL.md) | Threat model, trust boundaries, controls per component, known gaps |
+| [docs/HOST-CONFIG.md](docs/HOST-CONFIG.md) | Host configuration KatMate depends on that lives outside git — an input to the installer |
 | [docs/INSTALL.md](docs/INSTALL.md) | Requirements, installer walkthrough, disk layout, tested hardware, caveats |
 | [docs/DECISIONS.md](docs/DECISIONS.md) | Architecture Decision Records (Accepted / Proposed) |
 | [ROADMAP.md](ROADMAP.md) | Milestones v0.1 → v1.0 |
-| [CHANGELOG.md](CHANGELOG.md) | Per-milestone change history |
 | [state.md](state.md) | Volatile working state: open problems, next steps (regenerated per session) |
 
 Maintenance rules: every fact lives in exactly one document (others link to it);
-every behavior change produces a CHANGELOG entry; every decision with alternatives
-becomes an ADR; `state.md` never holds permanent truths.
+every decision with alternatives becomes an ADR; `state.md` never holds permanent
+truths; anything the host must be configured to do, but git does not carry,
+belongs in `docs/HOST-CONFIG.md` with its failure mode stated.
 
 ## Development philosophy
 

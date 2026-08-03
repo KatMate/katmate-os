@@ -1,0 +1,209 @@
+# Host configuration
+
+Host-side configuration that KatMate depends on, lives outside the repository,
+and must therefore be produced by the installer. Append-only, newest first
+within each section.
+
+## What this file is for
+
+Some of what makes KatMate work is not in git. It is in `/etc`, in firmware
+settings, in kernel command lines, and in per-machine generated files that
+[the anti-drift pattern](../state.md) deliberately keeps out of version control.
+Each such item was discovered by running the system, applied by hand on one
+machine, and is invisible to a fresh install.
+
+This file is the list. It is **an input to the installer** (ROADMAP build order
+step 5), not a log. An entry earns its place by answering: *what must be set,
+where, and what silently breaks if it is not.*
+
+## What this file is not
+
+- **Not `OBSERVATIONS.md`.** That file holds externally published material
+  bearing on our decisions, and its conventions route corrections of our own
+  statements elsewhere. Everything here is our own measurement on our own
+  hardware.
+- **Not `DECISIONS.md`.** Nothing here is an architectural choice. These are
+  consequences of choices recorded there.
+- **Not `state.md`.** That file describes what is true on the machines today.
+  This file describes what must be true on *any* machine for KatMate to work,
+  including one that does not exist yet.
+
+## Conventions
+
+- **Every entry states its failure mode.** An entry that only says what to set
+  is a note; an entry that says what breaks without it is a requirement. Where
+  the failure is silent, say so explicitly — silent failures are the reason
+  this file exists.
+- **Status markers:** `[LIVE]` applied by hand on a machine, not automated ·
+  `[OPEN]` known requirement, applied nowhere · `[AUTO]` produced by the
+  installer already.
+- **Confidence markers:** `[V]` verified on hardware · `[?]` believed true,
+  not re-checked at the time of writing. A `[?]` entry is not yet a
+  requirement — it is a thing to verify before it becomes one.
+- **Machine scope is mandatory.** MINIS, Acer, Cubi, or *all*. A requirement
+  without a scope cannot be implemented.
+
+---
+
+# Network
+
+## 1. `RequiredForOnline=no` on all tap and bridge link definitions
+
+**Scope:** any host running VM taps under networkd · **[LIVE]** on MINIS
+(`/etc/systemd/network/`) · **[V]** 2026-08-02
+
+**Requirement:** every networkd `[Link]` section for a tap or bridge carries
+`RequiredForOnline=no`.
+
+**Failure mode — silent.** With the `RequiredForOnline=yes` default,
+`network-online.target` never fires. Not late: never. On MINIS every
+networkd-*managed* link is a carrier-less tap, while both actually routable
+links are *unmanaged*, so networkd reports `State: routable` alongside
+`Online state: offline` — a pair that reads as healthy unless both lines are
+read together. `systemd-timesyncd` consequently never polled, and logged
+nothing about it. Anything ordered `After=network-online.target` waits forever
+without an error.
+
+**Bearing on ADR-029.** VM units must not depend on `network-online.target`.
+An AppVM's connectivity arrives through netVM and NETCFG
+([ADR-023](DECISIONS.md#adr-023), [ADR-025](DECISIONS.md#adr-025)), never
+through the host's networkd; and on this host that dependency is unsatisfiable
+in a way that produces no diagnostic. Recorded as an ADR-029 constraint, not
+merely as host hygiene.
+
+**History.** Recorded 2026-07-20 as resolved with the prediction that the
+default would at worst "slow boot". Re-classified 2026-08-02: the prediction
+was wrong in kind, not in degree.
+
+## 2. Host uplink persistent profile, matched on MAC
+
+**Scope:** MINIS · **[OPEN]** · **[V]** 2026-07-06
+
+**Requirement:** a persistent networkd profile for the USB-NIC uplink, matched
+on **MAC** (`00:e0:4c:39:61:b8`), not on the interface name.
+
+**Failure mode.** The address `10.3.1.3` is currently configured with a bare
+`ip addr` and does not survive a reboot. The name `enp195s0f3u1u1` encodes the
+USB path, so a different port yields a different name and a name-matched
+profile would not apply.
+
+**Cross-reference:** ties to the sshd exposure work (SECURITY-MODEL gap #4) —
+sshd should bind to the LAN address, not to the VPN tunnel address.
+
+## 3. RTL8125 bound to `vfio-pci` at boot
+
+**Scope:** MINIS (any host with a passed-through NIC) · **[LIVE]** · **[V]**
+
+**Requirement:** `0000:01:00.0` bound to `vfio-pci` rather than `r8169` from
+boot; a `vfio` group and a udev rule granting the desktop user access.
+
+**Failure mode.** If the host driver claims the NIC first, netVM cannot take it
+and `net-sys.con` fails at `-device vfio-pci`. If the group/udev rule is
+missing, the launcher requires root for the device node — which conflicts with
+C1/C2 of the [C-gate](DECISIONS.md#adr-027).
+
+**Generalisation needed.** IOMMU-group quality is unverified at install time
+(open problem #9): a driver domain is only safe where the NIC sits in a cleanly
+isolable group. The installer needs a preflight, not just a binding step.
+
+---
+
+# Boot and firmware
+
+## 4. mkinitcpio HOOKS and MODULES for the UKI pipeline
+
+**Scope:** MINIS · **[LIVE]** · **[?]** — exact values not re-checked
+
+**Requirement:** `plymouth` before `encrypt` in HOOKS, plus `kms`; `amdgpu` and
+the `vfio_pci` / `vfio` / `vfio_iommu_type1` set in MODULES.
+
+**Failure mode.** Wrong HOOKS ordering loses the graphical LUKS unlock (the
+prompt falls back to text, or the theme does not load). Missing `kms` breaks
+the Sway desktop profile at install time — already noted against ROADMAP build
+order step 5.
+
+**Verify before treating as a requirement:** read the live
+`/etc/mkinitcpio.conf` on MINIS and replace this entry with the exact lines.
+
+## 5. `vhost_vsock` module load unit
+
+**Scope:** all · **[LIVE]** on MINIS · **[V]** 2026-08-02
+
+**Requirement:** `vhost_vsock` loaded before any VM starts.
+
+**Defect in the current implementation.** MINIS carries
+`/etc/systemd/system/vhost-vsock-load.service`, whose line 5 uses
+`ConditionKernelModule` — a key systemd does not know. It is parsed, reported
+as unknown in `dmesg`, and ignored. The unit works; the condition does not
+exist. The installer should not reproduce it.
+
+**Failure mode if the module is absent.** `-device vhost-vsock-device` fails at
+QEMU start, so no VM has a control path or a GUI path
+([ADR-028](DECISIONS.md#adr-028)).
+
+## 6. Hugepages backing for `/dev/hugepages`
+
+**Scope:** all · **[?]** — not verified as a configured requirement
+
+**Requirement (believed):** `app_web.con` uses
+`memory-backend-file,mem-path=/dev/hugepages,share=on`, which requires
+hugepages to be reserved and the mount to exist.
+
+**Failure mode.** QEMU fails to allocate the memory backend at start. Whether
+MINIS carries an explicit reservation or relies on a default is **unchecked** —
+verify before this becomes a requirement, and note that a reservation
+interacts with `memlock` (C3) and with the transparent-hugepage behaviour noted
+in `../state.md`.
+
+---
+
+# Desktop and session
+
+## 7. greetd session entries
+
+**Scope:** MINIS (any machine with a desktop) · **[LIVE]** · **[?]** — path and
+wrapper name not re-checked
+
+**Requirement:** two session entries under `/etc/greetd/sessions/`, the Sway one
+invoked through a `sway-quiet` wrapper.
+
+**Failure mode.** Without them greetd pins a single hardcoded command, so the
+Sway/Hyprland choice of [ADR-016](DECISIONS.md#adr-016) is not offered and the
+machine boots whichever session was compiled into the config.
+
+**Deliberately per-machine.** These are generated, not tracked — consistent
+with the anti-drift pattern. That is precisely why they must be installer
+output.
+
+## 8. Sway output configuration
+
+**Scope:** per-machine · **[LIVE]** on MINIS and Acer · **[V]**
+
+**Requirement:** an `outputs.conf` fragment naming the machine's actual
+outputs — MINIS has `DP-3` and `HDMI-A-1`, the Acer has only `eDP-1`.
+
+**Not a debt.** The absence of an `output` block in the tracked Sway config is
+a decision (recorded 2026-07-27): a hardcoded output name in git would be wrong
+on every machine but one. The installer must therefore *generate* this, not
+ship it.
+
+## 9. rofi configuration source
+
+**Scope:** MINIS · **[OPEN]** · **[V]**
+
+**Problem.** `~/.config/rofi/` on MINIS is a separate CYBRland checkout with its
+own `.git`. The rofi layer has two sources of truth and they are not reconciled.
+
+**Failure mode.** Not a runtime failure — a provenance failure. A fresh install
+has no defined rofi source, and the licence position of the CYBRland-derived
+`desktop/` subtree is still open (GPL-3.0 attribution, ADR-030 planned).
+
+---
+
+# Not in this file
+
+- Dev-only scaffolding that must be **removed** before release — host sshd
+  (open problem #4), the `usermod -p` line in `netvm.sh` (#12), installer
+  secrets (#3). Those are release blockers tracked in `../state.md`, not host
+  requirements.
+- Anything tracked in git. If it is in the repo, it is not host configuration.
