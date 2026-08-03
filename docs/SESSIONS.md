@@ -23,6 +23,99 @@
 
 ---
 
+## This session (2026-07-28) — C-gate defined and half-passed; vsock placement settled; indicator carriers closed
+
+Architecture session (thinking-on) plus three live gates. Origin: a review of
+alternative VMMs that turned into a correction of how this project applies
+*absent, not disabled*.
+
+### Decided
+
+- **ADR-026 — domain indicator carriers.** Accepted, gate closed. Identity
+  resolves in two host-side steps: the compositor gives a window `pid`, and
+  that pid's AF_VSOCK connection gives the peer CID. `app_id` and window title
+  are guest-controlled and excluded from the identity path at every level.
+- **ADR-027 — VMM containment is a precondition, not an alternative.**
+  Introduces three axes of capability control and scopes *absent, not disabled*
+  to axis 1 (existence). Adds principle 10, *relocation is not removal*.
+  Defines the C-gate; no axis-2 work is implemented until it passes.
+- **ADR-028 — virtio-vsock transport placement.** v1 stays on `vhost_vsock`.
+  Hybrid placement rejected with reasons recorded so it is not re-proposed.
+  `vhost-user-vsock` with `--forward-cid` identified as the only viable
+  alternative, gated behind the C-gate, with H1–H3 open.
+
+### Gates passed (live, MINIS)
+
+- **C4 — tightened seccomp filter.** `resourcecontrol=deny` added to both
+  launchers. `app_web` (CID 5): `Seccomp: 2`, one filter, `dmesg` clean,
+  `ping 5 → 0x00`. netVM (CID 3): `Seccomp: 2`, one filter, `ping 3 → 0x00`,
+  and `vfio-pci 0000:01:00.0: resetting / reset done` twice — the `FLReset-`
+  workaround is unaffected. The hypothesis that `resourcecontrol=deny` would
+  collide with `-object iothread` is **refuted empirically on both machine
+  types**, not reasoned about.
+- **C5b — 9p removed from netVM** (SECURITY-MODEL gap #10 closed). `-fsdev` and
+  `-device virtio-9p-pci` deleted from `net-sys.con`; `/proc/<pid>/cmdline` of
+  the running VMM contains neither. Proof taken host-side deliberately — the
+  device is absent from instantiation, which is an axis-1 proof and stronger
+  than an in-guest `mount` check. See the operational note added to open
+  problem #12.
+- **ADR-026 gate.** `swaymsg -t get_tree` on a rendered `nautilus` window
+  reported `app_id: org.gnome.Nautilus`, `name: Home`, and a `pid`. That pid
+  resolved to `waypipe -s 1024 --vsock --threads 0 -c lz4 client-conn`, and
+  `ss -f vsock -p` on it reported `v_str ESTAB 2:1024 ↔ 5:287463193` — peer
+  CID 5. The gate as written asked only whether a pid resolves to the waypipe
+  client; it resolved further, through the client to the CID. **Also
+  verified:** the query needs no privilege — an unprivileged caller receives
+  the same peer CID as root, so the resolver is not forced into a privileged
+  process.
+
+### Still open on ADR-026
+
+Pid stability with **two concurrent windows from one domain** (a second
+`client-conn`), and across close/reopen, is unverified. If per-connection pids
+differ, the resolver must handle a set rather than a single value. A host
+reboot between observations says nothing about this — a new boot means new pids
+by definition.
+
+### Corrections to earlier internal statements
+
+Recorded so the error mode stays visible, in the spirit of the ADR-025 gate
+correction.
+
+1. **"`-sandbox` is not enabled / unused."** Wrong.
+   `-sandbox on,obsolete=deny,elevateprivileges=deny,spawn=deny` was already
+   present in **both** launchers; only `resourcecontrol=deny` was missing. The
+   claim was made without reading the launchers.
+2. **"The VMM runs as root."** Over-generalised. True of `net-sys.con` only.
+   `app_web.con` uses `sudo` solely for `lvchange`; QEMU runs as the invoking
+   user, so C1 is already satisfied for AppVMs. The correction is in the
+   project's favour and would have been lost.
+3. **"The hybrid vsock model is an instance of absent-not-disabled."** Wrong,
+   and the correction is the substance of ADR-027. It is relocation of
+   privilege; the principle applies to existence, not placement.
+4. **"`share=on` may be avoidable on the `--forward-cid` path."** Void — shared
+   guest memory is required by vhost-user generally, in both backend modes.
+   **What this does not settle:** `app_web.con` uses `share=on` on a hugetlbfs
+   backing file with kernel `vhost-vsock` and *no* vhost-user. Whether it is
+   needed there is still open and unmeasured.
+5. **"Spectrum has no network design."** Wrong. Asserted from a design document
+   of around 2020 without checking the repository or the lists. The failure was
+   the one this project has a standing rule against: a claim made without
+   capturing the reference fixture first.
+
+### New file
+
+`docs/OBSERVATIONS.md` — append-only, newest-first log of publicly available
+material bearing on recorded decisions. Conventions live in the file header;
+the central one is that **the subject of every entry is one of our decisions**,
+and that our own stack is held to the same standard as anything else.
+
+### Numbering note
+
+The open-problems list in this file already ran to **15**, not 12. An earlier
+draft of this session's additions assumed 12 and would have collided. Same rule
+as for ADRs: count the list, never the memory of it.
+
 ## This session (2026-07-27) — Sway deployed to MINIS, greetd swap done
 
 Mechanical session. The Sway profile built on the Acer on 07-26 is now live on

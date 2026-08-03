@@ -210,7 +210,96 @@ restartable — and so updatable — without touching running VMs.
 Direction unchanged: IOMMU-capable platforms only (VT-d/AMD-Vi); VT-x-only
 frozen (ADR-015). MINIS is primary host and merge target.
 
-## This session (2026-08-02) — ADR-029: systemd owns the VMM process; four constraints re-examined and gone
+## This session (2026-08-03) — `network-online.target` never fires; HOST-CONFIG.md created; next session set
+
+Short documentation session. One finding, one new document, one decision about
+where the work goes next.
+
+### The finding — a prediction wrong in kind, not degree
+
+`tap-int0` host-side persistence was recorded 2026-07-20 as resolved, with a
+note predicting that the `RequiredForOnline=yes` default would at worst *"slow
+boot"*. Measured on MINIS 2026-08-02: it does not slow boot. It prevents
+`network-online.target` from **ever** firing, silently.
+
+`networkctl` reports `State: routable` alongside `Online state: offline` —
+a pair that reads as healthy unless both lines are read together. The cause is
+that every networkd-*managed* link is a carrier-less tap, while both actually
+routable links are *unmanaged*. `systemd-timesyncd` consequently never polled
+and logged nothing about it. Fixed in `/etc` with `[Link] RequiredForOnline=no`
+on all six tap/bridge definitions — per-machine, not a repo artefact.
+
+This is the same failure class as the `/proc`-remount finding from 08-02 and as
+the assumed precondition that killed ADR-021: **a mechanism that quietly
+consults the wrong object and returns a plausible answer.** Three instances in
+two sessions is no longer a coincidence; it is the shape of this system's
+characteristic bug.
+
+### Constraint added to ADR-029
+
+**VM units must not depend on `network-online.target`.** An AppVM's
+connectivity arrives through netVM and NETCFG (ADR-023, ADR-025), never through
+the host's networkd — and on this host that dependency is unsatisfiable in a
+way that produces no diagnostic. A unit ordered `After=network-online.target`
+would simply never start, with no error and no log line. Recorded here rather
+than as an ADR-029 amendment; fold it into ADR-030's unit-shape section when
+that is written.
+
+### New document: `docs/HOST-CONFIG.md`
+
+The finding did not fit anywhere. `OBSERVATIONS.md` routes it away explicitly —
+its conventions state that the file holds external material only, and that
+corrections to our own statements belong in the session record. But the
+substance is not a session narrative either: it is a fact about host
+configuration that lives in `/etc`, outside git, and that a fresh install would
+not reproduce.
+
+Six existing items share that shape — the uplink profile, the vfio binding,
+mkinitcpio HOOKS, the greetd session entries, `outputs.conf`, the rofi
+checkout. Enough to be a category, not noise.
+
+The category's real name is **installer requirements discovered by running the
+system**. `docs/HOST-CONFIG.md` is therefore an *input to ROADMAP build order
+step 5*, not a log. Its governing convention: **every entry states its failure
+mode**, and where the failure is silent, says so explicitly. An entry that only
+says what to set is a note; an entry that says what breaks without it is a
+requirement.
+
+Four entries ship marked `[?]` — mkinitcpio HOOKS/MODULES, hugepages backing,
+the greetd session path, the `sway-quiet` wrapper name. Under this project's own
+evidentiary standard a `[?]` entry is not yet a requirement; it is a thing to
+verify before it becomes one. They stay `[?]` deliberately.
+
+### Next session decided: ADR-030 — what the daemon reads
+
+ADR-029 settled the daemon's supervision model. What is missing next is not
+more architecture about *what the daemon does*, but a specification of its
+**input**, which does not exist anywhere:
+
+1. **No `properties.toml` → QEMU argv mapping.** ADR-015 names this as its own
+   justification ("not typed enough to map deterministically to QEMU
+   arguments") and then does not specify the mapping. The `.con` scripts are
+   the de facto specification: hand-written, one per VM.
+2. **The schema lacks fields for most of what a launcher needs.** ADR-015 has
+   `manifest`, `network`, `persistence`, `identity`, `disposable`, `cid`,
+   `reset_on_shutdown`. `app_web.con` additionally requires the kernel path,
+   `MEM`, `SMP`, three LV names, the delta path, sandbox flags, the waypipe
+   version gate, the `lvchange -K -ay` ordering and the `-append` line. None of
+   it is described as data anywhere.
+3. **sysVMs have no schema, and the daemon must launch them.** ADR-015 covers
+   AppVMs only and defers this by name: a `class` field (ADR-022 `Vm.class`)
+   would be needed, and *"that is the launch daemon's business, not this
+   ADR's"*. The deferral has arrived.
+
+### ROADMAP gap, surfaced not fixed
+
+**The launch daemon is not a numbered step in the build order.** Steps 1–5 run
+foundation pipeline → `katmate-update` → netVM installer integration → default
+AppVMs → installer integration. The daemon is implied by step 4 and named
+nowhere. Either it is genuinely next and the build order does not say so, or
+ADR-029 settled a decision ahead of its turn. ADR-030 should open by placing it.
+
+## Previous session (2026-08-02) — ADR-029: systemd owns the VMM process; four constraints re-examined and gone
 
 Architecture session (thinking-on) plus four live gates on MINIS. Scope was
 deliberately one question and nothing else: **who is the parent of the QEMU
@@ -338,102 +427,9 @@ deletion) is threaded through this file's live sections but **has no session
 heading**. It is therefore invisible as a session while its consequences are
 visible as state. Give it its own heading, or fold it in here — not left as is.
 
-## Previous session (2026-07-28) — C-gate defined and half-passed; vsock placement settled; indicator carriers closed
-
-Architecture session (thinking-on) plus three live gates. Origin: a review of
-alternative VMMs that turned into a correction of how this project applies
-*absent, not disabled*.
-
-### Decided
-
-- **ADR-026 — domain indicator carriers.** Accepted, gate closed. Identity
-  resolves in two host-side steps: the compositor gives a window `pid`, and
-  that pid's AF_VSOCK connection gives the peer CID. `app_id` and window title
-  are guest-controlled and excluded from the identity path at every level.
-- **ADR-027 — VMM containment is a precondition, not an alternative.**
-  Introduces three axes of capability control and scopes *absent, not disabled*
-  to axis 1 (existence). Adds principle 10, *relocation is not removal*.
-  Defines the C-gate; no axis-2 work is implemented until it passes.
-- **ADR-028 — virtio-vsock transport placement.** v1 stays on `vhost_vsock`.
-  Hybrid placement rejected with reasons recorded so it is not re-proposed.
-  `vhost-user-vsock` with `--forward-cid` identified as the only viable
-  alternative, gated behind the C-gate, with H1–H3 open.
-
-### Gates passed (live, MINIS)
-
-- **C4 — tightened seccomp filter.** `resourcecontrol=deny` added to both
-  launchers. `app_web` (CID 5): `Seccomp: 2`, one filter, `dmesg` clean,
-  `ping 5 → 0x00`. netVM (CID 3): `Seccomp: 2`, one filter, `ping 3 → 0x00`,
-  and `vfio-pci 0000:01:00.0: resetting / reset done` twice — the `FLReset-`
-  workaround is unaffected. The hypothesis that `resourcecontrol=deny` would
-  collide with `-object iothread` is **refuted empirically on both machine
-  types**, not reasoned about.
-- **C5b — 9p removed from netVM** (SECURITY-MODEL gap #10 closed). `-fsdev` and
-  `-device virtio-9p-pci` deleted from `net-sys.con`; `/proc/<pid>/cmdline` of
-  the running VMM contains neither. Proof taken host-side deliberately — the
-  device is absent from instantiation, which is an axis-1 proof and stronger
-  than an in-guest `mount` check. See the operational note added to open
-  problem #12.
-- **ADR-026 gate.** `swaymsg -t get_tree` on a rendered `nautilus` window
-  reported `app_id: org.gnome.Nautilus`, `name: Home`, and a `pid`. That pid
-  resolved to `waypipe -s 1024 --vsock --threads 0 -c lz4 client-conn`, and
-  `ss -f vsock -p` on it reported `v_str ESTAB 2:1024 ↔ 5:287463193` — peer
-  CID 5. The gate as written asked only whether a pid resolves to the waypipe
-  client; it resolved further, through the client to the CID. **Also
-  verified:** the query needs no privilege — an unprivileged caller receives
-  the same peer CID as root, so the resolver is not forced into a privileged
-  process.
-
-### Still open on ADR-026
-
-Pid stability with **two concurrent windows from one domain** (a second
-`client-conn`), and across close/reopen, is unverified. If per-connection pids
-differ, the resolver must handle a set rather than a single value. A host
-reboot between observations says nothing about this — a new boot means new pids
-by definition.
-
-### Corrections to earlier internal statements
-
-Recorded so the error mode stays visible, in the spirit of the ADR-025 gate
-correction.
-
-1. **"`-sandbox` is not enabled / unused."** Wrong.
-   `-sandbox on,obsolete=deny,elevateprivileges=deny,spawn=deny` was already
-   present in **both** launchers; only `resourcecontrol=deny` was missing. The
-   claim was made without reading the launchers.
-2. **"The VMM runs as root."** Over-generalised. True of `net-sys.con` only.
-   `app_web.con` uses `sudo` solely for `lvchange`; QEMU runs as the invoking
-   user, so C1 is already satisfied for AppVMs. The correction is in the
-   project's favour and would have been lost.
-3. **"The hybrid vsock model is an instance of absent-not-disabled."** Wrong,
-   and the correction is the substance of ADR-027. It is relocation of
-   privilege; the principle applies to existence, not placement.
-4. **"`share=on` may be avoidable on the `--forward-cid` path."** Void — shared
-   guest memory is required by vhost-user generally, in both backend modes.
-   **What this does not settle:** `app_web.con` uses `share=on` on a hugetlbfs
-   backing file with kernel `vhost-vsock` and *no* vhost-user. Whether it is
-   needed there is still open and unmeasured.
-5. **"Spectrum has no network design."** Wrong. Asserted from a design document
-   of around 2020 without checking the repository or the lists. The failure was
-   the one this project has a standing rule against: a claim made without
-   capturing the reference fixture first.
-
-### New file
-
-`docs/OBSERVATIONS.md` — append-only, newest-first log of publicly available
-material bearing on recorded decisions. Conventions live in the file header;
-the central one is that **the subject of every entry is one of our decisions**,
-and that our own stack is held to the same standard as anything else.
-
-### Numbering note
-
-The open-problems list in this file already ran to **15**, not 12. An earlier
-draft of this session's additions assumed 12 and would have collided. Same rule
-as for ADRs: count the list, never the memory of it.
-
 ## Session archive
 
-Sessions older than the two above (2026-07-27 back to 2026-06-27) live in
+Sessions older than the two above (2026-07-28 back to 2026-06-27) live in
 [docs/SESSIONS.md](docs/SESSIONS.md), split out on 2026-07-14. That file is
 append-only; CIDs in it are the pre-ADR-022 numbering and are deliberately not
 rewritten. **This file carries the authoritative CID map** (see *Live state*).
@@ -678,6 +674,15 @@ touched.
    SECURITY-MODEL gap #12; mechanism in ADR-028.
 
 ## Next steps
+
+**Next session (decided 2026-08-03): ADR-030 — what the launch daemon reads.**
+Extend ADR-015 with a `class` field (deferred to the daemon by ADR-015 itself,
+via ADR-022 `Vm.class`) and with the execution properties currently baked into
+the `.con` scripts — kernel path, `MEM`, `SMP`, LV names, delta path, sandbox
+flags, waypipe version gate, activation ordering, `-append`. Without it the
+daemon has no input. Open by placing the daemon in the ROADMAP build order,
+where it is currently unnamed. Architecture session, thinking-on. Carry in:
+VM units must not depend on `network-online.target` (see this session).
 
 **Primary (netVM sysVM — ADR-021 track, build now PROVEN):**
 
