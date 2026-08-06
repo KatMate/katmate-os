@@ -5,199 +5,30 @@
 > each working session. Detailed proofs and command sequences live in git
 > history and the ADRs — this file references them rather than repeating them.
 
-**2026-07-23 (ADR-025 CLOSED — NETCFG live-gated; netvm-agent functionally
-complete).** `handle_netcfg` was the last ERR stub in the agent; all three
-opcodes (PING / NETCFG / SHUTDOWN) are now implemented and live-gated. Path B
-(rtnetlink) carried out per the 07-21 E-gate.
-
-**Method — golden fixtures.** Before any code, the bytes iproute2 sends over
-`AF_NETLINK` were captured (`strace -e trace=sendmsg`, dummy iface, local
-10.100.1.1 peer 10.100.1.2/32 metric 100). Five shapes: `RTM_NEWADDR` 40 B,
-`RTM_NEWLINK` 32 B, `RTM_NEWROUTE` 52 B, `RTM_DELROUTE` 52 B, `RTM_DELADDR`
-40 B. Each is pinned by a unit test comparing the encoder's output against the
-capture. "Did I build the message correctly" is therefore PROVEN against a
-reference implementation rather than remembered from a header — the ADR-024
-method applied to code.
-
-Two structural findings from the capture: `IFA_LOCAL` = local, `IFA_ADDRESS` =
-**peer** (the p2p form matches the ADR-025 payload with no translation; the E5
-`/24` form would install a connected route for the whole segment and break
-"REMOVE → state gone"); and DEL uses a **wildcard body** (`RTPROT_UNSPEC` /
-`RT_SCOPE_NOWHERE` / `RTN_UNSPEC`), it does not mirror ADD.
-
-**Empirical finding that corrects the ADR-025 gate.** A peer address installs
-the kernel's own route to the peer (`10.100.1.2 proto kernel scope link src
-10.100.1.1`, metric 0). Consequences: (a) in v1 the payload's route is
-ADDITIVE, not what carries reachability — the kernel's lower metric always
-wins; (b) the gate criterion "a route to the peer is visible" is TOO WEAK — it
-would pass even if `RTM_NEWROUTE` had never been sent. The gate must assert the
-line bearing `metric N`. (c) Teardown is complete without extra work:
-`DELADDR` takes the kernel's route with it.
-
-**Dependency call: hand-rolled, not a crate.** The first possible runtime
-dependency in the only privileged agent (CAP_NET_ADMIN + CAP_KILL, sharing an
-address space with r8169 + the Realtek blob + the v1 WG key). The deciding
-inversion: the netlink UAPI is frozen by kernel contract, the crate APIs are
-not (`netlink-packet-route` broke across 0.17/0.19/0.21, `neli` across
-0.6/0.7, `rtnetlink` is async-only → a tokio runtime in a binary serving one
-synchronous request at a time). A crate does not remove netlink semantics, it
-relocates them and adds churn. Same conclusion as the non-serde wire. The
-multipart `RTM_GETLINK` dump — the one genuinely hard part of netlink — drops
-out: MAC→ifindex resolution goes through sysfs.
-
-**Code.** `netlink.rs` (~350 lines, 5 `unsafe`: socket/sendto/recvfrom/close/
-zeroed — the same class as `libc::kill`): five message builders, an `NlSocket`
-owning its sequence counter, reply validation on two axes (`nl_pid == 0` =
-from the kernel, sequence match), and an errno policy following the
-convergence contract (`EEXIST` on ADD → OK, `ESRCH`/`ENOENT`/`EADDRNOTAVAIL`
-on REMOVE → OK, `ENODEV` = retryable ERR). `netcfg.rs`: total validation per
-the ADR-025 table, the record set under `RuntimeDirectory=`, convergent
-ADD/REMOVE. `ping-client`: `netcfg-add` / `netcfg-remove`, plus repair of
-stale comments claiming netVM does not implement SHUTDOWN (ADR-024 reversed
-that on 07-18).
-
-Byte order (implementation reading of ADR-025): LE governs GENUINE INTEGERS
-(`link_id`, `metric`); addresses and the MAC are byte arrays in network order,
-the same class of field as `match_mac`. Consequence: there is NO address
-conversion anywhere in the privileged path — and therefore none to get wrong.
-
-**Live gate — 7/7.** All five ADR-025 criteria plus two extra:
-
-| criterion | result |
-|---|---|
-| ADD → address + route + UP | OK; `10.100.1.2 scope link metric 100` visible |
-| identical re-ADD | OK |
-| conflicting ADD (same id, different peer) | ERR |
-| REMOVE of an absent id | OK |
-| REMOVE → state gone | OK; `enp0s5` has no IPv4, record dir empty, iface still UP |
-| RUN aimed at netVM | ERR (absent-not-disabled, on the fresh binary) |
-| ADD naming the uplink's OUI MAC (`38:05:25:34:7c:47`) | ERR (structural fence, rejected in the parser) |
-
-The last one is quiet but load-bearing: across seven operations — including one
-that named the uplink's MAC explicitly — `enp0s4` never moved (DHCP lease
-`10.3.1.110` untouched). The agent does not know which MAC the uplink has; one
-bit test makes it unreachable.
-
-**19 unit tests** (2 op + 7 netlink + 10 netcfg), all green.
-
-**Rebuild.** `vm_sys_netvm` rebuilt from a clean `netvm.sh`, KVER
-**6.12.96+deb13-amd64** (was 6.12.95). Boot clean: `landlock: Up and running`,
-`crng init done` @ 0.010s, `PF_VSOCK registered`, `getty-static … because dbus
-and logind are not available` (the manifest stays dbus-free). SHUTDOWN
-regression passed on the new kernel. The agent binary in the image was
-ultimately replaced BY HAND (mount + install), not by a rebuild — see debt #14
-below.
-
-Next architectural piece: the **launch daemon** (owns the graph; allocates CIDs
-and `/32`s, orders `device_add` before NETCFG, refuses to tear down a VM with
-live dependents). ADR-sized, thinking-on.
-
-**2026-07-21 (E-gate — NETCFG mechanism RESOLVED, Path B).** ADR-025's
-E1–E5 run live on `vm_sys_netvm` (root unlocked via offline chroot
-`passwd`, dev-only, image otherwise untouched — `passwd -l root` still the
-release state). Internal netdev confirmed: `enp0s5`, MAC
-`52:54:0a:64:01:01`, **`unmanaged`** by networkd (only `20-uplink.network`
-baked, matching `enp0s4` uplink) — the load-bearing fact for Path B.
-**Result: Path A dead on all three trigger probes, Path B proven.** E1:
-`networkctl reload` inert (`Failed to connect to system bus` — no dbus, the
-ADR-021-class precondition failure). E2: the varlink surface
-`/run/systemd/netif/io.systemd.Network` **exists** (introspected via
-`varlinkctl`, world-writable `srw-rw-rw-`) but exposes **no config-mutation
-method** — only `GetStates`/`GetLLDPNeighbors`/`GetNamespaceId`/
-`SetPersistentStorage` (the last returns `StorageReadOnly` on the RO image).
-Stronger than the predicted "absent": surface present, introspected,
-provably no reload. E3: `Type=notify-reload` promised a signal path, but
-`SIGRTMIN+1` to networkd **kills it** (`code=killed, status=35/RTMIN+1` →
-systemd restart), not a reload — empirics overriding introspection, the
-ADR-021 trap avoided. E5: a full Path-B dry run under the agent's exact
-profile (`setpriv --reuid nobody --inh-caps +net_admin --ambient-caps
-+net_admin` — the ADR-024 E8 both-sets pattern) drove `ip addr add
-10.100.1.1/24` + `ip link set up` + `ip route add 10.100.1.2/32` on
-`enp0s5`, all `=0`, `UP,LOWER_UP`, no bus/DAC/root. Decision rule (A iff
-(E1∨E2) trigger ∧ E4): no trigger → **B**, exactly as ADR-025 predicted. E4
-(DAC) moot, not tested. Next: `handle_netcfg` (thinking-on/Fable session —
-includes the hand-rolled `RTM_*` vs netlink-crate dependency call, ADR-025
-§ mechanism). Aside: `SIGRTMIN+1` to networkd is a config-plane DoS
-(kill+restart) — noted, immaterial to the trust model (agent already holds
-`CAP_NET_ADMIN`).
-
-**2026-07-20 (design session — ADR-025 NETCFG payload):** the NETCFG wire
-contract ADR-023 left abstract is now fixed. **Wire:** fixed binary layout,
-opcode `0x06`, count-prefixed bounded route array (`route_count 1..=4`); no
-version byte (new shape → new registry value); byte order deferred to
-`katmate-protocol::frame`. Locally-administered MAC check = structural uplink
-protection; `local_addr == 10.100.1.1`, `peer ∈ 10.100.1.0/24 /32`. **Semantics:**
-idempotent per host `link_id`; **convergence, not rollback**; state is the
-filesystem, boot-scoped under `/run`; **act-first / reply-second** (mirror of
-ADR-024). **Mechanism deferred, E-gated** (Path A networkd-fragment vs Path B
-rtnetlink; E1–E5 next session decide — ADR-024 method, since ADR-021's shutdown
-died of an assumed mechanism precondition; predicted winner B, no dbus for
-`networkctl reload`). Done: ADR-025 committed; ADR-021 status line repaired;
-`net-sys.con` **committed for the first time** (`f5f8ef2` — was MINIS-only since
-07-09, invariant breach now closed) with a static internal netdev (tap `tap-int0`
-+ `virtio-net-pci`, MAC `52:54:0a:64:01:01`); host-side `tap-int0` persisted via
-networkd. (Forensic aside: the retired pet netdev MAC `52:54:0A:64:11:01`
-byte-encoded `10.100.17.1` — the wrong-subnet bug the pet's nftables carried,
-preserved in the MAC; the new MAC encodes `10.100.1.1` correctly.) Next:
-boot → confirm guest sees the netdev → E1–E5 → `handle_netcfg` +
-`ping-client netcfg-*` → minimal live gate.
-
-**2026-07-20 housekeeping:** vm_sys_netvm actually rebuilt from clean
-netvm.sh today (dm-17 open-flag needed host reboot first); acpid/dev-root/
-ffc08537 remnants gone only now, not 07-18. Stale vm_tpl_net_root +
-vm_net_overlay.qcow2 removed. netvm.sh export-block dedupe (9149e17).
-
-**Last updated:** 2026-07-18 — **LIVE GATE PASSED: netVM graceful shutdown
-via the agent. `ping-client shutdown 3 → OK` + clean poweroff; Open problem #10
-CLOSED (ADR-024).** SHUTDOWN returns to `netvm-agent` as opcode 0x05: reply-OK
-first, then `kill(1, SIGRTMIN+4)` so systemd (PID 1) runs `poweroff.target` —
-byte-for-byte the `systemctl poweroff` stop, with no dbus, no logind, no acpid,
-no `CAP_SYS_BOOT`. Delivered by a non-root agent holding `CAP_KILL` (unit
-ambient+bounding). Empirically chosen over three dead candidates (E1-E8 in
-ADR-024): QMP/logind inert (no dbus), non-root `systemctl` has no bus,
-`/run/systemd/private` root-only, `CAP_SYS_BOOT`+`reboot(2)` not graceful under
-systemd PID 1. Proven on the wire: `op=SHUTDOWN (0x05) → status=0x00 (OK)`, and
-the netVM console ran the full stop (`EXT4-fs (vda): re-mounted … ro` →
-`reboot: Power down`). The reply-first ordering is confirmed by the console
-stopping `netvm-agent.service` mid-sequence — the OK reached the wire before the
-agent died. Whole image rebuilt from `netvm.sh` (fresh binary + `CAP_KILL` unit,
-KVER=6.12.95+deb13-amd64), which also erased the acpid + dev-root experiment
-remnants — the manifest is clean (no acpid in the shutdown sequence).
-
-**Prior live gate (2026-07-17):** first control path into netVM proven —
-`ping-client ping 3 → OK`. Detail in SESSIONS.md (2026-07-17 entry).
-**Milestone:** v0.2 (in development)
+**Milestone:** v0.2 (in development) · **Last updated:** 2026-08-06
+(documentation session — `state.md` / `SESSIONS.md` split, in progress).
 
 ## Current focus
 
-The RTL8125 passthrough backbone is COMPLETE and proven across a reboot cycle:
-`vfio.conf` binds the NIC away from `r8169` at boot, `net-vfio.con` launches
-netVM with `-device vfio-pci,host=0000:01:00.0`, the guest enumerates it as
-`enp0s6`, and with `firmware-realtek` present + a MAC-matched networkd profile
-the link is routable with a DHCP lease. Both the first and the critical second
-boot succeeded. The uplink deltas now survive a rebuild: `build/netvm.sh`
-reproduces them declaratively (proven 2026-07-09), and the netinst pet is retired
-in principle. The remaining netVM work is **a control path into the guest** —
-root is locked in the declarative image, so nothing inside it has ever been
-verified. That is `netvm-agent`, whose workspace landed 2026-07-13 and whose
-`main()` is the next code to write.
+**The focus is the host side of the TCB — specifically the launch daemon.**
+Everything below the daemon is proven: the RTL8125 passthrough backbone holds
+across reboot cycles, `build/netvm.sh` reproduces the uplink declaratively
+(proven 2026-07-09, netinst pet retired in principle), and `netvm-agent` is
+live-gated through PING, NETCFG and SHUTDOWN — the control path into the guest,
+open for most of July, is closed (ADR-024, ADR-025).
 
-The **entire build chain remains scripted and proven from nothing** (unchanged
-this session): `make foundation` builds the shared systemd-free base
+The **entire build chain remains scripted and proven from nothing**:
+`make foundation` builds the shared systemd-free base
 (debootstrap → base → waypipe-from-source → bake init/agent/user → freeze),
 `make app-web`/`make app-vault` snapshot it, and an instance boots end-to-end.
 The release model is fixed (ADR-020): the build chain is developer-side; its
 output is a signed ISO; the user installs by verify → bake → boot → provision,
 never by building. `katmate-update` (ADR-019 version-lock backbone) is complete
-— and, per this session, deliberately does NOT cover netVM.
+— and deliberately does NOT cover netVM (ADR-021).
 
-**As of 2026-07-28 the focus has moved to the host side of the TCB.** The netVM
-control path is no longer the open question — `netvm-agent` is live-gated
-through NETCFG and SHUTDOWN (ADR-024, ADR-025), and the paragraph above is kept
-only as the historical framing of how the track was entered. What is open now
-is the **VMM process itself**: ADR-027 defines a containment gate (C-gate) of
-which C4 (tightened seccomp) and C5b (no host filesystem export into netVM)
-passed the same day, leaving C1–C3, C5a and C6 attached to the launch daemon.
+What is open is the **VMM process itself**: ADR-027 defines a containment
+gate (C-gate) of which C4 (tightened seccomp) and C5b (no host filesystem export into netVM)
+passed on 2026-07-28, leaving C1–C3, C5a and C6 attached to the launch daemon.
 ADR-028 settles that v1 stays on kernel `vhost_vsock` and records what would
 have to be true before that changes. ADR-026 closes the domain indicator's
 identity question, which unblocks the Sway indicator work. The next code to
@@ -299,7 +130,7 @@ AppVMs → installer integration. The daemon is implied by step 4 and named
 nowhere. Either it is genuinely next and the build order does not say so, or
 ADR-029 settled a decision ahead of its turn. ADR-030 should open by placing it.
 
-## Previous session (2026-08-02) — ADR-029: systemd owns the VMM process; four constraints re-examined and gone
+## Previous session (2026-08-02, second of two) — ADR-029: systemd owns the VMM process; four constraints re-examined and gone
 
 Architecture session (thinking-on) plus four live gates on MINIS. Scope was
 deliberately one question and nothing else: **who is the parent of the QEMU
@@ -420,19 +251,37 @@ than cited.
 which systemd does not know; the line is silently ignored (visible in `dmesg`).
 The unit works — the condition does not exist. Drift, not a defect.
 
-### Docs debt raised this session
+### Docs debt raised this session — CLOSED 2026-08-06
 
 The earlier 2026-08-02 session (CID renumbering `app_web` 5 → 21, personalVM
 deletion) is threaded through this file's live sections but **has no session
 heading**. It is therefore invisible as a session while its consequences are
 visible as state. Give it its own heading, or fold it in here — not left as is.
 
+> **Closed 2026-08-06.** Written up as its own entry —
+> *2026-08-02, first of two* — at the top of [docs/SESSIONS.md](docs/SESSIONS.md),
+> explicitly marked as reconstructed rather than same-day.
+
 ## Session archive
 
-Sessions older than the two above (2026-07-28 back to 2026-06-27) live in
-[docs/SESSIONS.md](docs/SESSIONS.md), split out on 2026-07-14. That file is
-append-only; CIDs in it are the pre-ADR-022 numbering and are deliberately not
-rewritten. **This file carries the authoritative CID map** (see *Live state*).
+Sessions older than the two above (2026-08-02 *first of two*, then 2026-07-28
+back to 2026-06-27) live in [docs/SESSIONS.md](docs/SESSIONS.md), split out on
+2026-07-14. That file is append-only; CIDs in entries dated 2026-07-13 and
+earlier are the pre-ADR-022 numbering and are deliberately not rewritten.
+**This file carries the authoritative CID map** (see *Live state*).
+
+**Boundary repaired 2026-08-06.** Until then this file carried ~160 lines of
+un-headed session narrative above *Current focus*, of which the 2026-07-23,
+07-21 and 07-20 sessions existed **nowhere else** — `SESSIONS.md` jumped
+07-24 → 07-18. Trimming this file to its own "two most recent sessions" mandate
+would have destroyed them. They are now inserted in their chronological slot,
+the second such insertion the archive has taken (see its header note). The
+07-18 and 07-17 material in that preamble was a duplicate of entries already
+archived and was dropped, not moved.
+
+**Pending:** the 2026-08-06 documentation session itself has no entry yet — it
+is still open. When it closes, it becomes the newest entry here and the
+2026-08-02 *second of two* entry moves to the archive.
 
 ## Live state (MINIS/UM870) — summary
 
@@ -486,14 +335,23 @@ touched.
   principle, superseded. (b) The **declarative build** `vm_sys_netvm` (linear RW
   4G) from `build/netvm.sh`, booted via `~/net-sys.con` (RTL8125 via
   `-device vfio-pci,host=0000:01:00.0`, `-kernel`/`-initrd` direct boot, kernel
-  `6.12.95+deb13-amd64`). **PROVEN this session:** boots through full systemd,
-  root on `/dev/vda`, `enp0s5` (MAC-matched) `Link is Up 1Gbps/Full`,
-  firmware-realtek loaded, DHCP lease `10.3.1.110` confirmed by host ARP scan.
-  The uplink deltas (`firmware-realtek`, `20-uplink.network`, cleaned
-  `interfaces`) are now baked by the manifest, not hand-applied. NOT yet
-  verified from inside (root locked, no `netvm-agent` — see 2026-07-09 session):
-  `networkctl` state, WireGuard/ProtonVPN bring-up, inner-segment `enp0s4` p2p
-  to personalVM. `memlock` via `LimitMEMLOCK=infinity` (unit) or `ulimit -l
+  **6.12.96+deb13-amd64**, rebuilt clean on 2026-07-23). Boots through full
+  systemd, root on `/dev/vda`; the uplink comes up MAC-matched
+  (`38:05:25:34:7c:47`, `Link is Up 1Gbps/Full`, `firmware-realtek` loaded,
+  DHCP lease `10.3.1.110` confirmed by host ARP scan) and the internal p2p
+  segment on its locally-administered MAC `52:54:0a:64:01:01`. **Interface
+  names are not normative and have moved across sessions** (`enp0s6` on the
+  retired pet, `enp0s4`/`enp0s5` on the declarative build) — read the MACs, not
+  the names (see *Invariants*). The uplink deltas (`firmware-realtek`,
+  `20-uplink.network`, cleaned `interfaces`) are baked by the manifest, not
+  hand-applied.
+  **In-guest status:** `netvm-agent` is live-gated on PING / NETCFG / SHUTDOWN
+  (ADR-024, ADR-025), so the control path is no longer the gap; root is
+  deliberately unlocked for console observation (open problems #11/#12). Still
+  unverified from inside: **WireGuard/ProtonVPN bring-up** and the DNS-leak
+  policy. The peer end of the internal segment does not exist — personalVM was
+  deleted and no AppVM carries a network device yet (ADR-029 C2).
+  `memlock` via `LimitMEMLOCK=infinity` (unit) or `ulimit -l
   unlimited` (manual launch). Runs independently of app_web.
 - **personalVM** — **gone (2026-08-02).** Launcher, overlay and
   `vm_personal_home` all removed; it was the last pre-foundation artefact.
@@ -675,6 +533,13 @@ touched.
 
 ## Next steps
 
+**ADR numbering (settled 2026-08-06).** `ADR-030` = *what the launch daemon
+reads*; `ADR-031` = the licence declaration (GPL-3.0 attribution for the
+CYBRland-derived `desktop/` subtree). Both numbers were claimed as 030 —
+`docs/HOST-CONFIG.md` §9 for the licence ADR, this file four times for the
+daemon input schema. The daemon schema keeps 030; `HOST-CONFIG.md:199` was
+corrected. Neither ADR is written, so nothing in `DECISIONS.md` moved.
+
 **Next session (decided 2026-08-03): ADR-030 — what the launch daemon reads.**
 Extend ADR-015 with a `class` field (deferred to the daemon by ADR-015 itself,
 via ADR-022 `Vm.class`) and with the execution properties currently baked into
@@ -682,27 +547,9 @@ the `.con` scripts — kernel path, `MEM`, `SMP`, LV names, delta path, sandbox
 flags, waypipe version gate, activation ordering, `-append`. Without it the
 daemon has no input. Open by placing the daemon in the ROADMAP build order,
 where it is currently unnamed. Architecture session, thinking-on. Carry in:
-VM units must not depend on `network-online.target` (see this session).
+VM units must not depend on `network-online.target` (2026-08-03 session).
 
 **Primary (netVM sysVM — ADR-021 track, build now PROVEN):**
-
-- **`handle_netcfg` — dependency call FIRST.** Hand-rolled `RTM_*` vs a
-  netlink crate (`rtnetlink`/`neli`). Minimal-TCB leans hand-rolled — no
-  dependency in a `CAP_NET_ADMIN` binary, mirroring the deliberately
-  non-serde wire — but netlink subtlety (NLMSG alignment, attribute TLV,
-  ACK handling) warrants a short explicit judgement at the top of the
-  thinking-on/Fable session, before any code. Mechanism is settled (Path B,
-  E-gate 2026-07-21); this is the one open design point left in the handler.
-
-- **NETCFG payload — the next handler (ADR-023 impl).** `handle_netcfg` is the
-  ONLY ERR-stub left in netvm-agent; it gates the AppVM internal /32 network
-  (every AppVM launch needs a route installed). ADR-023 is written; open are the
-  **payload shape** (typed p2p-link: match / local+peer / `/32` / route / metric,
-  `add`/`remove` only, validation against a legitimate appVM CID) and the
-  **in-guest mechanism** (networkd fragment default; `rtnetlink` alternative).
-  Thinking-on session. **Tooling gap first:** `ping-client` has no `netcfg`
-  subcommand (opcode 0x06 postdates it) — the live test needs the client
-  extended once the payload shape is fixed.
 
 - **`netvm-agent` — FUNCTIONALLY COMPLETE.** PING (07-17), SHUTDOWN (07-18,
   ADR-024), NETCFG (07-23, ADR-025) — all live-gated. The opcode model is
@@ -712,7 +559,11 @@ VM units must not depend on `network-online.target` (see this session).
 
 - **In-guest verification via a dev-only console password** (out-of-band; remove
   before release, sshd class): `networkctl status` routable, WireGuard/ProtonVPN
-  up, inner-segment `enp0s4` p2p to personalVM. Only link-up + DHCP lease
+  up, the inner-segment p2p link. **Note:** this item was written when the peer
+  was personalVM, which no longer exists (2026-08-02) and whose replacement
+  AppVM has no network device yet (ADR-029 C2 finding). The netVM half is
+  verifiable now; the peer half is not, and waits on the launch daemon. Only
+  link-up + DHCP lease
   confirmed so far (from the host). The agent is NOT the verification path (no
   RUN).
 
@@ -752,9 +603,12 @@ VM units must not depend on `network-online.target` (see this session).
 - **`tap-int0` host-side persistence — RESOLVED 2026-07-20.** Was manual-only
   (`ip tuntap add`) → gone on host reboot. Now declared via networkd
   `/etc/systemd/network/tap-int0.{netdev,network}` (tap-work pattern, `User=host`,
-  no L3 — pure L2 conduit into netVM). Minor: inherits `RequiredForOnline=yes` from
-  defaults → `networkd-wait-online` may wait on it at boot; add
-  `[Link] RequiredForOnline=no` if it ever slows boot.
+  no L3 — pure L2 conduit into netVM). **The `RequiredForOnline` note this entry
+  used to carry was wrong** — it predicted the default would at worst *"slow
+  boot"*. Measured 2026-08-02: `network-online.target` never fires at all, with
+  no diagnostic. `[Link] RequiredForOnline=no` is not optional and is not a
+  boot-speed matter; it is a requirement, recorded in
+  [docs/HOST-CONFIG.md](docs/HOST-CONFIG.md) §1 with its failure mode.
 
 - **`net-sys.con` under git — RESOLVED 2026-07-20** (`f5f8ef2`). Was MINIS-only
   from 07-09, never committed. Sync wart persists: the standing rsync excludes
@@ -788,12 +642,16 @@ VM units must not depend on `network-online.target` (see this session).
   expensive for development. Revisit once the launch daemon demonstrates a
   need to branch on failure class.
 
-- **Docs hygiene (deferred) — reconcile the state.md session section.** It
-  holds 07-14 + 07-13 while SESSIONS.md already has 07-18/07-17/07-15/07-10; the
-  two do not overlap and the dates are inverted vs the "two most recent" mandate.
-  07-13 is NOT yet in SESSIONS (would be lost if naively dropped). Sanitize
-  deliberately: copy 07-14 + 07-13 into SESSIONS (newest-first), then trim
-  state.md to the two most recent. Not done this session (minimal-move choice).
+- ~~**Docs hygiene (deferred) — reconcile the state.md session section.**~~
+  **Done 2026-08-06**, and the same failure had recurred: after the 07-26 pass
+  moved 07-14 + 07-13 into `SESSIONS.md`, three later sessions (07-23, 07-21,
+  07-20) accumulated in this file's un-headed preamble and were again the only
+  copy. Both the preamble and the missing 2026-08-02 heading are now cleared —
+  see *Session archive*. **The recurrence is the finding, not the backlog
+  item:** an entry written straight into `state.md`'s preamble instead of into
+  a dated session heading is invisible to the trim rule, so the rule silently
+  destroys it. Sessions get a heading at the time they are written, or they are
+  not written down.
 
 **Carried from 2026-07-14 (ADR-022/023 consequences):**
 

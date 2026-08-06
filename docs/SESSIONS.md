@@ -8,10 +8,16 @@
 >
 > **Entries are append-only and are never rewritten.** They are records of what
 > was true on the day they were written, not statements about the current target.
-> On 2026-07-26 the 07-14 and 07-13 entries were *inserted* into their
-> chronological slot: they had been stranded in `state.md` while every later
-> session went straight to this file. That was a repair of the ordering
-> invariant, not an edit to any entry, and it is the only such insertion.
+> Two *insertions* have been made, both repairs of the ordering invariant rather
+> than edits to any entry: on 2026-07-26 the 07-14 and 07-13 entries, and on
+> 2026-08-06 the 07-23, 07-21 and 07-20 entries plus the first of the two
+> 2026-08-02 sessions. In each case the material had been stranded in `state.md`
+> while later sessions went straight to this file. The 2026-08-06 insertion
+> carried two repairs inside a moved block, both marked where they occur: a
+> dangling "see debt #14 below" cross-reference now pointing at `../state.md`,
+> and the removal of the leading `**YYYY-MM-DD ...**` date stamps that only made
+> sense in `state.md`'s flat preamble. The 2026-08-02 entry is explicitly
+> reconstructed and says so in its own header.
 >
 > **Reading note — CIDs.** [ADR-022](DECISIONS.md#adr-022) was written in the
 > 2026-07-14 session. Entries dated **2026-07-13 and earlier** use the old
@@ -20,6 +26,52 @@
 > which **personalVM becomes 20 and app_web becomes 21** (netVM stays 3). Old
 > numbers are left as written — they are what actually ran at the time.
 > `state.md` carries the authoritative map.
+
+---
+
+## This session (2026-08-02, first of two) — CID renumbering applied; personalVM artefacts removed
+
+> **Reconstructed 2026-08-06; not written on the day.** This session's
+> consequences were threaded into `../state.md`'s living sections while the
+> session itself never received a heading — it was therefore invisible as a
+> session while fully visible as state. Flagged as docs debt in the second
+> 2026-08-02 entry and closed here. The entry below is assembled from those
+> sections and from `../ROADMAP.md`; it is not a same-day record and asserts
+> nothing that was not already written down elsewhere.
+
+### CID renumbering to the ADR-022 map — done
+
+The renumbering carried from the 2026-07-14 session was applied:
+
+- `app_web` **5 → 21** in `app_web.con` (line 25, with the band named in the
+  comment).
+- The normative band **4–8 → 20–99** in [ADR-015](DECISIONS.md#adr-015),
+  [ADR-017](DECISIONS.md#adr-017) and `tools/validate-properties.fish`.
+- `properties.toml` restricted to the **AppVM class**: a CID in 3–19 is a hard
+  error, not a warning. sysVMs are not described by that schema.
+
+**personalVM was not renumbered — it was deleted instead** (below). `20` is
+therefore simply the lowest free fixed AppVM CID, reserved for nothing in
+particular. netVM (3) is unchanged by the new map.
+
+**The agents needed no change.** They know only host CID 2 and the peer CID
+returned by `accept`; the map is host-side throughout. No instantiated
+`properties.toml` existed at the time, so no instance file was touched.
+
+### personalVM artefacts removed
+
+`vm_personal_home` (40 G thin) deleted. The launcher and the qcow2 overlay had
+already gone in the 2026-07-25 housekeeping pass, so this removed the last
+pre-foundation artefact on MINIS.
+
+Migration was considered and rejected: the old personalVM ran the
+pre-foundation systemd-user / linear-root model, which nothing will boot again.
+Migrating would have meant renumbering it and then rebuilding an artefact that
+the v0.3 AppVM work regenerates from foundation + the `web` manifest anyway.
+
+**The artefact is gone; the `personal` archetype
+([ADR-014](DECISIONS.md#adr-014)) is not.** It returns as one of the default
+AppVMs, with a CID allocated from 20–99 at that point.
 
 ---
 
@@ -395,6 +447,159 @@ Secure Boot, Measured Boot, PCR sealing, `systemd-cryptenroll`, signed UKI,
 removal of the GRUB EFI entry, "zero console" boot — are that document's own
 horizon, not this session's agenda. They are not in `ROADMAP.md`; they are
 backlog candidates.
+
+---
+
+## This session (2026-07-23) — ADR-025 CLOSED: NETCFG live-gated; netvm-agent functionally complete
+
+`handle_netcfg` was the last ERR stub in the agent; all three opcodes
+(PING / NETCFG / SHUTDOWN) are now implemented and live-gated. Path B
+(rtnetlink) carried out per the 07-21 E-gate.
+
+**Method — golden fixtures.** Before any code, the bytes iproute2 sends over
+`AF_NETLINK` were captured (`strace -e trace=sendmsg`, dummy iface, local
+10.100.1.1 peer 10.100.1.2/32 metric 100). Five shapes: `RTM_NEWADDR` 40 B,
+`RTM_NEWLINK` 32 B, `RTM_NEWROUTE` 52 B, `RTM_DELROUTE` 52 B, `RTM_DELADDR`
+40 B. Each is pinned by a unit test comparing the encoder's output against the
+capture. "Did I build the message correctly" is therefore PROVEN against a
+reference implementation rather than remembered from a header — the ADR-024
+method applied to code.
+
+Two structural findings from the capture: `IFA_LOCAL` = local, `IFA_ADDRESS` =
+**peer** (the p2p form matches the ADR-025 payload with no translation; the E5
+`/24` form would install a connected route for the whole segment and break
+"REMOVE → state gone"); and DEL uses a **wildcard body** (`RTPROT_UNSPEC` /
+`RT_SCOPE_NOWHERE` / `RTN_UNSPEC`), it does not mirror ADD.
+
+**Empirical finding that corrects the ADR-025 gate.** A peer address installs
+the kernel's own route to the peer (`10.100.1.2 proto kernel scope link src
+10.100.1.1`, metric 0). Consequences: (a) in v1 the payload's route is
+ADDITIVE, not what carries reachability — the kernel's lower metric always
+wins; (b) the gate criterion "a route to the peer is visible" is TOO WEAK — it
+would pass even if `RTM_NEWROUTE` had never been sent. The gate must assert the
+line bearing `metric N`. (c) Teardown is complete without extra work:
+`DELADDR` takes the kernel's route with it.
+
+**Dependency call: hand-rolled, not a crate.** The first possible runtime
+dependency in the only privileged agent (CAP_NET_ADMIN + CAP_KILL, sharing an
+address space with r8169 + the Realtek blob + the v1 WG key). The deciding
+inversion: the netlink UAPI is frozen by kernel contract, the crate APIs are
+not (`netlink-packet-route` broke across 0.17/0.19/0.21, `neli` across
+0.6/0.7, `rtnetlink` is async-only → a tokio runtime in a binary serving one
+synchronous request at a time). A crate does not remove netlink semantics, it
+relocates them and adds churn. Same conclusion as the non-serde wire. The
+multipart `RTM_GETLINK` dump — the one genuinely hard part of netlink — drops
+out: MAC→ifindex resolution goes through sysfs.
+
+**Code.** `netlink.rs` (~350 lines, 5 `unsafe`: socket/sendto/recvfrom/close/
+zeroed — the same class as `libc::kill`): five message builders, an `NlSocket`
+owning its sequence counter, reply validation on two axes (`nl_pid == 0` =
+from the kernel, sequence match), and an errno policy following the
+convergence contract (`EEXIST` on ADD → OK, `ESRCH`/`ENOENT`/`EADDRNOTAVAIL`
+on REMOVE → OK, `ENODEV` = retryable ERR). `netcfg.rs`: total validation per
+the ADR-025 table, the record set under `RuntimeDirectory=`, convergent
+ADD/REMOVE. `ping-client`: `netcfg-add` / `netcfg-remove`, plus repair of
+stale comments claiming netVM does not implement SHUTDOWN (ADR-024 reversed
+that on 07-18).
+
+Byte order (implementation reading of ADR-025): LE governs GENUINE INTEGERS
+(`link_id`, `metric`); addresses and the MAC are byte arrays in network order,
+the same class of field as `match_mac`. Consequence: there is NO address
+conversion anywhere in the privileged path — and therefore none to get wrong.
+
+**Live gate — 7/7.** All five ADR-025 criteria plus two extra:
+
+| criterion | result |
+|---|---|
+| ADD → address + route + UP | OK; `10.100.1.2 scope link metric 100` visible |
+| identical re-ADD | OK |
+| conflicting ADD (same id, different peer) | ERR |
+| REMOVE of an absent id | OK |
+| REMOVE → state gone | OK; `enp0s5` has no IPv4, record dir empty, iface still UP |
+| RUN aimed at netVM | ERR (absent-not-disabled, on the fresh binary) |
+| ADD naming the uplink's OUI MAC (`38:05:25:34:7c:47`) | ERR (structural fence, rejected in the parser) |
+
+The last one is quiet but load-bearing: across seven operations — including one
+that named the uplink's MAC explicitly — `enp0s4` never moved (DHCP lease
+`10.3.1.110` untouched). The agent does not know which MAC the uplink has; one
+bit test makes it unreachable.
+
+**19 unit tests** (2 op + 7 netlink + 10 netcfg), all green.
+
+**Rebuild.** `vm_sys_netvm` rebuilt from a clean `netvm.sh`, KVER
+**6.12.96+deb13-amd64** (was 6.12.95). Boot clean: `landlock: Up and running`,
+`crng init done` @ 0.010s, `PF_VSOCK registered`, `getty-static … because dbus
+and logind are not available` (the manifest stays dbus-free). SHUTDOWN
+regression passed on the new kernel. The agent binary in the image was
+ultimately replaced BY HAND (mount + install), not by a rebuild — see `../state.md`
+debt #14.
+
+Next architectural piece: the **launch daemon** (owns the graph; allocates CIDs
+and `/32`s, orders `device_add` before NETCFG, refuses to tear down a VM with
+live dependents). ADR-sized, thinking-on.
+
+---
+
+## This session (2026-07-21) — E-gate: NETCFG mechanism resolved, Path B
+
+ADR-025's E1–E5 run live on `vm_sys_netvm` (root unlocked via offline chroot
+`passwd`, dev-only, image otherwise untouched — `passwd -l root` still the
+release state). Internal netdev confirmed: `enp0s5`, MAC
+`52:54:0a:64:01:01`, **`unmanaged`** by networkd (only `20-uplink.network`
+baked, matching `enp0s4` uplink) — the load-bearing fact for Path B.
+**Result: Path A dead on all three trigger probes, Path B proven.** E1:
+`networkctl reload` inert (`Failed to connect to system bus` — no dbus, the
+ADR-021-class precondition failure). E2: the varlink surface
+`/run/systemd/netif/io.systemd.Network` **exists** (introspected via
+`varlinkctl`, world-writable `srw-rw-rw-`) but exposes **no config-mutation
+method** — only `GetStates`/`GetLLDPNeighbors`/`GetNamespaceId`/
+`SetPersistentStorage` (the last returns `StorageReadOnly` on the RO image).
+Stronger than the predicted "absent": surface present, introspected,
+provably no reload. E3: `Type=notify-reload` promised a signal path, but
+`SIGRTMIN+1` to networkd **kills it** (`code=killed, status=35/RTMIN+1` →
+systemd restart), not a reload — empirics overriding introspection, the
+ADR-021 trap avoided. E5: a full Path-B dry run under the agent's exact
+profile (`setpriv --reuid nobody --inh-caps +net_admin --ambient-caps
++net_admin` — the ADR-024 E8 both-sets pattern) drove `ip addr add
+10.100.1.1/24` + `ip link set up` + `ip route add 10.100.1.2/32` on
+`enp0s5`, all `=0`, `UP,LOWER_UP`, no bus/DAC/root. Decision rule (A iff
+(E1∨E2) trigger ∧ E4): no trigger → **B**, exactly as ADR-025 predicted. E4
+(DAC) moot, not tested. Next: `handle_netcfg` (thinking-on/Fable session —
+includes the hand-rolled `RTM_*` vs netlink-crate dependency call, ADR-025
+§ mechanism). Aside: `SIGRTMIN+1` to networkd is a config-plane DoS
+(kill+restart) — noted, immaterial to the trust model (agent already holds
+`CAP_NET_ADMIN`).
+
+---
+
+## This session (2026-07-20) — ADR-025 NETCFG payload fixed (design); `net-sys.con` committed
+
+The NETCFG wire contract ADR-023 left abstract is now fixed. **Wire:** fixed
+binary layout, opcode `0x06`, count-prefixed bounded route array
+(`route_count 1..=4`); no version byte (new shape → new registry value); byte
+order deferred to `katmate-protocol::frame`. Locally-administered MAC check = structural uplink
+protection; `local_addr == 10.100.1.1`, `peer ∈ 10.100.1.0/24 /32`. **Semantics:**
+idempotent per host `link_id`; **convergence, not rollback**; state is the
+filesystem, boot-scoped under `/run`; **act-first / reply-second** (mirror of
+ADR-024). **Mechanism deferred, E-gated** (Path A networkd-fragment vs Path B
+rtnetlink; E1–E5 next session decide — ADR-024 method, since ADR-021's shutdown
+died of an assumed mechanism precondition; predicted winner B, no dbus for
+`networkctl reload`). Done: ADR-025 committed; ADR-021 status line repaired;
+`net-sys.con` **committed for the first time** (`f5f8ef2` — was MINIS-only since
+07-09, invariant breach now closed) with a static internal netdev (tap `tap-int0`
++ `virtio-net-pci`, MAC `52:54:0a:64:01:01`); host-side `tap-int0` persisted via
+networkd. (Forensic aside: the retired pet netdev MAC `52:54:0A:64:11:01`
+byte-encoded `10.100.17.1` — the wrong-subnet bug the pet's nftables carried,
+preserved in the MAC; the new MAC encodes `10.100.1.1` correctly.) Next:
+boot → confirm guest sees the netdev → E1–E5 → `handle_netcfg` +
+`ping-client netcfg-*` → minimal live gate.
+
+### Housekeeping
+
+`vm_sys_netvm` actually rebuilt from a clean `netvm.sh` today (dm-17
+open-flag needed a host reboot first); acpid / dev-root / `ffc08537` remnants
+gone only now, not 07-18. Stale `vm_tpl_net_root` + `vm_net_overlay.qcow2`
+removed. `netvm.sh` export-block dedupe (`9149e17`).
 
 ---
 
