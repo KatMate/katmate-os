@@ -11,7 +11,9 @@
 > Two *insertions* have been made, both repairs of the ordering invariant rather
 > than edits to any entry: on 2026-07-26 the 07-14 and 07-13 entries, and on
 > 2026-08-06 the 07-23, 07-21 and 07-20 entries plus the first of the two
-> 2026-08-02 sessions. In each case the material had been stranded in `state.md`
+> 2026-08-02 sessions. The *second* 2026-08-02 session (ADR-029) arrived here
+> normally on 2026-08-06 as `state.md` rotated it out, and therefore sits above
+> the first — newest first, as everywhere in this file. In each case the material had been stranded in `state.md`
 > while later sessions went straight to this file. The 2026-08-06 insertion
 > carried two repairs inside a moved block, both marked where they occur: a
 > dangling "see debt #14 below" cross-reference now pointing at `../state.md`,
@@ -26,6 +28,147 @@
 > which **personalVM becomes 20 and app_web becomes 21** (netVM stays 3). Old
 > numbers are left as written — they are what actually ran at the time.
 > `state.md` carries the authoritative map.
+>
+> **Reading note — build-order ordinals.** `ROADMAP.md`'s build order is
+> referenced by number from several entries. [ADR-030](DECISIONS.md#adr-030)
+> (2026-08-06) inserted a step and renumbered the tail: old 3/4/5 became
+> **4/5/6**, and a new step 3 (VM description as data → launch daemon) took
+> their place. Entries written **before 2026-08-06** use the old numbers and
+> are left as written. `ROADMAP.md` carries the authoritative list.
+
+---
+
+## This session (2026-08-02, second of two) — ADR-029: systemd owns the VMM process; four constraints re-examined and gone
+
+Architecture session (thinking-on) plus four live gates on MINIS. Scope was
+deliberately one question and nothing else: **who is the parent of the QEMU
+process.** Everything downstream — privilege split, allocation, netns — was
+treated as consequence, not as co-equal design surface.
+
+### Decided
+
+- **ADR-029 — the launch daemon orders units; systemd owns the VMM process.**
+  The daemon never `fork`s or `exec`s a VMM. Each VM is a systemd unit; PID 1
+  is the parent; the unit name and its cgroup are the durable identity. The
+  daemon retains everything the five prior ADRs assign it (graph, CID
+  allocation, NETCFG ordering and re-issue, CID→name, dependent-VM interlock)
+  and may die at any moment without any running VM noticing.
+
+### The four constraints, re-examined
+
+The question was reached by counting 4:1 in favour of daemon-as-parent. The
+count was not a weighing. Three of the four dissolve against the ADRs they were
+drawn from; the fourth was a question about a device that does not exist.
+
+| Constraint | Outcome |
+|---|---|
+| pid↔CID (ADR-026) | dissolves — `vsock_diag` resolves pid→CID in the kernel; the daemon's part is CID→name, persisted state |
+| `_is_alive` (ADR-017) | dissolves — ADR-017 already offers "active vsock endpoints for those CIDs". A live control endpoint **is** liveness here |
+| `child_ns_mode` write-once (C6) | measured, leaves the column — the write is in a *parent* namespace, children inherit at creation; produces a **named** namespace, not a descriptor |
+| TAP as `fd=` (C2) | dissolved by inspection — `app_web.con` carries **no network device at all** |
+
+### The argument that decided it, on neither list
+
+Daemon-as-parent makes the identity of a running VM a process relationship. On
+daemon death or update the QEMU processes survive (reparented) — that is not
+the problem. The problem is that the new daemon is not their parent: `waitpid`
+is gone, and reconstruction through a persisted pid + `pidfd_open` reintroduces
+**pid reuse**, the exact race ADR-017's monotonic counter and full-cycle
+`flock` exist to eliminate. Under C6 it is worse: identity is **(netns, CID)**
+(ADR-028), and an anonymous namespace held as a descriptor from
+`/proc/<child>/ns/net` dies with the daemon — the half that cannot be recovered
+by name. This project ships security updates; a model where
+`systemctl restart katmated` requires stopping every VM is a design defect.
+
+systemd is PID 1. It does not restart.
+
+### Gates passed (live, MINIS)
+
+| # | Observation | Result |
+|---|---|---|
+| G0 | `/proc/sys/net/vsock/child_ns_mode` `rw`, `ns_mode` `r--r--r--`, both `global` at boot | PASSED |
+| G1a | first write `rc=0`; second differing write → `EBUSY`. Write-once measured, not cited | PASSED |
+| G1b | child of `local` parent reads `local`; **control:** child of `init_netns` reads `global` | PASSED |
+| G1c | `nsenter --net=/run/netns/katmate-root` + `unshare --net` → child reads `local` — the daemon's actual sequence | PASSED |
+| G3 | `SIGKILL` to `MainPID` under `User=nobody` → `STOPPOST result=signal status=KILL code=killed uid=0`; unit `Result=signal` | PASSED |
+| G2 | tap is netns-scoped (`Device "tap-g2" does not exist`; control: only `lo`) | PASSED |
+| G2b | `ip link set tap-g2 netns g2-test` succeeds — migration is an alternative to fd inheritance | PASSED |
+
+`init_netns` `child_ns_mode` remains `global` — the host-wide write-once budget
+was never spent.
+
+### Measured, predicted by no ADR
+
+- **`ip netns add` is not nestable.** Under `ip netns exec` the bind mount is
+  made in a child mount namespace that immediately exits. What remains is a
+  `----------` placeholder; `setns` → `EINVAL`, and `ip netns list` still lists
+  it. Permission bits distinguish: live namespace `-r--r--r--` (nsfs inode under
+  the bind mount) vs placeholder `----------`. **Consequence: namespace creation
+  is daemon code** — `setns` → `unshare` → `mount --bind`, one process, alive
+  until the bind mount lands.
+- **`/proc` must be remounted to read per-netns sysctls.** After
+  `unshare --net`, `/proc/sys/net` shows the *old* namespace until `/proc` is
+  remounted. The failure mode is a **false negative** — a plausible wrong value,
+  silently returned. Same class that killed ADR-021's shutdown model: a
+  mechanism quietly consulting the wrong object. Applies to the daemon, not only
+  to tests.
+- **`ns_mode` is `r--r--r--`.** After a namespace exists there is no lever.
+  Whoever creates it has fixed its mode permanently.
+- **Tap migration clears `UP`, preserves MAC.** `ip link set … up` must run
+  *after* migration, inside the target namespace. The surviving MAC matters to
+  ADR-025's locally-administered-address check.
+
+### Correction to an earlier internal statement
+
+Mid-session it was asserted that AppVM links "probably need veth rather than tap
+because AppVMs route through netVM, not the host". The reasoning was right and
+the premise was wrong: it generalised from `net-sys.con`'s host-side `tap-int0`,
+which sits on the host only because until now there was no other namespace to
+put it in. Inspection of `app_web.con` settles it differently — **the AppVM
+launcher has no network device of any kind.** No `-netdev`, no
+`virtio-net-device`, no tap. AppVM networking does not exist yet, which is
+consistent with NETCFG having been live-gated against netVM itself and never
+through a live AppVM.
+
+C2 is therefore recorded as **neither passed nor failed**: it was not a
+constraint on parenthood. It returns as a link-topology question when the AppVM
+acquires an endpoint, to be settled by measurement then.
+
+### Refinement to ADR-028
+
+ADR-028 records `child_ns_mode` as "a decision taken once at **daemon start**".
+G1 refines: the write is in a *parent* namespace, children inherit at creation.
+It is a one-time preparation on a dedicated `katmate-root` namespace, not a
+daemon-start decision — so `init_netns` is never written and foreign namespaces
+on the host keep `global`. ADR-028's substance stands and is now measured rather
+than cited.
+
+### Not measured, recorded as not measured
+
+- **OOM-kill.** G3 used `SIGKILL`; systemd distinguishes `result=oom-kill`
+  separately. `ExecStopPost=+` behaving identically is likely and unverified.
+- **Tap ownership across migration** — whether `user <uid>` survives
+  `ip link set … netns`. Blocks nothing until an AppVM has an endpoint.
+- **AppVM link topology** — opened, not settled, by the C2 finding.
+- **Unit shape** — `StartTransientUnit` vs a `katmate-vm@.service` template.
+  Deliberately deferred; neither affects any ADR-029 decision.
+
+### Housekeeping
+
+`/etc/systemd/system/vhost-vsock-load.service:5` uses `ConditionKernelModule`,
+which systemd does not know; the line is silently ignored (visible in `dmesg`).
+The unit works — the condition does not exist. Drift, not a defect.
+
+### Docs debt raised this session — CLOSED 2026-08-06
+
+The earlier 2026-08-02 session (CID renumbering `app_web` 5 → 21, personalVM
+deletion) is threaded through this file's live sections but **has no session
+heading**. It is therefore invisible as a session while its consequences are
+visible as state. Give it its own heading, or fold it in here — not left as is.
+
+> **Closed 2026-08-06.** Written up as its own entry —
+> *2026-08-02, first of two* — at the top of [docs/SESSIONS.md](docs/SESSIONS.md),
+> explicitly marked as reconstructed rather than same-day.
 
 ---
 

@@ -41,7 +41,178 @@ restartable — and so updatable — without touching running VMs.
 Direction unchanged: IOMMU-capable platforms only (VT-d/AMD-Vi); VT-x-only
 frozen (ADR-015). MINIS is primary host and merge target.
 
-## This session (2026-08-03) — `network-online.target` never fires; HOST-CONFIG.md created; next session set
+## This session (2026-08-06) — ADR-030: authorship is the tier boundary; the build order gains the step it was missing
+
+Architecture session (thinking-on). One ADR written, one superseded in part,
+one build-order step created, four findings routed elsewhere. No live gates
+were run; one is now blocking (E1).
+
+### The reframing that made the ADR small
+
+The session was scoped as "extend ADR-015's schema with the fields the `.con`
+scripts carry". Two readings against ADR-022 changed the shape before any field
+work started.
+
+**ADR-030 does not invent an object.** ADR-022 already defines `Vm`, `Image`,
+`Nic`, `Link` and `Policy`. The subject is the *on-disk serialisation* of those
+objects such that an ADR-029 unit can be produced from it. `properties.toml` is
+a partial, AppVM-only serialisation of `Vm` that predates the model.
+
+**ADR-015's `network` field is wrong in type.** The enum `none | via-netvm`
+cannot name *which* netVM, and under ADR-022 an AppVM's access *is* which netVM
+it attaches to. ADR-022 displaced the field when it was accepted and nobody
+recorded it. This is the third time a supersession has been found by reading
+rather than by being written down (CID band, ADR-021's shutdown pointer, this).
+
+### The decision, in one line
+
+**The tier boundary is authorship, not content.** The question is not which
+fields the schema needs but **which fields may be data at all** — because
+`-sandbox …,resourcecontrol=deny` (C4, live-gated 2026-07-28) is a `.con` line,
+and a schema field is a thing a user can edit.
+
+Four artefacts, one per writer:
+
+| Tier | Author | Where |
+|---|---|---|
+| T1 instance properties | user | `properties.toml` |
+| T2 image metadata | build pipeline | `<image>.meta` (`foundation.meta` pattern) |
+| T3+T4 profile + TCB constants | the release | **the unit template** |
+| — | derived at start | `/run/katmate/vm/<i>.env`, a projection |
+
+The unit template *is* the serialisation of T3/T4 — no separate profile format,
+because it would be a second record of one fact and PID 1 does not read it. The
+profile goes in the **unit name** (`katmate-app-routed@personal.service`), so
+ADR-029's durable identity carries its own containment profile. And the profile
+is a **function** of `(class, netvm, nic)`, not a field: the user declares
+topology, containment follows, and no user can select a weaker profile. That is
+the only reason T3 may be derived from T1 at all.
+
+`sys-proxy` (ADR-022's chained proxy netVM) is named by the function and
+returns an explicit error. Shipping an untested template for a VM class that
+has never been built would invert the method.
+
+### What crosses the daemon→unit boundary
+
+**Named kernel objects, two typed scalars, no free argv.** The ADR-029
+argument — *names that outlive whoever created them* — applied one layer down.
+netns by `NetworkNamespacePath=`, tap by derived name owned by the per-VM uid,
+MAC derived and never byte-encoding an address (the pet launcher's MAC
+preserved a wrong-subnet bug). Only `KM_CID` and `KM_VFIO_BDF` cross, as
+`${}`-braced interpolations at fixed positions — braces because `${}` does not
+word-split, so a value cannot become extra arguments.
+
+An argv blob was rejected on the ground that whoever writes it can inject a
+second `-drive` or a later `-sandbox`, making all of T4 optional.
+
+### `Nic`: a BDF is not an identity
+
+Firmware assigns it; a reseat or an added NVMe moves it. The failure is not a
+VM that will not start — `vfio-pci` binds to an **address**, so a stale record
+detaches *some other* device and hands it to the most exposed VM, silently,
+with a plausible result.
+
+So the `Vm` carries a **label** (`nic = "uplink0"`), the boot-time binding step
+publishes `/run/katmate/nics/<label>` → current BDF, and VM start checks
+`vendor`/`device` at the resolved address. What the kernel publishes is not
+copied into a file.
+
+**Fourth instance of the characteristic bug** — a mechanism that quietly
+consults the wrong object and returns a believable answer. After ADR-021's
+shutdown precondition, `/proc` in the wrong netns, and `Online state: offline`
+beside `routable`. It is no longer a pattern worth noting; it is the thing to
+look for first.
+
+### No monitor
+
+`-nographic` alone multiplexes console *and* monitor. T4 becomes
+`-display none -monitor none -serial <chardev>`, `-nographic` removed from both
+launchers. A dev monitor is a drop-in under
+`/etc/systemd/system/…@.service.d/`, never a field — Gap #10's precedent, "a
+separate dev launcher" — and joins the pre-release removal list.
+
+**Consequence to carry:** with the console in the journal the path is one-way,
+and interactive console login disappears. That is the correct end state — open
+problem #12 becomes *unreachable* rather than merely fixed — but during 3a
+bring-up a pty or a separate dev launcher is needed, and it must not be the
+same unit.
+
+### Build order: the step that was invisible
+
+`ROADMAP.md` lists artefacts to *build*. Launching already exists in a
+degenerate form, so it never appeared — and for the same reason the schema was
+never written: **the `.con` scripts are the schema, expressed as code.** The
+missing step is their **removal**.
+
+Neither horn of the dilemma this file posed on 08-02 was right: ADR-029 did not
+run ahead of its turn, and the build order was not silently wrong.
+
+New step 3, split; old 3/4/5 renumbered to 4/5/6.
+
+- **3a** description + unit templates; **gate: both `.con` deleted and nothing
+  lost** — which is simultaneously the empirical gate on ADR-030's schema. If a
+  `.con` line has nowhere to go, the schema is incomplete. ADR-024 method
+  applied to a schema: a demonstration instead of a review.
+- **3b** the daemon.
+
+### Gate E1 — measured same day, prediction wrong
+
+Whether `EnvironmentFile=` is read late enough to see a file created by
+`ExecStartPre=` **in the same unit**. The ADR predicted it probably is not —
+the assumed-precondition shape that killed ADR-021's shutdown and ADR-025's
+Path A. **Both candidates passed:** A (`ExecStartPre=` in the same unit) →
+`[42]`, B (separate generator unit, `Requires=`/`After=`) → `[42]`.
+
+**A selected.** One unit per VM, generator as `ExecStartPre=+`; no second unit
+class, no ordering edge, and the projection is produced and consumed inside one
+unit's lifetime, so a half-started VM cannot leave a live env file for the next
+start to inherit. **B recorded as also working** — available later without a
+second measurement.
+
+Not covered by the probe, and therefore not citable: `Type=oneshot` rather than
+`notify`/`simple`; `ExecStartPre=` without `+`; one key rather than two.
+
+Cheap to be wrong here rather than in a template. The method held even though
+the guess did not — which is the whole point of gating before committing, not
+of guessing well.
+
+**Defect in the probe itself, worth the line:** v1 installed `trap cleanup EXIT`
+*above* the root check, so a non-root run fired `systemctl stop` on units that
+had never been created and produced four polkit prompts while measuring
+nothing. A gate that fails open is worse than no gate; it was fixed before the
+real run.
+
+### Findings routed, not decided
+
+- **Memory backing is divided the wrong way round.** `app_web` (no vfio) takes
+  hugepages, `net-sys` (vfio) takes memfd. The vfio VM is the one that
+  benefits. Three axes, none of them performance: DAC on `/dev/hugepages` under
+  `User=` vs memfd needing none; whether `share=on` has any consumer at all
+  (vhost-vsock is in-kernel, no vhost-user process exists); loud vs silent
+  failure on an undersized pool. → `HOST-CONFIG.md` §6, own session, with C3.
+- **netVM has neither `-nodefaults` nor `-no-user-config`.** Less containment
+  in the most exposed VM than in an AppVM. Closed by construction in 3a
+  (gate G4). → C-gate.
+- **`-overcommit mem-lock=off` on netVM is probably inert.** vfio pins the whole
+  guest regardless; under C1 `LimitMEMLOCK=infinity` becomes a start condition,
+  not an optimisation. → folds into the memory session and C3.
+- **`/home` is named per app layer, not per instance.** Two instances of
+  `app_web` would mount one ext4 rw and corrupt it; it has not happened because
+  one instance exists. ADR-030 fixes the **tier** (per instance, derived from
+  the instance name); the storage mechanism — thin snapshot of a frozen
+  `vm_home_skel` vs qcow2 branch — is ADR-010/011 and deliberately left open.
+  Recorded for that session: qcow2 would add a second COW layer to the most
+  write-heavy device, grow monotonically with `discard` needing to traverse two
+  layers, and create a backing chain whose semantics are the opposite of the
+  app-layer chain `katmate-update` rebases.
+
+### Documentation drift found
+
+`state.md` Next steps (08-06) claims `HOST-CONFIG.md:199` was corrected from
+ADR-030 to ADR-031. **It was not** — line 199 still reads ADR-030. Corrected in
+this session's patch set. A drift note that itself drifted.
+
+## Previous session (2026-08-03) — `network-online.target` never fires; HOST-CONFIG.md created; next session set
 
 Short documentation session. One finding, one new document, one decision about
 where the work goes next.
@@ -91,7 +262,7 @@ checkout. Enough to be a category, not noise.
 
 The category's real name is **installer requirements discovered by running the
 system**. `docs/HOST-CONFIG.md` is therefore an *input to ROADMAP build order
-step 5*, not a log. Its governing convention: **every entry states its failure
+step 6*, not a log. Its governing convention: **every entry states its failure
 mode**, and where the failure is silent, says so explicitly. An entry that only
 says what to set is a note; an entry that says what breaks without it is a
 requirement.
@@ -130,142 +301,11 @@ AppVMs → installer integration. The daemon is implied by step 4 and named
 nowhere. Either it is genuinely next and the build order does not say so, or
 ADR-029 settled a decision ahead of its turn. ADR-030 should open by placing it.
 
-## Previous session (2026-08-02, second of two) — ADR-029: systemd owns the VMM process; four constraints re-examined and gone
-
-Architecture session (thinking-on) plus four live gates on MINIS. Scope was
-deliberately one question and nothing else: **who is the parent of the QEMU
-process.** Everything downstream — privilege split, allocation, netns — was
-treated as consequence, not as co-equal design surface.
-
-### Decided
-
-- **ADR-029 — the launch daemon orders units; systemd owns the VMM process.**
-  The daemon never `fork`s or `exec`s a VMM. Each VM is a systemd unit; PID 1
-  is the parent; the unit name and its cgroup are the durable identity. The
-  daemon retains everything the five prior ADRs assign it (graph, CID
-  allocation, NETCFG ordering and re-issue, CID→name, dependent-VM interlock)
-  and may die at any moment without any running VM noticing.
-
-### The four constraints, re-examined
-
-The question was reached by counting 4:1 in favour of daemon-as-parent. The
-count was not a weighing. Three of the four dissolve against the ADRs they were
-drawn from; the fourth was a question about a device that does not exist.
-
-| Constraint | Outcome |
-|---|---|
-| pid↔CID (ADR-026) | dissolves — `vsock_diag` resolves pid→CID in the kernel; the daemon's part is CID→name, persisted state |
-| `_is_alive` (ADR-017) | dissolves — ADR-017 already offers "active vsock endpoints for those CIDs". A live control endpoint **is** liveness here |
-| `child_ns_mode` write-once (C6) | measured, leaves the column — the write is in a *parent* namespace, children inherit at creation; produces a **named** namespace, not a descriptor |
-| TAP as `fd=` (C2) | dissolved by inspection — `app_web.con` carries **no network device at all** |
-
-### The argument that decided it, on neither list
-
-Daemon-as-parent makes the identity of a running VM a process relationship. On
-daemon death or update the QEMU processes survive (reparented) — that is not
-the problem. The problem is that the new daemon is not their parent: `waitpid`
-is gone, and reconstruction through a persisted pid + `pidfd_open` reintroduces
-**pid reuse**, the exact race ADR-017's monotonic counter and full-cycle
-`flock` exist to eliminate. Under C6 it is worse: identity is **(netns, CID)**
-(ADR-028), and an anonymous namespace held as a descriptor from
-`/proc/<child>/ns/net` dies with the daemon — the half that cannot be recovered
-by name. This project ships security updates; a model where
-`systemctl restart katmated` requires stopping every VM is a design defect.
-
-systemd is PID 1. It does not restart.
-
-### Gates passed (live, MINIS)
-
-| # | Observation | Result |
-|---|---|---|
-| G0 | `/proc/sys/net/vsock/child_ns_mode` `rw`, `ns_mode` `r--r--r--`, both `global` at boot | PASSED |
-| G1a | first write `rc=0`; second differing write → `EBUSY`. Write-once measured, not cited | PASSED |
-| G1b | child of `local` parent reads `local`; **control:** child of `init_netns` reads `global` | PASSED |
-| G1c | `nsenter --net=/run/netns/katmate-root` + `unshare --net` → child reads `local` — the daemon's actual sequence | PASSED |
-| G3 | `SIGKILL` to `MainPID` under `User=nobody` → `STOPPOST result=signal status=KILL code=killed uid=0`; unit `Result=signal` | PASSED |
-| G2 | tap is netns-scoped (`Device "tap-g2" does not exist`; control: only `lo`) | PASSED |
-| G2b | `ip link set tap-g2 netns g2-test` succeeds — migration is an alternative to fd inheritance | PASSED |
-
-`init_netns` `child_ns_mode` remains `global` — the host-wide write-once budget
-was never spent.
-
-### Measured, predicted by no ADR
-
-- **`ip netns add` is not nestable.** Under `ip netns exec` the bind mount is
-  made in a child mount namespace that immediately exits. What remains is a
-  `----------` placeholder; `setns` → `EINVAL`, and `ip netns list` still lists
-  it. Permission bits distinguish: live namespace `-r--r--r--` (nsfs inode under
-  the bind mount) vs placeholder `----------`. **Consequence: namespace creation
-  is daemon code** — `setns` → `unshare` → `mount --bind`, one process, alive
-  until the bind mount lands.
-- **`/proc` must be remounted to read per-netns sysctls.** After
-  `unshare --net`, `/proc/sys/net` shows the *old* namespace until `/proc` is
-  remounted. The failure mode is a **false negative** — a plausible wrong value,
-  silently returned. Same class that killed ADR-021's shutdown model: a
-  mechanism quietly consulting the wrong object. Applies to the daemon, not only
-  to tests.
-- **`ns_mode` is `r--r--r--`.** After a namespace exists there is no lever.
-  Whoever creates it has fixed its mode permanently.
-- **Tap migration clears `UP`, preserves MAC.** `ip link set … up` must run
-  *after* migration, inside the target namespace. The surviving MAC matters to
-  ADR-025's locally-administered-address check.
-
-### Correction to an earlier internal statement
-
-Mid-session it was asserted that AppVM links "probably need veth rather than tap
-because AppVMs route through netVM, not the host". The reasoning was right and
-the premise was wrong: it generalised from `net-sys.con`'s host-side `tap-int0`,
-which sits on the host only because until now there was no other namespace to
-put it in. Inspection of `app_web.con` settles it differently — **the AppVM
-launcher has no network device of any kind.** No `-netdev`, no
-`virtio-net-device`, no tap. AppVM networking does not exist yet, which is
-consistent with NETCFG having been live-gated against netVM itself and never
-through a live AppVM.
-
-C2 is therefore recorded as **neither passed nor failed**: it was not a
-constraint on parenthood. It returns as a link-topology question when the AppVM
-acquires an endpoint, to be settled by measurement then.
-
-### Refinement to ADR-028
-
-ADR-028 records `child_ns_mode` as "a decision taken once at **daemon start**".
-G1 refines: the write is in a *parent* namespace, children inherit at creation.
-It is a one-time preparation on a dedicated `katmate-root` namespace, not a
-daemon-start decision — so `init_netns` is never written and foreign namespaces
-on the host keep `global`. ADR-028's substance stands and is now measured rather
-than cited.
-
-### Not measured, recorded as not measured
-
-- **OOM-kill.** G3 used `SIGKILL`; systemd distinguishes `result=oom-kill`
-  separately. `ExecStopPost=+` behaving identically is likely and unverified.
-- **Tap ownership across migration** — whether `user <uid>` survives
-  `ip link set … netns`. Blocks nothing until an AppVM has an endpoint.
-- **AppVM link topology** — opened, not settled, by the C2 finding.
-- **Unit shape** — `StartTransientUnit` vs a `katmate-vm@.service` template.
-  Deliberately deferred; neither affects any ADR-029 decision.
-
-### Housekeeping
-
-`/etc/systemd/system/vhost-vsock-load.service:5` uses `ConditionKernelModule`,
-which systemd does not know; the line is silently ignored (visible in `dmesg`).
-The unit works — the condition does not exist. Drift, not a defect.
-
-### Docs debt raised this session — CLOSED 2026-08-06
-
-The earlier 2026-08-02 session (CID renumbering `app_web` 5 → 21, personalVM
-deletion) is threaded through this file's live sections but **has no session
-heading**. It is therefore invisible as a session while its consequences are
-visible as state. Give it its own heading, or fold it in here — not left as is.
-
-> **Closed 2026-08-06.** Written up as its own entry —
-> *2026-08-02, first of two* — at the top of [docs/SESSIONS.md](docs/SESSIONS.md),
-> explicitly marked as reconstructed rather than same-day.
-
 ## Session archive
 
-Sessions older than the two above (2026-08-02 *first of two*, then 2026-07-28
-back to 2026-06-27) live in [docs/SESSIONS.md](docs/SESSIONS.md), split out on
+Sessions older than the two above (2026-08-02 *second of two*, then *first of
+two*, then 2026-07-28 back to 2026-06-27) live in
+[docs/SESSIONS.md](docs/SESSIONS.md), split out on
 2026-07-14. That file is append-only; CIDs in entries dated 2026-07-13 and
 earlier are the pre-ADR-022 numbering and are deliberately not rewritten.
 **This file carries the authoritative CID map** (see *Live state*).
@@ -533,21 +573,34 @@ touched.
 
 ## Next steps
 
-**ADR numbering (settled 2026-08-06).** `ADR-030` = *what the launch daemon
-reads*; `ADR-031` = the licence declaration (GPL-3.0 attribution for the
-CYBRland-derived `desktop/` subtree). Both numbers were claimed as 030 —
-`docs/HOST-CONFIG.md` §9 for the licence ADR, this file four times for the
-daemon input schema. The daemon schema keeps 030; `HOST-CONFIG.md:199` was
-corrected. Neither ADR is written, so nothing in `DECISIONS.md` moved.
+**ADR numbering.** `ADR-030` = *what the launch daemon reads* — **written
+2026-08-06**. `ADR-031` = the licence declaration (GPL-3.0 attribution for the
+CYBRland-derived `desktop/` subtree), not written. The `HOST-CONFIG.md:199`
+correction claimed on 2026-08-06 had **not** in fact been applied — line 199
+still read `ADR-030`; it has now been corrected. A drift note that itself
+drifted.
 
-**Next session (decided 2026-08-03): ADR-030 — what the launch daemon reads.**
-Extend ADR-015 with a `class` field (deferred to the daemon by ADR-015 itself,
-via ADR-022 `Vm.class`) and with the execution properties currently baked into
-the `.con` scripts — kernel path, `MEM`, `SMP`, LV names, delta path, sandbox
-flags, waypipe version gate, activation ordering, `-append`. Without it the
-daemon has no input. Open by placing the daemon in the ROADMAP build order,
-where it is currently unnamed. Architecture session, thinking-on. Carry in:
-VM units must not depend on `network-online.target` (2026-08-03 session).
+**Next session: 3a.** Gate E1 passed on MINIS 2026-08-06 (candidate A; B also
+passing and kept as a recorded fallback), so unit templates are unblocked.
+Order:
+
+1. `properties.toml` for netVM and app_web, per the ADR-030 schema, plus the
+   two new validator error rules and the `class`-dependent CID band.
+2. `<image>.meta` for the netVM image and the app_web layer, on the
+   `foundation.meta` pattern.
+3. The three unit templates. `sys-driver` first — netVM is the harder case
+   (q35, vfio, initrd) and will find the schema's gaps faster than app_web.
+4. Gates G1–G6, then delete both `.con` files.
+
+Implementation session, thinking-off. Carry in: VM units must not depend on
+`network-online.target` (2026-08-03 session); no monitor in any shipped
+template; a pty or a separate dev launcher is needed for netVM bring-up once
+the console goes to the journal.
+
+**Deferred, own session (architecture, thinking-on):** memory backing —
+hugepages vs memfd, whether `share=on` has any consumer, C3 `LimitMEMLOCK`
+under C1. And the `/home` storage mechanism (ADR-010/011): thin snapshot of a
+frozen `vm_home_skel` vs qcow2 branch.
 
 **Primary (netVM sysVM — ADR-021 track, build now PROVEN):**
 
