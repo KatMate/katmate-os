@@ -549,6 +549,26 @@ scheme could not express. The schema is normative input to
 `tools/validate-properties.fish`; the band is corrected here rather than left
 to supersession, so that the specification and the tool enforcing it cannot
 disagree. Nothing else in this ADR changes.
+
+**Revision note (2026-08-06, [ADR-030](DECISIONS.md#adr-030)):** two changes,
+recorded here rather than left to supersession, for the same reason the CID
+band was: the specification and the tool enforcing it must not disagree.
+
+1. **`network` is removed.** The enum `none | via-netvm` cannot name *which*
+   netVM, and under [ADR-022](DECISIONS.md#adr-022) an AppVM's network access
+   *is* which netVM it attaches to. It is replaced by `netvm` (a `VmRef`, or
+   absent) and `provides_network` (bool, default `false`) — the two fields
+   ADR-022 puts on `Vm`. ADR-022 displaced this field when it was accepted;
+   this note is the belated record.
+2. **The AppVM-only restriction is lifted.** The `class` field this ADR names
+   as the precondition ("that is the launch daemon's business, not this
+   ADR's") now exists. `class = sys` **requires** a CID in 3–19; `class = app`
+   keeps the 20–99 band, where 3–19 remains an error.
+
+Also added, per ADR-030: `nic` (a label, never a PCI address), `mem`, `vcpus`.
+The format (TOML, one file per instance), the validator and every semantic
+invariant above are unchanged.
+
 ---
 
 ## ADR-016 — Two desktop profiles: shared visual layer, Sway default + Hyprland optional
@@ -557,7 +577,7 @@ disagree. Nothing else in this ADR changes.
 
 **Context:** The desktop layer (greetd / compositor / bar / launcher) sits
 outside the TCB ([SECURITY-MODEL.md](../SECURITY-MODEL.md)) and off the
-isolation critical path ([ROADMAP.md](../ROADMAP.md) step 5), yet it shapes the
+isolation critical path ([ROADMAP.md](../ROADMAP.md) step 6), yet it shapes the
 broad-user experience that [ADR-001](DECISIONS.md#adr-001) makes a first-class
 goal. Hyprland (CYBRland config) delivers a richer look — animations, blur,
 glow — but carries an explicit "features over stability" upstream: major
@@ -605,8 +625,16 @@ pattern is a small script in either compositor, not a built-in of either.
   a documented intention; building it is deferred, not scheduled. This ADR
   fixes the direction, not a delivery date.
 - Installer integration of the desktop layer remains a documented manual step
-  until v1.0 ([ROADMAP.md](../ROADMAP.md) step 5) — unchanged; this ADR fixes
+  until v1.0 ([ROADMAP.md](../ROADMAP.md) step 6) — unchanged; this ADR fixes
   only which layer.
+
+**Revision note (2026-08-06, [ADR-030](DECISIONS.md#adr-030)):** two pointers
+into `ROADMAP.md`'s build order move from *step 5* to *step 6*. ADR-030 added a
+step and renumbered the tail; the target — installer integration — is
+unchanged, and so is every decision in this ADR. Corrected in place rather than
+left stale, because a build-order ordinal that silently resolves to a different
+step is the same failure class this project keeps finding: a reference that
+still points somewhere, just not where it meant to.
 ---
 
 ## ADR-017 — Dynamic CID allocation for disposable AppVMs
@@ -999,7 +1027,7 @@ Two constraints already accepted make the netinst pet untenable, not merely
 untidy. [ADR-020](DECISIONS.md#adr-020) fixes the release unit as a pre-baked
 signed ISO the user provisions but never builds — which requires netVM to exist
 as a prebuilt, reproducible artifact, impossible while it is produced by an
-interactive installer run. And [ROADMAP.md](../ROADMAP.md) step 3 (installer
+interactive installer run. And [ROADMAP.md](../ROADMAP.md) step 4 (installer
 provisions netVM) requires a declarative source for that provisioning.
 
 The real decision is therefore not *whether* netVM is separate — its machine
@@ -1258,9 +1286,15 @@ and storage (standalone linear RW, not thin/frozen); keeps the control channel
 within the vsock-only rule of [ADR-003](DECISIONS.md#adr-003); scopes out of
 [ADR-019](DECISIONS.md#adr-019) (`katmate-update` never touches netVM); required
 by [ADR-020](DECISIONS.md#adr-020) (netVM must be a prebuilt, provisioned
-artifact) and by [ROADMAP.md](../ROADMAP.md) step 3; the shared-protocol,
+artifact) and by [ROADMAP.md](../ROADMAP.md) step 4; the shared-protocol,
 whitelisted appVM agent it splits from is the one specified in
 [ADR-018](DECISIONS.md#adr-018).
+
+**Revision note (2026-08-06, [ADR-030](DECISIONS.md#adr-030)):** two pointers
+into `ROADMAP.md`'s build order move from *step 3* to *step 4*. ADR-030
+inserted a step (VM description as data → launch daemon) and renumbered the
+tail; the target — NetVM installer integration — is unchanged, as is every
+decision in this ADR.
 
 ## ADR-022 — Network topology is a graph; the physical NIC is an assignable object
 
@@ -2972,3 +3006,433 @@ dependency from [ADR-017](DECISIONS.md#adr-017)'s reconcile and from
 empirics-before-commitment method of [ADR-024](DECISIONS.md#adr-024); the
 C-gate criteria C1, C3 and C5a are hereby assigned to unit configuration rather
 than to daemon implementation ([ADR-027](DECISIONS.md#adr-027)).
+
+---
+
+## ADR-030 — What the launch daemon reads: four artefacts, authorship as the tier boundary
+
+**Status:** Accepted (2026-08-06). Gate **E1 passed live on MINIS** the same
+day, selecting candidate A; G1–G6 belong to build-order step 3a and are open.
+**Depends on:** [ADR-029](DECISIONS.md#adr-029) (systemd owns the VMM process),
+[ADR-022](DECISIONS.md#adr-022) (object model), [ADR-027](DECISIONS.md#adr-027)
+(C-gate), [ADR-017](DECISIONS.md#adr-017) (CID allocation)
+**Partially supersedes:** [ADR-015](DECISIONS.md#adr-015) — the `network` enum
+is removed as wrong in *type*, and the AppVM-only restriction is lifted. Every
+other ADR-015 decision (TOML, per-instance file, validator, semantic
+invariants) remains in force.
+
+**Context:**
+
+[ADR-029](DECISIONS.md#adr-029) settled who parents the VMM process. It did not
+settle what the daemon reads, and no document does. Three gaps were named:
+
+1. No `properties.toml` → QEMU argv mapping exists. ADR-015 cites the absence
+   of one as its own justification and then does not specify it. The `.con`
+   scripts are the de facto specification — hand-written, one per VM.
+2. The ADR-015 schema lacks fields for most of what a launcher needs.
+3. sysVMs have no machine-readable description at all, and the daemon must
+   launch them. ADR-015 defers this by name to "the launch daemon's business".
+
+Two further facts, established by reading the two live launchers against
+ADR-022 before any schema work:
+
+- **ADR-030 does not invent an object.** [ADR-022](DECISIONS.md#adr-022)
+  already defines `Vm` (name, class, CID, image ref, resources,
+  `netvm: Option<VmRef>`, `provides_network: bool`), `Image`, `Nic`, `Link` and
+  `Policy`. The subject of this ADR is the **on-disk serialisation** of those
+  objects, such that an ADR-029 unit can be produced from it. ADR-015's
+  `properties.toml` is a partial, AppVM-only serialisation of `Vm` that
+  predates the model.
+- **ADR-015's `network` field is wrong in type.** The enum
+  `none | via-netvm` cannot name *which* netVM. ADR-022 requires exactly that —
+  "policy is a netVM, not a rule"; differentiating an AppVM's access **is**
+  choosing its netVM. `provides_network` is absent from ADR-015 entirely. This
+  is a replacement, not an extension, and it was never recorded when ADR-022
+  silently displaced it.
+
+### Placement in the build order
+
+`ROADMAP.md`'s build order lists artefacts to *build*. Launching already exists
+in a degenerate form — two hand-written `.con` scripts — so it never appeared
+as a step, and for the same reason the schema was never written: **the `.con`
+scripts are the schema, expressed as code.** The missing step is therefore not
+"write a launcher" but **the removal of the scripts**.
+
+Checked against the existing steps: step 1's gate ("run an instance overlay off
+each") is satisfiable by a `.con`; step 2 is weakly affected; step 3 ("netVM
+*lifecycle* automated") and step 4 ("instantiate the domains from … properties")
+are both blocked outright. The daemon belongs between 2 and 3, and splits:
+
+- **3a — VM description as data, plus unit templates.** netVM and app_web start
+  via `systemctl`. No daemon yet.
+- **3b — the launch daemon.** Graph, CID allocation, NETCFG ordering,
+  dependent-VM interlock.
+
+3a is simultaneously the empirical gate on *this* ADR: if the unit template can
+be filled from data alone, the schema is sufficient; if a `.con` line has
+nowhere to go, it is not. This is the [ADR-024](DECISIONS.md#adr-024) method
+applied to a schema — a demonstration instead of a review.
+
+Neither horn of the dilemma `state.md` posed is correct: ADR-029 did not run
+ahead of its turn, and the build order is not silently wrong. The step was
+invisible because the thing it replaces already works.
+
+**Decision:**
+
+### 1. The tier boundary is authorship, not content
+
+The question is not *which fields the schema needs* but **which fields may be
+data at all**. `app_web.con` mixes four classes of content, and one of them is
+containment configuration: if
+`-sandbox on,obsolete=deny,elevateprivileges=deny,spawn=deny,resourcecontrol=deny`
+becomes an editable field, a file edit disarms C4 — a criterion this project
+spent a live gate proving ([ADR-027](DECISIONS.md#adr-027), 2026-07-28).
+ADR-015 states that validation is not a trust boundary *against the host*; that
+is a different question. `properties.toml` is host-side, user-authored data
+consumed by a TCB component. Naively promoting every `.con` line to a schema
+field would duplicate ~20 identical lines into every instance **and** create an
+attack surface.
+
+Tiers are therefore defined by **who writes the artefact**, and the writer
+determines the file:
+
+| Tier | Author | Location | Form |
+|---|---|---|---|
+| **T1** instance properties | the user | config tree | `properties.toml`, one per VM |
+| **T2** image metadata | the build pipeline | `/var/lib/katmate/` | `<image>.meta`, the `foundation.meta` pattern |
+| **T3+T4** class profile and TCB constants | the release (signed ISO) | `/usr/lib/systemd/system/` | **the unit template** |
+| — | derived at start | `/run/katmate/vm/<instance>.env` | a projection, not a source |
+
+`foundation.meta` already carries `WAYPIPE_TAG` and is the only T2 content that
+exists as data today. It is the precedent for the whole tier; no second format
+is introduced.
+
+### 2. The unit template *is* the serialisation of T3 and T4
+
+There is no separate profile file. A unit template already contains the machine
+type, the device set and the `-sandbox` line; a profile format alongside it
+would be a second record of the same fact. The template is world-readable, part
+of the signed ISO ([ADR-020](DECISIONS.md#adr-020)), and already read by PID 1.
+
+**The profile is carried in the unit name, not in a field:**
+
+```
+katmate-app-routed@personal.service
+katmate-app-offline@vault.service
+katmate-sys-driver@netvm.service
+```
+
+[ADR-029](DECISIONS.md#adr-029) makes the unit name the durable identity of a
+running VM. The identity therefore carries its own containment profile;
+`systemctl status` displays it without a query to anything.
+
+**The profile is not a field but a function** of `(class, netvm, nic)`:
+
+| `class` | `netvm` | `nic` | profile |
+|---|---|---|---|
+| `app` | `Some` | — | `app-routed` |
+| `app` | `None` | — | `app-offline` |
+| `sys` | — | `Some` | `sys-driver` (q35 + vfio) |
+| `sys` | — | `None` | `sys-proxy` (microVM) — **named, not shipped** |
+
+The user declares topology and the profile follows. A user therefore **cannot
+select weaker containment**, which is the only reason T3 may be derived from T1
+without T1 becoming an attack surface.
+
+Device *presence* is a profile choice, not an argument: `netvm: None` yields an
+**absent** device, not a disabled one — air-gap is the absence of an object
+([ADR-021](DECISIONS.md#adr-021), [ADR-022](DECISIONS.md#adr-022)).
+
+`sys-proxy` is anticipated by ADR-022 (a netVM holding no NIC is a microVM) and
+has never been built. The function names it and returns an **explicit error**,
+never a default. Shipping an untested unit template for a VM class that does
+not exist would invert this project's method.
+
+### 3. What crosses the boundary: named objects, two typed scalars, no free argv
+
+The daemon does not supply arguments. It supplies **named kernel objects**,
+which the template references statically. This is the deciding argument of
+ADR-029 applied one layer down: *names that outlive whoever created them.*
+
+- **netns** → `NetworkNamespacePath=/run/netns/katmate-%i`
+  ([ADR-029](DECISIONS.md#adr-029) §5).
+- **tap** → created inside that namespace, name derived from `%i`, **owned by
+  the per-VM uid** (`ip tuntap add … user <uid>`) so QEMU opens it by name
+  without `CAP_NET_ADMIN`.
+- **MAC** → derived, never authored, and **never byte-encoding an address**:
+  the retired pet launcher preserved a wrong-subnet bug in its MAC bytes
+  (forensic note, [ADR-025](DECISIONS.md#adr-025)).
+
+Network argv is thereby static in the template. Exactly two values still cross,
+and both are scalars with a hard type:
+
+1. **`KM_CID`** — authored for static domains, **allocated at start** for
+   disposables ([ADR-017](DECISIONS.md#adr-017)); not derivable from `%i`.
+2. **`KM_VFIO_BDF`** — host inventory, not derivable (see §5).
+
+They are delivered by `EnvironmentFile=` with a **fixed, validated key set**,
+each interpolated at a **fixed position** in `ExecStart=` — `guest-cid=${KM_CID}`,
+`host=${KM_VFIO_BDF}`. The braced form is deliberate: `${}` does not word-split,
+so a value cannot become additional arguments. A space in a value is a parse
+error, not a new argument.
+
+*Rejected — an argv blob.* `EnvironmentFile` plus `ExecStart=… $KATMATE_ARGS`
+works (single `$` word-splits), and whoever writes that file injects arbitrary
+QEMU arguments: a second `-drive` onto a foreign LV, or a later `-sandbox`
+overriding T4. It would make the entire content of T4 optional.
+
+*Rejected — per-instance drop-in plus `daemon-reload`.* Argv in systemd's
+configuration space, a race between write and `StartUnit`, and the daemon
+becomes load-bearing for identity again — the inverse of ADR-029.
+
+### 4. T1 — `properties.toml`, superseding ADR-015's schema
+
+| Key | Change |
+|---|---|
+| `network` | **removed** — wrong type against ADR-022 |
+| `netvm` | new — `VmRef`, or absent (`Vm.netvm: Option<VmRef>`) |
+| `provides_network` | new — bool, default `false` |
+| `class` | new — `app` \| `sys`. ADR-015's own deferral, via `Vm.class` |
+| `nic` | new — a **label**, not a BDF (§5). Optional |
+| `mem`, `vcpus` | new — `Vm.resources` |
+| `cid` | band becomes a function of `class`: 3–19 is **required** for `class = sys`, and remains an error for `class = app` |
+| `manifest`, `persistence`, `identity`, `disposable`, `reset_on_shutdown` | unchanged |
+
+`properties.toml` now describes sysVMs as well, which ADR-015 explicitly
+excludes. Recorded here as a supersession rather than left to inference — the
+same treatment the CID renumbering received.
+
+New validator rules (`tools/validate-properties.fish`), both **errors**:
+
+- the same `nic` label on two VMs — the on-disk expression of ADR-022's
+  `Nic.assigned_to`, "assignable to at most one VM";
+- a `(class, netvm, nic)` tuple that resolves to `sys-proxy`, until that
+  profile exists.
+
+### 5. `Nic` is not serialised inventory; the `Vm` carries a label
+
+**A BDF is not an identity.** `0000:01:00.0` is assigned by firmware
+enumeration, not by us. It moves if the card is reseated, if an NVMe device
+renumbers the bus, or if a firmware setting changes. This is the opposite of a
+CID (which we allocate, ADR-017) and of a unit name (which we choose, ADR-029).
+
+The consequence of a stale BDF is not a VM that fails to start. `vfio-pci`
+binds to an **address**, not to a device. A stale record means some *other*
+device is detached from its host driver and handed to the most exposed VM in
+the system — silently, with a plausible result. That is this system's
+characteristic failure: a mechanism that quietly consults the wrong object and
+returns a believable answer. The same shape as `/proc` read in the wrong netns
+(ADR-029), as `Online state: offline` beside `routable`, and as the assumed
+precondition that killed [ADR-021](DECISIONS.md#adr-021)'s shutdown model.
+
+Therefore:
+
+- **`Vm` carries a label**, not an address: `nic = "uplink0"`. Absent on every
+  AppVM and on proxy netVMs.
+- **Resolution is kernel-authoritative and boot-scoped.** The binding step
+  (root, at host start) writes `/run/katmate/nics/uplink0` → the current BDF.
+  The daemon reads it there, never from git. `/run` for the same reason NETCFG
+  records live there ([ADR-025](DECISIONS.md#adr-025)): it is a fact *of this
+  boot*.
+- **Check at VM start.** `vendor`/`device` at the resolved BDF must match what
+  the label was created for — two reads under `/sys`. Not a trust boundary;
+  blast-radius limiting against exactly the silent case above, on the same
+  reasoning ADR-025 gives for its validation.
+
+What the kernel already knows is not copied into a file:
+`/sys/bus/pci/drivers/vfio-pci/` *is* this boot's list of bound devices.
+
+### 6. No QEMU monitor
+
+`-nographic` by itself multiplexes the serial console **and the monitor** onto
+one stream, and `-serial mon:stdio` does so explicitly. Under a unit there is no
+stdio terminal, and `StandardInput=` would hand the monitor to whoever can write
+to it. QMP was already declined for shutdown in favour of an agent opcode
+([ADR-021](DECISIONS.md#adr-021), [ADR-024](DECISIONS.md#adr-024)), so no
+control socket exists today and none is introduced. T4 becomes:
+
+```
+-display none -monitor none -serial <chardev>
+```
+
+with `-nographic` removed from both launchers.
+
+**A development monitor is a drop-in, never a field.** A field could be set in
+a release. Following the precedent recorded at Gap #10 in `net-sys.con` ("it
+must be a separate dev launcher"), a monitor lives in
+`/etc/systemd/system/katmate-*@.service.d/90-dev-monitor.conf`: additive, not
+unlocking, per-machine and out of git (the anti-drift pattern), and **on the
+list of dev scaffolding to be removed before release** alongside SECURITY-MODEL
+#3, #4 and #12.
+
+**Coupling that must not be discovered late:** with the serial console in the
+journal, the path becomes one-way, and interactive console login — today the
+only in-guest observation path for netVM, and the reason open problem #12
+exists — disappears. That is the correct end state: #12 becomes *unreachable*
+rather than merely resolved. During 3a bring-up a pty or a separate dev
+launcher is required; it must not be the same unit.
+
+### 7. `/home` is per instance
+
+`app_web.con` names the persistent home LV after the **app layer**
+(`vm_app_web_home`) while the root delta is per instance. Two instances of
+`app_web` would mount the same ext4 read-write and corrupt it. It has not
+happened only because exactly one instance exists. ROADMAP step 4 already
+requires "per-instance home on raw thin LV".
+
+**This ADR decides the tier only:** `/home` is a per-instance object and its
+name is derived from the instance, not from the layer. The **storage
+mechanism** — a writable thin snapshot of a frozen `vm_home_skel` versus a
+qcow2 branch — belongs to [ADR-010](DECISIONS.md#adr-010)/[ADR-011](DECISIONS.md#adr-011)
+and is deliberately not settled here. One ADR, one concern.
+
+Recorded because it will be needed there: a qcow2 branch would place a **second
+COW layer** on the most write-heavy device in the system, grow monotonically
+where `discard` must traverse two layers to return space to the thin pool, and
+introduce a backing chain whose semantics are the *opposite* of the app-layer
+chain `katmate-update` rebases ([ADR-019](DECISIONS.md#adr-019)) — two similar
+mechanisms with contrary meanings in one system. A thin snapshot is one COW
+layer, a raw block device, and makes `persistence` a lifecycle property of one
+object rather than two storage plans: persistent snapshots are created at
+deploy and kept; ephemeral and disposable ones are created at start and
+`lvremove`d at teardown. `discard=unmap` through virtio-blk to the thin pool is
+a gate, not an assumption.
+
+### 8. The runtime projection
+
+`/run/katmate/vm/<instance>.env` is the merge of T2, T1 and the start-time
+scalars, with the same fixed typed key set as §3. It is a **projection, never a
+source**: regenerated at every start, in `/run`, so nothing stale survives a
+reboot. In 3a it is produced by a script; that script is precisely the piece
+that later moves into the daemon, which is why the 3a gate remains meaningful.
+
+**Mechanism — E1, measured 2026-08-06 on MINIS.** Whether `EnvironmentFile=` is
+read late enough to see a file created by `ExecStartPre=` *in the same unit*
+was open, and this ADR's own prediction was that it probably is not — the shape
+of the assumed precondition that killed [ADR-021](DECISIONS.md#adr-021)'s
+shutdown model and Path A of [ADR-025](DECISIONS.md#adr-025). The prediction
+was wrong, and it was cheaper to be wrong here than in a unit template.
+
+| # | Criterion | Observation | Result |
+|---|---|---|---|
+| **E1a** | `ExecStartPre=` writes `/run/…env`; `ExecStart=/bin/echo [${KM_CID}]` in the same unit | `A_RESULT=[42]` | **PASSED** |
+| **E1b** | control: a separate generator unit, `Requires=` + `After=` | `B_RESULT=[42]` | **PASSED** |
+
+**Decision: candidate A.** The generator runs as `ExecStartPre=+` in the VM
+unit. One unit per VM; no second unit class, no ordering edge to maintain, and
+the projection is produced and consumed inside one unit's lifetime — so a
+half-started VM cannot leave a live env file behind for the next start to
+inherit.
+
+**B was not eliminated; it was measured as also working.** Recorded
+deliberately: if A later fails on a constraint this probe did not carry, B is
+available without a second measurement.
+
+**What the probe did not cover** — stated so that neither result is over-read:
+
+- `Type=oneshot`, where the VM units will be `simple` or `notify`.
+  `ExecStartPre=` completes before `ExecStart=` in all three, so the ordering
+  is the same, but only `oneshot` was observed.
+- `ExecStartPre=` without the `+` prefix. The real generator is privileged;
+  `+` changes the credential, not the ordering.
+- One `EnvironmentFile=` key. The fixed key set of §3 is two.
+
+None of these is a reason to defer 3a. All are reasons not to cite E1 for
+anything beyond what it observed.
+
+**A defect in the probe, recorded because it is the same class the gate
+exists to catch.** Its first version installed `trap cleanup EXIT` *above* the
+root check, so a non-root run fired `systemctl stop` on units that had never
+been created — four polkit prompts, nothing measured, and an exit that looked
+like a run. A gate that fails open is worse than no gate. Fixed before the
+real run.
+
+**Consequences:**
+
+*Immediately*
+- Both `.con` scripts are deleted at the end of 3a. Their content is not
+  archived in the repository; the unit templates supersede them.
+- ADR-015 needs a revision note; `tools/validate-properties.fish` needs the two
+  new error rules and the `class`-dependent CID band.
+- The build order gains a step and is renumbered.
+
+*Structurally*
+- Containment is no longer expressible as data. That is the point, and it means
+  a per-VM containment exception is not a configuration change but a new
+  profile in the signed ISO.
+- The daemon's input surface is two typed scalars and a set of named kernel
+  objects. It has no argv construction path at all, so no bug in it can produce
+  an unexpected QEMU argument.
+
+*To revisit*
+- `sys-proxy` when the first proxy netVM is built (ADR-022's chained topology).
+- The `nic` label's durable descriptor, once measured (see below).
+- `Vm.resources` beyond `mem`/`vcpus` if pinning or NUMA ever matters.
+
+### Findings surfaced by the inventory and routed elsewhere
+
+Recorded so they are not lost, and explicitly **not decided here**:
+
+- **Memory backing is divided the wrong way round.** `app_web` (no vfio) uses
+  `memory-backend-file` on `/dev/hugepages`; `net-sys` (with vfio) uses
+  `memory-backend-memfd`. The vfio VM is the one that benefits from hugepages —
+  fewer pages to pin, smaller IOMMU tables. Three axes, none of them
+  performance: DAC on `/dev/hugepages` under `User=` (C1) versus memfd needing
+  no filesystem permission at all; whether `share=on` has any consumer given
+  that vhost-vsock is in-kernel and no vhost-user process exists; and whether
+  an undersized pool fails loudly or falls back silently.
+  `HOST-CONFIG.md` §6 already marks the reservation `[?]`, so by this project's
+  own standard it is not yet a requirement. → deferred, own session.
+- **netVM has neither `-nodefaults` nor `-no-user-config`.** Less containment
+  in the most exposed VM than in an AppVM. `-vga none` covers graphics only;
+  the default configuration file is still read. Closed by construction when the
+  T4 template lands in 3a; a q35 machine with `-nodefaults` builds *nothing*
+  implicitly, so every device must be listed. → C-gate, gate it in 3a.
+- **`-overcommit mem-lock=off` on netVM is probably inert and misleading.**
+  vfio pins the entire guest memory for DMA regardless. Under `User=` (C1),
+  `LimitMEMLOCK=infinity` stops being an optimisation and becomes a start
+  condition. → folds into the memory session and into C3.
+- **The same problem exists twice: durable identity against volatile
+  enumeration.** Once at the vfio BDF (§5), once at the host USB-NIC, where a
+  "persistent MAC-matched profile" is already an open item
+  (`HOST-CONFIG.md` §2). One class, two sites, treated separately until now.
+
+**Gate criteria:**
+
+| # | Criterion | Where |
+|---|---|---|
+| **E1** | `EnvironmentFile=` sees a file created by `ExecStartPre=` in the same unit | **PASSED** 2026-08-06, MINIS — candidate A selected; B also passing, kept as a recorded fallback |
+| **G1** | `netvm` starts from `katmate-sys-driver@netvm.service` with no `.con` script present, uplink up | 3a |
+| **G2** | `app_web` starts from `katmate-app-routed@…` likewise | 3a |
+| **G3** | **both `.con` files deleted from the repository and nothing was lost** — the schema gate | 3a |
+| **G4** | netVM starts under `-nodefaults -no-user-config -monitor none` | 3a |
+| **G5** | a `properties.toml` with the same `nic` label on two VMs is rejected by the validator | 3a |
+| **G6** | a stale `/run/katmate/nics/<label>` whose vendor/device no longer matches refuses the start | 3a |
+
+**Alternatives considered:**
+
+- **Extend the ADR-015 table with the `.con` fields.** Rejected. It duplicates
+  identical lines into every instance file and makes containment editable.
+- **A separate profile format alongside the unit template.** Rejected: two
+  records of one fact, and the second is not read by PID 1.
+- **A `profile` field authored by the user.** Rejected. It would let a
+  declaration of topology and a declaration of containment disagree, and it is
+  the disagreement that is dangerous, not either value.
+- **Serialise `Nic` as host inventory.** Rejected — it writes down a value the
+  firmware owns and the kernel already publishes, and the failure mode is
+  silent misassignment rather than a refused start.
+
+**Cross-reference:** specifies the input of the daemon decided by
+[ADR-029](DECISIONS.md#adr-029) and serialises the `Vm` / `Image` / `Nic`
+objects of [ADR-022](DECISIONS.md#adr-022); partially supersedes
+[ADR-015](DECISIONS.md#adr-015) (the `network` enum, the AppVM-only
+restriction); keeps containment out of user data per
+[ADR-027](DECISIONS.md#adr-027) C4 and inside the signed artefact of
+[ADR-020](DECISIONS.md#adr-020); preserves the absent-not-disabled principle of
+[ADR-021](DECISIONS.md#adr-021)/[ADR-022](DECISIONS.md#adr-022) by making
+device presence a profile rather than an argument; takes the CID input/output
+distinction from [ADR-017](DECISIONS.md#adr-017); adopts the
+empirics-before-commitment method of [ADR-024](DECISIONS.md#adr-024) for E1 and
+declines the QMP surface [ADR-021](DECISIONS.md#adr-021) already declined; the
+`/home` storage mechanism is left to
+[ADR-010](DECISIONS.md#adr-010)/[ADR-011](DECISIONS.md#adr-011).
