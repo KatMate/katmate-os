@@ -46,9 +46,13 @@
 > **First release target** = installer + preconfigured NetVM + default
 > ready-to-run AppVMs ≈ end of v0.3.
 
+- [ ] VM description as data — `properties.toml` (superseding ADR-015's
+      schema), `<image>.meta`, and the per-profile unit templates; both `.con`
+      scripts deleted (ADR-030)
 - [ ] Launch daemon — owns the topology graph: allocates CIDs and `/32`s,
       creates/destroys `Link`s, calls NETCFG along the path, refuses to tear
-      down a `provides_network` VM with live dependents (ADR-022; ADR pending)
+      down a `provides_network` VM with live dependents (ADR-022, ADR-029,
+      ADR-030)
 - [ ] Default ready-to-run AppVM set (vault / personal / untrusted / disposable)
       from two manifests (ADR-014)
 - [ ] Offline AppVM (`netvm: None`) as a shipped domain — air-gap by absence of
@@ -69,7 +73,9 @@
       `LimitMEMLOCK=infinity`, a Landlock wrapper in `ExecStart=`), not daemon
       code; C6's namespace preparation *is* daemon code (`ip netns add` is not
       nestable) but preparation only — the unit takes the named namespace with
-      `NetworkNamespacePath=`. Gates all axis-2 / vhost-user work.
+      `NetworkNamespacePath=`. C4 is additionally re-scoped by ADR-030: the
+      `-sandbox` line lives in the unit template, is part of the signed ISO,
+      and is not expressible as user data. Gates all axis-2 / vhost-user work.
 
 ## Build order (first release, critical path)
 
@@ -88,15 +94,31 @@ depends on that daemon staying alive.
    instance overlay off each. Realizes ADR-014 + ADR-010.
 2. **`katmate-update` MVP** — foundation rebuild + app-layer rebase + overlay
    recycling on a waypipe version bump (ADR-019). Never touches sysVMs.
-3. **NetVM installer integration** — netVM lifecycle automated from the
+3. **VM description as data → launch daemon** (ADR-030, ADR-029). This step was
+   invisible in earlier revisions of this list because launching already exists
+   in a degenerate form: two hand-written `.con` scripts, which *are* the
+   schema expressed as code. The step is their removal.
+   - **3a — description + unit templates.** `properties.toml` per ADR-030,
+     `<image>.meta` on the `foundation.meta` pattern, and the
+     `katmate-{app-routed,app-offline,sys-driver}@.service` templates. netVM
+     and app_web start via `systemctl`, no daemon. **Gate: both `.con` files
+     deleted from the repository and nothing was lost** — which is also the
+     empirical gate on ADR-030's schema. ADR-030 gate E1 passed 2026-08-06
+     (candidate A: generator as `ExecStartPre=+` in the VM unit).
+   - **3b — the launch daemon.** Graph ownership, CID allocation and reconcile
+     (ADR-017), NETCFG ordering and re-issue (ADR-025), CID→name (ADR-026),
+     dependent-VM interlock (ADR-022). Orders units; parents nothing (ADR-029).
+4. **NetVM installer integration** — netVM lifecycle automated from the
    installer; NIC passthrough; VPN provisioned at install time. Unblocked: the
    declarative build and the uplink are proven.
-4. **Default AppVMs** — instantiate the domains from two manifests + properties;
-   per-instance home on raw thin LV; disposable lifecycle.
-5. **Installer integration** — provision the whole set so a fresh install runs,
+5. **Default AppVMs** — instantiate the domains from two manifests + properties;
+   per-instance home on raw thin LV (ADR-030 §7: the home LV is per instance,
+   not per app layer — today's name is per layer and would corrupt on a second
+   instance); disposable lifecycle.
+6. **Installer integration** — provision the whole set so a fresh install runs,
    including the Sway desktop profile (needs `kms` in mkinitcpio HOOKS).
 
-**Parallel (off critical path, before releasing step 5):** remove installer
+**Parallel (off critical path, before releasing step 6):** remove installer
 secrets + rotate burned WG key + drop `Hidden=true` (SECURITY-MODEL #1–2);
 remove dev sshd (#4); remove the `usermod -p` dev-root line from `netvm.sh`
 (#12) — see the operational note in `state.md`.

@@ -13,7 +13,7 @@ Each such item was discovered by running the system, applied by hand on one
 machine, and is invisible to a fresh install.
 
 This file is the list. It is **an input to the installer** (ROADMAP build order
-step 5), not a log. An entry earns its place by answering: *what must be set,
+step 6), not a log. An entry earns its place by answering: *what must be set,
 where, and what silently breaks if it is not.*
 
 ## What this file is not
@@ -106,6 +106,24 @@ C1/C2 of the [C-gate](DECISIONS.md#adr-027).
 (open problem #9): a driver domain is only safe where the NIC sits in a cleanly
 isolable group. The installer needs a preflight, not just a binding step.
 
+**A BDF is not a durable name.** [ADR-030](DECISIONS.md#adr-030) §5 makes the
+`Vm` carry a label (`nic = "uplink0"`) and requires the boot-time binding step
+to publish the resolution at `/run/katmate/nics/<label>`. What that label
+resolves *from* is unspecified and must be measured, not chosen at a desk:
+`vendor:device` is not unique on a two-port card, the MAC is only readable
+before `vfio-pci` binds, and the slot path is stable against reseating but not
+against a firmware change.
+
+**Failure mode, and it is silent.** `vfio-pci` binds to an address, not to a
+device. A stale BDF hands *some other* device to the most network-exposed VM in
+the system, and QEMU starts normally. ADR-030 requires a `vendor`/`device`
+check at VM start as blast-radius limiting; that check is not a substitute for
+choosing a durable descriptor here.
+
+**Same class as §2.** The USB-NIC profile and this entry are one problem —
+durable identity against volatile enumeration — at two sites. Solve the
+descriptor question once.
+
 ---
 
 # Boot and firmware
@@ -120,7 +138,7 @@ the `vfio_pci` / `vfio` / `vfio_iommu_type1` set in MODULES.
 **Failure mode.** Wrong HOOKS ordering loses the graphical LUKS unlock (the
 prompt falls back to text, or the theme does not load). Missing `kms` breaks
 the Sway desktop profile at install time — already noted against ROADMAP build
-order step 5.
+order step 6.
 
 **Verify before treating as a requirement:** read the live
 `/etc/mkinitcpio.conf` on MINIS and replace this entry with the exact lines.
@@ -154,6 +172,14 @@ MINIS carries an explicit reservation or relies on a default is **unchecked** �
 verify before this becomes a requirement, and note that a reservation
 interacts with `memlock` (C3) and with the transparent-hugepage behaviour noted
 in `../state.md`.
+
+**Probably allocated the wrong way round.** `app_web` (no vfio) takes
+hugepages; `net-sys` (vfio) takes `memory-backend-memfd`. The vfio VM is the
+one that benefits — fewer pages to pin, smaller IOMMU tables — and under C1
+(`User=`) hugepages additionally require DAC on `/dev/hugepages`, which memfd
+does not. Whether `share=on` has any consumer at all is also unchecked:
+vhost-vsock is in-kernel and no vhost-user process exists. Surfaced by the
+ADR-030 launcher inventory; deferred to its own session, together with C3.
 
 ---
 
