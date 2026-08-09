@@ -2219,6 +2219,35 @@ within the image/state separation of [ADR-021](DECISIONS.md#adr-021)
 [ADR-003](DECISIONS.md#adr-003); segment and topology constants per
 [ADR-022](DECISIONS.md#adr-022) and ARCHITECTURE.md.
 
+**Revision note (2026-08-09, [ADR-030](DECISIONS.md#adr-030) §3):** the
+launcher precondition above specifies the internal netdev's MAC as
+`52:54:0a:64:01:01`, "encoding `10.100.1.1` under the established scheme".
+[ADR-030](DECISIONS.md#adr-030) §3 forbids that practice — an address must not
+be recoverable from a MAC — but cites only the retired pet launcher's
+`52:54:0A:64:11:01`, whose visible defect was a *wrong subnet* preserved in the
+bytes. It did not state that it also overturns this ADR's decision about the
+live launcher. It does. ADR-030 is the later and normative decision, and this
+note records the supersession rather than leaving the tree self-contradictory.
+
+**Replacement:** MACs are derived, never authored —
+`52:54:00` + the first three bytes of `sha256(<instance name>)`. Locally
+administered, unicast, stable across reboots, no allocator state, no address in
+the bytes.
+
+**Nothing in this ADR's mechanism changes.** The wire validation above requires
+of `match_mac` only that the address be unicast with the locally-administered
+bit set, which the derivation satisfies (`0x52` = `0101 0010`). The internal
+segment's address travels in `local_addr`, a separate field validated against a
+constant, and the netVM image bakes no internal-segment `.network` unit —
+`manifests/netvm.conf.d/` carries the MAC-matched **uplink** only, and Path B
+programs the internal link by rtnetlink from the payload it is handed. **No
+image rebuild is implied.** The change is confined to what the launcher — now
+the projection generator — emits.
+
+The `state.md` invariant naming `52:54:0a:64:01:01` as the internal segment's
+identity is stale from the moment the generator lands, and is corrected in the
+same pass.
+
 ---
 
 ## ADR-026 — Domain indicator carriers: host-resolved waypipe CID, never guest-supplied window properties
@@ -3436,3 +3465,338 @@ empirics-before-commitment method of [ADR-024](DECISIONS.md#adr-024) for E1 and
 declines the QMP surface [ADR-021](DECISIONS.md#adr-021) already declined; the
 `/home` storage mechanism is left to
 [ADR-010](DECISIONS.md#adr-010)/[ADR-011](DECISIONS.md#adr-011).
+
+**Revision note (2026-08-09, [ADR-032](DECISIONS.md#adr-032)):** step 3a began
+as this ADR's empirical gate — place every line of both `.con` launchers, on
+the principle that a line with nowhere to go is a hole in the schema. It
+returned five, before any file was modified. Four were holes in this ADR and
+are answered by [ADR-032](DECISIONS.md#adr-032); the fifth was a location this
+ADR never supplied. Nothing below is withdrawn.
+
+1. **§2 was too narrow.** "The unit template *is* the serialisation of T3 and
+   T4" cannot hold, because a template holds only directives, and the ADR-019
+   waypipe version lock — normative, and the enforcement point of that ADR — is
+   ~38 lines of host control flow that must run before QEMU. T4 is the template
+   **plus the executables it references**, at `/usr/lib/katmate/`, under an
+   explicit authority limit. §8's projection generator was already such an
+   executable; this ADR relied on the category without naming it.
+2. **§4 left the `class = sys` key set undefined.** Lifting ADR-015's
+   AppVM-only restriction and calling the remaining keys "unchanged" does not
+   survive contact with netVM: `persistence` describes a home LV it does not
+   have, `identity` / `disposable` / `reset_on_shutdown` are AppVM archetype
+   flags, and the validator's `manifest` enum is `vault web`. ADR-032 §3 makes
+   the required set a function of `class`, with forbidden keys rejected at
+   parse rather than ignored.
+3. **§4's duplicate-`nic` rule needed a validator that enumerates.** The rule
+   is cross-file; `tools/validate-properties.fish` is strictly per-file and
+   erases its accumulator after each file. The rule was not implementable
+   without a directory to read — which the tier table did not supply.
+4. **T1's location, given as "config tree", existed nowhere.** A
+   repository-wide search returned exactly one hit: that table row. ADR-032 §1
+   supplies `/etc/katmate/vm/<name>.toml` and, more importantly, makes this
+   ADR's authorship principle operative — *who wins on upgrade* — because a
+   file's author is not visible in the file, and the principle was
+   unfalsifiable as stated.
+5. **T2 had no home for payload.** The host-side netVM metadata must name a
+   kernel and an initrd, and the only location was `out/`, a `.gitignore`d
+   build tree. ADR-032 §5 routes payload by producer.
+
+§7 is unaffected: the apparent contradiction between "`/home` is named from the
+instance" and the live `vm_app_web_home` was an artefact of the development
+instance name `test_web`. Fixed AppVMs are 1:1 instance-to-VM
+([ADR-032](DECISIONS.md#adr-032) §7), so the derivation yields the live name
+unchanged.
+
+§6 is unaffected and reinforced: ADR-032 §6 adds that the unit name *asserts* a
+profile which the projection generator must verify against the derived one,
+failing before QEMU on mismatch.
+
+---
+
+## ADR-032 — Where each tier lives: the path is the tier, and T4 is more than the template
+
+**Status:** Accepted (2026-08-09). Gates H1–H3 below are open and belong to
+build-order step 3a.
+**Depends on:** [ADR-030](DECISIONS.md#adr-030) (what the daemon reads),
+[ADR-029](DECISIONS.md#adr-029) (systemd owns the VMM process),
+[ADR-022](DECISIONS.md#adr-022) (object model), [ADR-019](DECISIONS.md#adr-019)
+(waypipe version lock)
+**Revises:** [ADR-030](DECISIONS.md#adr-030) §2 and §4 — see the revision note
+on that ADR. Nothing in ADR-030 is withdrawn; two definitions are widened and
+one location is supplied.
+
+**Context:**
+
+ADR-030 named four artefacts and set the tier boundary at **authorship**. Step
+3a began as its empirical gate: take both live `.con` launchers apart and place
+every line, on the principle that a line with nowhere to go is a hole in the
+schema. The gate ran before any file was modified and returned five holes.
+
+1. **T1 has no location.** ADR-030 gives it as "config tree". A
+   repository-wide search for that phrase, for `/etc/katmate` and for
+   `etc/katmate`, returns exactly one hit: that table row. No config directory
+   exists, no example `properties.toml` exists, and the installer creates
+   nothing of the kind. Work order step 2 could not be executed without
+   inventing a path no ADR specifies.
+2. **`app_web.con`'s waypipe version-lock preflight has no tier.** Roughly 38
+   lines that read `foundation.meta`, compare the recorded tag against the host
+   binary and refuse to launch on mismatch. ADR-019 makes this the enforcement
+   point of the version lock and `state.md` records it as normative. It is not
+   T1 (not user data), not T2 (it *consumes* T2), not one of §3's two typed
+   scalars, and not a directive that can appear in a unit file. Two smaller
+   items of the same class sit beside it: the delta-existence check and the
+   kernel-existence check.
+3. **The required key set for `class = sys` is undefined.** ADR-030 lifts
+   ADR-015's AppVM-only restriction and lists the remaining keys as
+   "unchanged", but applied to netVM the remainder does not survive contact:
+   `persistence` is a property of a home LV that netVM does not have,
+   `identity` / `disposable` / `reset_on_shutdown` are AppVM archetype flags,
+   and the validator's `manifest` enum is literally `vault web`.
+4. **The duplicate-`nic` rule is not an added rule.**
+   `tools/validate-properties.fish` is strictly per-file — `validate_file` ends
+   by erasing every parsed key and no cross-file accumulator exists. Gate G5 is
+   inherently cross-file and is only satisfiable if the validator has something
+   to enumerate, which (1) denies it.
+5. **T2 must record a payload path, and no runtime home for a payload
+   exists.** The host-side `netvm.meta` has to name a kernel and an initrd.
+   Today they are in `out/`, which is `.gitignore`d and is a build tree, not a
+   runtime location. `/var/lib/katmate/` was convention for metadata, not for
+   payload.
+
+These are five expressions of one omission. ADR-030 answered *what* the daemon
+reads and *who wrote it*; it never said **where any of it lies**. The
+consequence was not abstract: an agent reading the repository could not
+execute step 2 of the work order without inventing a path, and a preflight that
+an accepted ADR makes normative had nowhere to be.
+
+**Decision:**
+
+### 1. The path is the tier
+
+Each tier gets a directory, and the directory is the tier's public statement of
+what it is. A reader establishes a file's tier with `ls`, not by reading this
+document.
+
+| Tier | Author | Directory | Wins on upgrade |
+|---|---|---|---|
+| **T1** instance properties | the user | `/etc/katmate/vm/<name>.toml` | the **user** |
+| **T2** image metadata + payload | the build pipeline | `/var/lib/katmate/` | the **pipeline** |
+| **T3+T4** templates and their executables | the release | `/usr/lib/systemd/system/`, `/usr/lib/katmate/` | the **release** |
+| — runtime projection | derived at start | `/run/katmate/` | nothing; rebuilt every start |
+
+**"Authorship" is made operative as: who wins on upgrade.** ADR-030's principle
+was sound and unfalsifiable as stated — a file's author is not visible in the
+file. The upgrade question is answerable and mechanical. `katmate-update` never
+touches `/etc/katmate/`; it replaces `/usr/lib/` wholesale.
+
+**The installer seeds T1; it does not own it.** The relation is `/etc/skel` to
+`$HOME`. Files written at install time are the user's from that moment, and a
+later release that needs a schema change notifies rather than overwrites. This
+is the pattern the project already applies to `outputs.conf` and the generated
+greetd sessions: per-machine, out of git by design.
+
+**T1 is therefore never in the repository.** This follows from ADR-030's own
+principle rather than from taste: a committed `properties.toml` was authored by
+the project, and by the tier boundary that makes it T3/T4, not T1. A file
+cannot be T1 in the tree and T1 on the machine.
+
+`/etc/katmate/vm/<name>.toml` is flat, one file per VM, `root:root` `0644`. A
+per-VM *directory* is rejected because it admits two sources for one VM, which
+is this project's characteristic failure class. If drop-ins are ever wanted,
+`<name>.toml.d/` is a later extension and does not need to exist now. Root
+ownership is not a restriction on the user: the profile is derived either way,
+and weaker containment was never selectable.
+
+**Scope limit — this rule governs what the daemon reads as data.** Host
+binaries produced by the build pipeline keep the location ADR-019 already
+established (`/opt/katmate/bin/`). `/var/lib` is commonly mounted `noexec` and
+is not a home for executables. The rule is about tier legibility for
+configuration, metadata and payload; it does not relocate binaries, and it is
+not evidence that `/opt/katmate/` is wrong.
+
+### 2. T4 is the template **plus the executables it references**
+
+ADR-030 §2 states that the unit template *is* the serialisation of T3 and T4.
+A template can only hold directives, so on that reading the waypipe gate — host
+control flow that must run before QEMU — has no tier. But the gate ships on the
+signed ISO, no user writes it, and a release replaces it wholesale. By every
+test this ADR sets, it is T4. The definition was too narrow, not the artefact
+misplaced.
+
+**T4 executables live in `/usr/lib/katmate/`** and are referenced from
+`ExecStartPre=`. ADR-030 §8 already relies on this category without naming it:
+the projection generator is exactly such an executable.
+
+**Authority limit.** A T4 executable:
+
+- **may read** T1 and T2;
+- **may write** only under `/run/katmate/`;
+- **decides binarily** — proceed, or fail loudly;
+- **may derive the profile only from `(class, netvm, nic)`**.
+
+Without the limit, widening T4 would open a second route to the profile: a
+future `ExecStartPre=` could read T1 and adjust the projection, and containment
+would become negotiable — precisely what ADR-030 §3 refuses. The gate and the
+generator are the same kind of object under the same authority, and a later
+addition cannot quietly become a third path.
+
+**One executable per check, chained.** systemd stops at the first failing
+`ExecStartPre=` and the journal names the line that failed. A single
+`katmate-preflight` taking arguments would have to print that itself: more code
+for less information. Step 3a therefore ships:
+
+- `katmate-check-waypipe` — the ADR-019 version lock. Shared by
+  `katmate-app-routed@` and `katmate-app-offline@`; an offline vault runs
+  waypipe too.
+- `katmate-check-image` — backing-chain and payload existence.
+- `katmate-activate-lvs` — the `lvchange -K -ay` sequence, `ExecStartPre=+`
+  because it needs uid 0.
+- `katmate-generate-env` — the ADR-030 §8 projection.
+
+### 3. The required key set is a function of `class`
+
+A key with no meaning for a class is **forbidden**, not ignored. A
+`persistence` line on a netVM that is silently discarded is the *silent
+wrong-object* failure this project keeps finding — the stale BDF passing the
+wrong device, `networkctl` reporting `routable` and `offline` together. A key
+the user can set that does nothing is worse than a key that does not exist.
+Forbidden keys are rejected at parse, in the same spirit as *absent, not
+disabled*.
+
+| | Common | `class = sys` | `class = app` |
+|---|---|---|---|
+| Required | `class`, `cid`, `manifest`, `mem`, `vcpus` | `nic`, `provides_network` | `netvm`, `persistence`, `identity`, `disposable` |
+| Optional | — | — | `reset_on_shutdown` |
+| Forbidden | — | `netvm`, `persistence`, `identity`, `disposable`, `reset_on_shutdown` | `nic`, `provides_network` |
+
+`nic` forbidden on an AppVM is not tidiness. An AppVM holding hardware directly
+defeats the containment model, and parse-time rejection is the one place that
+cannot be passed.
+
+`netvm` required on `class = app` is satisfied by the field being present and
+explicitly empty; an absent `netvm` is an unstated assumption, an empty one is
+a declared offline vault.
+
+**`manifest` becomes class-dependent in its values**, not a widened shared
+enum: `sys` → `netvm`; `app` → `vault | web`. A shared enum would make
+`manifest = netvm` legal on an AppVM — a valid value that builds the wrong
+image.
+
+`persistence` is forbidden on `sys` because netVM's whole rootfs is a
+runtime-mutable linear RW LV by construction and there is nothing for the user
+to choose. Should a future sysVM carry durable state — the ADR-022 proxy VM
+will want a cache — that is a **widening** of this schema, which is the
+direction this project's rules permit. Permitting it now and discovering the
+key never did anything is the direction that cost ADR-021 and ADR-025 Path A.
+
+### 4. The validator enumerates a directory
+
+`tools/validate-properties.fish` gains a directory argument defaulting to
+`/etc/katmate/vm/`, and validates `*.toml` within it. The per-file rules are
+unchanged; the cross-file rule ADR-030 §4 requires (no two VMs may claim the
+same `nic` label) needs an accumulator that survives `validate_file`, and needs
+a guarantee that every VM's file was seen. The directory is that guarantee.
+Invoked on individual files, the validator runs per-file rules and **reports
+that cross-file rules were not evaluated** rather than passing silently.
+
+`class = sys` with `nic` absent resolves to `sys-proxy`, which ADR-030 §2 names
+and does not ship: an explicit error, never a default.
+
+### 5. Payload location follows the producer
+
+The same test as everywhere else in this ADR — who made it, and who wins on
+upgrade:
+
+- **`/var/lib/katmate/netvm/`** — `vmlinuz`, `initrd.img`, `netvm.meta`.
+  Produced by `build/netvm.sh`, replaced on rebuild, not signed with the ISO.
+  Payload and its metadata share a tier and a lifecycle, which is why they
+  share a directory. Written after the build succeeds, after `trap - EXIT`, on
+  the pattern `build/foundation.sh` already uses.
+- **`/var/lib/katmate/kernels/`** — the shared custom microVM kernel. Built
+  once, used by every AppVM.
+- **`out/`** remains a build tree and is never read at runtime. A unit reading
+  from `out/` would mean a release running from build artefacts.
+
+**The AppVM kernel is T2 with one value for all images.** `<image>.meta`
+records *which* kernel an image requires, not where it lies. Today every image
+records the same one. The alternative — a host property in `HOST-CONFIG.md`
+with the unit carrying it as a profile constant — costs nothing today and costs
+a migration on the first image that needs a different kernel. One key now.
+
+### 6. The unit name asserts the profile; the projection verifies it
+
+`systemctl start katmate-sys-driver@netvm` asserts a profile. The T1 file
+derives one from `(class, netvm, nic)`. `katmate-generate-env` computes the
+derived profile and **fails** if it does not match the unit it is running
+under, before QEMU is reached.
+
+The check exists for step 3b: when the launch daemon selects unit names, an
+unwritten rule would be one it could violate silently. Under ADR-029, systemd
+starts the VM and the daemon only orders — so the daemon's choice of unit name
+is the one place a wrong profile could enter with nothing to catch it.
+
+### 7. Instance names: 1:1 for fixed AppVMs
+
+For fixed AppVMs (CID 20–99) the instance name **is** the VM name. `%i` is
+therefore both the T1 filename stem and the derivation input for per-instance
+names.
+
+This closes an apparent contradiction rather than deciding a new thing.
+ADR-030 §7 requires `/home` to be named from the instance; the live launcher
+declares `INSTANCE=test_web` against `vm_app_web_home`, so a template using
+`vm_%i_home` appeared to yield a nonexistent LV. With 1:1 the instance is
+`app_web`, the derived name is `vm_app_web_home`, and the live LV needs no
+rename. `test_web` was a development artefact. Only the delta filename follows
+it.
+
+Instance and VM name diverge for disposables (CID ≥ 100), where the instance is
+generated and the definition is shared. §7's rule is written for that case and
+is unaffected.
+
+**Consequences:**
+
+- Four new filesystem locations are established: `/etc/katmate/vm/`,
+  `/usr/lib/katmate/`, `/var/lib/katmate/netvm/`, `/var/lib/katmate/kernels/`.
+  Each is created by the installer; none is in the repository.
+- `SECURITY-MODEL.md` gains a checkable property it did not have: a file's
+  authority is legible from its path. A T1 file under `/usr/lib/` or a T4
+  executable under `/etc/` is a defect visible to `ls`.
+- The installer acquires a seeding responsibility (build-order step 6) and a
+  constraint: it may create T1 files, and it may never overwrite one it did not
+  create in the same run.
+- `tools/validate-properties.fish` changes shape, not just rule count.
+- ADR-030 §2 and §4 are widened; the revision note on that ADR records it.
+- Step 3a is unblocked. Its five blocking findings are answered; the two
+  architectural items it correctly refused — memory backing, and storage shape
+  as a profile input — remain open and outside both ADRs.
+
+**Alternatives considered:**
+
+- **T1 shipped in the repository, installed to `/etc/`.** Rejected as
+  self-contradictory under ADR-030's own boundary: a committed file was
+  authored by the project.
+- **T1 under `/var/lib/katmate/`.** Rejected. `/var/lib` is state a program
+  maintains; T1 is configuration a human writes. The distinction is the whole
+  content of the tier boundary.
+- **A single `katmate-preflight` binary.** Rejected: loses systemd's
+  per-directive failure reporting.
+- **A fifth tier for host control flow.** Rejected. It shares an author, a
+  location and an upgrade owner with T4; a separate tier would record a
+  distinction that does not exist.
+- **`persistence` in the common set with a `sys`-specific value.** Rejected:
+  the value would state a fact about the image rather than a user choice — T2
+  pasted into T1.
+
+**Gates (open, step 3a):**
+
+- **H1 — `ExecStartPre=` chain.** Three preflights, the second made to fail.
+  Confirm systemd does not run the third, the unit does not start, and the
+  journal names the failing executable. Confirms §2's "one executable per
+  check" is worth its cost.
+- **H2 — profile mismatch refused.** Start a `properties.toml` deriving
+  `app-offline` under `katmate-app-routed@`. Confirm
+  `katmate-generate-env` fails before QEMU and the journal states which profile
+  was asserted and which derived.
+- **H3 — forbidden key rejected.** `persistence` on a `class = sys` file must
+  fail validation, not warn. Same for `nic` on `class = app`. Confirms §3 is
+  enforced at parse.
