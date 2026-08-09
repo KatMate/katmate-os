@@ -46,6 +46,85 @@
 
 ---
 
+## This session (2026-08-06, first of two) — documentation hygiene before ADR-030; the archive boundary repaired
+
+Documentation session, no code and no gates. Deliberately placed *before* the
+ADR-030 session of the same day: writing an ADR into documentation that carried
+a live numbering collision and three unrecoverable session records would have
+compounded both.
+
+### The defect: a mandate that had become destructive
+
+This file carried roughly 160 lines of un-headed session narrative *above*
+*Current focus* — material that had accumulated in the preamble instead of
+being given headings and rotated. Three of those sessions — **2026-07-23,
+07-21 and 07-20** — existed in no other file; `SESSIONS.md` jumped straight
+from 07-24 to 07-18.
+
+Trimming this file to "the two most recent sessions" would therefore have
+deleted three sessions rather than archiving them. The mandate was not wrong;
+it had simply stopped being safe to apply, because the invariant it depends on
+— *every session has a heading* — had been silently broken for weeks.
+
+### Archive work
+
+- **Three stranded sessions inserted** into `docs/SESSIONS.md` in their
+  chronological slot (07-23, 07-21, 07-20). The second such insertion the
+  archive has taken; its header now records both.
+- **The 2026-08-02 *first of two* session reconstructed** and written up as its
+  own entry, explicitly marked as reconstructed rather than same-day. Its
+  consequences (CID renumbering applied, personalVM artefacts removed) had been
+  threaded into this file's living sections while the session itself was
+  invisible. Assembled from those sections and from `ROADMAP.md`; it asserts
+  nothing that was not already written down.
+- **The 2026-08-02 *second of two* session (ADR-029) rotated normally** as this
+  file was trimmed, and therefore sits *above* the reconstructed first — newest
+  first, as everywhere in the archive.
+- **Duplicates dropped, not moved.** The 07-18 and 07-17 material in the
+  preamble duplicated entries already archived.
+- **Two repairs inside moved blocks, marked where they occur:** a dangling
+  *"see debt #14 below"* cross-reference, now pointing at `../state.md`; and
+  removal of the leading `**YYYY-MM-DD …**` date stamps, which only meant
+  anything in this file's flat preamble.
+
+### ADR numbering collision resolved
+
+`HOST-CONFIG.md` and this file both claimed **ADR-030** for different subjects.
+Resolved by weight of existing reference: `ADR-030` = the launch daemon input
+schema (four references); `ADR-031` = the GPL-3.0 licence declaration for the
+CYBRland-derived `desktop/` subtree, not yet written. Blocking — the ADR-030
+session later that day could not have started against an ambiguous number.
+
+Same rule as for the open-problems list: count the list, never the memory of it.
+
+### Internal contradictions corrected
+
+This file trimmed 1116 → 974 lines, with: `handle_netcfg` still listed as open
+work (live-gated 2026-07-23); an outdated netVM live-state block carrying the
+wrong kernel version, wrong agent status and wrong interface names; a `tap-int0`
+bullet still carrying the prediction the 08-03 session had already refuted; and
+two items naming `personalVM` as a live peer, an artefact deleted on 2026-08-02.
+
+Two signed commits, separated by concern.
+
+### One claim this session made and did not deliver
+
+`HOST-CONFIG.md:199` was recorded as corrected from ADR-030 to ADR-031. It was
+not — the line still read `ADR-030`. Found and actually corrected in the
+ADR-030 session the same evening (see its *Documentation drift found*). A
+hygiene pass that itself drifted, inside the one session whose entire subject
+was drift.
+
+### The rule this session leaves behind
+
+**A session gets a dated heading at write time, or it is lost.** The project
+already held this as an invariant; what it did not hold was the consequence —
+that a *trimming* rule and a *heading* rule are one mechanism, and that
+applying either alone destroys records. Rotation is now the only sanctioned way
+material leaves this file, and rotation requires a heading to rotate.
+
+---
+
 ## This session (2026-08-03) — `network-online.target` never fires; HOST-CONFIG.md created; next session set
 
 Short documentation session. One finding, one new document, one decision about

@@ -5,8 +5,8 @@
 > each working session. Detailed proofs and command sequences live in git
 > history and the ADRs — this file references them rather than repeating them.
 
-**Milestone:** v0.2 (in development) · **Last updated:** 2026-08-06
-(two sessions: documentation hygiene, then ADR-030). Both closed 2026-08-09.
+**Milestone:** v0.2 (in development) · **Last updated:** 2026-08-09
+(step 3a halted as a gate; ADR-032 written).
 
 ## Current focus
 
@@ -41,7 +41,132 @@ restartable — and so updatable — without touching running VMs.
 Direction unchanged: IOMMU-capable platforms only (VT-d/AMD-Vi); VT-x-only
 frozen (ADR-015). MINIS is primary host and merge target.
 
-## This session (2026-08-06, second of two) — ADR-030: authorship is the tier boundary; the build order gains the step it was missing
+## This session (2026-08-09) — step 3a ran as a gate and returned five holes; ADR-032 answers them
+
+Two sessions in one day, kept separate as the discipline requires: mechanical
+housekeeping first (thinking-off), then architecture (thinking-on) once step 3a
+reported back. Recorded as one entry because the second could not have been
+predicted from the first — 3a was expected to write files, not to halt.
+
+### Housekeeping (commit `d971006`)
+
+- **The two 2026-08-06 sessions closed.** The hygiene pass had never been given
+  a heading; its consequences were visible in this file and in the
+  `SESSIONS.md` header while the session itself was invisible — the exact
+  defect it had been convened to repair. Written up as *first of two*; ADR-030
+  became *second of two*. The 2026-08-03 entry rotated to the archive in the
+  same pass, because rotation **is** how a session closes.
+- **Ordering was established from the session record, not inferred from
+  content.** The first attempt placed the hygiene pass *after* ADR-030, on the
+  reasoning that documentation cleanup follows architecture. It was before —
+  its own working title was *"pred ADR-030"* — and it was a precondition: the
+  ADR could not have been written against an unresolved ADR-030/031 numbering
+  collision. Two attributions moved with it: the six repaired build-order
+  ordinals belong to the ADR-030 session that created them by renumbering, and
+  `HOST-CONFIG.md:199` splits — the *claim* to have corrected it belongs to the
+  hygiene pass, the correction itself to ADR-030.
+- **`zoxide` guard applied on both machines** (`config.fish:81`), open since
+  07-03. It had stopped being cosmetic: every `ssh` to MINIS ran `config.fish`
+  and printed the error, twice during this session's own rsync.
+
+### Step 3a, delegated and halted
+
+3a was handed to a Claude Code session on the Acer with the whole tree
+visible — the chat context sees roughly a third of it, and three claims made
+from that partial view during the morning were wrong (session ordering, the
+existence of `netvm.meta`, an invented `ssh` alias). The brief was explicit
+that it was written from a partial view and that the repository wins.
+
+The session read eleven files and **halted before modifying any of them**,
+reporting fourteen divergences. Four blocking. That is the gate working:
+3a's whole purpose was to test ADR-030's schema by placing every line of both
+`.con` launchers, on the principle that a line with nowhere to go is a hole.
+The answer arrived before a single file was touched, which is the cheapest
+place it could have arrived.
+
+**The five holes, all of them one omission** — ADR-030 said *what* the daemon
+reads and *who wrote it*, and never said **where any of it lies**:
+
+1. **T1 had no location.** "Config tree" appears exactly once in the
+   repository: in that table row. No `/etc/katmate`, no example
+   `properties.toml`, nothing created by the installer. Work order step 2 could
+   not be executed without inventing a path.
+2. **The ADR-019 waypipe version lock had no tier.** ~38 lines of host control
+   flow that must run before QEMU, normative by ADR-019 and recorded as such in
+   this file. Not T1, not T2 (it *consumes* T2), not a directive that can
+   appear in a unit.
+3. **The required key set for `class = sys` was undefined.** ADR-030 lifts
+   ADR-015's AppVM-only restriction and calls the rest "unchanged"; applied to
+   netVM the rest does not survive contact.
+4. **The duplicate-`nic` rule needed a validator that enumerates.** It is
+   cross-file; the validator is strictly per-file and erases its accumulator
+   after each one.
+5. **T2 had to record a payload path and no runtime home existed.** `out/` is
+   `.gitignore`d and is a build tree.
+
+**Nine further findings**, of which the ones that changed a decision: the MAC
+`52:54:0a:64:01:01` is not an unnoticed anti-pattern but an explicit ADR-025
+decision that ADR-030 overturned without recording it; the brief's `-append`
+argument cited ADR-018 for a claim ADR-018 does not make (the conclusion
+survives on `init=`, which *bypasses* PID 1 rather than weakening it);
+`foundation.meta` already records `FOUNDATION_LV`, so the gap is per-app-layer
+provenance rather than the base LV name.
+
+### ADR-032 (commit `774db9c`)
+
+The five holes did not fit a revision note — they came to a directory
+convention, a widened tier definition, a class-dependent schema and a validator
+contract. That is an ADR by size. `ADR-031` stays reserved for the GPL-3.0
+declaration; the gap in numbering is honest, because that decision is taken and
+only the document is missing.
+
+- **The path is the tier.** `/etc/` user · `/var/lib/` pipeline · `/usr/lib/`
+  release · `/run/` derived. A reader establishes a file's tier with `ls`.
+- **Authorship is made operative as *who wins on upgrade*.** ADR-030's
+  principle was sound and unfalsifiable as stated — a file's author is not
+  visible in the file. It follows that **T1 is never in the repository**: a
+  committed `properties.toml` was authored by the project, which by ADR-030's
+  own boundary makes it T3/T4. The installer seeds T1 and does not own it
+  (`/etc/skel` → `$HOME`), which is the pattern already used for
+  `outputs.conf` and the generated greetd sessions.
+- **T4 is the template plus the executables it references**, at
+  `/usr/lib/katmate/`, under an authority limit: reads T1 and T2, writes only
+  `/run/katmate/`, decides binarily, derives the profile only from
+  `(class, netvm, nic)`. Without the limit, widening T4 opens a second route to
+  the profile and containment becomes negotiable. ADR-030 §8's projection
+  generator was already such an executable; the ADR relied on the category
+  without naming it.
+- **Required keys are a function of `class`**, with forbidden keys rejected at
+  parse. A `persistence` line on a netVM that is silently discarded is the
+  *silent wrong-object* class this project keeps finding.
+- **Payload follows the producer**, and the AppVM kernel is T2 with one value
+  for every image.
+
+Revision notes on ADR-030 (the five findings) and ADR-025 (the MAC
+supersession). Gates **H1–H3** open, attached to 3a.
+
+### Corrections this session forced on this file
+
+Four claims here were wrong, and one of them misled the delegated session
+directly — it inferred a path mismatch from `~/katmate-build/katmate-os/`,
+which does not exist. See *Invariants* and *Open problems*: the MINIS build-copy
+path, the `--delete` claim, two stale line references, and open problem #15,
+which is **resolved**.
+
+### What this session is evidence for
+
+The gate cost one reading pass and produced five schema defects. The
+alternative — writing the templates first and discovering that the waypipe
+preflight has no tier while debugging a unit — is the expensive version of the
+same finding. **ADR-024's method transfers from mechanisms to schemas.**
+
+Second, less comfortable: three of the morning's errors came from asserting
+repository facts without opening the files, against this project's own standing
+rule. The delegated session, with the whole tree visible, produced no such
+error in eleven files. Where the tree is the subject, the tree has to be
+readable.
+
+## Previous session (2026-08-06, second of two) — ADR-030: authorship is the tier boundary; the build order gains the step it was missing
 
 Architecture session (thinking-on), the second of the day — the documentation
 hygiene pass below cleared the ADR numbering collision that would otherwise have
@@ -220,87 +345,11 @@ real run.
 ADR-030 to ADR-031. **It was not** — line 199 still reads ADR-030. Corrected in
 this session's patch set. A drift note that itself drifted.
 
-## Previous session (2026-08-06, first of two) — documentation hygiene before ADR-030; the archive boundary repaired
-
-Documentation session, no code and no gates. Deliberately placed *before* the
-ADR-030 session of the same day: writing an ADR into documentation that carried
-a live numbering collision and three unrecoverable session records would have
-compounded both.
-
-### The defect: a mandate that had become destructive
-
-This file carried roughly 160 lines of un-headed session narrative *above*
-*Current focus* — material that had accumulated in the preamble instead of
-being given headings and rotated. Three of those sessions — **2026-07-23,
-07-21 and 07-20** — existed in no other file; `SESSIONS.md` jumped straight
-from 07-24 to 07-18.
-
-Trimming this file to "the two most recent sessions" would therefore have
-deleted three sessions rather than archiving them. The mandate was not wrong;
-it had simply stopped being safe to apply, because the invariant it depends on
-— *every session has a heading* — had been silently broken for weeks.
-
-### Archive work
-
-- **Three stranded sessions inserted** into `docs/SESSIONS.md` in their
-  chronological slot (07-23, 07-21, 07-20). The second such insertion the
-  archive has taken; its header now records both.
-- **The 2026-08-02 *first of two* session reconstructed** and written up as its
-  own entry, explicitly marked as reconstructed rather than same-day. Its
-  consequences (CID renumbering applied, personalVM artefacts removed) had been
-  threaded into this file's living sections while the session itself was
-  invisible. Assembled from those sections and from `ROADMAP.md`; it asserts
-  nothing that was not already written down.
-- **The 2026-08-02 *second of two* session (ADR-029) rotated normally** as this
-  file was trimmed, and therefore sits *above* the reconstructed first — newest
-  first, as everywhere in the archive.
-- **Duplicates dropped, not moved.** The 07-18 and 07-17 material in the
-  preamble duplicated entries already archived.
-- **Two repairs inside moved blocks, marked where they occur:** a dangling
-  *"see debt #14 below"* cross-reference, now pointing at `../state.md`; and
-  removal of the leading `**YYYY-MM-DD …**` date stamps, which only meant
-  anything in this file's flat preamble.
-
-### ADR numbering collision resolved
-
-`HOST-CONFIG.md` and this file both claimed **ADR-030** for different subjects.
-Resolved by weight of existing reference: `ADR-030` = the launch daemon input
-schema (four references); `ADR-031` = the GPL-3.0 licence declaration for the
-CYBRland-derived `desktop/` subtree, not yet written. Blocking — the ADR-030
-session later that day could not have started against an ambiguous number.
-
-Same rule as for the open-problems list: count the list, never the memory of it.
-
-### Internal contradictions corrected
-
-This file trimmed 1116 → 974 lines, with: `handle_netcfg` still listed as open
-work (live-gated 2026-07-23); an outdated netVM live-state block carrying the
-wrong kernel version, wrong agent status and wrong interface names; a `tap-int0`
-bullet still carrying the prediction the 08-03 session had already refuted; and
-two items naming `personalVM` as a live peer, an artefact deleted on 2026-08-02.
-
-Two signed commits, separated by concern.
-
-### One claim this session made and did not deliver
-
-`HOST-CONFIG.md:199` was recorded as corrected from ADR-030 to ADR-031. It was
-not — the line still read `ADR-030`. Found and actually corrected in the
-ADR-030 session the same evening (see its *Documentation drift found*). A
-hygiene pass that itself drifted, inside the one session whose entire subject
-was drift.
-
-### The rule this session leaves behind
-
-**A session gets a dated heading at write time, or it is lost.** The project
-already held this as an invariant; what it did not hold was the consequence —
-that a *trimming* rule and a *heading* rule are one mechanism, and that
-applying either alone destroys records. Rotation is now the only sanctioned way
-material leaves this file, and rotation requires a heading to rotate.
-
 ## Session archive
 
-Sessions older than the two above (2026-08-03, then 2026-08-02 *second of two*,
-then *first of two*, then 2026-07-28 back to 2026-06-27) live in
+Sessions older than the two above (2026-08-06 *first of two*, then 2026-08-03,
+then 2026-08-02 *second of two*, then *first of two*, then 2026-07-28 back to
+2026-06-27) live in
 [docs/SESSIONS.md](docs/SESSIONS.md), split out on
 2026-07-14. That file is append-only; CIDs in entries dated 2026-07-13 and
 earlier are the pre-ADR-022 numbering and are deliberately not rewritten.
@@ -323,6 +372,11 @@ rotated on 2026-08-06.
 hygiene pass (midday); *second of two* is ADR-030 (evening). The hygiene pass
 was a precondition for the ADR, not cleanup after it — its own working title
 was *"pred ADR-030"*.
+
+**The 2026-08-06 pair is split across the two files** as of 2026-08-09: *second
+of two* (ADR-030) is still here because 3a and ADR-032 build directly on it;
+*first of two* rotated to the archive. The labels reference each other, so read
+them together or neither.
 
 ## Live state (MINIS/UM870) — summary
 
@@ -494,7 +548,8 @@ touched.
    `netvm-agent` — a RUN opcode or an equivalent — without which every internal
    check costs either a console or a drift.
 
-13. **The comment at `netvm.sh` line 210 is wrong.** It claims the manifest
+13. **The comment at `netvm.sh` line 224 is wrong.** (Cited as line 210 until
+   2026-08-09; the file has moved under it.) It claims the manifest
    lacks `chpasswd(8)`. Both `chpasswd` and `usermod` ARE in the image (under
    `/usr/sbin`, confirmed by mount on 07-23). The actual cause of the original
    failure is that `chroot_run`'s PATH does not carry `/usr/sbin` — hence the
@@ -502,15 +557,17 @@ touched.
 
 14. **`netvm.sh` does not verify agent binary freshness.** A missing
    `NETVM_AGENT_BIN` only produces a `NOTICE` and the build continues (line
-   247); a stale one produces nothing at all. On 07-23 this baked an agent
+   263; cited as 247 until 2026-08-09); a stale one produces nothing at all. On 07-23 this baked an agent
    carrying the old NETCFG stub and the gate failed on `NETCFG not yet
    implemented` — costing one boot cycle to diagnose. Fix: `die` if the binary
    is absent, plus a `sha256sum` in `netvm.meta` so the failure class is
    visible immediately.
 
-15. **Executable bit on `build/netvm.sh` flipped** `100755 → 100644` (`micro`
-   strips it; commit `d6d9267`). Hence `sudo bash build/netvm.sh`. Fix on
-   Acer: `git update-index --chmod=+x build/netvm.sh`.
+15. ~~**Executable bit on `build/netvm.sh` flipped** `100755 → 100644`~~ —
+   **Resolved.** `git ls-files -s` reports `100755` (verified 2026-08-09). The
+   entry had outlived the defect; `sudo bash build/netvm.sh` is habit, not
+   necessity. The underlying `micro` hazard is unchanged and lives in
+   *Invariants*.
 
 16. **`path_is_allowed` may not resolve symlinks (`vm-agent`) — HYPOTHESIS,
    unproven, unrefuted.** The path check is believed to be lexical:
@@ -574,29 +631,47 @@ touched.
 
 ## Next steps
 
-**ADR numbering.** `ADR-030` = *what the launch daemon reads* — **written
-2026-08-06**. `ADR-031` = the licence declaration (GPL-3.0 attribution for the
-CYBRland-derived `desktop/` subtree), not written. The `HOST-CONFIG.md:199`
-correction claimed on 2026-08-06 had **not** in fact been applied — line 199
-still read `ADR-030`; it has now been corrected. A drift note that itself
-drifted.
+**ADR numbering.** `ADR-030` = *what the launch daemon reads* (2026-08-06).
+`ADR-031` = the licence declaration (GPL-3.0 attribution for the
+CYBRland-derived `desktop/` subtree) — **decision taken, document not written**;
+the number stays reserved and the gap in the sequence is an honest record of
+that. `ADR-032` = *where each tier lives* (2026-08-09).
 
-**Next session: 3a.** Gate E1 passed on MINIS 2026-08-06 (candidate A; B also
-passing and kept as a recorded fallback), so unit templates are unblocked.
-Order:
+**Next session: 3a, restarted.** The first attempt halted before modifying any
+file, having found five holes in ADR-030's schema; all five are answered by
+ADR-032, so the work order below is executable as written. Delegated to a
+session with the whole tree visible — a partial view produced three wrong
+assertions during the 2026-08-09 morning, and the tree is the subject here.
 
-1. `properties.toml` for netVM and app_web, per the ADR-030 schema, plus the
-   two new validator error rules and the `class`-dependent CID band.
-2. `<image>.meta` for the netVM image and the app_web layer, on the
-   `foundation.meta` pattern.
-3. The three unit templates. `sys-driver` first — netVM is the harder case
-   (q35, vfio, initrd) and will find the schema's gaps faster than app_web.
-4. Gates G1–G6, then delete both `.con` files.
+1. `netvm.meta` moved host-side (it is written *inside the guest* today), and
+   `app-layer.sh` made to write `<type>.meta` with per-app-layer provenance.
+2. `properties.toml` for netVM and app_web at `/etc/katmate/vm/<name>.toml`,
+   per ADR-030 as revised by ADR-032 §1/§3. **netVM first** — it is the harder
+   case and found the schema gaps faster, exactly as predicted.
+3. `tools/validate-properties.fish`: the directory-enumeration contract
+   (ADR-032 §4), the `class`-dependent required set, the `class`-dependent CID
+   band, the `sys-proxy` error.
+4. `<image>.meta` for the netVM image and the app_web layer.
+5. The four T4 executables at `/usr/lib/katmate/` (ADR-032 §2), then the three
+   unit templates, `sys-driver` first.
+6. Gates G1–G6 and H1–H3, then delete both `.con` files. Deletion is the last
+   commit and only if every line is placed. It creates dangling references in
+   `SECURITY-MODEL.md` (#11 is open and describes `net-sys.con` as the thing
+   running QEMU as root), `HOST-CONFIG.md` §3 and §6, `DECISIONS.md` and this
+   file — repaired in the **same** commit, because that drift is created by it
+   rather than inherited, and G3 is *"nothing was lost"*.
 
 Implementation session, thinking-off. Carry in: VM units must not depend on
-`network-online.target` (2026-08-03 session); no monitor in any shipped
-template; a pty or a separate dev launcher is needed for netVM bring-up once
-the console goes to the journal.
+`network-online.target`; no monitor in any shipped template; a pty or a
+separate dev launcher is needed for netVM bring-up once the console goes to the
+journal; the live delta is named `test_web.qcow2` and follows the instance to
+`app_web` (ADR-032 §7).
+
+**Still unplaced, and the largest single finding of the 3a gate:** the three
+preflight checks in `app_web.con` — waypipe version lock, delta existence,
+kernel existence — now have a tier (T4 executables) but no implementation. The
+waypipe gate is shared by both `app-*` profiles; an offline vault runs waypipe
+too.
 
 **Deferred, own session (architecture, thinking-on):** memory backing —
 hugepages vs memfd, whether `share=on` has any consumer, C3 `LimitMEMLOCK`
@@ -665,9 +740,12 @@ frozen `vm_home_skel` vs qcow2 branch.
   [docs/HOST-CONFIG.md](docs/HOST-CONFIG.md) §1 with its failure mode.
 
 - **`net-sys.con` under git — RESOLVED 2026-07-20** (`f5f8ef2`). Was MINIS-only
-  from 07-09, never committed. Sync wart persists: the standing rsync excludes
-  `katmate-os/`, so the file lands in `~/katmate-build/`, not the repo path —
-  copied to live `~/net-sys.con` by hand.
+  from 07-09, never committed. The file lands in `~/katmate-build/` and is
+  copied to live `~/net-sys.con` by hand. **The "sync wart" framing was wrong**
+  (corrected 2026-08-09): `~/katmate-build/` is not an exclusion artefact, it
+  is where the repository contents belong on MINIS. The exclusion of
+  `katmate-os/` describes a layout that does not exist. Moot from the moment
+  3a deletes the launcher.
 
 - **`sync.fish` wrapper — now with a second reason.** Besides the `--exclude`
   set that suppresses `Permission denied` noise: rsync preserves mtime from
@@ -860,6 +938,10 @@ frozen `vm_home_skel` vs qcow2 branch.
   layout while the MAC did not. **When these disagree, the MAC is authoritative
   and the name is incidental.** The internal p2p segment is likewise matched on
   its locally-administered MAC `52:54:0a:64:01:01` (ADR-025), not on a name; the
+  **Pending (2026-08-09):** ADR-025's revision note replaces authored MACs with
+  `52:54:00` + `sha256(instance)[0:3]`. This value is stale from the moment the
+  projection generator lands; no image rebuild is implied, because the guest
+  bakes no internal-segment `.network` unit.
   older `10-personal.network` / `Name=enp0s4` convention described the retired
   pet launcher and is void.
 
@@ -1005,12 +1087,18 @@ frozen `vm_home_skel` vs qcow2 branch.
   concrete LVM names (`vm_tpl_foundation`, `vm_app_web`) only here and in live
   inspection.
 
-- **Source of truth = Acer `~/katmate-os/` git repo.** MINIS
-  `~/katmate-build/katmate-os/` is a build copy — synced FROM the repo, never
-  edited on MINIS and left to diverge. Git lives ONLY on Acer. The rsync runs
-  WITHOUT `--delete`, so a restructuring that REMOVES files needs a manual `rm`
-  on MINIS first, or stale files linger (bit us at the workspace split: leftover
-  `agent/src/` beside the new `agent/crates/`).
+- **Source of truth = Acer `~/katmate-os/` git repo.** MINIS `~/katmate-build/`
+  **is** the build copy — the repository contents land directly in it, synced
+  FROM the repo, never edited on MINIS. Git lives ONLY on Acer.
+  **Corrected 2026-08-09:** this entry claimed the copy lived one level deeper,
+  at `~/katmate-build/katmate-os/`. That directory does not exist
+  (`ls` on MINIS), and the claim misled the delegated 3a session into reporting
+  a launcher/build path mismatch that is not real — `net-sys.con` reads
+  `/home/host/katmate-build/out/netvm/` correctly. It also claimed the rsync
+  runs **without** `--delete`; it was run **with** `--delete` on 2026-08-09 and
+  removed nothing. Neither claim had been true for some time. Stale documented
+  layout is the same failure class as a stale BDF: a reference that still
+  resolves, just not to what it meant.
 
 - **`git rm`, never `rm`, when restructuring a tracked tree.** `git rm -r <path>`
   removes from index AND worktree, but the content stays safely in `HEAD`; a bare
