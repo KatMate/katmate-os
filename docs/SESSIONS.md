@@ -35,6 +35,105 @@
 > **4/5/6**, and a new step 3 (VM description as data → launch daemon) took
 > their place. Entries written **before 2026-08-06** use the old numbers and
 > are left as written. `ROADMAP.md` carries the authoritative list.
+>
+> **One exception, and it is not a defect.** The 2026-08-03 entry names
+> `HOST-CONFIG.md` as an input to build-order **step 6**. It was written when
+> that step was 5; the ordinal was corrected on 2026-08-06 while the entry still
+> lived in `../state.md`, and the entry arrived here already carrying the new
+> number. It is therefore correct as it stands and is left alone. The rule above
+> describes what was *not* corrected before rotation, not a guarantee about
+> every pre-08-06 entry.
+
+---
+
+## This session (2026-08-03) — `network-online.target` never fires; HOST-CONFIG.md created; next session set
+
+Short documentation session. One finding, one new document, one decision about
+where the work goes next.
+
+### The finding — a prediction wrong in kind, not degree
+
+`tap-int0` host-side persistence was recorded 2026-07-20 as resolved, with a
+note predicting that the `RequiredForOnline=yes` default would at worst *"slow
+boot"*. Measured on MINIS 2026-08-02: it does not slow boot. It prevents
+`network-online.target` from **ever** firing, silently.
+
+`networkctl` reports `State: routable` alongside `Online state: offline` —
+a pair that reads as healthy unless both lines are read together. The cause is
+that every networkd-*managed* link is a carrier-less tap, while both actually
+routable links are *unmanaged*. `systemd-timesyncd` consequently never polled
+and logged nothing about it. Fixed in `/etc` with `[Link] RequiredForOnline=no`
+on all six tap/bridge definitions — per-machine, not a repo artefact.
+
+This is the same failure class as the `/proc`-remount finding from 08-02 and as
+the assumed precondition that killed ADR-021: **a mechanism that quietly
+consults the wrong object and returns a plausible answer.** Three instances in
+two sessions is no longer a coincidence; it is the shape of this system's
+characteristic bug.
+
+### Constraint added to ADR-029
+
+**VM units must not depend on `network-online.target`.** An AppVM's
+connectivity arrives through netVM and NETCFG (ADR-023, ADR-025), never through
+the host's networkd — and on this host that dependency is unsatisfiable in a
+way that produces no diagnostic. A unit ordered `After=network-online.target`
+would simply never start, with no error and no log line. Recorded here rather
+than as an ADR-029 amendment; fold it into ADR-030's unit-shape section when
+that is written.
+
+### New document: `docs/HOST-CONFIG.md`
+
+The finding did not fit anywhere. `OBSERVATIONS.md` routes it away explicitly —
+its conventions state that the file holds external material only, and that
+corrections to our own statements belong in the session record. But the
+substance is not a session narrative either: it is a fact about host
+configuration that lives in `/etc`, outside git, and that a fresh install would
+not reproduce.
+
+Six existing items share that shape — the uplink profile, the vfio binding,
+mkinitcpio HOOKS, the greetd session entries, `outputs.conf`, the rofi
+checkout. Enough to be a category, not noise.
+
+The category's real name is **installer requirements discovered by running the
+system**. `docs/HOST-CONFIG.md` is therefore an *input to ROADMAP build order
+step 6*, not a log. Its governing convention: **every entry states its failure
+mode**, and where the failure is silent, says so explicitly. An entry that only
+says what to set is a note; an entry that says what breaks without it is a
+requirement.
+
+Four entries ship marked `[?]` — mkinitcpio HOOKS/MODULES, hugepages backing,
+the greetd session path, the `sway-quiet` wrapper name. Under this project's own
+evidentiary standard a `[?]` entry is not yet a requirement; it is a thing to
+verify before it becomes one. They stay `[?]` deliberately.
+
+### Next session decided: ADR-030 — what the daemon reads
+
+ADR-029 settled the daemon's supervision model. What is missing next is not
+more architecture about *what the daemon does*, but a specification of its
+**input**, which does not exist anywhere:
+
+1. **No `properties.toml` → QEMU argv mapping.** ADR-015 names this as its own
+   justification ("not typed enough to map deterministically to QEMU
+   arguments") and then does not specify the mapping. The `.con` scripts are
+   the de facto specification: hand-written, one per VM.
+2. **The schema lacks fields for most of what a launcher needs.** ADR-015 has
+   `manifest`, `network`, `persistence`, `identity`, `disposable`, `cid`,
+   `reset_on_shutdown`. `app_web.con` additionally requires the kernel path,
+   `MEM`, `SMP`, three LV names, the delta path, sandbox flags, the waypipe
+   version gate, the `lvchange -K -ay` ordering and the `-append` line. None of
+   it is described as data anywhere.
+3. **sysVMs have no schema, and the daemon must launch them.** ADR-015 covers
+   AppVMs only and defers this by name: a `class` field (ADR-022 `Vm.class`)
+   would be needed, and *"that is the launch daemon's business, not this
+   ADR's"*. The deferral has arrived.
+
+### ROADMAP gap, surfaced not fixed
+
+**The launch daemon is not a numbered step in the build order.** Steps 1–5 run
+foundation pipeline → `katmate-update` → netVM installer integration → default
+AppVMs → installer integration. The daemon is implied by step 4 and named
+nowhere. Either it is genuinely next and the build order does not say so, or
+ADR-029 settled a decision ahead of its turn. ADR-030 should open by placing it.
 
 ---
 

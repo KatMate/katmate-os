@@ -6,7 +6,7 @@
 > history and the ADRs — this file references them rather than repeating them.
 
 **Milestone:** v0.2 (in development) · **Last updated:** 2026-08-06
-(documentation session — `state.md` / `SESSIONS.md` split, in progress).
+(two sessions: documentation hygiene, then ADR-030). Both closed 2026-08-09.
 
 ## Current focus
 
@@ -41,11 +41,19 @@ restartable — and so updatable — without touching running VMs.
 Direction unchanged: IOMMU-capable platforms only (VT-d/AMD-Vi); VT-x-only
 frozen (ADR-015). MINIS is primary host and merge target.
 
-## This session (2026-08-06) — ADR-030: authorship is the tier boundary; the build order gains the step it was missing
+## This session (2026-08-06, second of two) — ADR-030: authorship is the tier boundary; the build order gains the step it was missing
 
-Architecture session (thinking-on). One ADR written, one superseded in part,
-one build-order step created, four findings routed elsewhere. No live gates
-were run; one is now blocking (E1).
+Architecture session (thinking-on), the second of the day — the documentation
+hygiene pass below cleared the ADR numbering collision that would otherwise have
+blocked it. One ADR written, one superseded in part, one build-order step
+created, four findings routed elsewhere. Gate E1 was measured the same day
+(below).
+
+The renumbering this ADR introduced (old 3/4/5 → 4/5/6) invalidated **six
+build-order ordinals** across `DECISIONS.md`, `ROADMAP.md`, `HOST-CONFIG.md`
+and this file. All six repaired here, in the session that created them; a
+reference by number that still resolves, just not to what it meant, is the
+project's characteristic failure class expressed in documentation.
 
 ### The reframing that made the ADR small
 
@@ -212,116 +220,109 @@ real run.
 ADR-030 to ADR-031. **It was not** — line 199 still reads ADR-030. Corrected in
 this session's patch set. A drift note that itself drifted.
 
-## Previous session (2026-08-03) — `network-online.target` never fires; HOST-CONFIG.md created; next session set
+## Previous session (2026-08-06, first of two) — documentation hygiene before ADR-030; the archive boundary repaired
 
-Short documentation session. One finding, one new document, one decision about
-where the work goes next.
+Documentation session, no code and no gates. Deliberately placed *before* the
+ADR-030 session of the same day: writing an ADR into documentation that carried
+a live numbering collision and three unrecoverable session records would have
+compounded both.
 
-### The finding — a prediction wrong in kind, not degree
+### The defect: a mandate that had become destructive
 
-`tap-int0` host-side persistence was recorded 2026-07-20 as resolved, with a
-note predicting that the `RequiredForOnline=yes` default would at worst *"slow
-boot"*. Measured on MINIS 2026-08-02: it does not slow boot. It prevents
-`network-online.target` from **ever** firing, silently.
+This file carried roughly 160 lines of un-headed session narrative *above*
+*Current focus* — material that had accumulated in the preamble instead of
+being given headings and rotated. Three of those sessions — **2026-07-23,
+07-21 and 07-20** — existed in no other file; `SESSIONS.md` jumped straight
+from 07-24 to 07-18.
 
-`networkctl` reports `State: routable` alongside `Online state: offline` —
-a pair that reads as healthy unless both lines are read together. The cause is
-that every networkd-*managed* link is a carrier-less tap, while both actually
-routable links are *unmanaged*. `systemd-timesyncd` consequently never polled
-and logged nothing about it. Fixed in `/etc` with `[Link] RequiredForOnline=no`
-on all six tap/bridge definitions — per-machine, not a repo artefact.
+Trimming this file to "the two most recent sessions" would therefore have
+deleted three sessions rather than archiving them. The mandate was not wrong;
+it had simply stopped being safe to apply, because the invariant it depends on
+— *every session has a heading* — had been silently broken for weeks.
 
-This is the same failure class as the `/proc`-remount finding from 08-02 and as
-the assumed precondition that killed ADR-021: **a mechanism that quietly
-consults the wrong object and returns a plausible answer.** Three instances in
-two sessions is no longer a coincidence; it is the shape of this system's
-characteristic bug.
+### Archive work
 
-### Constraint added to ADR-029
+- **Three stranded sessions inserted** into `docs/SESSIONS.md` in their
+  chronological slot (07-23, 07-21, 07-20). The second such insertion the
+  archive has taken; its header now records both.
+- **The 2026-08-02 *first of two* session reconstructed** and written up as its
+  own entry, explicitly marked as reconstructed rather than same-day. Its
+  consequences (CID renumbering applied, personalVM artefacts removed) had been
+  threaded into this file's living sections while the session itself was
+  invisible. Assembled from those sections and from `ROADMAP.md`; it asserts
+  nothing that was not already written down.
+- **The 2026-08-02 *second of two* session (ADR-029) rotated normally** as this
+  file was trimmed, and therefore sits *above* the reconstructed first — newest
+  first, as everywhere in the archive.
+- **Duplicates dropped, not moved.** The 07-18 and 07-17 material in the
+  preamble duplicated entries already archived.
+- **Two repairs inside moved blocks, marked where they occur:** a dangling
+  *"see debt #14 below"* cross-reference, now pointing at `../state.md`; and
+  removal of the leading `**YYYY-MM-DD …**` date stamps, which only meant
+  anything in this file's flat preamble.
 
-**VM units must not depend on `network-online.target`.** An AppVM's
-connectivity arrives through netVM and NETCFG (ADR-023, ADR-025), never through
-the host's networkd — and on this host that dependency is unsatisfiable in a
-way that produces no diagnostic. A unit ordered `After=network-online.target`
-would simply never start, with no error and no log line. Recorded here rather
-than as an ADR-029 amendment; fold it into ADR-030's unit-shape section when
-that is written.
+### ADR numbering collision resolved
 
-### New document: `docs/HOST-CONFIG.md`
+`HOST-CONFIG.md` and this file both claimed **ADR-030** for different subjects.
+Resolved by weight of existing reference: `ADR-030` = the launch daemon input
+schema (four references); `ADR-031` = the GPL-3.0 licence declaration for the
+CYBRland-derived `desktop/` subtree, not yet written. Blocking — the ADR-030
+session later that day could not have started against an ambiguous number.
 
-The finding did not fit anywhere. `OBSERVATIONS.md` routes it away explicitly —
-its conventions state that the file holds external material only, and that
-corrections to our own statements belong in the session record. But the
-substance is not a session narrative either: it is a fact about host
-configuration that lives in `/etc`, outside git, and that a fresh install would
-not reproduce.
+Same rule as for the open-problems list: count the list, never the memory of it.
 
-Six existing items share that shape — the uplink profile, the vfio binding,
-mkinitcpio HOOKS, the greetd session entries, `outputs.conf`, the rofi
-checkout. Enough to be a category, not noise.
+### Internal contradictions corrected
 
-The category's real name is **installer requirements discovered by running the
-system**. `docs/HOST-CONFIG.md` is therefore an *input to ROADMAP build order
-step 6*, not a log. Its governing convention: **every entry states its failure
-mode**, and where the failure is silent, says so explicitly. An entry that only
-says what to set is a note; an entry that says what breaks without it is a
-requirement.
+This file trimmed 1116 → 974 lines, with: `handle_netcfg` still listed as open
+work (live-gated 2026-07-23); an outdated netVM live-state block carrying the
+wrong kernel version, wrong agent status and wrong interface names; a `tap-int0`
+bullet still carrying the prediction the 08-03 session had already refuted; and
+two items naming `personalVM` as a live peer, an artefact deleted on 2026-08-02.
 
-Four entries ship marked `[?]` — mkinitcpio HOOKS/MODULES, hugepages backing,
-the greetd session path, the `sway-quiet` wrapper name. Under this project's own
-evidentiary standard a `[?]` entry is not yet a requirement; it is a thing to
-verify before it becomes one. They stay `[?]` deliberately.
+Two signed commits, separated by concern.
 
-### Next session decided: ADR-030 — what the daemon reads
+### One claim this session made and did not deliver
 
-ADR-029 settled the daemon's supervision model. What is missing next is not
-more architecture about *what the daemon does*, but a specification of its
-**input**, which does not exist anywhere:
+`HOST-CONFIG.md:199` was recorded as corrected from ADR-030 to ADR-031. It was
+not — the line still read `ADR-030`. Found and actually corrected in the
+ADR-030 session the same evening (see its *Documentation drift found*). A
+hygiene pass that itself drifted, inside the one session whose entire subject
+was drift.
 
-1. **No `properties.toml` → QEMU argv mapping.** ADR-015 names this as its own
-   justification ("not typed enough to map deterministically to QEMU
-   arguments") and then does not specify the mapping. The `.con` scripts are
-   the de facto specification: hand-written, one per VM.
-2. **The schema lacks fields for most of what a launcher needs.** ADR-015 has
-   `manifest`, `network`, `persistence`, `identity`, `disposable`, `cid`,
-   `reset_on_shutdown`. `app_web.con` additionally requires the kernel path,
-   `MEM`, `SMP`, three LV names, the delta path, sandbox flags, the waypipe
-   version gate, the `lvchange -K -ay` ordering and the `-append` line. None of
-   it is described as data anywhere.
-3. **sysVMs have no schema, and the daemon must launch them.** ADR-015 covers
-   AppVMs only and defers this by name: a `class` field (ADR-022 `Vm.class`)
-   would be needed, and *"that is the launch daemon's business, not this
-   ADR's"*. The deferral has arrived.
+### The rule this session leaves behind
 
-### ROADMAP gap, surfaced not fixed
-
-**The launch daemon is not a numbered step in the build order.** Steps 1–5 run
-foundation pipeline → `katmate-update` → netVM installer integration → default
-AppVMs → installer integration. The daemon is implied by step 4 and named
-nowhere. Either it is genuinely next and the build order does not say so, or
-ADR-029 settled a decision ahead of its turn. ADR-030 should open by placing it.
+**A session gets a dated heading at write time, or it is lost.** The project
+already held this as an invariant; what it did not hold was the consequence —
+that a *trimming* rule and a *heading* rule are one mechanism, and that
+applying either alone destroys records. Rotation is now the only sanctioned way
+material leaves this file, and rotation requires a heading to rotate.
 
 ## Session archive
 
-Sessions older than the two above (2026-08-02 *second of two*, then *first of
-two*, then 2026-07-28 back to 2026-06-27) live in
+Sessions older than the two above (2026-08-03, then 2026-08-02 *second of two*,
+then *first of two*, then 2026-07-28 back to 2026-06-27) live in
 [docs/SESSIONS.md](docs/SESSIONS.md), split out on
 2026-07-14. That file is append-only; CIDs in entries dated 2026-07-13 and
 earlier are the pre-ADR-022 numbering and are deliberately not rewritten.
 **This file carries the authoritative CID map** (see *Live state*).
 
-**Boundary repaired 2026-08-06.** Until then this file carried ~160 lines of
-un-headed session narrative above *Current focus*, of which the 2026-07-23,
-07-21 and 07-20 sessions existed **nowhere else** — `SESSIONS.md` jumped
-07-24 → 07-18. Trimming this file to its own "two most recent sessions" mandate
-would have destroyed them. They are now inserted in their chronological slot,
-the second such insertion the archive has taken (see its header note). The
-07-18 and 07-17 material in that preamble was a duplicate of entries already
-archived and was dropped, not moved.
+**The boundary was repaired 2026-08-06**, written up as the *first of two*
+entry above. What belongs here is the rule it left behind: **rotation is the
+only way material leaves this file, and rotation requires a heading to rotate.**
+A session without a dated heading cannot be archived, and the trim that would
+otherwise remove it destroys it instead. The two rules — keep two sessions,
+give every session a heading — are one mechanism.
 
-**Pending:** the 2026-08-06 documentation session itself has no entry yet — it
-is still open. When it closes, it becomes the newest entry here and the
-2026-08-02 *second of two* entry moves to the archive.
+**Closed 2026-08-09.** The 2026-08-06 hygiene session received the entry it had
+never been given; the 2026-08-03 entry rotated to the archive in the same pass.
+The *Pending* note that stood here is retired, including its stale prediction
+that the 2026-08-02 *second of two* entry had yet to move — it had already
+rotated on 2026-08-06.
+
+**Ordering note.** Both 2026-08-06 entries are same-day. *First of two* is the
+hygiene pass (midday); *second of two* is ADR-030 (evening). The hygiene pass
+was a precondition for the ADR, not cleanup after it — its own working title
+was *"pred ADR-030"*.
 
 ## Live state (MINIS/UM870) — summary
 
