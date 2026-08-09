@@ -48,7 +48,11 @@ NETVM_MNT="${NETVM_MNT:-/mnt/netvm-build}"
 # is the one net-new element, kept beside the .list as netvm.conf.d/.
 NETVM_PKGS="${NETVM_PKGS:-$MANIFESTS/netvm.list}"
 NETVM_CONFD="${NETVM_CONFD:-$MANIFESTS/netvm.conf.d}"   # config tree baked verbatim
-NETVM_OUT="${NETVM_OUT:-$OUT/netvm}"          # host-side kernel+initrd export
+NETVM_OUT="${NETVM_OUT:-$OUT/netvm}"          # BUILD tree export (never read at runtime)
+# T2 runtime location (ADR-032 §5): vmlinuz + initrd.img + netvm.meta together.
+# Payload and its metadata share a tier and a lifecycle, hence one directory.
+# This is what a unit reads; $NETVM_OUT is not.
+NETVM_RUNTIME_DIR="${NETVM_RUNTIME_DIR:-$KATMATE_STATE_DIR/netvm}"
 GUEST_KERNEL_PKG="${GUEST_KERNEL_PKG:-linux-image-${ARCH}}"
 DEBIAN_MIRROR="${DEBIAN_MIRROR:-http://deb.debian.org/debian}"
 SECURITY_MIRROR="${SECURITY_MIRROR:-http://security.debian.org/debian-security}"
@@ -283,24 +287,98 @@ cp -v "$NETVM_MNT/boot/vmlinuz-$KVER"    "$NETVM_OUT/vmlinuz"
 cp -v "$NETVM_MNT/boot/initrd.img-$KVER" "$NETVM_OUT/initrd.img"
 echo "$KVER" > "$NETVM_OUT/kernel.version"
 
-# --- 9. netvm.meta (parallel to foundation.meta; for netvm-update) ------------
+# --- 9. netvm.meta, IN-GUEST copy (secondary; for netvm-update) ---------------
 # Flat KEY=value, POSIX-sourceable. NO secrets.
-log "Writing netvm.meta"
+#
+# WHICH IS WHICH (read this before adding a consumer):
+#   * THIS copy lives inside the guest filesystem. It is reachable only by
+#     mounting the image, which the launch path must never do. Kept for
+#     netvm-update (ADR-021's separate update track), which operates ON the
+#     image and therefore already has it mounted.
+#   * The AUTHORITATIVE copy for anything host-side — every unit, every T4
+#     preflight, the projection generator — is written in step 11 to
+#     $NETVM_RUNTIME_DIR/netvm.meta. It carries strictly more keys.
+# Until step 11 existed there was only this one, in the one place no launcher
+# could read it (ADR-032 context, finding 5).
+NETVM_BUILT="$(date -u +%Y-%m-%dT%H:%M:%SZ)"   # one timestamp, both copies
+log "Writing in-guest netvm.meta (secondary copy — see comment)"
 mkdir -p "$NETVM_MNT/var/lib/katmate"
 cat > "$NETVM_MNT/var/lib/katmate/netvm.meta" <<META
 NETVM_SUITE=$DEBIAN_SUITE
 NETVM_ARCH=$ARCH
 NETVM_KERNEL_VERSION=$KVER
-NETVM_BUILT=$(date -u +%Y-%m-%dT%H:%M:%SZ)
+NETVM_BUILT=$NETVM_BUILT
 META
 
 # --- 10. teardown -------------------------------------------------------------
 log "Unmounting"
 netvm_umount || log "WARNING: image built, but umount left the LV busy — see above"
 
+# Disarm the rollback HERE, not at the end of the script. Everything below is
+# host-side and the image is already complete: a failure from this point must
+# die loudly (set -e) and leave a valid netVM LV behind, NOT trigger
+# netvm_cleanup's `lvremove -f $DEV`. This is foundation.sh's ordering (its
+# step 10 comment gives the same reasoning) and it is the reason step 11 can
+# exist at all. Moving this line UP is the whole safety property; do not sink
+# it back to the bottom of the file.
+trap - EXIT
+
+# --- 11. install host-side payload + metadata (ADR-032 §5) --------------------
+# T2 lives at $NETVM_RUNTIME_DIR: vmlinuz, initrd.img and netvm.meta together,
+# because payload and its metadata share an author (this script), a lifecycle
+# (replaced wholesale on rebuild) and an upgrade owner (the pipeline, never the
+# user and never the release).
+#
+# $NETVM_OUT keeps its copy and stays a BUILD tree. Nothing at runtime reads it.
+#
+# On the kernel version appearing twice: $NETVM_OUT/kernel.version and the meta
+# key NETVM_KERNEL_VERSION have BOTH existed since this script was written, ten
+# lines apart. The split of roles, stated rather than left to be rediscovered:
+# kernel.version is a build-tree convenience beside the build-tree payload;
+# NETVM_KERNEL_VERSION in the meta below is what a unit reads. One is not a new
+# duplicate of the other.
+log "Installing host-side payload + metadata -> $NETVM_RUNTIME_DIR"
+install -d -m0755 "$NETVM_RUNTIME_DIR"
+
+# Copy-then-rename, same filesystem: a reader never sees a truncated kernel.
+for f in vmlinuz initrd.img; do
+  cp -- "$NETVM_OUT/$f" "$NETVM_RUNTIME_DIR/.$f.new"
+  chmod 0644 "$NETVM_RUNTIME_DIR/.$f.new"
+  mv -f -- "$NETVM_RUNTIME_DIR/.$f.new" "$NETVM_RUNTIME_DIR/$f"
+done
+
+# Flat KEY=value, POSIX-sourceable, no parser needed — the foundation.meta
+# format (ADR-030 T2: "no second format is introduced"). NO secrets.
+#
+# Beyond the four descriptive keys of the in-guest copy, a unit needs to reach
+# QEMU without guessing. Two of these describe DIFFERENT sides of one disk and
+# are deliberately both present:
+#   NETVM_LV          host side  — the backing block device to attach
+#   NETVM_ROOT_DEVICE guest side — what the kernel is told in -append root=
+# NETVM_ROOTFSTYPE exists because ADR-030 makes `rootfstype` in -append legal
+# only if <image>.meta records it. It is ext4 by mkfs.ext4 in step 1, and the
+# root device has no partition table (debootstrap writes straight to the LV),
+# hence /dev/vda and never /dev/vda1.
+NETVM_META="$NETVM_RUNTIME_DIR/netvm.meta"
+META_TMP="$(mktemp "$NETVM_RUNTIME_DIR/.netvm.meta.XXXXXX")"
+cat >"$META_TMP" <<META
+KATMATE_META_VERSION=1
+NETVM_SUITE=$DEBIAN_SUITE
+NETVM_ARCH=$ARCH
+NETVM_KERNEL_VERSION=$KVER
+NETVM_BUILT=$NETVM_BUILT
+NETVM_LV=$VG/$NETVM_LV
+NETVM_ROOT_DEVICE=/dev/vda
+NETVM_ROOTFSTYPE=ext4
+NETVM_KERNEL=$NETVM_RUNTIME_DIR/vmlinuz
+NETVM_INITRD=$NETVM_RUNTIME_DIR/initrd.img
+META
+chmod 0644 "$META_TMP"
+mv -f -- "$META_TMP" "$NETVM_META"   # atomic: mktemp created it on the same fs
+
 log "netVM image built: $DEV (linear, RW, NOT frozen)"
-log "  kernel+initrd exported: $NETVM_OUT (KVER=$KVER)"
+log "  runtime payload + meta: $NETVM_RUNTIME_DIR (KVER=$KVER)  <- units read this"
+log "  build-tree export:      $NETVM_OUT"
 log "  Provision secrets (wg keys) at deploy time; do not bake into the image."
 
-trap - EXIT
 exit 0

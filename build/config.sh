@@ -36,12 +36,32 @@ VM_AGENT_BIN="$OUT/vm-agent"                                # foundation only (R
 INIT_SRC="$ROOT_DIR/init/katmate-init.c"
 INIT_BIN="$OUT/katmate-init"
 
+# --- T2: host-side image metadata and payload (ADR-030, ADR-032 §1/§5) -------
+# The path IS the tier. Everything the build pipeline produces and a launcher
+# later reads lives under this directory; a reader establishes a file's tier
+# with `ls`, not by reading an ADR. OUT (out/) stays a BUILD tree and is never
+# read at runtime — a unit reading from out/ would be a release running from
+# build artifacts.
+#
+# Recorded tension (ADR-020): the build is developer-side and the install is
+# user-side, so populating /var/lib/katmate/ at build time collapses two
+# stages. foundation.meta below already does exactly this; we follow the
+# precedent rather than invent a second pattern for the same fact.
+KATMATE_STATE_DIR="/var/lib/katmate"
+
 # --- foundation build metadata (ADR-019) --------------------------------------
 # Host-side source of truth for the active foundation version. Written by
 # foundation.sh after a successful RO-freeze; read by the instance launch
 # preflight (host waypipe --version vs meta — refuse loudly on mismatch) and
 # updated by katmate-update at each release bump.
-FOUNDATION_META="/var/lib/katmate/foundation.meta"
+FOUNDATION_META="$KATMATE_STATE_DIR/foundation.meta"
+
+# --- app-layer metadata, one per image (ADR-030 T2, ADR-032 §5) --------------
+# Naming: app-<type>.meta, after the IMAGE (app-<type>, ADR-010/ADR-014), NOT
+# after the manifest. A bare `web.meta` sitting beside foundation.meta would
+# read as metadata about manifests/web.list. Composed by app-layer.sh, which
+# owns the <type>; kept here so the location is stated in one place.
+#   $KATMATE_STATE_DIR/app-<type>.meta
 # KatMate waypipe patch queue (ADR-019, strip & harden only). May not exist
 # yet — patch level 0 until the scaffold lands.
 WAYPIPE_PATCHES_DIR="$ROOT_DIR/third_party/waypipe/patches"
