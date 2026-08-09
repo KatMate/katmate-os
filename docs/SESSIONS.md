@@ -46,6 +46,187 @@
 
 ---
 
+## This session (2026-08-06, second of two) — ADR-030: authorship is the tier boundary; the build order gains the step it was missing
+
+Architecture session (thinking-on), the second of the day — the documentation
+hygiene pass below cleared the ADR numbering collision that would otherwise have
+blocked it. One ADR written, one superseded in part, one build-order step
+created, four findings routed elsewhere. Gate E1 was measured the same day
+(below).
+
+The renumbering this ADR introduced (old 3/4/5 → 4/5/6) invalidated **six
+build-order ordinals** across `DECISIONS.md`, `ROADMAP.md`, `HOST-CONFIG.md`
+and this file. All six repaired here, in the session that created them; a
+reference by number that still resolves, just not to what it meant, is the
+project's characteristic failure class expressed in documentation.
+
+### The reframing that made the ADR small
+
+The session was scoped as "extend ADR-015's schema with the fields the `.con`
+scripts carry". Two readings against ADR-022 changed the shape before any field
+work started.
+
+**ADR-030 does not invent an object.** ADR-022 already defines `Vm`, `Image`,
+`Nic`, `Link` and `Policy`. The subject is the *on-disk serialisation* of those
+objects such that an ADR-029 unit can be produced from it. `properties.toml` is
+a partial, AppVM-only serialisation of `Vm` that predates the model.
+
+**ADR-015's `network` field is wrong in type.** The enum `none | via-netvm`
+cannot name *which* netVM, and under ADR-022 an AppVM's access *is* which netVM
+it attaches to. ADR-022 displaced the field when it was accepted and nobody
+recorded it. This is the third time a supersession has been found by reading
+rather than by being written down (CID band, ADR-021's shutdown pointer, this).
+
+### The decision, in one line
+
+**The tier boundary is authorship, not content.** The question is not which
+fields the schema needs but **which fields may be data at all** — because
+`-sandbox …,resourcecontrol=deny` (C4, live-gated 2026-07-28) is a `.con` line,
+and a schema field is a thing a user can edit.
+
+Four artefacts, one per writer:
+
+| Tier | Author | Where |
+|---|---|---|
+| T1 instance properties | user | `properties.toml` |
+| T2 image metadata | build pipeline | `<image>.meta` (`foundation.meta` pattern) |
+| T3+T4 profile + TCB constants | the release | **the unit template** |
+| — | derived at start | `/run/katmate/vm/<i>.env`, a projection |
+
+The unit template *is* the serialisation of T3/T4 — no separate profile format,
+because it would be a second record of one fact and PID 1 does not read it. The
+profile goes in the **unit name** (`katmate-app-routed@personal.service`), so
+ADR-029's durable identity carries its own containment profile. And the profile
+is a **function** of `(class, netvm, nic)`, not a field: the user declares
+topology, containment follows, and no user can select a weaker profile. That is
+the only reason T3 may be derived from T1 at all.
+
+`sys-proxy` (ADR-022's chained proxy netVM) is named by the function and
+returns an explicit error. Shipping an untested template for a VM class that
+has never been built would invert the method.
+
+### What crosses the daemon→unit boundary
+
+**Named kernel objects, two typed scalars, no free argv.** The ADR-029
+argument — *names that outlive whoever created them* — applied one layer down.
+netns by `NetworkNamespacePath=`, tap by derived name owned by the per-VM uid,
+MAC derived and never byte-encoding an address (the pet launcher's MAC
+preserved a wrong-subnet bug). Only `KM_CID` and `KM_VFIO_BDF` cross, as
+`${}`-braced interpolations at fixed positions — braces because `${}` does not
+word-split, so a value cannot become extra arguments.
+
+An argv blob was rejected on the ground that whoever writes it can inject a
+second `-drive` or a later `-sandbox`, making all of T4 optional.
+
+### `Nic`: a BDF is not an identity
+
+Firmware assigns it; a reseat or an added NVMe moves it. The failure is not a
+VM that will not start — `vfio-pci` binds to an **address**, so a stale record
+detaches *some other* device and hands it to the most exposed VM, silently,
+with a plausible result.
+
+So the `Vm` carries a **label** (`nic = "uplink0"`), the boot-time binding step
+publishes `/run/katmate/nics/<label>` → current BDF, and VM start checks
+`vendor`/`device` at the resolved address. What the kernel publishes is not
+copied into a file.
+
+**Fourth instance of the characteristic bug** — a mechanism that quietly
+consults the wrong object and returns a believable answer. After ADR-021's
+shutdown precondition, `/proc` in the wrong netns, and `Online state: offline`
+beside `routable`. It is no longer a pattern worth noting; it is the thing to
+look for first.
+
+### No monitor
+
+`-nographic` alone multiplexes console *and* monitor. T4 becomes
+`-display none -monitor none -serial <chardev>`, `-nographic` removed from both
+launchers. A dev monitor is a drop-in under
+`/etc/systemd/system/…@.service.d/`, never a field — Gap #10's precedent, "a
+separate dev launcher" — and joins the pre-release removal list.
+
+**Consequence to carry:** with the console in the journal the path is one-way,
+and interactive console login disappears. That is the correct end state — open
+problem #12 becomes *unreachable* rather than merely fixed — but during 3a
+bring-up a pty or a separate dev launcher is needed, and it must not be the
+same unit.
+
+### Build order: the step that was invisible
+
+`ROADMAP.md` lists artefacts to *build*. Launching already exists in a
+degenerate form, so it never appeared — and for the same reason the schema was
+never written: **the `.con` scripts are the schema, expressed as code.** The
+missing step is their **removal**.
+
+Neither horn of the dilemma this file posed on 08-02 was right: ADR-029 did not
+run ahead of its turn, and the build order was not silently wrong.
+
+New step 3, split; old 3/4/5 renumbered to 4/5/6.
+
+- **3a** description + unit templates; **gate: both `.con` deleted and nothing
+  lost** — which is simultaneously the empirical gate on ADR-030's schema. If a
+  `.con` line has nowhere to go, the schema is incomplete. ADR-024 method
+  applied to a schema: a demonstration instead of a review.
+- **3b** the daemon.
+
+### Gate E1 — measured same day, prediction wrong
+
+Whether `EnvironmentFile=` is read late enough to see a file created by
+`ExecStartPre=` **in the same unit**. The ADR predicted it probably is not —
+the assumed-precondition shape that killed ADR-021's shutdown and ADR-025's
+Path A. **Both candidates passed:** A (`ExecStartPre=` in the same unit) →
+`[42]`, B (separate generator unit, `Requires=`/`After=`) → `[42]`.
+
+**A selected.** One unit per VM, generator as `ExecStartPre=+`; no second unit
+class, no ordering edge, and the projection is produced and consumed inside one
+unit's lifetime, so a half-started VM cannot leave a live env file for the next
+start to inherit. **B recorded as also working** — available later without a
+second measurement.
+
+Not covered by the probe, and therefore not citable: `Type=oneshot` rather than
+`notify`/`simple`; `ExecStartPre=` without `+`; one key rather than two.
+
+Cheap to be wrong here rather than in a template. The method held even though
+the guess did not — which is the whole point of gating before committing, not
+of guessing well.
+
+**Defect in the probe itself, worth the line:** v1 installed `trap cleanup EXIT`
+*above* the root check, so a non-root run fired `systemctl stop` on units that
+had never been created and produced four polkit prompts while measuring
+nothing. A gate that fails open is worse than no gate; it was fixed before the
+real run.
+
+### Findings routed, not decided
+
+- **Memory backing is divided the wrong way round.** `app_web` (no vfio) takes
+  hugepages, `net-sys` (vfio) takes memfd. The vfio VM is the one that
+  benefits. Three axes, none of them performance: DAC on `/dev/hugepages` under
+  `User=` vs memfd needing none; whether `share=on` has any consumer at all
+  (vhost-vsock is in-kernel, no vhost-user process exists); loud vs silent
+  failure on an undersized pool. → `HOST-CONFIG.md` §6, own session, with C3.
+- **netVM has neither `-nodefaults` nor `-no-user-config`.** Less containment
+  in the most exposed VM than in an AppVM. Closed by construction in 3a
+  (gate G4). → C-gate.
+- **`-overcommit mem-lock=off` on netVM is probably inert.** vfio pins the whole
+  guest regardless; under C1 `LimitMEMLOCK=infinity` becomes a start condition,
+  not an optimisation. → folds into the memory session and C3.
+- **`/home` is named per app layer, not per instance.** Two instances of
+  `app_web` would mount one ext4 rw and corrupt it; it has not happened because
+  one instance exists. ADR-030 fixes the **tier** (per instance, derived from
+  the instance name); the storage mechanism — thin snapshot of a frozen
+  `vm_home_skel` vs qcow2 branch — is ADR-010/011 and deliberately left open.
+  Recorded for that session: qcow2 would add a second COW layer to the most
+  write-heavy device, grow monotonically with `discard` needing to traverse two
+  layers, and create a backing chain whose semantics are the opposite of the
+  app-layer chain `katmate-update` rebases.
+
+### Documentation drift found
+
+`state.md` Next steps (08-06) claims `HOST-CONFIG.md:199` was corrected from
+ADR-030 to ADR-031. **It was not** — line 199 still reads ADR-030. Corrected in
+this session's patch set. A drift note that itself drifted.
+
+---
+
 ## This session (2026-08-06, first of two) — documentation hygiene before ADR-030; the archive boundary repaired
 
 Documentation session, no code and no gates. Deliberately placed *before* the

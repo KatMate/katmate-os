@@ -6,7 +6,7 @@
 > history and the ADRs — this file references them rather than repeating them.
 
 **Milestone:** v0.2 (in development) · **Last updated:** 2026-08-09
-(step 3a halted as a gate; ADR-032 written).
+(two sessions: ADR-032, then step 3a part 1 — the data layer).
 
 ## Current focus
 
@@ -41,7 +41,108 @@ restartable — and so updatable — without touching running VMs.
 Direction unchanged: IOMMU-capable platforms only (VT-d/AMD-Vi); VT-x-only
 frozen (ADR-015). MINIS is primary host and merge target.
 
-## This session (2026-08-09) — step 3a ran as a gate and returned five holes; ADR-032 answers them
+## This session (2026-08-09, second of two) — 3a part 1: the data layer exists, and the schema tells the truth on its first day
+
+Delegated implementation session on the Acer, whole tree visible. Five commits,
+all signed. Split from the architecture session above because the work is
+different in kind and because the tree is the subject — the chat context sees
+about a third of it, and every wrong assertion this project has recorded today
+came from that third.
+
+### What exists now
+
+- **`build/netvm.sh` writes T2 host-side.** `netvm.meta` had been written to
+  `$NETVM_MNT/var/lib/katmate/netvm.meta`, inside the guest filesystem — the one
+  place no launcher can read without mounting the guest root, which the launch
+  path must never do. Payload and metadata now share `/var/lib/katmate/netvm/`
+  per ADR-032 §5, because they share an author, a lifecycle and an upgrade
+  owner. `out/netvm/` keeps its copy and stays a build tree. The meta carries
+  what a unit needs and the four descriptive keys could not supply: the LV, the
+  guest-side root device, the rootfstype, and the kernel and initrd paths.
+- **`build/app-layer.sh` writes `app-web.meta`** with per-app-layer provenance.
+  `foundation.meta` already recorded `FOUNDATION_LV`, so the gap was never the
+  base LV's *name* — it was that nothing tied an app layer to the foundation
+  *generation* it was snapshotted from.
+- **`tools/validate-properties.fish` enumerates a directory** and enforces the
+  class-dependent schema: required and forbidden sets per class, class-dependent
+  `manifest` values, the `sys-proxy` error, and the cross-file duplicate-`nic`
+  rule that was not implementable until T1 had a location.
+- **Both `properties.toml` files exist**, on the Acer only, at their canonical
+  paths mirrored under `~/katmate-t1/`. They are not in the repository and never
+  will be (ADR-032 §1).
+
+### The one behavioural proof part 1 could make
+
+Five rejections verified with verbatim output: `persistence` on `class = sys`;
+`nic` on `class = app`; `class = sys` without `nic` reported as the named
+`sys-proxy` error rather than a bare missing key; the same `nic` label in two
+files (G5); and `cid = "auto"` with `disposable = true` accepted, which is the
+regression guard for the CID band. This is ADR-032 §3's whole claim — forbidden
+keys are errors at parse, not ignored — and it holds.
+
+### `app_web` has no network device, and the schema said so
+
+The finding that reached furthest. `app_web.con` carries vsock, two block
+devices and an RNG: no `-netdev`, no `virtio-net-device`, no tap. So its honest
+T1 is `netvm = ""`, which derives **`app-offline`** — and ADR-030's gate G2,
+which names `katmate-app-routed@` for `app_web`, is misnamed.
+
+Declaring `netvm = "netvm"` instead was rejected: it would have made 3a **add**
+a mechanism rather than transcribe one, and 3a's entire value is as ADR-030's
+empirical gate. Recorded as a revision note on ADR-030 with four consequences,
+including that **3a ships two templates, not three**, and that ADR-032's gate H2
+needs an inverted pair since it cannot start a unit that does not ship.
+
+**And the schema then earned its keep on day one.** ADR-015's semantic invariant
+— a `web` manifest with no network is almost certainly wrong — survived the
+removal of the `network` field, because the field changed and the invariant did
+not. Re-expressed on `netvm`, it fires on `app_web` under `--strict`. It was not
+silenced. The warning is true, and it is true *because* the AppVM network device
+does not exist; it stops firing when link topology is settled. The cost is
+recorded: `--strict` cannot be a pre-commit gate over the real T1 set today
+without an expected-warning allowance.
+
+### The `trap` had to move, and that is the one unverified change
+
+The brief said to append a block "after `trap - EXIT`", on `foundation.sh`'s
+pattern. In `netvm.sh` that disarm was the **second-to-last line**, guarding a
+cleanup that `lvremove`s the image. Appending below it would have meant that a
+`set -e` failure in the new block destroyed a complete, valid image — the exact
+failure the ordering exists to prevent. The disarm now runs immediately after
+the umount.
+
+**UNVERIFIED, and it executes first on MINIS.** The observation pair that
+settles it: a netVM build failing in steps 1–10 must still remove the LV; one
+failing in step 11 must leave it standing.
+
+### Corrections this session forced on documents
+
+- **ADR-015 gained the revision note it should have had on 2026-08-06.**
+  ADR-032 §3 changes the schema ADR-015 owns, and ADR-015 states its own
+  discipline twice: the specification and the tool enforcing it must not
+  disagree. The note also **restates the CID bands in full**, because the
+  ADR-030 note had already been misread once — as restricting `class = app` to
+  20–99, which deletes ADR-014's disposable archetype at parse time. `class =
+  app` keeps all three forms: 20–99 static, `"auto"`, and numeric ≥ 100.
+- **`D13` is decided: everything in the repository is en_US.** The validator and
+  `bin/katmate-cid` are Slovenian in comments and diagnostics. Translating them
+  is now an open item — mechanical, verifiable, its own commit.
+
+### What this session is evidence for
+
+The delegated session made no wrong assertion about the tree across two reading
+passes and five commits. It also caught two things the brief got wrong — the
+CID band compression, and the `trap` — either of which would have cost a boot
+cycle or an LV. **Where the tree is the subject, the tree has to be readable**,
+and the split between architecture here and implementation there is not a
+convenience.
+
+Second: the schema found a defect in a *published gate* within hours of the
+first two T1 files existing. That is the ADR-024 method arriving at its
+cheapest possible moment — not in a template being debugged, but in a file
+being written.
+
+## Previous session (2026-08-09, first of two) — step 3a ran as a gate and returned five holes; ADR-032 answers them
 
 Two sessions in one day, kept separate as the discipline requires: mechanical
 housekeeping first (thinking-off), then architecture (thinking-on) once step 3a
@@ -166,189 +267,10 @@ rule. The delegated session, with the whole tree visible, produced no such
 error in eleven files. Where the tree is the subject, the tree has to be
 readable.
 
-## Previous session (2026-08-06, second of two) — ADR-030: authorship is the tier boundary; the build order gains the step it was missing
-
-Architecture session (thinking-on), the second of the day — the documentation
-hygiene pass below cleared the ADR numbering collision that would otherwise have
-blocked it. One ADR written, one superseded in part, one build-order step
-created, four findings routed elsewhere. Gate E1 was measured the same day
-(below).
-
-The renumbering this ADR introduced (old 3/4/5 → 4/5/6) invalidated **six
-build-order ordinals** across `DECISIONS.md`, `ROADMAP.md`, `HOST-CONFIG.md`
-and this file. All six repaired here, in the session that created them; a
-reference by number that still resolves, just not to what it meant, is the
-project's characteristic failure class expressed in documentation.
-
-### The reframing that made the ADR small
-
-The session was scoped as "extend ADR-015's schema with the fields the `.con`
-scripts carry". Two readings against ADR-022 changed the shape before any field
-work started.
-
-**ADR-030 does not invent an object.** ADR-022 already defines `Vm`, `Image`,
-`Nic`, `Link` and `Policy`. The subject is the *on-disk serialisation* of those
-objects such that an ADR-029 unit can be produced from it. `properties.toml` is
-a partial, AppVM-only serialisation of `Vm` that predates the model.
-
-**ADR-015's `network` field is wrong in type.** The enum `none | via-netvm`
-cannot name *which* netVM, and under ADR-022 an AppVM's access *is* which netVM
-it attaches to. ADR-022 displaced the field when it was accepted and nobody
-recorded it. This is the third time a supersession has been found by reading
-rather than by being written down (CID band, ADR-021's shutdown pointer, this).
-
-### The decision, in one line
-
-**The tier boundary is authorship, not content.** The question is not which
-fields the schema needs but **which fields may be data at all** — because
-`-sandbox …,resourcecontrol=deny` (C4, live-gated 2026-07-28) is a `.con` line,
-and a schema field is a thing a user can edit.
-
-Four artefacts, one per writer:
-
-| Tier | Author | Where |
-|---|---|---|
-| T1 instance properties | user | `properties.toml` |
-| T2 image metadata | build pipeline | `<image>.meta` (`foundation.meta` pattern) |
-| T3+T4 profile + TCB constants | the release | **the unit template** |
-| — | derived at start | `/run/katmate/vm/<i>.env`, a projection |
-
-The unit template *is* the serialisation of T3/T4 — no separate profile format,
-because it would be a second record of one fact and PID 1 does not read it. The
-profile goes in the **unit name** (`katmate-app-routed@personal.service`), so
-ADR-029's durable identity carries its own containment profile. And the profile
-is a **function** of `(class, netvm, nic)`, not a field: the user declares
-topology, containment follows, and no user can select a weaker profile. That is
-the only reason T3 may be derived from T1 at all.
-
-`sys-proxy` (ADR-022's chained proxy netVM) is named by the function and
-returns an explicit error. Shipping an untested template for a VM class that
-has never been built would invert the method.
-
-### What crosses the daemon→unit boundary
-
-**Named kernel objects, two typed scalars, no free argv.** The ADR-029
-argument — *names that outlive whoever created them* — applied one layer down.
-netns by `NetworkNamespacePath=`, tap by derived name owned by the per-VM uid,
-MAC derived and never byte-encoding an address (the pet launcher's MAC
-preserved a wrong-subnet bug). Only `KM_CID` and `KM_VFIO_BDF` cross, as
-`${}`-braced interpolations at fixed positions — braces because `${}` does not
-word-split, so a value cannot become extra arguments.
-
-An argv blob was rejected on the ground that whoever writes it can inject a
-second `-drive` or a later `-sandbox`, making all of T4 optional.
-
-### `Nic`: a BDF is not an identity
-
-Firmware assigns it; a reseat or an added NVMe moves it. The failure is not a
-VM that will not start — `vfio-pci` binds to an **address**, so a stale record
-detaches *some other* device and hands it to the most exposed VM, silently,
-with a plausible result.
-
-So the `Vm` carries a **label** (`nic = "uplink0"`), the boot-time binding step
-publishes `/run/katmate/nics/<label>` → current BDF, and VM start checks
-`vendor`/`device` at the resolved address. What the kernel publishes is not
-copied into a file.
-
-**Fourth instance of the characteristic bug** — a mechanism that quietly
-consults the wrong object and returns a believable answer. After ADR-021's
-shutdown precondition, `/proc` in the wrong netns, and `Online state: offline`
-beside `routable`. It is no longer a pattern worth noting; it is the thing to
-look for first.
-
-### No monitor
-
-`-nographic` alone multiplexes console *and* monitor. T4 becomes
-`-display none -monitor none -serial <chardev>`, `-nographic` removed from both
-launchers. A dev monitor is a drop-in under
-`/etc/systemd/system/…@.service.d/`, never a field — Gap #10's precedent, "a
-separate dev launcher" — and joins the pre-release removal list.
-
-**Consequence to carry:** with the console in the journal the path is one-way,
-and interactive console login disappears. That is the correct end state — open
-problem #12 becomes *unreachable* rather than merely fixed — but during 3a
-bring-up a pty or a separate dev launcher is needed, and it must not be the
-same unit.
-
-### Build order: the step that was invisible
-
-`ROADMAP.md` lists artefacts to *build*. Launching already exists in a
-degenerate form, so it never appeared — and for the same reason the schema was
-never written: **the `.con` scripts are the schema, expressed as code.** The
-missing step is their **removal**.
-
-Neither horn of the dilemma this file posed on 08-02 was right: ADR-029 did not
-run ahead of its turn, and the build order was not silently wrong.
-
-New step 3, split; old 3/4/5 renumbered to 4/5/6.
-
-- **3a** description + unit templates; **gate: both `.con` deleted and nothing
-  lost** — which is simultaneously the empirical gate on ADR-030's schema. If a
-  `.con` line has nowhere to go, the schema is incomplete. ADR-024 method
-  applied to a schema: a demonstration instead of a review.
-- **3b** the daemon.
-
-### Gate E1 — measured same day, prediction wrong
-
-Whether `EnvironmentFile=` is read late enough to see a file created by
-`ExecStartPre=` **in the same unit**. The ADR predicted it probably is not —
-the assumed-precondition shape that killed ADR-021's shutdown and ADR-025's
-Path A. **Both candidates passed:** A (`ExecStartPre=` in the same unit) →
-`[42]`, B (separate generator unit, `Requires=`/`After=`) → `[42]`.
-
-**A selected.** One unit per VM, generator as `ExecStartPre=+`; no second unit
-class, no ordering edge, and the projection is produced and consumed inside one
-unit's lifetime, so a half-started VM cannot leave a live env file for the next
-start to inherit. **B recorded as also working** — available later without a
-second measurement.
-
-Not covered by the probe, and therefore not citable: `Type=oneshot` rather than
-`notify`/`simple`; `ExecStartPre=` without `+`; one key rather than two.
-
-Cheap to be wrong here rather than in a template. The method held even though
-the guess did not — which is the whole point of gating before committing, not
-of guessing well.
-
-**Defect in the probe itself, worth the line:** v1 installed `trap cleanup EXIT`
-*above* the root check, so a non-root run fired `systemctl stop` on units that
-had never been created and produced four polkit prompts while measuring
-nothing. A gate that fails open is worse than no gate; it was fixed before the
-real run.
-
-### Findings routed, not decided
-
-- **Memory backing is divided the wrong way round.** `app_web` (no vfio) takes
-  hugepages, `net-sys` (vfio) takes memfd. The vfio VM is the one that
-  benefits. Three axes, none of them performance: DAC on `/dev/hugepages` under
-  `User=` vs memfd needing none; whether `share=on` has any consumer at all
-  (vhost-vsock is in-kernel, no vhost-user process exists); loud vs silent
-  failure on an undersized pool. → `HOST-CONFIG.md` §6, own session, with C3.
-- **netVM has neither `-nodefaults` nor `-no-user-config`.** Less containment
-  in the most exposed VM than in an AppVM. Closed by construction in 3a
-  (gate G4). → C-gate.
-- **`-overcommit mem-lock=off` on netVM is probably inert.** vfio pins the whole
-  guest regardless; under C1 `LimitMEMLOCK=infinity` becomes a start condition,
-  not an optimisation. → folds into the memory session and C3.
-- **`/home` is named per app layer, not per instance.** Two instances of
-  `app_web` would mount one ext4 rw and corrupt it; it has not happened because
-  one instance exists. ADR-030 fixes the **tier** (per instance, derived from
-  the instance name); the storage mechanism — thin snapshot of a frozen
-  `vm_home_skel` vs qcow2 branch — is ADR-010/011 and deliberately left open.
-  Recorded for that session: qcow2 would add a second COW layer to the most
-  write-heavy device, grow monotonically with `discard` needing to traverse two
-  layers, and create a backing chain whose semantics are the opposite of the
-  app-layer chain `katmate-update` rebases.
-
-### Documentation drift found
-
-`state.md` Next steps (08-06) claims `HOST-CONFIG.md:199` was corrected from
-ADR-030 to ADR-031. **It was not** — line 199 still reads ADR-030. Corrected in
-this session's patch set. A drift note that itself drifted.
-
 ## Session archive
 
-Sessions older than the two above (2026-08-06 *first of two*, then 2026-08-03,
-then 2026-08-02 *second of two*, then *first of two*, then 2026-07-28 back to
+Sessions older than the two above (the 2026-08-06 pair, then 2026-08-03, then
+2026-08-02 *second of two*, then *first of two*, then 2026-07-28 back to
 2026-06-27) live in
 [docs/SESSIONS.md](docs/SESSIONS.md), split out on
 2026-07-14. That file is append-only; CIDs in entries dated 2026-07-13 and
@@ -373,10 +295,10 @@ hygiene pass (midday); *second of two* is ADR-030 (evening). The hygiene pass
 was a precondition for the ADR, not cleanup after it — its own working title
 was *"pred ADR-030"*.
 
-**The 2026-08-06 pair is split across the two files** as of 2026-08-09: *second
-of two* (ADR-030) is still here because 3a and ADR-032 build directly on it;
-*first of two* rotated to the archive. The labels reference each other, so read
-them together or neither.
+**The 2026-08-06 pair was briefly split across the two files** and is whole
+again in the archive as of the second 2026-08-09 session, *second* above
+*first*. The split lasted one session and is recorded only so the intermediate
+state is not mistaken for a defect.
 
 ## Live state (MINIS/UM870) — summary
 
@@ -563,6 +485,10 @@ touched.
    is absent, plus a `sha256sum` in `netvm.meta` so the failure class is
    visible immediately.
 
+   **Update 2026-08-09:** `netvm.meta` now exists **host-side** at
+   `/var/lib/katmate/netvm/netvm.meta`, so the natural home for the checksum
+   exists. Deliberately not added in 3a part 1 — out of that brief's scope.
+
 15. ~~**Executable bit on `build/netvm.sh` flipped** `100755 → 100644`~~ —
    **Resolved.** `git ls-files -s` reports `100755` (verified 2026-08-09). The
    entry had outlived the defect; `sudo bash build/netvm.sh` is habit, not
@@ -637,24 +563,24 @@ CYBRland-derived `desktop/` subtree) — **decision taken, document not written*
 the number stays reserved and the gap in the sequence is an honest record of
 that. `ADR-032` = *where each tier lives* (2026-08-09).
 
-**Next session: 3a, restarted.** The first attempt halted before modifying any
-file, having found five holes in ADR-030's schema; all five are answered by
-ADR-032, so the work order below is executable as written. Delegated to a
-session with the whole tree visible — a partial view produced three wrong
-assertions during the 2026-08-09 morning, and the tree is the subject here.
+**Next session: 3a part 2 — templates, T4 executables, gates.** Part 1 closed
+2026-08-09 in five signed commits (`3a482d8`, `12a7ce0`, `578e5d3`, `cf1dac5`,
+`54b26d0`): T2 is host-side, the validator enumerates a directory and enforces
+the class-dependent schema, and both `properties.toml` exist. Part 2 is
+delegated the same way, to a session with the whole tree visible.
 
-1. `netvm.meta` moved host-side (it is written *inside the guest* today), and
-   `app-layer.sh` made to write `<type>.meta` with per-app-layer provenance.
-2. `properties.toml` for netVM and app_web at `/etc/katmate/vm/<name>.toml`,
-   per ADR-030 as revised by ADR-032 §1/§3. **netVM first** — it is the harder
-   case and found the schema gaps faster, exactly as predicted.
-3. `tools/validate-properties.fish`: the directory-enumeration contract
-   (ADR-032 §4), the `class`-dependent required set, the `class`-dependent CID
-   band, the `sys-proxy` error.
-4. `<image>.meta` for the netVM image and the app_web layer.
-5. The four T4 executables at `/usr/lib/katmate/` (ADR-032 §2), then the three
-   unit templates, `sys-driver` first.
-6. Gates G1–G6 and H1–H3, then delete both `.con` files. Deletion is the last
+1. The four T4 executables at `/usr/lib/katmate/` (ADR-032 §2):
+   `katmate-check-waypipe`, `katmate-check-image`, `katmate-activate-lvs`
+   (`ExecStartPre=+`, needs uid 0), `katmate-generate-env`. Authority limit:
+   reads T1 and T2, writes only `/run/katmate/`, decides binarily, derives the
+   profile only from `(class, netvm, nic)`.
+2. **Two** unit templates — `katmate-sys-driver@` and `katmate-app-offline@`.
+   Not three: `app_web` has no network device, so nothing derives `app-routed`
+   and no gate can exercise it (ADR-030 revision note, 2026-08-09).
+   `sys-driver` first.
+3. The `nic` binding step that publishes `/run/katmate/nics/uplink0` → current
+   BDF, plus the `vendor`/`device` check at VM start (ADR-030 §5, gate G6).
+4. Gates G1–G6 and H1–H3, then delete both `.con` files. Deletion is the last
    commit and only if every line is placed. It creates dangling references in
    `SECURITY-MODEL.md` (#11 is open and describes `net-sys.con` as the thing
    running QEMU as root), `HOST-CONFIG.md` §3 and §6, `DECISIONS.md` and this
@@ -667,11 +593,42 @@ separate dev launcher is needed for netVM bring-up once the console goes to the
 journal; the live delta is named `test_web.qcow2` and follows the instance to
 `app_web` (ADR-032 §7).
 
-**Still unplaced, and the largest single finding of the 3a gate:** the three
-preflight checks in `app_web.con` — waypipe version lock, delta existence,
-kernel existence — now have a tier (T4 executables) but no implementation. The
-waypipe gate is shared by both `app-*` profiles; an offline vault runs waypipe
-too.
+**Three things part 2 must resolve before a gate can run.**
+
+- **Both T1 files exist only on the Acer**, under `~/katmate-t1/`, and are in no
+  repository by design. They must be installed at `/etc/katmate/vm/` on MINIS
+  before any G-gate.
+- **`/var/lib/katmate/kernels/` does not exist and nothing populates it.**
+  `app-web.meta` records *which* kernel (`KERNEL_VERSION=6.12.87`) per ADR-032
+  §5, but a unit's `-kernel` needs a path. The AppVM kernel lives in
+  `$KERNEL_SRC_DIR` today and is copied into `out/` by the Makefile, and
+  `app_web.con` reads it from `$KERNEL_SRC_DIR` directly — three locations, none
+  of them the ADR-032 one.
+- **The `trap - EXIT` relocation in `netvm.sh` is UNVERIFIED** and executes on
+  the first netVM rebuild. A failure in steps 1–10 must still remove the LV; a
+  failure in step 11 must leave it standing. That pair is the whole point of the
+  move.
+
+**Also carried in:** the validator's exit codes are three-valued (0 valid, 1
+schema error, 2 usage / nothing validated), so a gate script must not treat
+non-zero as uniformly invalid. `validate-properties.fish --strict` cannot serve
+as a pre-commit gate over the real T1 set until AppVM link topology is settled —
+the `web`-manifest-without-network warning it raises on `app_web` is true, and
+was deliberately not silenced.
+
+**Deferred, own sessions (architecture, thinking-on):** memory backing —
+hugepages vs memfd, whether `share=on` has any consumer, C3 `LimitMEMLOCK` under
+C1. The `/home` storage mechanism (ADR-010/011). AppVM link topology, which
+ADR-029 leaves *"opened, not settled"* and which gates `app-routed`. And the
+durable NIC descriptor: `HOST-CONFIG.md` §3 requires it to be **measured, not
+chosen** — `vendor:device` is not unique on a two-port card, the MAC is readable
+only before `vfio-pci` binds, the slot path survives reseating but not a
+firmware change. Same problem as the USB-NIC profile: one durable-descriptor
+question at two sites.
+
+**Open, mechanical:** translate `tools/validate-properties.fish` and
+`bin/katmate-cid` to en_US. Both are Slovenian in comments and diagnostics;
+the repository rule is en_US throughout (decided 2026-08-09). Own commit.
 
 **Deferred, own session (architecture, thinking-on):** memory backing —
 hugepages vs memfd, whether `share=on` has any consumer, C3 `LimitMEMLOCK`
