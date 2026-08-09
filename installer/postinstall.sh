@@ -188,5 +188,35 @@ sed -i 's/^HOOKS=.*/HOOKS=(base udev autodetect keyboard keymap modconf block en
 mkinitcpio -P
 
 # ---------------------------------------------------------------------------
+# ZAHTEVA, ŠE NE IMPLEMENTIRANA: imeniki tierov (ADR-032 §1) + sejanje T1
+# ---------------------------------------------------------------------------
+# Zapisano tu, ker bo bralec installerja to iskal tu. Lastnik izvedbe je korak 6
+# gradbenega vrstnega reda (ROADMAP.md), ne ta commit.
+#
+# ADR-032 postavi pot kot tier: bralec ugotovi tier datoteke z `ls`, ne z
+# branjem ADR-ja. Installer mora ustvariti štiri imenike, od katerih danes ne
+# obstaja noben:
+#
+#   /etc/katmate/vm/         T1 — properties.toml, ena na VM, root:root 0644
+#   /usr/lib/katmate/        T4 — izvedljive datoteke, ki jih kliče ExecStartPre=
+#   /var/lib/katmate/netvm/  T2 — vmlinuz + initrd.img + netvm.meta
+#   /var/lib/katmate/kernels/  T2 — deljeno microVM jedro za AppVM-e
+#
+# T1 in sejanje. Installer T1 SEJE, ni pa njegov lastnik — razmerje je /etc/skel
+# proti $HOME. Datoteka, zapisana ob namestitvi, je od tistega trenutka
+# uporabnikova, in kasnejša izdaja, ki potrebuje spremembo sheme, OBVESTI,
+# ne prepiše. Iz tega sledi trdo pravilo:
+#
+#   installer sme USTVARITI datoteko T1;
+#   nikoli ne sme PREPISATI datoteke, ki je ni ustvaril v istem teku.
+#
+# Zato tudi T1 ni nikoli v repozitoriju: commitano properties.toml je avtorstvo
+# projekta in po tierski meji T3/T4, ne T1. Installer ga zgenerira, ne kopira
+# iz drevesa.
+#
+# Preveri z: tools/validate-properties.fish (brez argumentov privzame
+# /etc/katmate/vm/ in ovrednoti tudi pravila čez datoteke).
+
+# ---------------------------------------------------------------------------
 log "Postinstall DONE"
 # ---------------------------------------------------------------------------
