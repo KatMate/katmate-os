@@ -569,6 +569,46 @@ Also added, per ADR-030: `nic` (a label, never a PCI address), `mem`, `vcpus`.
 The format (TOML, one file per instance), the validator and every semantic
 invariant above are unchanged.
 
+**Revision note (2026-08-09, [ADR-032](DECISIONS.md#adr-032)):** this ADR
+records its own discipline twice — the schema is corrected where it lives, so
+that the specification and the tool enforcing it cannot disagree. ADR-032 §3
+changes the schema substantially and the note belongs here.
+
+1. **The required key set is a function of `class`,** and a key with no meaning
+   for a class is **forbidden**, not ignored. Rejection happens at parse, in the
+   same spirit as *absent, not disabled*: a `persistence` line on a netVM that
+   is silently discarded is the *silent wrong-object* failure this project keeps
+   finding. Common: `class`, `cid`, `manifest`, `mem`, `vcpus`. `class = sys`
+   additionally requires `nic` and `provides_network`, and forbids `netvm`,
+   `persistence`, `identity`, `disposable`, `reset_on_shutdown`. `class = app`
+   additionally requires `netvm`, `persistence`, `identity`, `disposable`,
+   admits `reset_on_shutdown`, and forbids `nic` and `provides_network`.
+   `netvm` is satisfied by being present and explicitly empty — an absent
+   `netvm` is an unstated assumption, an empty one is a declared offline vault.
+2. **`manifest` becomes class-dependent in its values,** not a widened shared
+   enum: `sys` → `netvm`; `app` → `vault | web`. A shared enum would make
+   `manifest = netvm` legal on an AppVM — a valid value that builds the wrong
+   image.
+3. **The CID bands, restated in full because the ADR-030 note above has already
+   been misread once.** `class = sys` requires 3–19. `class = app` keeps
+   **all three** of this ADR's forms: the static band 20–99, `"auto"` for the
+   disposable pool, and a numeric CID ≥ 100. "Keeps the 20–99 band" in the
+   ADR-030 note means the *static* band is unchanged; it does not restrict
+   `class = app` to that band. Reading it as a restriction deletes the
+   disposable archetype at parse time — [ADR-014](DECISIONS.md#adr-014)'s
+   fourth archetype is defined by `cid = "auto"` — and the validator has always
+   implemented the three forms correctly.
+4. **The validator enumerates a directory.** Its contract is
+   `/etc/katmate/vm/*.toml` by default (ADR-032 §1 and §4). Invoked on
+   individual files it runs per-file rules and reports that cross-file rules
+   were **not evaluated**, rather than passing silently. The cross-file rule —
+   no two VMs may claim the same `nic` label — is not implementable per-file and
+   was not implementable at all until T1 had a location.
+
+The format (TOML, one file per instance), the validator as the enforcement
+point, and every semantic invariant above are unchanged. What changed is where
+the files live and which keys are legal for which class.
+
 ---
 
 ## ADR-016 — Two desktop profiles: shared visual layer, Sway default + Hyprland optional
@@ -3510,6 +3550,54 @@ unchanged.
 §6 is unaffected and reinforced: ADR-032 §6 adds that the unit name *asserts* a
 profile which the projection generator must verify against the derived one,
 failing before QEMU on mismatch.
+
+**Revision note (2026-08-09, build-order step 3a part 1):** gate **G2** names
+`katmate-app-routed@` as the unit `app_web` starts from. It is misnamed, and the
+correction follows from a fact about the machine rather than from a change of
+mind.
+
+`app_web.con` carries vsock, two block devices and an RNG. It has **no
+`-netdev`, no `virtio-net-device` and no tap** — no network device of any kind.
+[ADR-029](DECISIONS.md#adr-029) records this in its C2 findings and leaves AppVM
+link topology *"opened, not settled"*. Under §2's profile function with `netvm`
+empty, `app_web` therefore derives **`app-offline`**, and its T1 says so:
+`netvm = ""`, which under [ADR-032](DECISIONS.md#adr-032) §3 is a *declaration*
+of an offline domain rather than an omission.
+
+Declaring `netvm = "netvm"` instead was considered and rejected. It would have
+made step 3a **add** a mechanism rather than transcribe one, and step 3a's whole
+value is as this ADR's empirical gate — every line of the launchers placed,
+nothing lost. A T1 file asserting a link that no launcher has would have made
+the gate measure the author's intent instead of the schema.
+
+Four consequences, all from that one fact:
+
+1. **G2 becomes `katmate-app-offline@app_web`.**
+2. **Step 3a ships two unit templates, not three** — `sys-driver` and
+   `app-offline`. `app-routed` is a valid profile of §2's function and stays in
+   the table; what it does not have is a VM that derives it, so no gate can
+   exercise it. A signed ISO carrying a template nobody has run would rot.
+   It ships when AppVM link topology is decided and `app_web` gains a real
+   `netvm`.
+3. **[ADR-032](DECISIONS.md#adr-032) gate H2 needs a different pair.** As
+   written it starts a file deriving `app-offline` under `katmate-app-routed@`,
+   which cannot exist if `app-routed` does not ship. Inverted, it tests the same
+   property with two templates that do exist: a file deriving `sys-driver`,
+   started under `katmate-app-offline@`, must be refused by the projection
+   generator before QEMU.
+4. **[ADR-032](DECISIONS.md#adr-032) §2** names the waypipe gate as shared by
+   `katmate-app-routed@` and `katmate-app-offline@`. The sharing is correct and
+   unchanged; only one of the two ships in 3a.
+
+**A fifth consequence is not a defect and should not be silenced.** ADR-015's
+semantic invariant — a `web` manifest with no network is almost certainly wrong
+— survived the removal of the `network` field, since the field changed and the
+invariant did not. Re-expressed on `netvm`, it fires on `app_web` under
+`--strict`. That warning is true: a web domain without network *is* anomalous,
+and it is anomalous precisely because the AppVM network device does not exist
+yet. It stops firing when topology is settled. Until then
+`validate-properties.fish --strict` cannot serve as a pre-commit gate over the
+real T1 set without an expected-warning allowance.
 
 ---
 
