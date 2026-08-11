@@ -7,3 +7,6 @@ install.env
 agent/target/
 git-cli.txt
 desktop/walls/
+
+# T1 staging: user-authored VM properties, never tracked (ADR-032 §1)
+/local/

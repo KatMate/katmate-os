@@ -226,6 +226,51 @@ has no defined rofi source, and the licence position of the CYBRland-derived
 
 ---
 
+# VM description
+
+## 10. `/etc/katmate/vm/` — T1 instance properties
+
+**Scope:** all · **[LIVE]** on MINIS · **[V]** 2026-08-11
+
+**Requirement:** one `<name>.toml` per VM at `/etc/katmate/vm/`, flat, one file
+per VM, `root:root` `0644` ([ADR-032](DECISIONS.md#adr-032) §1). MINIS carries
+`netvm.toml` and `app_web.toml`.
+
+**Failure mode, and part of it is silent.** `tools/validate-properties.fish`
+defaults to this directory; with the directory absent it exits **2** ("nothing
+was validated") rather than 0, which is deliberate — an empty run reporting
+success would look like a pass. The unit path is the unsilent half: no T1 means
+`katmate-generate-env` has nothing to project and the VM does not start. The
+silent half is the **cross-file** rule: the "no two VMs may claim the same `nic`
+label" check ([ADR-030](DECISIONS.md#adr-030) §4, gate G5) is only evaluated
+over a directory, because only a directory guarantees every VM's file was seen.
+Validating individual files instead skips it, and a skipped cross-file rule
+looks exactly like a passing one.
+
+**Staged in the repository at `local/etc/katmate/vm/`, which is ignored, not
+tracked** (`.gitignore` line 12, `/local/`). The staging tree mirrors install
+paths *inside itself*, so the install step is a **copy and never an authoring
+step** — a second authored copy is precisely the drift ADR-032 exists to
+prevent.
+
+**Why ignored rather than tracked.** ADR-032 §1: T1 is never in the repository.
+A committed `properties.toml` was authored by the project, and by the tier
+boundary that makes it T3/T4, not T1. A file cannot be T1 in the tree and T1 on
+the machine. For the same reason `local/` must **not** move under `host/`: in
+`host/` the path asserts what is shipped, and a T1 file under `host/etc/katmate/`
+would be the exact mistake ADR-032 exists to make visible from the path alone.
+
+**Applied by hand on 2026-08-11**, `install -D -m 0644 -o root -g root` from the
+staging tree, verified with `cmp` and `sha256sum` against the source rather than
+by eye. **Build-order step 6 replaces this hand-copy with installer
+provisioning**, under ADR-032's constraint on the installer: it may create a T1
+file, and it may **never** overwrite one it did not create in the same run. The
+relation is `/etc/skel` to `$HOME` — files written at install time are the
+user's from that moment, and a later release that needs a schema change
+notifies rather than overwrites.
+
+---
+
 # Not in this file
 
 - Dev-only scaffolding that must be **removed** before release — host sshd
