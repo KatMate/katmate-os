@@ -2288,14 +2288,6 @@ The `state.md` invariant naming `52:54:0a:64:01:01` as the internal segment's
 identity is stale from the moment the generator lands, and is corrected in the
 same pass.
 
-**Revision note, 2026-08-11 (step 3a part 2, §0):** G1's clause "with no `.con`
-script present" conflated two properties. That the unit can start netVM is
-observable in part 2; that the launcher is redundant is observable only where
-the launcher is deleted, which is G3 in part 3. G1 is therefore read as: the
-unit starts netVM, the uplink comes up, and QEMU is a child of the unit with the
-`.con` not invoked. Literal absence moves to G3. No mechanism changed; the gate
-was measuring two things under one name.
-
 ---
 
 ## ADR-026 — Domain indicator carriers: host-resolved waypipe CID, never guest-supplied window properties
@@ -3606,6 +3598,14 @@ and it is anomalous precisely because the AppVM network device does not exist
 yet. It stops firing when topology is settled. Until then
 `validate-properties.fish --strict` cannot serve as a pre-commit gate over the
 real T1 set without an expected-warning allowance.
+
+**Revision note, 2026-08-11 (step 3a part 2, §0):** G1's clause "with no `.con`
+script present" conflated two properties. That the unit can start netVM is
+observable in part 2; that the launcher is redundant is observable only where
+the launcher is deleted, which is G3 in part 3. G1 is therefore read as: the
+unit starts netVM, the uplink comes up, and QEMU is a child of the unit with the
+`.con` not invoked. Literal absence moves to G3. No mechanism changed; the gate
+was measuring two things under one name.
 
 ---
 
