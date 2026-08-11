@@ -246,6 +246,33 @@ EOF
 chmod 0644 "$META_TMP"
 mv "$META_TMP" "$FOUNDATION_META"   # atomic: same fs (mktemp in the target dir)
 
+# ---- 11. install the shared MicroVM kernel (ADR-032 §5) ---------------------
+# The AppVM kernel is T2 with one value for all images: every image records the
+# same KERNEL_VERSION today, and <image>.meta records WHICH kernel an image
+# requires, not where it lies. A unit's -kernel therefore resolves to
+# $KATMATE_KERNELS_DIR/$(basename) and never into out/ — a unit reading from a
+# build tree would be a release running from build artifacts.
+#
+# Ordering matches step 10 and netvm.sh step 11, for the same two reasons:
+#  * AFTER the RO-freeze, so the kernel is never published beside a half-built
+#    foundation;
+#  * AFTER the rollback trap is disarmed, so a failure here dies loudly (set -e)
+#    and leaves a valid frozen LV standing rather than destroying it.
+#
+# Copy-then-rename on the same filesystem: a launcher never sees a truncated
+# kernel. The basename is preserved because it already carries arch and version
+# (vmlinuz-katmate-microvm-<arch>-<version>), which is what KERNEL_VERSION in a
+# meta resolves against.
+# The temporary name carries a leading dot, as netvm.sh step 11 does: a partial
+# file named vmlinuz-*.new would be matched by any glob looking for a kernel.
+log "Install shared MicroVM kernel -> $KATMATE_KERNELS_DIR"
+install -d -m0755 "$KATMATE_KERNELS_DIR"
+KERNEL_BASE="$(basename "$KERNEL_VMLINUZ")"
+KERNEL_TMP="$KATMATE_KERNELS_DIR/.$KERNEL_BASE.new"
+cp -- "$KERNEL_VMLINUZ" "$KERNEL_TMP"
+chmod 0644 "$KERNEL_TMP"
+mv -f -- "$KERNEL_TMP" "$KATMATE_KERNELS_DIR/$KERNEL_BASE"
+
 log "$FOUNDATION_LV ready: RO-frozen thin foundation."
 log "Next: sudo make app-web / sudo make app-vault (thin snapshots of this LV)."
 log "Reminder: 'lvchange -K -ay $VG/$FOUNDATION_LV' is required before each boot."

@@ -49,6 +49,14 @@ INIT_BIN="$OUT/katmate-init"
 # precedent rather than invent a second pattern for the same fact.
 KATMATE_STATE_DIR="/var/lib/katmate"
 
+# --- T2: the shared MicroVM kernel (ADR-032 §5) ------------------------------
+# Built once, used by every AppVM. <image>.meta records WHICH kernel an image
+# requires (KERNEL_VERSION), never where it lies — so the path is composed from
+# this directory plus the recorded version, and a unit's -kernel never points
+# into a build tree. Stated here for the same reason FOUNDATION_META is: one
+# location, one place that says it.
+KATMATE_KERNELS_DIR="$KATMATE_STATE_DIR/kernels"
+
 # --- foundation build metadata (ADR-019) --------------------------------------
 # Host-side source of truth for the active foundation version. Written by
 # foundation.sh after a successful RO-freeze; read by the instance launch
