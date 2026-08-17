@@ -3607,6 +3607,46 @@ unit starts netVM, the uplink comes up, and QEMU is a child of the unit with the
 `.con` not invoked. Literal absence moves to G3. No mechanism changed; the gate
 was measuring two things under one name.
 
+**Revision note, 2026-08-17 (step 3a part 2, gate G1 — E1's unnamed
+precondition):** E1's *what the probe did not cover* list names three things. A
+fourth, unnamed, is the one that decided the gate. E1a was necessarily measured
+with the environment file **already present**: `EnvironmentFile=` without a
+leading `-` is loaded before **every** `Exec*` invocation, `ExecStartPre=`
+included, and an absent file fails the whole execution-environment setup before
+anything is spawned. `systemd.exec(5)` states the rule plainly — the files are
+read shortly before each process is executed, so a file generated in one unit
+state is readable in the next — and the same rule governs the first state, which
+has no producer before it.
+
+Measured on MINIS 2026-08-17, systemd 261, in a probe carrying no KatMate
+content. File absent: `Failed to load environment files: No such file or
+directory` → `Failed to spawn 'start-pre' task` → `Result=resources`, with
+`Mem peak: 0B` and `CPU: 0`; the `ExecStartPre=` that would have created the file
+never ran. File present with a different value: the same unit re-read it and
+`ExecStart=` saw what `ExecStartPre=` had just written — E1a reproduced exactly.
+Both results are true and they are not in tension. E1a measured a **re-read**,
+and could only have done so.
+
+**Candidate A as transcribed in §8 therefore cannot start.**
+`katmate-generate-env` is the only producer of `/run/katmate/vm/<instance>.env`,
+it is referenced from exactly one place — that unit's own `ExecStartPre=` — and
+`/run` is empty at every boot. `katmate-sys-driver@netvm.service` failed this way
+on its first execution (gate G1, 2026-08-17, FAILED). Nothing in the template's
+transcription of `net-sys.con` is implicated: `ExecStart=` was never reached and
+remains UNVERIFIED in full.
+
+**What is not withdrawn.** What is refuted is the transcription, not the
+candidate. B remains recorded as measured working, with one cost this ADR did not
+name: the profile a unit **asserts** reaches the generator as `%p`, and `%p`
+inside a generator unit of its own is the generator's name, not the VM profile —
+so under B the [ADR-032](DECISIONS.md#adr-032) §6 assertion check loses its
+carrier and needs either the `<profile>:<instance>` instance-name idiom of
+`systemd-backlight@` or a fourth executable. That cost belongs on the record
+before anyone reaches for B expecting it to be free.
+
+The correction is not ruled here. It requires one further measurement (E1c);
+this note records the failure only.
+
 ---
 
 ## ADR-032 — Where each tier lives: the path is the tier, and T4 is more than the template
