@@ -46,6 +46,107 @@
 
 ---
 
+## This session (2026-08-09, second of two) — 3a part 1: the data layer exists, and the schema tells the truth on its first day
+
+Delegated implementation session on the Acer, whole tree visible. Five commits,
+all signed. Split from the architecture session above because the work is
+different in kind and because the tree is the subject — the chat context sees
+about a third of it, and every wrong assertion this project has recorded today
+came from that third.
+
+### What exists now
+
+- **`build/netvm.sh` writes T2 host-side.** `netvm.meta` had been written to
+  `$NETVM_MNT/var/lib/katmate/netvm.meta`, inside the guest filesystem — the one
+  place no launcher can read without mounting the guest root, which the launch
+  path must never do. Payload and metadata now share `/var/lib/katmate/netvm/`
+  per ADR-032 §5, because they share an author, a lifecycle and an upgrade
+  owner. `out/netvm/` keeps its copy and stays a build tree. The meta carries
+  what a unit needs and the four descriptive keys could not supply: the LV, the
+  guest-side root device, the rootfstype, and the kernel and initrd paths.
+- **`build/app-layer.sh` writes `app-web.meta`** with per-app-layer provenance.
+  `foundation.meta` already recorded `FOUNDATION_LV`, so the gap was never the
+  base LV's *name* — it was that nothing tied an app layer to the foundation
+  *generation* it was snapshotted from.
+- **`tools/validate-properties.fish` enumerates a directory** and enforces the
+  class-dependent schema: required and forbidden sets per class, class-dependent
+  `manifest` values, the `sys-proxy` error, and the cross-file duplicate-`nic`
+  rule that was not implementable until T1 had a location.
+- **Both `properties.toml` files exist**, on the Acer only, at their canonical
+  paths mirrored under `~/katmate-t1/`. They are not in the repository and never
+  will be (ADR-032 §1).
+
+### The one behavioural proof part 1 could make
+
+Five rejections verified with verbatim output: `persistence` on `class = sys`;
+`nic` on `class = app`; `class = sys` without `nic` reported as the named
+`sys-proxy` error rather than a bare missing key; the same `nic` label in two
+files (G5); and `cid = "auto"` with `disposable = true` accepted, which is the
+regression guard for the CID band. This is ADR-032 §3's whole claim — forbidden
+keys are errors at parse, not ignored — and it holds.
+
+### `app_web` has no network device, and the schema said so
+
+The finding that reached furthest. `app_web.con` carries vsock, two block
+devices and an RNG: no `-netdev`, no `virtio-net-device`, no tap. So its honest
+T1 is `netvm = ""`, which derives **`app-offline`** — and ADR-030's gate G2,
+which names `katmate-app-routed@` for `app_web`, is misnamed.
+
+Declaring `netvm = "netvm"` instead was rejected: it would have made 3a **add**
+a mechanism rather than transcribe one, and 3a's entire value is as ADR-030's
+empirical gate. Recorded as a revision note on ADR-030 with four consequences,
+including that **3a ships two templates, not three**, and that ADR-032's gate H2
+needs an inverted pair since it cannot start a unit that does not ship.
+
+**And the schema then earned its keep on day one.** ADR-015's semantic invariant
+— a `web` manifest with no network is almost certainly wrong — survived the
+removal of the `network` field, because the field changed and the invariant did
+not. Re-expressed on `netvm`, it fires on `app_web` under `--strict`. It was not
+silenced. The warning is true, and it is true *because* the AppVM network device
+does not exist; it stops firing when link topology is settled. The cost is
+recorded: `--strict` cannot be a pre-commit gate over the real T1 set today
+without an expected-warning allowance.
+
+### The `trap` had to move, and that is the one unverified change
+
+The brief said to append a block "after `trap - EXIT`", on `foundation.sh`'s
+pattern. In `netvm.sh` that disarm was the **second-to-last line**, guarding a
+cleanup that `lvremove`s the image. Appending below it would have meant that a
+`set -e` failure in the new block destroyed a complete, valid image — the exact
+failure the ordering exists to prevent. The disarm now runs immediately after
+the umount.
+
+**UNVERIFIED, and it executes first on MINIS.** The observation pair that
+settles it: a netVM build failing in steps 1–10 must still remove the LV; one
+failing in step 11 must leave it standing.
+
+### Corrections this session forced on documents
+
+- **ADR-015 gained the revision note it should have had on 2026-08-06.**
+  ADR-032 §3 changes the schema ADR-015 owns, and ADR-015 states its own
+  discipline twice: the specification and the tool enforcing it must not
+  disagree. The note also **restates the CID bands in full**, because the
+  ADR-030 note had already been misread once — as restricting `class = app` to
+  20–99, which deletes ADR-014's disposable archetype at parse time. `class =
+  app` keeps all three forms: 20–99 static, `"auto"`, and numeric ≥ 100.
+- **`D13` is decided: everything in the repository is en_US.** The validator and
+  `bin/katmate-cid` are Slovenian in comments and diagnostics. Translating them
+  is now an open item — mechanical, verifiable, its own commit.
+
+### What this session is evidence for
+
+The delegated session made no wrong assertion about the tree across two reading
+passes and five commits. It also caught two things the brief got wrong — the
+CID band compression, and the `trap` — either of which would have cost a boot
+cycle or an LV. **Where the tree is the subject, the tree has to be readable**,
+and the split between architecture here and implementation there is not a
+convenience.
+
+Second: the schema found a defect in a *published gate* within hours of the
+first two T1 files existing. That is the ADR-024 method arriving at its
+cheapest possible moment — not in a template being debugged, but in a file
+being written.
+
 ## This session (2026-08-09, first of two) — step 3a ran as a gate and returned five holes; ADR-032 answers them
 
 Two sessions in one day, kept separate as the discipline requires: mechanical
