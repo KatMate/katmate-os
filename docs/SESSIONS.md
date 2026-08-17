@@ -46,6 +46,131 @@
 
 ---
 
+## This session (2026-08-09, first of two) — step 3a ran as a gate and returned five holes; ADR-032 answers them
+
+Two sessions in one day, kept separate as the discipline requires: mechanical
+housekeeping first (thinking-off), then architecture (thinking-on) once step 3a
+reported back. Recorded as one entry because the second could not have been
+predicted from the first — 3a was expected to write files, not to halt.
+
+### Housekeeping (commit `d971006`)
+
+- **The two 2026-08-06 sessions closed.** The hygiene pass had never been given
+  a heading; its consequences were visible in this file and in the
+  `SESSIONS.md` header while the session itself was invisible — the exact
+  defect it had been convened to repair. Written up as *first of two*; ADR-030
+  became *second of two*. The 2026-08-03 entry rotated to the archive in the
+  same pass, because rotation **is** how a session closes.
+- **Ordering was established from the session record, not inferred from
+  content.** The first attempt placed the hygiene pass *after* ADR-030, on the
+  reasoning that documentation cleanup follows architecture. It was before —
+  its own working title was *"pred ADR-030"* — and it was a precondition: the
+  ADR could not have been written against an unresolved ADR-030/031 numbering
+  collision. Two attributions moved with it: the six repaired build-order
+  ordinals belong to the ADR-030 session that created them by renumbering, and
+  `HOST-CONFIG.md:199` splits — the *claim* to have corrected it belongs to the
+  hygiene pass, the correction itself to ADR-030.
+- **`zoxide` guard applied on both machines** (`config.fish:81`), open since
+  07-03. It had stopped being cosmetic: every `ssh` to MINIS ran `config.fish`
+  and printed the error, twice during this session's own rsync.
+
+### Step 3a, delegated and halted
+
+3a was handed to a Claude Code session on the Acer with the whole tree
+visible — the chat context sees roughly a third of it, and three claims made
+from that partial view during the morning were wrong (session ordering, the
+existence of `netvm.meta`, an invented `ssh` alias). The brief was explicit
+that it was written from a partial view and that the repository wins.
+
+The session read eleven files and **halted before modifying any of them**,
+reporting fourteen divergences. Four blocking. That is the gate working:
+3a's whole purpose was to test ADR-030's schema by placing every line of both
+`.con` launchers, on the principle that a line with nowhere to go is a hole.
+The answer arrived before a single file was touched, which is the cheapest
+place it could have arrived.
+
+**The five holes, all of them one omission** — ADR-030 said *what* the daemon
+reads and *who wrote it*, and never said **where any of it lies**:
+
+1. **T1 had no location.** "Config tree" appears exactly once in the
+   repository: in that table row. No `/etc/katmate`, no example
+   `properties.toml`, nothing created by the installer. Work order step 2 could
+   not be executed without inventing a path.
+2. **The ADR-019 waypipe version lock had no tier.** ~38 lines of host control
+   flow that must run before QEMU, normative by ADR-019 and recorded as such in
+   this file. Not T1, not T2 (it *consumes* T2), not a directive that can
+   appear in a unit.
+3. **The required key set for `class = sys` was undefined.** ADR-030 lifts
+   ADR-015's AppVM-only restriction and calls the rest "unchanged"; applied to
+   netVM the rest does not survive contact.
+4. **The duplicate-`nic` rule needed a validator that enumerates.** It is
+   cross-file; the validator is strictly per-file and erases its accumulator
+   after each one.
+5. **T2 had to record a payload path and no runtime home existed.** `out/` is
+   `.gitignore`d and is a build tree.
+
+**Nine further findings**, of which the ones that changed a decision: the MAC
+`52:54:0a:64:01:01` is not an unnoticed anti-pattern but an explicit ADR-025
+decision that ADR-030 overturned without recording it; the brief's `-append`
+argument cited ADR-018 for a claim ADR-018 does not make (the conclusion
+survives on `init=`, which *bypasses* PID 1 rather than weakening it);
+`foundation.meta` already records `FOUNDATION_LV`, so the gap is per-app-layer
+provenance rather than the base LV name.
+
+### ADR-032 (commit `774db9c`)
+
+The five holes did not fit a revision note — they came to a directory
+convention, a widened tier definition, a class-dependent schema and a validator
+contract. That is an ADR by size. `ADR-031` stays reserved for the GPL-3.0
+declaration; the gap in numbering is honest, because that decision is taken and
+only the document is missing.
+
+- **The path is the tier.** `/etc/` user · `/var/lib/` pipeline · `/usr/lib/`
+  release · `/run/` derived. A reader establishes a file's tier with `ls`.
+- **Authorship is made operative as *who wins on upgrade*.** ADR-030's
+  principle was sound and unfalsifiable as stated — a file's author is not
+  visible in the file. It follows that **T1 is never in the repository**: a
+  committed `properties.toml` was authored by the project, which by ADR-030's
+  own boundary makes it T3/T4. The installer seeds T1 and does not own it
+  (`/etc/skel` → `$HOME`), which is the pattern already used for
+  `outputs.conf` and the generated greetd sessions.
+- **T4 is the template plus the executables it references**, at
+  `/usr/lib/katmate/`, under an authority limit: reads T1 and T2, writes only
+  `/run/katmate/`, decides binarily, derives the profile only from
+  `(class, netvm, nic)`. Without the limit, widening T4 opens a second route to
+  the profile and containment becomes negotiable. ADR-030 §8's projection
+  generator was already such an executable; the ADR relied on the category
+  without naming it.
+- **Required keys are a function of `class`**, with forbidden keys rejected at
+  parse. A `persistence` line on a netVM that is silently discarded is the
+  *silent wrong-object* class this project keeps finding.
+- **Payload follows the producer**, and the AppVM kernel is T2 with one value
+  for every image.
+
+Revision notes on ADR-030 (the five findings) and ADR-025 (the MAC
+supersession). Gates **H1–H3** open, attached to 3a.
+
+### Corrections this session forced on this file
+
+Four claims here were wrong, and one of them misled the delegated session
+directly — it inferred a path mismatch from `~/katmate-build/katmate-os/`,
+which does not exist. See *Invariants* and *Open problems*: the MINIS build-copy
+path, the `--delete` claim, two stale line references, and open problem #15,
+which is **resolved**.
+
+### What this session is evidence for
+
+The gate cost one reading pass and produced five schema defects. The
+alternative — writing the templates first and discovering that the waypipe
+preflight has no tier while debugging a unit — is the expensive version of the
+same finding. **ADR-024's method transfers from mechanisms to schemas.**
+
+Second, less comfortable: three of the morning's errors came from asserting
+repository facts without opening the files, against this project's own standing
+rule. The delegated session, with the whole tree visible, produced no such
+error in eleven files. Where the tree is the subject, the tree has to be
+readable.
+
 ## This session (2026-08-06, second of two) — ADR-030: authorship is the tier boundary; the build order gains the step it was missing
 
 Architecture session (thinking-on), the second of the day — the documentation

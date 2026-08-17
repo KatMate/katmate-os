@@ -5,8 +5,8 @@
 > each working session. Detailed proofs and command sequences live in git
 > history and the ADRs — this file references them rather than repeating them.
 
-**Milestone:** v0.2 (in development) · **Last updated:** 2026-08-09
-(two sessions: ADR-032, then step 3a part 1 — the data layer).
+**Milestone:** v0.2 (in development) · **Last updated:** 2026-08-17
+(entry written for the 2026-08-11 session — step 3a part 2, first half).
 
 ## Current focus
 
@@ -41,7 +41,109 @@ restartable — and so updatable — without touching running VMs.
 Direction unchanged: IOMMU-capable platforms only (VT-d/AMD-Vi); VT-x-only
 frozen (ADR-015). MINIS is primary host and merge target.
 
-## This session (2026-08-09, second of two) — 3a part 1: the data layer exists, and the schema tells the truth on its first day
+## This session (2026-08-11) — 3a part 2, first half: the `trap` relocation is verified in both directions, and the host has T1
+
+Delegated implementation session on the Acer, reaching MINIS over ssh — one
+session, two machines, so *never edit on MINIS* follows from the topology rather
+than from discipline: the session had no editor there. **Closed at the §2.3 / §3
+boundary by operator decision**, because §2.3 is a complete measurement and §3
+is new work with its own risk. Three commits, all signed (`6fd9821`, `d4224fb`,
+`703befe`). Report: `~/3a2-report.md`.
+
+The read pass **halted with ten divergences** before any file was modified; an
+eleventh was found during the work. All were ruled on, and two of them changed
+what part 2 will ship (see *the privilege boundary*, below, and G1's split).
+
+### What exists now
+
+- **`/etc/katmate/vm/` is live** — both T1 files, `root:root 0644`, flat, one
+  per VM (ADR-032 §7). **Copied, never authored**, verified by `cmp` and
+  `sha256sum` against the staging tree, because a second authored copy is the
+  drift ADR-032 exists to prevent. The validator passes over the directory with
+  cross-file rules evaluated over a guaranteed-complete set of two.
+- **The T1 staging tree is `local/etc/katmate/vm/` in the repository**, ignored
+  via `.gitignore`, mirroring install paths inside itself so the install step
+  stays a copy. It is **not** under `host/`: in `host/` the path asserts what
+  ships, and T1 is user-authored by definition. `docs/HOST-CONFIG.md` records
+  the requirement, both paths, and that build-order step 6 replaces the
+  hand-copy with installer provisioning.
+- **`/var/lib/katmate/netvm/` is live** with `vmlinuz`, `initrd.img` and
+  `netvm.meta`, written by `netvm.sh` step 11 on a real build. This was the
+  precondition G1 was waiting on.
+- **`/var/lib/katmate/kernels/` exists** and holds the shared microVM kernel —
+  **placed by hand.** `build/foundation.sh` gained the step that installs it
+  (`d4224fb`, with `KATMATE_KERNELS_DIR` in `config.sh` so the path is stated
+  once), and **the script was not run.** That step is **UNVERIFIED** and first
+  executes at the next foundation rebuild; the hand-placed file is not evidence
+  for it.
+
+### The one thing this session was convened to measure
+
+**The `netvm.sh` `trap - EXIT` relocation is VERIFIED, in both directions** —
+part 1 carried it as the single unverified change. Injected from outside the
+script, never by editing it: run 1 an invalid `DEBIAN_MIRROR` (fails in step 2,
+`netvm_cleanup` **removed** the LV), run 2 `chattr +i /var/lib/katmate` (step 11
+`install -d` returns EPERM even as root, the LV **stood**, and the rollback was
+provably silent). Run 3 was clean, so **step 11 is verified in the writing
+direction too**, its payload hash-identical to the `out/netvm/` export. Three
+host reboots, each an operator gate.
+
+**The reading rule made the measurement legible, and was ruled before run 2's
+result was known:** an absent LV is not by itself evidence against the
+relocation. A steps-1–10 failure and a step-11 failure produce the same `lvs`
+output and are told apart only by *where the run failed*, so a repeat after a
+mirror flake is not retrying for a desired result — no measurement was produced.
+A repeat after a step-11 result would be, and was refused in advance.
+
+Consequence for the brief: **"reboot before each run" is conditional, not
+unconditional.** The condition is a held device — open count, or a `jbd2`
+kthread on this LV's `dm-N` — and it was measured **absent** before run 2 and
+**present** before run 3. A remedy with no condition to remedy is habit, not
+caution; where the condition is present the reboot stands, and it stays an
+operator gate because the root volume is LUKS and the passphrase is entered at
+the machine.
+
+### The privilege boundary in the `ExecStartPre=` chain became visible
+
+ADR-032 §2 gives `katmate-check-image` "backing-chain and payload existence"
+while also arguing for a cheapest-gate-first chain that runs before anything is
+activated. Measured on MINIS as uid 1000: `lvs vg0` exits 5 on
+`/dev/mapper/control` and the `vg0` lock, and membership of group `disk` does
+not help. Both halves cannot hold. Ruled: `check-image` narrows to plain files
+(kernel, initrd, `<image>.meta`) and **LV existence moves to
+`katmate-activate-lvs`**, already `ExecStartPre=+`, where `lvchange -K -ay`
+*is* the existence check. No third executable, no widened privileged set.
+Written into ADR-032 as a revision note in the following session (`98a6ff2`).
+
+### Corrections this session forced on documents
+
+- **The netVM guest kernel is `6.12.101+deb13-amd64`**, not `6.12.96`. Runs 2
+  and 3 took what trixie offers — the build is declarative, so this is the
+  mechanism working, not a defect. Applied below; `docs/SESSIONS.md:1032` still
+  names 6.12.96 and is deliberately **not** corrected, because dated session
+  records are not rewritten.
+- **`vm_personal_home` is present on MINIS**, against this file's claim that it
+  was deleted 2026-08-02. Recorded where the claim is made, and **unresolved in
+  either direction** — a session does not silently reconcile a document with the
+  tree.
+- **The T1 location moved** from `~/katmate-t1/` to `local/etc/katmate/vm/`, and
+  the files are now also installed on MINIS.
+- **The stuck-`jbd2` symptom became a test.** This file already described the
+  symptom correctly twice, inside historical entries — but neither was a test,
+  and nothing said that `mount` is not the condition. Run 2 produced an LV
+  **unmounted yet open**, and run 3 produced a *successful* build whose
+  filesystem came out `clean` while the device was *still* held. The test is now
+  in *Invariants & gotchas* with both measurements behind it.
+
+### What this session is evidence for
+
+A destructive property was measured by injecting failure from **outside** the
+script under test — no sabotage in the history, and no file edited on the
+machine that would revert it. And the ADR was tested by trying to *implement*
+it: a sentence in ADR-032 §2 that reads as one requirement turned out to be two,
+which is the same finding class as G1 measuring two properties under one name.
+
+## Previous session (2026-08-09, second of two) — 3a part 1: the data layer exists, and the schema tells the truth on its first day
 
 Delegated implementation session on the Acer, whole tree visible. Five commits,
 all signed. Split from the architecture session above because the work is
@@ -142,134 +244,10 @@ first two T1 files existing. That is the ADR-024 method arriving at its
 cheapest possible moment — not in a template being debugged, but in a file
 being written.
 
-## Previous session (2026-08-09, first of two) — step 3a ran as a gate and returned five holes; ADR-032 answers them
-
-Two sessions in one day, kept separate as the discipline requires: mechanical
-housekeeping first (thinking-off), then architecture (thinking-on) once step 3a
-reported back. Recorded as one entry because the second could not have been
-predicted from the first — 3a was expected to write files, not to halt.
-
-### Housekeeping (commit `d971006`)
-
-- **The two 2026-08-06 sessions closed.** The hygiene pass had never been given
-  a heading; its consequences were visible in this file and in the
-  `SESSIONS.md` header while the session itself was invisible — the exact
-  defect it had been convened to repair. Written up as *first of two*; ADR-030
-  became *second of two*. The 2026-08-03 entry rotated to the archive in the
-  same pass, because rotation **is** how a session closes.
-- **Ordering was established from the session record, not inferred from
-  content.** The first attempt placed the hygiene pass *after* ADR-030, on the
-  reasoning that documentation cleanup follows architecture. It was before —
-  its own working title was *"pred ADR-030"* — and it was a precondition: the
-  ADR could not have been written against an unresolved ADR-030/031 numbering
-  collision. Two attributions moved with it: the six repaired build-order
-  ordinals belong to the ADR-030 session that created them by renumbering, and
-  `HOST-CONFIG.md:199` splits — the *claim* to have corrected it belongs to the
-  hygiene pass, the correction itself to ADR-030.
-- **`zoxide` guard applied on both machines** (`config.fish:81`), open since
-  07-03. It had stopped being cosmetic: every `ssh` to MINIS ran `config.fish`
-  and printed the error, twice during this session's own rsync.
-
-### Step 3a, delegated and halted
-
-3a was handed to a Claude Code session on the Acer with the whole tree
-visible — the chat context sees roughly a third of it, and three claims made
-from that partial view during the morning were wrong (session ordering, the
-existence of `netvm.meta`, an invented `ssh` alias). The brief was explicit
-that it was written from a partial view and that the repository wins.
-
-The session read eleven files and **halted before modifying any of them**,
-reporting fourteen divergences. Four blocking. That is the gate working:
-3a's whole purpose was to test ADR-030's schema by placing every line of both
-`.con` launchers, on the principle that a line with nowhere to go is a hole.
-The answer arrived before a single file was touched, which is the cheapest
-place it could have arrived.
-
-**The five holes, all of them one omission** — ADR-030 said *what* the daemon
-reads and *who wrote it*, and never said **where any of it lies**:
-
-1. **T1 had no location.** "Config tree" appears exactly once in the
-   repository: in that table row. No `/etc/katmate`, no example
-   `properties.toml`, nothing created by the installer. Work order step 2 could
-   not be executed without inventing a path.
-2. **The ADR-019 waypipe version lock had no tier.** ~38 lines of host control
-   flow that must run before QEMU, normative by ADR-019 and recorded as such in
-   this file. Not T1, not T2 (it *consumes* T2), not a directive that can
-   appear in a unit.
-3. **The required key set for `class = sys` was undefined.** ADR-030 lifts
-   ADR-015's AppVM-only restriction and calls the rest "unchanged"; applied to
-   netVM the rest does not survive contact.
-4. **The duplicate-`nic` rule needed a validator that enumerates.** It is
-   cross-file; the validator is strictly per-file and erases its accumulator
-   after each one.
-5. **T2 had to record a payload path and no runtime home existed.** `out/` is
-   `.gitignore`d and is a build tree.
-
-**Nine further findings**, of which the ones that changed a decision: the MAC
-`52:54:0a:64:01:01` is not an unnoticed anti-pattern but an explicit ADR-025
-decision that ADR-030 overturned without recording it; the brief's `-append`
-argument cited ADR-018 for a claim ADR-018 does not make (the conclusion
-survives on `init=`, which *bypasses* PID 1 rather than weakening it);
-`foundation.meta` already records `FOUNDATION_LV`, so the gap is per-app-layer
-provenance rather than the base LV name.
-
-### ADR-032 (commit `774db9c`)
-
-The five holes did not fit a revision note — they came to a directory
-convention, a widened tier definition, a class-dependent schema and a validator
-contract. That is an ADR by size. `ADR-031` stays reserved for the GPL-3.0
-declaration; the gap in numbering is honest, because that decision is taken and
-only the document is missing.
-
-- **The path is the tier.** `/etc/` user · `/var/lib/` pipeline · `/usr/lib/`
-  release · `/run/` derived. A reader establishes a file's tier with `ls`.
-- **Authorship is made operative as *who wins on upgrade*.** ADR-030's
-  principle was sound and unfalsifiable as stated — a file's author is not
-  visible in the file. It follows that **T1 is never in the repository**: a
-  committed `properties.toml` was authored by the project, which by ADR-030's
-  own boundary makes it T3/T4. The installer seeds T1 and does not own it
-  (`/etc/skel` → `$HOME`), which is the pattern already used for
-  `outputs.conf` and the generated greetd sessions.
-- **T4 is the template plus the executables it references**, at
-  `/usr/lib/katmate/`, under an authority limit: reads T1 and T2, writes only
-  `/run/katmate/`, decides binarily, derives the profile only from
-  `(class, netvm, nic)`. Without the limit, widening T4 opens a second route to
-  the profile and containment becomes negotiable. ADR-030 §8's projection
-  generator was already such an executable; the ADR relied on the category
-  without naming it.
-- **Required keys are a function of `class`**, with forbidden keys rejected at
-  parse. A `persistence` line on a netVM that is silently discarded is the
-  *silent wrong-object* class this project keeps finding.
-- **Payload follows the producer**, and the AppVM kernel is T2 with one value
-  for every image.
-
-Revision notes on ADR-030 (the five findings) and ADR-025 (the MAC
-supersession). Gates **H1–H3** open, attached to 3a.
-
-### Corrections this session forced on this file
-
-Four claims here were wrong, and one of them misled the delegated session
-directly — it inferred a path mismatch from `~/katmate-build/katmate-os/`,
-which does not exist. See *Invariants* and *Open problems*: the MINIS build-copy
-path, the `--delete` claim, two stale line references, and open problem #15,
-which is **resolved**.
-
-### What this session is evidence for
-
-The gate cost one reading pass and produced five schema defects. The
-alternative — writing the templates first and discovering that the waypipe
-preflight has no tier while debugging a unit — is the expensive version of the
-same finding. **ADR-024's method transfers from mechanisms to schemas.**
-
-Second, less comfortable: three of the morning's errors came from asserting
-repository facts without opening the files, against this project's own standing
-rule. The delegated session, with the whole tree visible, produced no such
-error in eleven files. Where the tree is the subject, the tree has to be
-readable.
-
 ## Session archive
 
-Sessions older than the two above (the 2026-08-06 pair, then 2026-08-03, then
+Sessions older than the two above (2026-08-09 *first of two*, then the
+2026-08-06 pair, then 2026-08-03, then
 2026-08-02 *second of two*, then *first of two*, then 2026-07-28 back to
 2026-06-27) live in
 [docs/SESSIONS.md](docs/SESSIONS.md), split out on
@@ -289,6 +267,13 @@ never been given; the 2026-08-03 entry rotated to the archive in the same pass.
 The *Pending* note that stood here is retired, including its stale prediction
 that the 2026-08-02 *second of two* entry had yet to move — it had already
 rotated on 2026-08-06.
+
+**Closed 2026-08-11** (written up 2026-08-17). The 2026-08-09 *first of two*
+entry — step 3a as a gate, and ADR-032 — rotated to the archive as the 2026-08-11
+entry arrived, because rotation is how a session closes and the file keeps two.
+Its heading changed from *Previous session* to *This session*, which is the
+archive's uniform convention; the body moved verbatim, verified by diffing the
+extracted block against the pre-move blob.
 
 **Ordering note.** Both 2026-08-06 entries are same-day. *First of two* is the
 hygiene pass (midday); *second of two* is ADR-030 (evening). The hygiene pass
@@ -332,6 +317,16 @@ touched.
   the `personal` archetype (ADR-014) is not.** It returns as one of the four
   default AppVMs, with a CID allocated from 20–99 at that point.
 
+  **Correction (2026-08-11): `vm_personal_home` is present.** `sudo lvs` on
+  MINIS reports `vm_personal_home vg0 Vwi-a-tz-- 40.00g vm_pool 4.47`. Either
+  the deletion above never happened or the LV was recreated, and nothing in the
+  tree settles which — so the claim is **marked, not rewritten**, and removing
+  40 G of thin volume is a decision for the operator rather than a
+  documentation correction. Everything else in this entry holds: the launcher
+  and the overlay are gone, and *"the artefact is gone"* is wrong only about
+  this one LV. **`ROADMAP.md:31` repeats the same claim** and is left standing
+  for the same reason.
+
 - **Host** (Arch): Ryzen 7 8745H, AMD-Vi + vfio. `vg0`: `root` 100G, `swap`
   12G, `vm_pool` thin pool. Custom microvm kernel `6.12.87` at
   `/home/host/katmate-kernels/` (monolithic, `-kernel`, no initrd). nft input
@@ -352,10 +347,13 @@ touched.
   principle, superseded. (b) The **declarative build** `vm_sys_netvm` (linear RW
   4G) from `build/netvm.sh`, booted via `~/net-sys.con` (RTL8125 via
   `-device vfio-pci,host=0000:01:00.0`, `-kernel`/`-initrd` direct boot, kernel
-  **6.12.96+deb13-amd64**, rebuilt clean on 2026-07-23). Boots through full
+  **6.12.101+deb13-amd64**, rebuilt clean on 2026-08-11 — was
+  `6.12.96+deb13-amd64` from the 2026-07-23 build, and the change is trixie
+  moving under a declarative manifest, not a defect). Boots through full
   systemd, root on `/dev/vda`; the uplink comes up MAC-matched
   (`38:05:25:34:7c:47`, `Link is Up 1Gbps/Full`, `firmware-realtek` loaded,
-  DHCP lease `10.3.1.110` confirmed by host ARP scan) and the internal p2p
+  DHCP lease **`10.3.1.104`** confirmed by host ARP scan on 2026-08-11 — the
+  lease is volatile and only the MAC identifies the guest) and the internal p2p
   segment on its locally-administered MAC `52:54:0a:64:01:01`. **Interface
   names are not normative and have moved across sessions** (`enp0s6` on the
   retired pet, `enp0s4`/`enp0s5` on the declarative build) — read the MACs, not
@@ -370,9 +368,10 @@ touched.
   deleted and no AppVM carries a network device yet (ADR-029 C2).
   `memlock` via `LimitMEMLOCK=infinity` (unit) or `ulimit -l
   unlimited` (manual launch). Runs independently of app_web.
-- **personalVM** — **gone (2026-08-02).** Launcher, overlay and
-  `vm_personal_home` all removed; it was the last pre-foundation artefact.
-  Returns as a domain, not as this VM.
+- **personalVM** — **gone (2026-08-02),** except that `vm_personal_home` is
+  still on the disk: launcher and overlay removed, the LV measured present on
+  2026-08-11 (see the correction on the 2026-08-02 housekeeping entry above).
+  It was the last pre-foundation artefact. Returns as a domain, not as this VM.
 - **app_web** (CID **21**, renumbered from 5 on 2026-08-02): the proven
   appliance. Backing `vm_app_web` (thin snap
   RO) ← `/var/lib/katmate/instances/test_web.qcow2`. `/home` =
@@ -593,21 +592,34 @@ separate dev launcher is needed for netVM bring-up once the console goes to the
 journal; the live delta is named `test_web.qcow2` and follows the instance to
 `app_web` (ADR-032 §7).
 
-**Three things part 2 must resolve before a gate can run.**
+**Three things part 2 must resolve before a gate can run — all three settled by
+the 2026-08-11 session; kept with their outcomes because each one is a
+precondition a later gate is still read against.**
 
-- **Both T1 files exist only on the Acer**, under `~/katmate-t1/`, and are in no
-  repository by design. They must be installed at `/etc/katmate/vm/` on MINIS
-  before any G-gate.
-- **`/var/lib/katmate/kernels/` does not exist and nothing populates it.**
+- **~~Both T1 files exist only on the Acer~~ — done 2026-08-11.** The staging
+  tree is `local/etc/katmate/vm/` in the repository (ignored via `.gitignore`),
+  it travels with the ordinary rsync, and both files are installed on MINIS at
+  `/etc/katmate/vm/`, `root:root 0644`, verified by `cmp` and hash against the
+  source. `~/katmate-t1/` no longer exists. Still a hand-copy: installer
+  provisioning is build-order step 6 (`docs/HOST-CONFIG.md`).
+- **~~`/var/lib/katmate/kernels/` does not exist~~ — the directory now exists
+  and holds the kernel, but only because it was placed there by hand.**
+  `build/foundation.sh` installs it as of `d4224fb` and **has not been run**, so
+  that path is UNVERIFIED and first executes at the next foundation rebuild. The
+  three-locations problem below is unchanged for `app_web.con`, which still
+  reads `$KERNEL_SRC_DIR` directly:
   `app-web.meta` records *which* kernel (`KERNEL_VERSION=6.12.87`) per ADR-032
   §5, but a unit's `-kernel` needs a path. The AppVM kernel lives in
   `$KERNEL_SRC_DIR` today and is copied into `out/` by the Makefile, and
   `app_web.con` reads it from `$KERNEL_SRC_DIR` directly — three locations, none
   of them the ADR-032 one.
-- **The `trap - EXIT` relocation in `netvm.sh` is UNVERIFIED** and executes on
-  the first netVM rebuild. A failure in steps 1–10 must still remove the LV; a
-  failure in step 11 must leave it standing. That pair is the whole point of the
-  move.
+- **~~The `trap - EXIT` relocation in `netvm.sh` is UNVERIFIED~~ — VERIFIED
+  2026-08-11, in both directions**, by injecting failure from outside the script
+  (invalid mirror → LV removed; `chattr +i` on the parent of the step-11 target →
+  LV standing, rollback provably silent). A clean third run verified step 11 in
+  the writing direction. The pair, as it was stated and as it was measured: a
+  failure in steps 1–10 must still remove the LV; a failure in step 11 must
+  leave it standing. That pair is the whole point of the move.
 
 **Also carried in:** the validator's exit codes are three-valued (0 valid, 1
 schema error, 2 usage / nothing validated), so a gate script must not treat
@@ -858,6 +870,32 @@ frozen `vm_home_skel` vs qcow2 branch.
   (`umount -R`+`sync`+`settle`+`sleep` before return) could not have worked —
   on failure the script never reached its unmount at all. If a hot jbd2 still
   appears: reboot, do NOT force `lvremove`.
+- **The stuck-`jbd2` test answers "may I `lvremove` now?", not "is the image
+  sound?".** The entry above and the one under *Next steps* describe this
+  symptom correctly, but both describe a past incident — neither is a test, and
+  at the decision point there was no named check. Before any `lvremove` on a
+  build LV, run both:
+
+  ```
+  sudo dmsetup info /dev/<vg>/<lv> | grep 'Open count'
+  ps aux | grep "[j]bd2"            # look for [jbd2/dm-N-8] with N = this LV's dm
+  ```
+
+  Open count `0` **and** no matching `jbd2` kthread → safe to `lvremove`.
+  Anything else → **reboot; do not force `lvremove`.**
+
+  **`mount` is not the condition.** An LV can be cleanly unmounted and still
+  open with a live journal thread — measured 2026-08-11. **`lsof` and `fuser`
+  cannot see it either**, because a kthread holds no fds; `fuser` returns exit 1
+  on exactly the device that is stuck. Map the LV to its `dm-N` with
+  `dmsetup ls` or `ls -l /dev/<vg>/` before reading the `ps` output — the number
+  is not stable across boots.
+
+  **This says nothing about image integrity.** A *successful* `netvm.sh` run
+  leaves the device held too: measured 2026-08-11 run 3, where `dumpe2fs -h`
+  reported `Filesystem state: clean` while `Open count: 1` and `[jbd2/dm-10-8]`
+  persisted. The device being held is a fact about `lvremove`, not about the
+  filesystem.
 - **netVM root is DELIBERATELY UNLOCKED in dev — this invariant inverted.**
     `netvm.sh` step 6 locks root (`passwd -l`) and unlocks it in the next breath
     (`usermod -p`). Intentional: `netvm-agent` has no `RUN` and `NETCFG` replies
