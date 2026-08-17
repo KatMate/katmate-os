@@ -1,0 +1,107 @@
+#!/usr/bin/env bash
+# katmate-check-image — the payload a unit is about to pass to QEMU exists
+#
+# T4 (ADR-032 §2): reads T1 and T2, writes nothing, decides binarily.
+#
+# Usage: katmate-check-image <instance>          (from the unit: %i)
+#
+# EXISTENCE ONLY. It activates nothing, opens no image and mounts nothing: it is
+# the cheapest gate in the ExecStartPre= chain and is placed first so a missing
+# payload fails before any device is touched.
+#
+# What it does NOT check, and why — this is the ADR-032 §2 revision note of
+# 2026-08-11 made operative: the "backing chain" half of §2's sentence is LVM,
+# and LVM metadata is not readable by the unprivileged user this runs as (`lvs
+# vg0` exits 5 on /dev/mapper/control as uid 1000, and group `disk` does not
+# help). LV existence therefore belongs to `katmate-activate-lvs`, which already
+# runs as uid 0 and whose `lvchange -K -ay` IS an existence check that fails by
+# name. This executable verifies exactly what a plain file read can answer.
+#
+# Also not checked, and named so the gap is not mistaken for coverage: the
+# qcow2 delta's backing pointer. Confirming that a delta still points at the app
+# layer its meta records needs `qemu-img info`, which opens the image; if it is
+# ever wanted it belongs beside the LV checks, after activation, not here.
+
+set -euo pipefail
+
+# KM_PROG is the diagnostic prefix; it is read by katmate-lib.sh after the
+# source below, which shellcheck cannot see across an absolute path.
+# shellcheck disable=SC2034
+KM_PROG="katmate-check-image"
+# shellcheck source=host/usr/lib/katmate/katmate-lib.sh
+source /usr/lib/katmate/katmate-lib.sh
+
+(( $# == 1 )) || km_usage "katmate-check-image <instance>"
+INSTANCE="$1"
+
+km_t1_read "$INSTANCE"
+CLASS="$(km_t1_require class)"
+MANIFEST="$(km_t1_require manifest)"
+
+# A payload file must exist, be a regular file, and be readable by whoever runs
+# this — the unit's user, not root. "Present but unreadable" is a real state
+# under /var/lib and must fail here rather than as a QEMU error.
+require_payload() {
+    local what="$1" path="$2"
+    [[ -n "$path" ]] || km_die "$what: the image metadata records an empty path"
+    [[ -e "$path" ]] || km_die "$what not found: $path"
+    [[ -f "$path" ]] || km_die "$what is not a regular file: $path"
+    [[ -r "$path" ]] || km_die "$what is not readable as uid $(id -u): $path"
+    km_log "  $what: $path"
+}
+
+case "$CLASS" in
+sys)
+    # T2 for a sysVM: payload and metadata share a directory because they share
+    # an author, a lifecycle and an upgrade owner (ADR-032 §5). The manifest
+    # enum for class = sys has exactly one member today — `netvm` — so this
+    # composes /var/lib/katmate/netvm/netvm.meta, and the key prefix is the
+    # manifest upper-cased, which is what build/netvm.sh writes.
+    META="$KM_STATE_DIR/$MANIFEST/$MANIFEST.meta"
+    PREFIX="${MANIFEST^^}"
+    km_meta_open "$META"
+    km_log "checking $CLASS/$MANIFEST payload from $META"
+
+    require_payload "kernel"  "$(km_meta_require "$META" "${PREFIX}_KERNEL")"
+    require_payload "initrd"  "$(km_meta_require "$META" "${PREFIX}_INITRD")"
+
+    # The rootfs LV is named here only to fail early on a meta that does not
+    # name one at all. Whether the device exists is katmate-activate-lvs's
+    # answer, for the reason in the header.
+    ROOTFS_LV="$(km_meta_require "$META" "${PREFIX}_LV")"
+    km_log "  rootfs LV (existence checked by katmate-activate-lvs): $ROOTFS_LV"
+    ;;
+app)
+    # T2 for an AppVM: app-<type>.meta, named after the IMAGE and not after the
+    # manifest file it was built from (build/config.sh states why).
+    META="$KM_STATE_DIR/app-$MANIFEST.meta"
+    km_meta_open "$META"
+    km_log "checking $CLASS/$MANIFEST payload from $META"
+
+    # <image>.meta records WHICH kernel the image requires, never where it lies
+    # (ADR-032 §5), so the path composes from the shared kernels directory plus
+    # the recorded version. The filename pattern is build/config.sh's
+    # KERNEL_VMLINUZ, and `amd64` is its ARCH: the meta records no architecture,
+    # so this is the second place the pattern is written down. It is a literal
+    # here rather than a guess from `uname -m`, which would add a translation
+    # table to go wrong instead.
+    KVER="$(km_meta_require "$META" KERNEL_VERSION)"
+    require_payload "kernel" "$KM_KERNELS_DIR/vmlinuz-katmate-microvm-amd64-$KVER"
+
+    # No initrd: the custom microVM kernel is monolithic and is passed with
+    # -kernel alone. Absent, not disabled.
+
+    # The instance delta. For a fixed AppVM the instance name IS the VM name
+    # (ADR-032 §7), so the delta is <instance>.qcow2 — the development artefact
+    # test_web.qcow2 follows the instance to app_web.
+    require_payload "instance delta" "$KM_INSTANCES_DIR/$INSTANCE.qcow2"
+
+    km_log "  app layer LV (existence checked by katmate-activate-lvs): $(km_meta_require "$META" APP_LV)"
+    km_log "  foundation LV (likewise): $(km_meta_require "$META" BASE_LV)"
+    ;;
+*)
+    km_die "$KM_T1_FILE: class='$CLASS' is not one of {app, sys}"
+    ;;
+esac
+
+km_log "payload OK for instance '$INSTANCE' (class=$CLASS, manifest=$MANIFEST)"

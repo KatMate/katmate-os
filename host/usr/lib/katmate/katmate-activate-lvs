@@ -1,0 +1,113 @@
+#!/usr/bin/env bash
+# katmate-activate-lvs — make every block device the unit needs present
+#
+# T4 (ADR-032 §2): reads T1 and T2, writes nothing under /run, decides binarily.
+# Runs as uid 0, from `ExecStartPre=+`.
+#
+# Usage: katmate-activate-lvs <instance>         (from the unit: %i)
+#
+# Two jobs, and the second is a consequence of the ADR-032 §2 revision note of
+# 2026-08-11: this is where LV EXISTENCE is checked, because `lvchange -K -ay`
+# is itself an existence check and fails by name on an absent LV, and because
+# LVM metadata is unreadable below uid 0 — so putting existence anywhere else
+# would either widen the privileged set or check nothing.
+#
+# The activation itself is the Feb/Mar launch invariant: an RO-frozen thin LV
+# keeps the skip-activation `k` flag PERMANENTLY, so `-K -ay` is required before
+# EVERY boot and not only the first. Without it the device node is simply
+# absent and QEMU fails with "Could not open backing image" — or, worse, fails
+# quietly. Hence the node check after each activation: `lvchange` returning 0 is
+# not the property we need, a usable /dev entry is.
+
+set -euo pipefail
+
+# KM_PROG is the diagnostic prefix; it is read by katmate-lib.sh after the
+# source below, which shellcheck cannot see across an absolute path.
+# shellcheck disable=SC2034
+KM_PROG="katmate-activate-lvs"
+# shellcheck source=host/usr/lib/katmate/katmate-lib.sh
+source /usr/lib/katmate/katmate-lib.sh
+
+(( $# == 1 )) || km_usage "katmate-activate-lvs <instance>"
+INSTANCE="$1"
+
+# Stated as a check rather than assumed: under `ExecStartPre=` without the `+`
+# this would fail deep inside LVM with a permission error about
+# /dev/mapper/control, which names the symptom and not the cause.
+(( EUID == 0 )) \
+    || km_die "must run as uid 0 — LVM metadata is not readable otherwise (measured: \`lvs\` exits 5 as uid 1000). In a unit this is ExecStartPre=+, and the '+' is not optional."
+
+command -v lvchange >/dev/null \
+    || km_die "lvchange not found in PATH ($PATH) — the launch path requires LVM tooling"
+
+km_t1_read "$INSTANCE"
+CLASS="$(km_t1_require class)"
+MANIFEST="$(km_t1_require manifest)"
+
+# `-K` lifts the skip-activation flag and is passed ONLY where that flag can
+# exist: on the RO-frozen thin layers. On a plain linear LV it would be accepted
+# and do nothing, which would suggest the flag is there when it is not.
+activate() {
+    local kind="$1" spec="$2" ; shift 2   # spec is vg/lv
+    local vg="${spec%%/*}" lv="${spec##*/}" node="/dev/${spec}"
+
+    [[ "$spec" == */* && -n "$vg" && -n "$lv" ]] \
+        || km_die "$kind: '$spec' is not vg/lv as recorded in the image metadata"
+
+    lvchange "$@" -ay "$vg/$lv" \
+        || km_die "$kind: cannot activate $vg/$lv (lvchange $* -ay). An absent LV fails here by name; this is also the existence check for it."
+
+    [[ -e "$node" ]] \
+        || km_die "$kind: $vg/$lv activated but $node does not exist — QEMU would fail on a missing device node, and this is the case the skip-activation 'k' flag produces silently"
+
+    km_log "  $kind: $node"
+}
+
+case "$CLASS" in
+sys)
+    META="$KM_STATE_DIR/$MANIFEST/$MANIFEST.meta"
+    PREFIX="${MANIFEST^^}"
+    km_meta_open "$META"
+
+    # A sysVM's rootfs is a linear RW LV by construction, not a frozen thin
+    # snapshot — which is also why `persistence` is forbidden on class = sys
+    # (ADR-032 §3): there is nothing for the user to choose.
+    activate "rootfs LV" "$(km_meta_require "$META" "${PREFIX}_LV")"
+    ;;
+app)
+    META="$KM_STATE_DIR/app-$MANIFEST.meta"
+    km_meta_open "$META"
+
+    BASE_LV="$(km_meta_require "$META" BASE_LV)"
+    APP_LV="$(km_meta_require "$META" APP_LV)"
+
+    # The whole backing chain, bottom up: foundation (thin, RO-frozen) then the
+    # app layer (thin snapshot, RO-frozen). Both carry the 'k' flag, both need
+    # -K, on every boot.
+    activate "foundation LV" "$BASE_LV" -K
+    activate "app layer LV"  "$APP_LV"  -K
+
+    PERSISTENCE="$(km_t1_require persistence)"
+    case "$PERSISTENCE" in
+    persistent)
+        # /home is per instance and its name derives from the instance, not from
+        # the app layer (ADR-030 §7, ADR-032 §7): instance app_web -> the live
+        # vm_app_web_home. A regular LV, so plain -ay. The volume group is taken
+        # from the app layer the home belongs beside, not written down a second
+        # time.
+        activate "home LV" "${APP_LV%%/*}/vm_${INSTANCE}_home"
+        ;;
+    ephemeral)
+        km_die "persistence = ephemeral: the storage mechanism for an ephemeral /home is deliberately not decided (ADR-030 §7 leaves it to ADR-010/ADR-011), so nothing creates or names such a device. This executable will not invent one."
+        ;;
+    *)
+        km_die "$KM_T1_FILE: persistence='$PERSISTENCE' is not one of {persistent, ephemeral}"
+        ;;
+    esac
+    ;;
+*)
+    km_die "$KM_T1_FILE: class='$CLASS' is not one of {app, sys}"
+    ;;
+esac
+
+km_log "block devices ready for instance '$INSTANCE' (class=$CLASS)"

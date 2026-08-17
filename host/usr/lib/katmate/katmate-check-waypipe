@@ -1,0 +1,64 @@
+#!/usr/bin/env bash
+# katmate-check-waypipe — the ADR-019 waypipe version lock, as an ExecStartPre=
+#
+# T4 (ADR-032 §2): shipped on the signed ISO, replaced wholesale by a release,
+# reads T2, writes nothing, decides binarily.
+#
+# Transcribed from app_web.con lines 39–76, which was the only implementation of
+# a check ADR-019 makes normative. Nothing is added: the guest waypipe is baked
+# into the foundation and the host waypipe is built separately, and if the two
+# versions differ the vsock negotiation drops SILENTLY — there is no error to
+# read afterwards, which is why the check is a start condition rather than a
+# diagnostic.
+#
+# Not exercised by katmate-sys-driver@: a sysVM runs no waypipe. It is written
+# now because the transcription source disappears when app_web.con is deleted,
+# and because both AppVM profiles need it — an offline vault runs waypipe too
+# (ADR-032 §2).
+#
+# Takes no arguments. One executable, one check: the version lock is the same
+# question for every instance, so there is nothing to parameterise.
+
+set -euo pipefail
+
+# KM_PROG is the diagnostic prefix; it is read by katmate-lib.sh after the
+# source below, which shellcheck cannot see across an absolute path.
+# shellcheck disable=SC2034
+KM_PROG="katmate-check-waypipe"
+# shellcheck source=host/usr/lib/katmate/katmate-lib.sh
+source /usr/lib/katmate/katmate-lib.sh
+
+(( $# == 0 )) || km_usage "$KM_PROG takes no arguments (got: $*)"
+
+META="$KM_STATE_DIR/foundation.meta"
+# ADR-032 §1: host binaries produced by the build pipeline keep the location
+# ADR-019 established. /var/lib is commonly noexec and is not a home for
+# executables, so this path is NOT under KM_STATE_DIR.
+HOST_WAYPIPE="/opt/katmate/bin/waypipe"
+
+[[ -e "$META" ]] \
+    || km_die "foundation metadata not found: $META"
+[[ -x "$HOST_WAYPIPE" ]] \
+    || km_die "host waypipe not found or not executable: $HOST_WAYPIPE (build it with ./build/waypipe-host.sh)"
+
+# WAYPIPE_TAG is the upstream tag ('v0.11.0'); `waypipe --version` prints
+# 'waypipe 0.11.0 (commit …)'. Strip the leading 'v' and compare the bare
+# versions — config.sh calls the same value WAYPIPE_VERSION and the meta calls
+# it WAYPIPE_TAG, one value under two names.
+META_TAG="$(km_meta_get "$META" WAYPIPE_TAG)"
+FOUND_VER="${META_TAG#v}"
+
+[[ -n "$FOUND_VER" ]] \
+    || km_die "WAYPIPE_TAG missing or empty in $META — the foundation's waypipe version is unrecorded, so the lock cannot be checked at all"
+
+HOST_VER="$("$HOST_WAYPIPE" --version | awk 'NR==1 {print $2}')"
+[[ -n "$HOST_VER" ]] \
+    || km_die "could not read a version from '$HOST_WAYPIPE --version'"
+
+if [[ "$HOST_VER" != "$FOUND_VER" ]]; then
+    # Both values named, both sources named: the failure is a mismatch between
+    # two artefacts and either one may be the wrong one.
+    km_die "waypipe version mismatch — host binary $HOST_VER ($HOST_WAYPIPE), foundation $FOUND_VER (WAYPIPE_TAG=$META_TAG in $META). Rebuild the host waypipe or rebuild the foundation to match; a mismatched pair negotiates silently and the guest GUI simply never appears."
+fi
+
+km_log "waypipe version OK ($HOST_VER, matches foundation)"

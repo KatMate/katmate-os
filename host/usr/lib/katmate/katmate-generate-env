@@ -1,0 +1,415 @@
+#!/usr/bin/env bash
+# katmate-generate-env — the ADR-030 §8 runtime projection
+#
+# T4 (ADR-032 §2): reads T1 and T2, writes only under /run/katmate/, decides
+# binarily, and derives the profile only from `(class, netvm, nic)`.
+#
+# Usage: katmate-generate-env <unit-prefix> <instance>   (from the unit: %p %i)
+#
+# Writes /run/katmate/vm/<instance>.env — the merge of T2, T1 and the start-time
+# scalars into a fixed, typed key set. A PROJECTION, never a source: it is
+# regenerated at every start and lives in /run, so nothing stale survives a
+# reboot, and it is read by `EnvironmentFile=` in the same unit that produced it
+# (ADR-030 §8, candidate A, gate E1 passed 2026-08-06).
+#
+# It also performs the check ADR-032 §6 exists for: the unit name ASSERTS a
+# profile, this file DERIVES one, and a mismatch fails here — before QEMU —
+# naming both. That matters for step 3b: when the launch daemon picks unit
+# names, its choice is the one place a wrong profile could enter with nothing to
+# catch it.
+#
+# Runs as uid 0 (`ExecStartPre=+`, ADR-030 §8). The projection is root-owned so
+# the uid QEMU will run as cannot rewrite the environment it is about to be
+# started with.
+
+set -euo pipefail
+
+# KM_PROG is the diagnostic prefix; it is read by katmate-lib.sh after the
+# source below, which shellcheck cannot see across an absolute path.
+# shellcheck disable=SC2034
+KM_PROG="katmate-generate-env"
+# shellcheck source=host/usr/lib/katmate/katmate-lib.sh
+source /usr/lib/katmate/katmate-lib.sh
+
+(( $# == 2 )) || km_usage "katmate-generate-env <unit-prefix> <instance>   (in a unit: %p %i)"
+UNIT_PREFIX="$1"
+INSTANCE="$2"
+
+(( EUID == 0 )) \
+    || km_die "must run as uid 0 — the projection is root-owned so the VM's own uid cannot edit it between generation and start. In a unit this is ExecStartPre=+ (ADR-030 §8)."
+
+# The instance name is checked BEFORE it is concatenated into any path, and
+# before the removal below, because that removal runs as uid 0: an unchecked %i
+# of `../../something` would make it an `rm -f` outside /run/katmate entirely.
+# The name is re-checked inside km_t1_read; doing it twice costs nothing and the
+# order here is the part that matters.
+km_check_instance "$INSTANCE"
+
+# The previous generation goes next, before anything else can fail, so that no
+# refusal below can leave the last start's projection standing. Measured
+# 2026-08-17: with the removal placed just before the write instead, a refused
+# start left a complete, plausible and stale netvm.env in /run — harmless to
+# systemd, which does not reach ExecStart when an ExecStartPre fails, but
+# exactly the readable-but-wrong artefact this project keeps finding. "Nothing
+# stale survives" (ADR-030 §8) is a property of every exit path, not of the
+# successful one.
+ENV_DIR="$(km_run_subdir vm)"
+ENV_FILE="$ENV_DIR/$INSTANCE.env"
+rm -f "$ENV_FILE"
+
+# --- the T1 schema -----------------------------------------------------------
+# These sets are the same schema `tools/validate-properties.fish` enforces, and
+# the two implementations must not disagree — ADR-015 states that discipline
+# about its own validator and it applies with more force here, because this copy
+# is the one on the start path.
+#
+# Why there are two at all: the validator is a developer-side fish tool that is
+# not installed on a KatMate host, and ADR-032 §3 requires a forbidden key to be
+# rejected "at parse, in the same spirit as absent-not-disabled". Parse, at
+# start, happens here. The alternative — trusting that whoever wrote
+# /etc/katmate/vm/<name>.toml ran the validator first — makes the rule
+# unenforced exactly where a T1 file is actually consumed.
+#
+# The division is deliberate: this file carries the STRUCTURAL rules (which keys
+# are legal for which class, their types, the CID bands, the profile function).
+# The validator additionally carries the SEMANTIC invariants that produce
+# warnings rather than errors — a `web` manifest with no network, `identity` on
+# a disposable — which are judgements about a configuration, not conditions for
+# starting one.
+KEYS_COMMON_REQ=(class cid manifest mem vcpus)
+KEYS_SYS_REQ=(nic provides_network)
+KEYS_SYS_FORBID=(netvm persistence identity disposable reset_on_shutdown)
+KEYS_APP_REQ=(netvm persistence identity disposable)
+KEYS_APP_FORBID=(nic provides_network)
+# `reset_on_shutdown` is the one OPTIONAL key (class = app). It needs no set of
+# its own: it is in KEYS_ALL, so it is not unknown; it is in neither the required
+# nor the forbidden set, which is exactly what optional means. Nothing here
+# consumes it — it describes teardown, not the projection.
+KEYS_ALL=(class cid manifest mem vcpus nic provides_network netvm \
+          persistence identity disposable reset_on_shutdown)
+BOOL_KEYS=(identity disposable reset_on_shutdown provides_network)
+
+in_list() {
+    local needle="$1" item
+    shift
+    for item in "$@"; do [[ "$item" == "$needle" ]] && return 0; done
+    return 1
+}
+
+# --- the asserted profile, from the unit name --------------------------------
+# %p is the unit prefix — `katmate-sys-driver` for
+# katmate-sys-driver@netvm.service. The profile is the part after `katmate-`,
+# which is ADR-030 §2's statement that the profile is carried in the unit name
+# taken literally.
+ASSERTED="${UNIT_PREFIX#katmate-}"
+[[ "$ASSERTED" != "$UNIT_PREFIX" ]] \
+    || km_die "unit prefix '$UNIT_PREFIX' does not begin with 'katmate-', so it asserts no profile"
+in_list "$ASSERTED" sys-driver app-offline app-routed \
+    || km_die "unit prefix '$UNIT_PREFIX' asserts profile '$ASSERTED', which is not one of {sys-driver, app-offline, app-routed} (ADR-030 §2)"
+
+# --- T1 ----------------------------------------------------------------------
+km_t1_read "$INSTANCE"
+
+CLASS="${KM_T1[class]}"
+in_list "$CLASS" app sys \
+    || km_die "$KM_T1_FILE: class='$CLASS' is not one of {app, sys}"
+
+# The removed key gets its own diagnostic rather than "unknown key": it was
+# real, and it was removed because its type was wrong (ADR-030 §4).
+if [[ -v KM_T1[network] ]]; then
+    km_die "$KM_T1_FILE: key 'network' was REMOVED (ADR-030 §4). The enum none|via-netvm cannot say WHICH netVM, and an AppVM's access IS which netVM it is attached to (ADR-022). Use 'netvm' (a VM name, or empty) and 'provides_network'."
+fi
+
+for key in "${!KM_T1[@]}"; do
+    in_list "$key" "${KEYS_ALL[@]}" \
+        || km_die "$KM_T1_FILE: unknown key '$key'"
+done
+
+case "$CLASS" in
+sys) REQ=("${KEYS_COMMON_REQ[@]}" "${KEYS_SYS_REQ[@]}"); FORBID=("${KEYS_SYS_FORBID[@]}") ;;
+app) REQ=("${KEYS_COMMON_REQ[@]}" "${KEYS_APP_REQ[@]}"); FORBID=("${KEYS_APP_FORBID[@]}") ;;
+esac
+
+# sys-proxy is reported BEFORE the generic missing-key sweep, so the class gets
+# its explanation instead of a bare "missing nic" (ADR-032 §4, and the same
+# ordering the validator uses).
+if [[ "$CLASS" == sys && ! -v KM_T1[nic] ]]; then
+    km_die "$KM_T1_FILE: class=sys without 'nic' resolves to the profile sys-proxy (ADR-030 §2) — a netVM holding no physical card is a microVM. That profile is NAMED and is NOT shipped: an explicit error, never a default. Add a 'nic' label, or wait until sys-proxy exists."
+fi
+
+for key in "${REQ[@]}"; do
+    [[ -v KM_T1[$key] ]] \
+        || km_die "$KM_T1_FILE: missing key '$key', required for class=$CLASS (ADR-032 §3)"
+done
+
+for key in "${FORBID[@]}"; do
+    if [[ -v KM_T1[$key] ]]; then
+        km_die "$KM_T1_FILE: key '$key' is forbidden on class=$CLASS (ADR-032 §3) — a key with no meaning for a class is rejected, not ignored, because a line the user can set that does nothing is worse than a key that does not exist."
+    fi
+done
+
+# --- types and enums ---------------------------------------------------------
+MANIFEST="${KM_T1[manifest]}"
+case "$CLASS" in
+sys) in_list "$MANIFEST" netvm      || km_die "$KM_T1_FILE: manifest='$MANIFEST' is not in {netvm} for class=sys (ADR-032 §3)" ;;
+app) in_list "$MANIFEST" vault web  || km_die "$KM_T1_FILE: manifest='$MANIFEST' is not in {vault, web} for class=app (ADR-032 §3)" ;;
+esac
+
+for key in "${BOOL_KEYS[@]}"; do
+    if [[ -v KM_T1[$key] ]]; then
+        in_list "${KM_T1[$key]}" true false \
+            || km_die "$KM_T1_FILE: $key='${KM_T1[$key]}' must be true or false"
+    fi
+done
+
+MEM="${KM_T1[mem]}"
+[[ "$MEM" =~ ^[0-9]+[MG]$ ]] \
+    || km_die "$KM_T1_FILE: mem='$MEM' must be a number with an M or G suffix (1G, 512M)"
+
+VCPUS="${KM_T1[vcpus]}"
+[[ "$VCPUS" =~ ^[1-9][0-9]*$ ]] \
+    || km_die "$KM_T1_FILE: vcpus='$VCPUS' must be a positive integer"
+
+# The CID band is a function of class (ADR-022, bands authoritative in
+# state.md): 0–2 reserved, 3–19 sysVM, 20–99 fixed AppVM, ≥100 disposable pool.
+CID="${KM_T1[cid]}"
+case "$CLASS" in
+sys)
+    [[ "$CID" =~ ^[0-9]+$ ]] \
+        || km_die "$KM_T1_FILE: cid='$CID' must be a fixed integer in 3–19 for class=sys; 'auto' belongs to disposable AppVMs (ADR-017) and a sysVM's CID is part of the domain's identity"
+    (( CID >= 3 && CID <= 19 )) \
+        || km_die "$KM_T1_FILE: cid=$CID is outside the sysVM band 3–19 (ADR-030 §4, ADR-022)"
+    ;;
+app)
+    if [[ "$CID" == auto ]]; then
+        # Honest refusal rather than a silent 0: allocation for the disposable
+        # pool is the launch daemon's, in step 3b (ADR-017). The projection
+        # generator has no allocator and must not invent one.
+        km_die "$KM_T1_FILE: cid = \"auto\" is allocated at start for disposable AppVMs (ADR-017), which is the launch daemon's job in build-order step 3b. This generator has no allocator; a fixed CID in 20–99 or ≥100 is required until then."
+    fi
+    [[ "$CID" =~ ^[0-9]+$ ]] \
+        || km_die "$KM_T1_FILE: cid='$CID' is neither an integer nor \"auto\""
+    if (( CID >= 3 && CID <= 19 )); then
+        km_die "$KM_T1_FILE: cid=$CID is in the sysVM band 3–19 (ADR-022) but class is app"
+    fi
+    (( CID >= 20 )) \
+        || km_die "$KM_T1_FILE: cid=$CID is outside the class=app bands (20–99 fixed, ≥100 dynamic); 0–2 are reserved"
+    ;;
+esac
+
+if [[ -v KM_T1[persistence] ]]; then
+    in_list "${KM_T1[persistence]}" persistent ephemeral \
+        || km_die "$KM_T1_FILE: persistence='${KM_T1[persistence]}' is not one of {persistent, ephemeral}"
+fi
+
+if [[ -v KM_T1[nic] ]]; then
+    NIC_LABEL="${KM_T1[nic]}"
+    [[ -n "$NIC_LABEL" ]] \
+        || km_die "$KM_T1_FILE: 'nic' is empty — a label must be non-empty (ADR-030 §5)"
+    [[ "$NIC_LABEL" != *:* ]] \
+        || km_die "$KM_T1_FILE: nic='$NIC_LABEL' looks like a PCI address. 'nic' is a LABEL, never a BDF (ADR-030 §5): a BDF is assigned by firmware enumeration and moves, and the consequence of a stale one is not a VM that fails to start but some OTHER device handed silently to the most exposed VM in the system."
+    [[ "$NIC_LABEL" =~ ^[a-z][a-z0-9_-]*$ ]] \
+        || km_die "$KM_T1_FILE: nic='$NIC_LABEL' should match [a-z][a-z0-9_-]*"
+fi
+
+if [[ -v KM_T1[netvm] && -n "${KM_T1[netvm]}" ]]; then
+    [[ "${KM_T1[netvm]}" =~ ^[a-z][a-z0-9_]*$ ]] \
+        || km_die "$KM_T1_FILE: netvm='${KM_T1[netvm]}' should be a VM name matching [a-z][a-z0-9_]*"
+fi
+
+# --- the profile function ----------------------------------------------------
+# f(class, netvm, nic), ADR-030 §2. This is the ONLY place it is computed: a
+# second implementation would be a second route to a containment profile, which
+# is what ADR-032 §2's authority limit exists to prevent. An empty `netvm` is a
+# declared offline domain and is why presence is tested with -v and emptiness
+# separately (ADR-032 §3).
+DERIVED=""
+case "$CLASS" in
+sys)
+    # nic presence was established above; its absence already died with the
+    # sys-proxy explanation.
+    DERIVED="sys-driver"
+    ;;
+app)
+    if [[ -n "${KM_T1[netvm]}" ]]; then
+        DERIVED="app-routed"
+    else
+        DERIVED="app-offline"
+    fi
+    ;;
+esac
+
+if [[ "$DERIVED" != "$ASSERTED" ]]; then
+    km_die "profile mismatch: the unit asserts '$ASSERTED' (from $UNIT_PREFIX@) and $KM_T1_FILE derives '$DERIVED' from (class=$CLASS, netvm=${KM_T1[netvm]-<absent>}, nic=${KM_T1[nic]-<absent>}). Refusing before QEMU (ADR-032 §6)."
+fi
+
+# app-routed derives from a valid T1 file but does not ship in step 3a: no VM
+# has a network device yet, so no gate could exercise the template, and a
+# signed ISO carrying a template nobody has run would rot (ADR-030 revision
+# note, 2026-08-09). If the assertion matched, the unit exists — so this can
+# only be reached by a template added without its gate.
+if [[ "$DERIVED" == app-routed ]]; then
+    km_die "profile app-routed is derived and asserted, but AppVM link topology is not settled (ADR-029 C2) and no app-routed template ships. Nothing in this projection describes a link."
+fi
+
+# --- T2, per class -----------------------------------------------------------
+KM_KERNEL="" KM_INITRD="" KM_ROOTFS_DEV="" KM_ROOT_DEVICE="" KM_ROOTFSTYPE=""
+KM_DELTA="" KM_HOME_DEV="" KM_VFIO_BDF="" KM_MAC_INT=""
+
+case "$CLASS" in
+sys)
+    META="$KM_STATE_DIR/$MANIFEST/$MANIFEST.meta"
+    PREFIX="${MANIFEST^^}"
+    km_meta_open "$META"
+    KM_KERNEL="$(km_meta_require "$META" "${PREFIX}_KERNEL")"
+    KM_INITRD="$(km_meta_require "$META" "${PREFIX}_INITRD")"
+    KM_ROOTFS_DEV="/dev/$(km_meta_require "$META" "${PREFIX}_LV")"
+    # The guest-side root device and its filesystem type are what the image was
+    # BUILT with, so they are read from T2 rather than written into the
+    # template: build/netvm.sh debootstraps directly onto the LV, which is why
+    # it is /dev/vda and not /dev/vda1.
+    KM_ROOT_DEVICE="$(km_meta_require "$META" "${PREFIX}_ROOT_DEVICE")"
+    KM_ROOTFSTYPE="$(km_meta_require "$META" "${PREFIX}_ROOTFSTYPE")"
+    ;;
+app)
+    META="$KM_STATE_DIR/app-$MANIFEST.meta"
+    km_meta_open "$META"
+    # <image>.meta records WHICH kernel, never where it lies (ADR-032 §5); the
+    # path composes from the shared kernels directory and the recorded version.
+    # `amd64` is build/config.sh's ARCH — see katmate-check-image, which
+    # composes the same path and carries the same note.
+    KM_KERNEL="$KM_KERNELS_DIR/vmlinuz-katmate-microvm-amd64-$(km_meta_require "$META" KERNEL_VERSION)"
+    KM_ROOTFSTYPE="$(km_meta_require "$META" APP_ROOTFSTYPE)"
+    KM_DELTA="$KM_INSTANCES_DIR/$INSTANCE.qcow2"
+    # No initrd: the microVM kernel is monolithic. No KM_ROOT_DEVICE either —
+    # for an AppVM the guest root is whichever -drive the template lists first,
+    # so it is a constant OF the template and nothing records it as data.
+    if [[ "${KM_T1[persistence]}" == persistent ]]; then
+        KM_HOME_DEV="/dev/$(km_meta_require "$META" APP_LV | cut -d/ -f1)/vm_${INSTANCE}_home"
+    fi
+    ;;
+esac
+
+# --- the nic label, resolved for this boot -----------------------------------
+# ADR-030 §5: the label resolves through /run/katmate/nics/<label>, written by
+# katmate-publish-nics at host start, and never from git. The vendor/device
+# check is blast-radius limiting, not a trust boundary: a stale BDF does not
+# fail to start, it hands some other device to the most exposed VM in the
+# system (gate G6).
+if [[ -n "${NIC_LABEL:-}" ]]; then
+    NIC_FILE="$KM_RUN_DIR/nics/$NIC_LABEL"
+    [[ -e "$NIC_FILE" ]] \
+        || km_die "nic label '$NIC_LABEL' is not published: $NIC_FILE does not exist. It is written by katmate-publish-nics at host start and is a fact of THIS boot; its absence means the binding step has not run, not that the card is missing."
+
+    nic_version="$(km_meta_require "$NIC_FILE" KATMATE_NIC_VERSION)"
+    [[ "$nic_version" == "1" ]] \
+        || km_die "$NIC_FILE has KATMATE_NIC_VERSION=$nic_version; this executable understands version 1 only"
+
+    nic_recorded_label="$(km_meta_require "$NIC_FILE" NIC_LABEL)"
+    [[ "$nic_recorded_label" == "$NIC_LABEL" ]] \
+        || km_die "$NIC_FILE records NIC_LABEL=$nic_recorded_label but was read as '$NIC_LABEL' — a label file that does not name itself cannot be trusted to name a device"
+
+    KM_VFIO_BDF="$(km_meta_require "$NIC_FILE" NIC_BDF)"
+    [[ "$KM_VFIO_BDF" =~ ^[0-9a-f]{4}:[0-9a-f]{2}:[0-9a-f]{2}\.[0-7]$ ]] \
+        || km_die "$NIC_FILE records NIC_BDF=$KM_VFIO_BDF, which is not a PCI address in domain:bus:device.function form"
+
+    sysfs="/sys/bus/pci/devices/$KM_VFIO_BDF"
+    [[ -d "$sysfs" ]] \
+        || km_die "$NIC_FILE resolves label '$NIC_LABEL' to $KM_VFIO_BDF, which does not exist on this bus ($sysfs is absent). The label is stale."
+
+    want_vendor="$(km_meta_require "$NIC_FILE" NIC_VENDOR)"
+    want_device="$(km_meta_require "$NIC_FILE" NIC_DEVICE)"
+    have_vendor="$(<"$sysfs/vendor")"
+    have_device="$(<"$sysfs/device")"
+
+    if [[ "$have_vendor" != "$want_vendor" || "$have_device" != "$want_device" ]]; then
+        km_die "nic label '$NIC_LABEL' is STALE: it was created for $want_vendor:$want_device but $KM_VFIO_BDF is now $have_vendor:$have_device. Refusing to start — handing an unknown device to a VM holding a passed-through NIC is the silent misassignment this check exists for (ADR-030 §5, gate G6)."
+    fi
+
+    # The kernel's own list of bound devices is authoritative and is not copied
+    # into a file (ADR-030 §5), so it is read here rather than recorded there:
+    # a label can be fresh and correct while the device has been rebound to its
+    # host driver, in which case the vfio node QEMU needs does not exist.
+    have_driver=""
+    if [[ -e "$sysfs/driver" ]]; then
+        have_driver="$(basename "$(readlink -f "$sysfs/driver")")"
+    fi
+    [[ "$have_driver" == "vfio-pci" ]] \
+        || km_die "$KM_VFIO_BDF is bound to '${have_driver:-<no driver>}', not vfio-pci. /sys/bus/pci/drivers/vfio-pci/ is this boot's list of bound devices, and this device is not in it."
+fi
+
+# --- the derived MAC ---------------------------------------------------------
+# MACs are derived, never authored: `52:54:00` + the first three bytes of
+# sha256(<instance name>) — locally administered, unicast, stable across
+# reboots, no allocator state, and no address encoded in the bytes (ADR-025
+# revision note, superseding the authored 52:54:0a:64:01:01). The hash is over
+# the instance name with NO trailing newline; any reimplementation must hash the
+# same bytes or the two disagree silently.
+#
+# Emitted only where an internal link exists: a sysVM that provides network to
+# others, or an AppVM attached to a netVM. An offline AppVM has no link, and
+# absent is not the same as unused.
+derive_mac() {
+    local name="$1" h
+    h="$(printf '%s' "$name" | sha256sum | cut -c1-6)"
+    printf '52:54:00:%s:%s:%s' "${h:0:2}" "${h:2:2}" "${h:4:2}"
+}
+
+if [[ "$CLASS" == sys && "${KM_T1[provides_network]}" == true ]]; then
+    KM_MAC_INT="$(derive_mac "$INSTANCE")"
+elif [[ "$CLASS" == app && -n "${KM_T1[netvm]}" ]]; then
+    KM_MAC_INT="$(derive_mac "$INSTANCE")"
+fi
+
+# --- emit --------------------------------------------------------------------
+# The key set is fixed and typed (ADR-030 §3/§8), and every value is checked for
+# whitespace before it is written: the template interpolates with ${} so a value
+# cannot word-split into extra QEMU arguments, and a space here is therefore a
+# parse error rather than a new argument. Checked at the point of writing, so
+# the property holds for values from T1, from T2 and from /sys alike.
+emitted=()
+emit() {
+    local key="$1" val="$2"
+    [[ -n "$val" ]] \
+        || km_die "internal: refusing to emit an empty value for $key"
+    [[ ! "$val" =~ [[:space:]] ]] \
+        || km_die "value for $key contains whitespace ('$val'); the projection carries single tokens only, because a space in a value must be a parse error and never an extra argument (ADR-030 §3)"
+    emitted+=("$key=$val")
+}
+
+# Present-or-absent, never present-and-empty: a key that does not apply to this
+# profile is left out of the file rather than emitted empty, on the same
+# absent-not-disabled principle the device set follows (ADR-030 §2).
+emit_if_set() {
+    local key="$1" val="$2"
+    if [[ -n "$val" ]]; then emit "$key" "$val"; fi
+}
+
+emit KM_INSTANCE "$INSTANCE"
+emit KM_PROFILE  "$DERIVED"
+emit KM_CID      "$CID"
+emit KM_MEM      "$MEM"
+emit KM_VCPUS    "$VCPUS"
+emit KM_KERNEL   "$KM_KERNEL"
+emit_if_set KM_INITRD      "$KM_INITRD"
+emit_if_set KM_ROOTFS_DEV  "$KM_ROOTFS_DEV"
+emit_if_set KM_ROOT_DEVICE "$KM_ROOT_DEVICE"
+emit_if_set KM_ROOTFSTYPE  "$KM_ROOTFSTYPE"
+emit_if_set KM_DELTA       "$KM_DELTA"
+emit_if_set KM_HOME_DEV    "$KM_HOME_DEV"
+emit_if_set KM_VFIO_BDF    "$KM_VFIO_BDF"
+emit_if_set KM_MAC_INT     "$KM_MAC_INT"
+
+# Atomic: mktemp in the target directory, so the rename cannot cross a
+# filesystem and a reader never sees a half-written projection.
+tmp="$(mktemp "$ENV_DIR/.$INSTANCE.env.XXXXXX")"
+{
+    printf '# %s — runtime projection for instance %s, profile %s\n' "$KM_PROG" "$INSTANCE" "$DERIVED"
+    printf '# Generated at every start from T1 (%s) and T2 (%s).\n' "$KM_T1_FILE" "$META"
+    printf '# A projection, never a source: edits here are lost at the next start.\n'
+    printf '%s\n' "${emitted[@]}"
+} >"$tmp"
+chmod 0644 "$tmp"
+mv -f -- "$tmp" "$ENV_FILE"
+
+km_log "projection written: $ENV_FILE (profile $DERIVED asserted and derived, ${#emitted[@]} keys)"
