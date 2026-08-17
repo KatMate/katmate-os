@@ -3896,3 +3896,23 @@ is unaffected.
 - **H3 — forbidden key rejected.** `persistence` on a `class = sys` file must
   fail validation, not warn. Same for `nic` on `class = app`. Confirms §3 is
   enforced at parse.
+
+**Revision note (2026-08-11, step 3a part 2, §3):** §2 gives
+`katmate-check-image` "backing-chain and payload existence". The backing chain
+is LVM, and LVM metadata is not readable by the unprivileged user the check
+runs as — measured on MINIS as uid 1000: `lvs vg0` exits 5 with
+`/dev/mapper/control: open failed: Permission denied` and `Can't get lock for
+vg0`, and membership of group `disk` does not help. Since §2 also places the
+cheapest gate first, deliberately *before* anything is activated, the two
+halves of the sentence cannot both hold: an LV existence check either needs
+uid 0 (widening the privileged set from one executable to two, against C1/C3)
+or must run after activation (losing the cheapest-first ordering that is §2's
+stated reason for the chain).
+
+The chain is therefore split by **what each stage can actually read**:
+`katmate-check-image` verifies kernel, initrd and `<image>.meta` — plain files
+readable as uid 1000 — and `katmate-activate-lvs`, already `ExecStartPre=+`
+for uid 0, carries LV existence, because `lvchange -K -ay` *is* an existence
+check and fails by name on an absent LV. No third executable, no widened
+privilege, and the ordering §2 argues for survives. The privilege boundary did
+not move; it became visible.
