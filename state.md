@@ -317,15 +317,15 @@ touched.
   the `personal` archetype (ADR-014) is not.** It returns as one of the four
   default AppVMs, with a CID allocated from 20–99 at that point.
 
-  **Correction (2026-08-11): `vm_personal_home` is present.** `sudo lvs` on
-  MINIS reports `vm_personal_home vg0 Vwi-a-tz-- 40.00g vm_pool 4.47`. Either
-  the deletion above never happened or the LV was recreated, and nothing in the
-  tree settles which — so the claim is **marked, not rewritten**, and removing
-  40 G of thin volume is a decision for the operator rather than a
-  documentation correction. Everything else in this entry holds: the launcher
-  and the overlay are gone, and *"the artefact is gone"* is wrong only about
-  this one LV. **`ROADMAP.md:31` repeats the same claim** and is left standing
-  for the same reason.
+  **Correction, and then its resolution.** On **2026-08-11** `sudo lvs` on MINIS
+  reported `vm_personal_home vg0 Vwi-a-tz-- 40.00g vm_pool 4.47` — the LV was
+  still there, so this entry's deletion claim had been wrong for nine days, and
+  it was marked rather than rewritten because nothing in the tree said whether
+  the deletion had failed or the LV had been recreated. On **2026-08-17** the LV
+  is **absent** from `lvs` and `vm_pool` has dropped from 0.79 % to 0.53 % data,
+  which is the ~1.8 G that 4.47 % of 40 G occupied. The entry is now true; what
+  is recorded here is that it was published before it was true. **`ROADMAP.md:31`
+  repeats the claim** and needs no correction for the same reason.
 
 - **Host** (Arch): Ryzen 7 8745H, AMD-Vi + vfio. `vg0`: `root` 100G, `swap`
   12G, `vm_pool` thin pool. Custom microvm kernel `6.12.87` at
@@ -368,10 +368,10 @@ touched.
   deleted and no AppVM carries a network device yet (ADR-029 C2).
   `memlock` via `LimitMEMLOCK=infinity` (unit) or `ulimit -l
   unlimited` (manual launch). Runs independently of app_web.
-- **personalVM** — **gone (2026-08-02),** except that `vm_personal_home` is
-  still on the disk: launcher and overlay removed, the LV measured present on
-  2026-08-11 (see the correction on the 2026-08-02 housekeeping entry above).
-  It was the last pre-foundation artefact. Returns as a domain, not as this VM.
+- **personalVM** — **gone.** Launcher and overlay removed 2026-08-02;
+  `vm_personal_home` outlived that claim and was measured present on 2026-08-11,
+  absent on 2026-08-17 (see the correction on the housekeeping entry above). It
+  was the last pre-foundation artefact. Returns as a domain, not as this VM.
 - **app_web** (CID **21**, renumbered from 5 on 2026-08-02): the proven
   appliance. Backing `vm_app_web` (thin snap
   RO) ← `/var/lib/katmate/instances/test_web.qcow2`. `/home` =
