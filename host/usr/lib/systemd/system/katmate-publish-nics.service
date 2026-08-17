@@ -1,0 +1,67 @@
+[Unit]
+# T4 (ADR-032 §1): shipped on the signed ISO, replaced wholesale by a release,
+# never edited on the machine — a per-machine change is a drop-in under
+# /etc/systemd/system/katmate-publish-nics.service.d/.
+Description=KatMate: resolve nic labels to PCI addresses for this boot
+#
+# No Documentation= in either unit: this project ships no man pages, and naming
+# one that does not exist is a stale reference of exactly the kind the tier rules
+# exist to prevent — `systemd-analyze verify` reports it as a Protocol error.
+# The reasoning lives in docs/DECISIONS.md, which is not installed.
+#
+# ADR-030 §5: the label -> BDF mapping is a fact OF THIS BOOT, so it is
+# republished at every boot and never carried in git. /run is cleared for us.
+#
+# Ordering: the default dependencies put this After=sysinit.target, which is
+# after local-fs.target (/etc and /var mounted) and after udev has settled
+# enough for vfio-pci to have claimed its ids= devices at module load. There is
+# deliberately NO dependency on network-online.target: on this host it never
+# fires at all — every networkd-managed link is a carrier-less tap and both
+# routable links are unmanaged, so networkctl reports "State: routable" beside
+# "Online state: offline" (measured 2026-08-02, HOST-CONFIG.md §1). It is also
+# not needed: this reads /sys and /etc, and touches no network.
+After=local-fs.target
+
+[Service]
+Type=oneshot
+# The unit stays active after the script exits so that a VM unit can
+# Requires= it and have that mean "the labels for this boot exist", rather than
+# "something ran once, at some point".
+RemainAfterExit=yes
+ExecStart=/usr/lib/katmate/katmate-publish-nics
+
+# Console and diagnostics go to the journal. This unit has no console.
+StandardInput=null
+StandardOutput=journal
+StandardError=journal
+
+# Containment. It runs as uid 0 because it writes under /run/katmate and reads
+# every T1 file, and that is the whole of its privilege: no capabilities, no
+# network, nothing writable but /run.
+#
+# ReadWritePaths is /run and not /run/katmate: the directory is created by the
+# executable itself (a T4 executable creates its own subtrees rather than the
+# unit declaring RuntimeDirectory=, which is removed when any one instance stops
+# and would take the shared parent — every VM's projection and this boot's
+# labels — with it).
+NoNewPrivileges=yes
+CapabilityBoundingSet=
+AmbientCapabilities=
+ProtectSystem=strict
+ReadWritePaths=/run
+ProtectHome=yes
+PrivateTmp=yes
+PrivateNetwork=yes
+RestrictAddressFamilies=AF_UNIX
+ProtectKernelTunables=yes
+ProtectKernelModules=yes
+ProtectControlGroups=yes
+RestrictSUIDSGID=yes
+RestrictRealtime=yes
+LockPersonality=yes
+MemoryDenyWriteExecute=yes
+SystemCallFilter=@system-service
+SystemCallErrorNumber=EPERM
+
+[Install]
+WantedBy=multi-user.target

@@ -1,0 +1,159 @@
+#!/usr/bin/env bash
+# katmate-publish-nics — resolve every `nic` label for THIS boot
+#
+# T4 (ADR-032 §2): reads T1, writes only under /run/katmate/, decides binarily.
+# Runs as uid 0 at host start, from katmate-publish-nics.service.
+#
+# Usage: katmate-publish-nics                    (no arguments)
+#
+# ADR-030 §5: a `Vm` carries a LABEL, never a BDF, because a BDF is assigned by
+# firmware enumeration and moves when a card is reseated or a bus renumbers — and
+# the consequence of a stale one is not a VM that fails to start but some OTHER
+# device detached from its host driver and handed to the most exposed VM in the
+# system. Resolution is therefore kernel-authoritative and boot-scoped: this
+# writes /run/katmate/nics/<label>, and katmate-generate-env reads it there,
+# never from git.
+#
+# What the kernel already knows is NOT copied into a file: the list of bound
+# devices is /sys/bus/pci/drivers/vfio-pci/, so this enumerates that rather than
+# consulting an inventory of its own. What IS written down is the pair
+# (vendor, device) the label was created for, so that a VM start can detect the
+# stale case by comparing it against /sys — blast-radius limiting, not a trust
+# boundary.
+#
+# THE DURABLE DESCRIPTOR IS NOT DECIDED HERE, and this file does not invent one.
+# `HOST-CONFIG.md` §3 requires it to be measured, not chosen: vendor:device is
+# not unique on a two-port card, the MAC is readable only before vfio-pci binds,
+# and the slot path survives a reseat but not a firmware change. So this
+# publishes only where the pairing is UNAMBIGUOUS — one label in use, one device
+# bound — and refuses loudly otherwise, naming the deferred question. That is the
+# whole of the mapping policy: on the machine this ships for, the pairing is
+# forced by counting, and on any other machine the refusal is the honest answer
+# until the descriptor question is settled.
+
+set -euo pipefail
+
+# KM_PROG is the diagnostic prefix; it is read by katmate-lib.sh after the
+# source below, which a static checker cannot see across an absolute path.
+# shellcheck disable=SC2034
+KM_PROG="katmate-publish-nics"
+# shellcheck source=host/usr/lib/katmate/katmate-lib.sh
+source /usr/lib/katmate/katmate-lib.sh
+
+(( $# == 0 )) || km_usage "$KM_PROG takes no arguments (got: $*)"
+
+(( EUID == 0 )) \
+    || km_die "must run as uid 0 — it writes under $KM_RUN_DIR and reads every T1 file"
+
+VFIO_DRIVER_DIR="/sys/bus/pci/drivers/vfio-pci"
+
+# --- which labels are in use, according to T1 --------------------------------
+# The labels come from the user's own files rather than from a list in this
+# executable: a label is a T1 fact, and a shipped file naming `uplink0` would be
+# the release asserting something only the machine's owner knows. Reading T1 is
+# explicitly within a T4 executable's authority (ADR-032 §2).
+declare -A LABEL_OWNER=()
+LABELS=()
+
+shopt -s nullglob
+for file in "$KM_ETC_VM"/*.toml; do
+    instance="$(basename "$file" .toml)"
+
+    # A file whose stem is not a legal instance name cannot be started by any
+    # unit, so it cannot own a label either. Skipped loudly rather than parsed.
+    if [[ ! "$instance" =~ ^[a-z][a-z0-9_]*$ ]]; then
+        km_log "skipping $file: '$instance' is not a legal instance name"
+        continue
+    fi
+
+    km_t1_read "$instance"
+
+    # Only class = sys may hold hardware. `nic` is forbidden on class = app
+    # (ADR-032 §3) and rejected at parse by katmate-generate-env; here it is
+    # simply not looked for, because an AppVM holding a card directly defeats the
+    # containment model and this executable must not be the place that makes it
+    # work anyway.
+    [[ "${KM_T1[class]}" == sys ]] || continue
+    [[ -v KM_T1[nic] ]] || continue
+
+    label="${KM_T1[nic]}"
+    [[ "$label" =~ ^[a-z][a-z0-9_-]*$ ]] \
+        || km_die "$file: nic='$label' is not a label matching [a-z][a-z0-9_-]* — it is used as a filename under $KM_RUN_DIR/nics"
+
+    # ADR-022: a Nic is assignable to at most one VM. Two VMs claiming one label
+    # would resolve to one device and both would be started with it. The
+    # validator carries this as gate G5 over a directory; refusing here is not
+    # that check repeated but the consequence of it — one label file cannot name
+    # two owners.
+    if [[ -v LABEL_OWNER[$label] ]]; then
+        km_die "label '$label' is claimed by both '${LABEL_OWNER[$label]}' and '$instance'. A nic is assignable to at most one VM (ADR-022), and publishing it would hand one device to both."
+    fi
+
+    LABEL_OWNER[$label]="$instance"
+    LABELS+=("$label")
+done
+shopt -u nullglob
+
+# --- which devices the kernel has bound to vfio-pci this boot ----------------
+BDFS=()
+if [[ -d "$VFIO_DRIVER_DIR" ]]; then
+    for link in "$VFIO_DRIVER_DIR"/*; do
+        bdf="$(basename "$link")"
+        [[ "$bdf" =~ ^[0-9a-f]{4}:[0-9a-f]{2}:[0-9a-f]{2}\.[0-7]$ ]] || continue
+        BDFS+=("$bdf")
+    done
+fi
+
+km_log "T1 labels in use: ${#LABELS[@]} (${LABELS[*]-none}); vfio-pci bound devices: ${#BDFS[@]} (${BDFS[*]-none})"
+
+NICS_DIR="$(km_run_subdir nics)"
+
+# Nothing to publish is a legitimate state — a host with no sysVM declaring a
+# nic — and is not a failure. A VM that needs a label it cannot find fails at
+# its own start, with a message that says the binding step did not run; that is
+# the right place for it, and it is not this executable's business to predict.
+if (( ${#LABELS[@]} == 0 )); then
+    km_log "no T1 file declares a nic label; nothing to publish"
+fi
+
+if (( ${#LABELS[@]} > 0 )); then
+    if (( ${#LABELS[@]} != 1 || ${#BDFS[@]} != 1 )); then
+        km_die "cannot pair ${#LABELS[@]} label(s) [${LABELS[*]-}] with ${#BDFS[@]} bound device(s) [${BDFS[*]-}] without a durable device descriptor, which is deliberately not decided (HOST-CONFIG.md §3: measured, not chosen — vendor:device is not unique on a two-port card, the MAC is readable only before vfio-pci binds, and the slot path survives a reseat but not a firmware change). Refusing to guess: a wrong pairing hands the wrong card to the most exposed VM in the system, silently and plausibly."
+    fi
+
+    label="${LABELS[0]}"
+    bdf="${BDFS[0]}"
+    sysfs="/sys/bus/pci/devices/$bdf"
+    vendor="$(<"$sysfs/vendor")"
+    device="$(<"$sysfs/device")"
+
+    # Atomic, and mktemp in the target directory so the rename cannot cross a
+    # filesystem: a reader must never see a label file that names half a device.
+    tmp="$(mktemp "$NICS_DIR/.$label.XXXXXX")"
+    {
+        printf 'KATMATE_NIC_VERSION=1\n'
+        printf 'NIC_LABEL=%s\n' "$label"
+        printf 'NIC_BDF=%s\n' "$bdf"
+        printf 'NIC_VENDOR=%s\n' "$vendor"
+        printf 'NIC_DEVICE=%s\n' "$device"
+    } >"$tmp"
+    chmod 0644 "$tmp"
+    mv -f -- "$tmp" "$NICS_DIR/$label"
+
+    km_log "published $NICS_DIR/$label -> $bdf ($vendor:$device), claimed by '${LABEL_OWNER[$label]}'"
+fi
+
+# --- labels from an earlier run of this boot ----------------------------------
+# The directory must describe THIS boot and nothing else. A label file left from
+# a run made before a T1 file was edited would still resolve, just not to what it
+# now means — the same shape as a stale BDF, one level up. Removed loudly.
+for stale in "$NICS_DIR"/*; do
+    [[ -e "$stale" ]] || continue
+    name="$(basename "$stale")"
+    if [[ ! -v LABEL_OWNER[$name] ]]; then
+        rm -f -- "$stale"
+        km_log "removed $NICS_DIR/$name: no T1 file claims that label any more"
+    fi
+done
+
+km_log "nic labels published for this boot: ${#LABELS[@]}"
