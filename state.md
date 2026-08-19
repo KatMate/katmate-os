@@ -324,6 +324,19 @@ touched.
   (`enp195s0f3u1u1`, MAC `00:e0:4c:39:61:b8`, IP `10.3.1.3` — #7 resolved
   2026-07-06); MINIS is on ProtonVPN with DNS `10.2.0.1`. The uplink config is
   volatile (`ip addr`), not yet a persistent profile.
+- **Dev access to MINIS (dev-only; goes out with Open problem #4).** The account
+  is **`host`**, not `winterbox`: `ssh host@10.3.1.3`. Publickey only; the Acer
+  (`winterbox`, `10.3.1.100`) holds the key. `sudo -n` is passwordless on MINIS
+  via `/etc/sudoers.d/katmate-dev`. **The login shell on MINIS is fish**, so an
+  sh or bash snippet cannot be passed as `ssh host@10.3.1.3 '…'` — fish rejects
+  `$?` and the line dies before it runs anything. Deliver it on stdin instead:
+  `ssh host@10.3.1.3 bash -s <<'EOF' … EOF`. Recorded 2026-08-19, after a brief
+  that wrote `ssh 10.3.1.3` and sh snippets cost the E1c session two
+  rediscoveries. This entry is the source of truth for reaching MINIS;
+  `.claude/settings.local.json` carries the target as configuration, not as
+  documentation. rsync stays Acer→MINIS into `~/katmate-build/`. `10.3.1.3` is
+  stable on the home LAN; that it is not a persistent networkd profile is the
+  Host entry above, and the two are not in conflict.
 - **foundation** (`vm_tpl_foundation`, thin RO): clean, systemd-free,
   init/agent/waypipe/user baked in.
 - **netVM** (CID 3 — unchanged by the new map; Debian trixie, q35, **sysVM class
