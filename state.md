@@ -675,11 +675,54 @@ What the gate session must carry in, and what is *not* in the report:
    drift is created by it rather than inherited, and G3 is *"nothing was lost"*.
 
 Implementation session, thinking-off. Carry in: the validator's exit codes are
-three-valued; the live delta is still named `test_web.qcow2` while
+three-valued; and the live delta is still named `test_web.qcow2` while
 `katmate-check-image` looks for `app_web.qcow2` (ADR-032 §7 — the rename is
-outstanding); and the guest's `serial-getty@ttyS0` may restart-loop on the
-one-way console's EOF stdin, which the journal will show plainly and which is a
-manifest question, not a template one.
+outstanding).
+
+**The getty prediction this paragraph carried was wrong, and G1 measured it
+wrong (2026-08-19).** It read *"the guest's `serial-getty@ttyS0` may
+restart-loop on the one-way console's EOF stdin, which the journal will show
+plainly and which is a manifest question, not a template one"*, and it was the
+last live copy of a prediction that also stands in `~/3a2-report.md` § S3.5.
+**Measured:** four getty-related lines in the whole guest boot — the slice, the
+`Started serial-getty@ttyS0.service`, `getty.target`, and one
+`localhost login:` prompt — with no repetition, nothing rate-limited, and no
+console output at all in a window of nearly two minutes past `Link is Up`. The
+journal would have shown a loop plainly, as the prediction itself said. It
+showed none.
+
+**One reading taken outside any delegated session.** On MINIS at 15:47 on
+2026-08-19, with 706658 still alive, the operator read:
+
+```
+$ sudo ls -l /proc/706658/fd/0
+lr-x------ 1 root root 64 Aug 19 15:26 /proc/706658/fd/0 -> /dev/null
+```
+
+That settles one half, and one half only: **QEMU's chardev input is at EOF from
+the start**, so the premise the prediction rested on was true — and twenty
+minutes past the boot the process was still alive on that same descriptor, with
+the login prompt still standing. It does not say why the one did not produce
+the other.
+
+**HYPOTHESIS (unproven, unrefuted) — why the EOF does not reach the guest.**
+Reasoning, not measurement: an emulated 16550 UART has no end-of-stream
+condition, so the guest's `read()` on `/dev/ttyS0` blocks rather than returning
+0. The EOF is a property of the **host** file descriptor and does not cross into
+the emulated device. It would cross on a transport that carries link state —
+`virtio-console` propagates a host-side port close as a hangup — which is why
+the prediction was plausible and still wrong. *Gate:* in-guest,
+`serial-getty@ttyS0`'s agetty in state `S`, `/proc/<pid>/fd/0 -> /dev/ttyS0`,
+and a blocked read. **Not reachable today:** the console is one-way into the
+host journal and `netvm-agent` has no RUN opcode, so no `ps` or `/proc` read
+inside netVM is possible at all. That the gate is unreachable is part of this
+record, not a step toward anything.
+
+**The prediction class, and this project already has a family of it: host-side
+descriptor semantics assumed to propagate into an emulated device.** Same shape
+as the ADR-021 trap where `SIGRTMIN+1` had to mean reload because
+`Type=notify-reload` implied it, and killed `networkd` instead. The **class** is
+on the record; the mechanism above stays a hypothesis.
 
 **Three things part 2 had to resolve before a gate could run — all three settled
 by the 2026-08-11 session; kept with their outcomes because each one is a
