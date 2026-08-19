@@ -3647,6 +3647,43 @@ before anyone reaches for B expecting it to be free.
 The correction is not ruled here. It requires one further measurement (E1c);
 this note records the failure only.
 
+**Revision note (2026-08-19, E1c — the correction to §8's mechanism):** **Candidate
+A is kept and its transcription corrected.** The projection is declared optional to
+systemd (`EnvironmentFile=-/run/katmate/vm/%i.env`) and the refusal that directive
+used to carry moves into `katmate-generate-env`, which reads back its own published
+output before exiting. Measured on MINIS 2026-08-19, systemd 261, `Type=simple`, on
+a `/run` where `/run/katmate` did not yet exist: `PRE_SEES=[]` at the
+`ExecStartPre=` read and `PROBE_RESULT=[42]` at the `ExecStart=` read, one start,
+`Result=success`. The two reads carry the same journal timestamp and are separable
+only by PID. The first is the state E1a could not observe — the file absent at the
+first read, absorbed by the `-` rather than fatal — and the second is the same
+re-read E1a did measure. E1's `Type=oneshot` caveat is retired with it.
+
+**The `-` is not a fail-open.** It removes an enforcement point from systemd's
+environment loader without removing the enforcement. The only path that reaches
+`ExecStart=` with no projection is an `ExecStartPre=` that exits 0 without having
+produced one, and the generator is written so that path does not exist:
+`set -euo pipefail`, a rename into place from a temporary in the same directory,
+the previous generation removed before anything can fail, every required key
+emitted through a helper that refuses an empty value, and — added here — a
+read-back of the published file before exit. [ADR-032](DECISIONS.md#adr-032) §2
+puts binary decisions in the T4 executable that owns the input, not in a directive
+that can only distinguish present from absent.
+
+**Rejected — a separate generator unit (B).** Working, and dearer than when it was
+measured: the `%p` cost named in the note above, plus it splits the
+`ExecStartPre=` chain that gate H1 is written against. Against the corrected A it
+buys only protection from a producer that exits 0 having written nothing, which
+the read-back closes directly.
+
+**Rejected — an `ExecStart=` wrapper that sources the projection and execs QEMU.**
+That is `net-sys.con` again, and deleting both `.con` scripts is step 3a's gate.
+
+**Consequences:** the `EnvironmentFile=` comment in `katmate-sys-driver@.service`
+is rewritten to cite E1 and E1c together and to state why the `-` is there;
+`katmate-generate-env` gains the read-back; G1, G4, G6 and H1 become runnable;
+H1's three-preflight wording stands unchanged, since the chain is not split.
+
 ---
 
 ## ADR-032 — Where each tier lives: the path is the tier, and T4 is more than the template
