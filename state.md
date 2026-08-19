@@ -395,9 +395,14 @@ touched.
   moving under a declarative manifest, not a defect). Boots through full
   systemd, root on `/dev/vda`; the uplink comes up MAC-matched
   (`38:05:25:34:7c:47`, `Link is Up 1Gbps/Full`, `firmware-realtek` loaded,
-  DHCP lease **`10.3.1.104`** confirmed by host ARP scan on 2026-08-11 — the
-  lease is volatile and only the MAC identifies the guest) and the internal p2p
-  segment on its locally-administered MAC `52:54:0a:64:01:01`. **Interface
+  DHCP lease **`10.3.1.103`** confirmed by host ARP scan on 2026-08-19 — it was
+  **`10.3.1.104`** on 2026-08-11, and the lease moving is the rule holding, not
+  a drift: the lease is volatile and only the MAC identifies the guest) and the
+  internal p2p segment on its **derived** MAC **`52:54:00:21:b2:08`**, measured
+  live 2026-08-19 — emitted as `KM_MAC_INT` and carried into QEMU's argv as
+  `-device virtio-net-pci,netdev=int0,mac=…`. **This entry published the
+  authored `52:54:0a:64:01:01` until that run**; the *Invariants* entry below
+  carries why it changed and what still uses the old value. **Interface
   names are not normative and have moved across sessions** (`enp0s6` on the
   retired pet, `enp0s4`/`enp0s5` on the declarative build) — read the MACs, not
   the names (see *Invariants*). The uplink deltas (`firmware-realtek`,
@@ -1027,13 +1032,21 @@ frozen `vm_home_skel` vs qcow2 branch.
   build) across sessions, because the name moved with the machine type and slot
   layout while the MAC did not. **When these disagree, the MAC is authoritative
   and the name is incidental.** The internal p2p segment is likewise matched on
-  its locally-administered MAC `52:54:0a:64:01:01` (ADR-025), not on a name; the
-  **Pending (2026-08-09):** ADR-025's revision note replaces authored MACs with
-  `52:54:00` + `sha256(instance)[0:3]`. This value is stale from the moment the
-  projection generator lands; no image rebuild is implied, because the guest
-  bakes no internal-segment `.network` unit.
-  older `10-personal.network` / `Name=enp0s4` convention described the retired
-  pet launcher and is void.
+  its locally-administered MAC (ADR-025), not on a name; the older
+  `10-personal.network` / `Name=enp0s4` convention described the retired pet
+  launcher and is void.
+  **The *Pending (2026-08-09)* note that stood here is closed 2026-08-19, and
+  the value is `52:54:00:21:b2:08`.** The note said ADR-025's revision note
+  replaces authored MACs with `52:54:00` + `sha256(instance)[0:3]`, and that the
+  authored `52:54:0a:64:01:01` this entry named would be stale from the moment
+  the projection generator landed. **It has landed and run.** G1 measured
+  `katmate-generate-env` emitting `KM_MAC_INT=52:54:00:21:b2:08` and QEMU
+  running with it, so the note recorded a prediction that came true rather than
+  one outstanding. Its second half held as well: no image rebuild was implied —
+  the guest bakes no internal-segment `.network` unit — and the guest booted on
+  the derived MAC without complaint. **`net-sys.con:27` still hands QEMU the
+  authored value**, so until the `.con` deletion (G3) the segment's MAC depends
+  on which launcher starts netVM.
 
 - **A netinst netVM writes stale installer configs.** The recurring first-boot
   `[FAILED] Raise network interfaces` came from a leftover static block for the
