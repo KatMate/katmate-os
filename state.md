@@ -309,10 +309,19 @@ touched.
   (`winterbox`, `10.3.1.100`) holds the key. `sudo -n` is passwordless on MINIS
   via `/etc/sudoers.d/katmate-dev`. **The login shell on MINIS is fish**, so an
   sh or bash snippet cannot be passed as `ssh host@10.3.1.3 '…'` — fish rejects
-  `$?` and the line dies before it runs anything. Deliver it on stdin instead:
-  `ssh host@10.3.1.3 bash -s <<'EOF' … EOF`. Recorded 2026-08-19, after a brief
-  that wrote `ssh 10.3.1.3` and sh snippets cost the E1c session two
-  rediscoveries. This entry is the source of truth for reaching MINIS;
+  `$?` and the line dies before it runs anything. **Two delivery forms, and which
+  one depends on who is typing.** From the operator's own shell, feed the snippet
+  on stdin: `ssh host@10.3.1.3 bash -s <<'EOF' … EOF`. **A delegated agent cannot
+  use that form** — piping arbitrary content into a remote shell over stdin is
+  shape-identical to `curl | sh`, and the agent's tooling refuses it on the
+  Acer regardless of what the content is. bash is present on MINIS; installing
+  anything changes nothing, because the block is on the calling side and is about
+  the form, not the interpreter. The agent writes the script to a file, `scp`s it
+  to MINIS and runs it there — which is the better record anyway, since what
+  executed is a file the report can quote and hash, and a heredoc leaves nothing
+  behind. Measured 2026-08-19: the E1c session lost two rediscoveries to the ssh
+  target and the shell, and the phase-2 session hit the classifier on the stdin
+  form. This entry is the source of truth for reaching MINIS;
   `.claude/settings.local.json` carries the target as configuration, not as
   documentation. rsync stays Acer→MINIS into `~/katmate-build/`. `10.3.1.3` is
   stable on the home LAN; that it is not a persistent networkd profile is the
@@ -532,6 +541,32 @@ touched.
    with CID reuse across namespaces the domain indicator's identity becomes
    **(netns, CID)**, not CID (ADR-026). C6 and ADR-026 are revisited together.
    SECURITY-MODEL gap #12; mechanism in ADR-028.
+
+19. **`katmate-generate-env`'s read-back has no required-key set for
+   `app-routed`.** Added 2026-08-19 with the read-back itself. The executable
+   accepts three profiles — `in_list "$ASSERTED" sys-driver app-offline
+   app-routed` — but the read-back's `case "$DERIVED"` carries arms for only two.
+   An `app-routed` instance therefore derives correctly, emits correctly, and
+   then dies on the `*)` arm with *"internal: no required-key set for profile
+   'app-routed'"*. That refusal is loud, named and correctly diagnosed as a
+   defect in this file rather than in any input, so it is not a hazard — it is a
+   mine for part 3, where `katmate-app-routed@` first exists. **Closing it is
+   writing one `REQ_ENV` arm**, and it belongs to the part-3 commit that creates
+   the template, not to a passing edit.
+
+   *The standing risk underneath it, which does not go away when the arm is
+   written:* the required-key sets are a **second place where per-profile
+   knowledge lives**, the unconditional emissions above them being the first, and
+   nothing measures that the two agree. This is not an ADR-032 §2 violation — §2
+   governs profile **derivation**, and `f(class, netvm, nic)` still has exactly
+   one implementation — but it is the same shape as the
+   `validate-properties.fish` / `katmate-generate-env` schema split already
+   recorded above: two statements of one truth, kept in step by discipline alone.
+   The alternative was measured and rejected in the same session — checking the
+   read-back against `emitted` alone is a round-trip of the writing and passes on
+   a projection missing a key the profile needs, because the key is then absent
+   from both sides of the comparison. A fixture that both must accept and one
+   that both must refuse is the obvious check, and belongs with G5/H3.
 
 ## Next steps
 
