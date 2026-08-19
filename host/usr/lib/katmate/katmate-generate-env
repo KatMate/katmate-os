@@ -414,4 +414,66 @@ tmp="$(mktemp "$ENV_DIR/.$INSTANCE.env.XXXXXX")"
 chmod 0644 "$tmp"
 mv -f -- "$tmp" "$ENV_FILE"
 
+# --- the read-back -----------------------------------------------------------
+# The unit declares the projection optional to systemd — EnvironmentFile= with a
+# leading dash (ADR-030 §8, revision note 2026-08-19). Without the dash the file
+# is loaded before EVERY Exec*, the ExecStartPre= that creates it included, so an
+# absent projection fails the unit before this executable is spawned at all; that
+# is how the template failed its first start. The dash removes an enforcement
+# point from systemd's environment loader, and this block is where the
+# enforcement goes instead: the only path that can now reach ExecStart= with no
+# usable projection is this executable exiting 0 without having published one, so
+# it is closed in the T4 executable that owns the input rather than in a
+# directive that can only tell present from absent (ADR-032 §2).
+#
+# The file is read as TEXT. It is not sourced and not eval'd — for the reason
+# km_meta_get uses sed, with more force here because this runs before QEMU, and
+# because an interpreter would make the check agree with itself: sourcing
+# measures that bash can parse the file, not that the keys are in it.
+#
+# Rejected: checking the read-back against `emitted` alone. That is a round-trip
+# of the writing and nothing more — it passes on a projection missing a key the
+# profile needs, because the key is then missing from both sides of the
+# comparison. Hence a required set stated per profile, below, beside the count.
+REQ_ENV_COMMON=(KM_INSTANCE KM_PROFILE KM_CID KM_MEM KM_VCPUS KM_KERNEL)
+case "$DERIVED" in
+sys-driver)
+    # Every one of these is an unconditional emission for this profile above:
+    # class=sys reads all four T2 values through km_meta_require, and sys-driver
+    # has a nic by construction, so KM_VFIO_BDF is resolved. Their absence here
+    # is a defect, not a profile variation. KM_MAC_INT is deliberately NOT in the
+    # set: it follows provides_network, which is a property of the T1 file rather
+    # than of the profile.
+    REQ_ENV=("${REQ_ENV_COMMON[@]}" KM_INITRD KM_ROOTFS_DEV KM_ROOT_DEVICE \
+             KM_ROOTFSTYPE KM_VFIO_BDF)
+    ;;
+app-offline)
+    # No initrd — the microVM kernel is monolithic; no KM_ROOT_DEVICE — for an
+    # AppVM the guest root is a constant of the template, not data; KM_HOME_DEV
+    # follows persistence and is likewise not a property of the profile.
+    REQ_ENV=("${REQ_ENV_COMMON[@]}" KM_ROOTFSTYPE KM_DELTA)
+    ;;
+*)
+    km_die "internal: no required-key set for profile '$DERIVED', so the read-back cannot state what it is checking for. A profile reaches this line only if it was accepted above, which makes this a defect in this file and not in any input."
+    ;;
+esac
+
+[[ -s "$ENV_FILE" ]] \
+    || km_die "$ENV_FILE is absent or empty immediately after it was published. Since the unit declares it optional, an absent projection is no longer refused by systemd, and QEMU would be started with every value in its command line unset."
+
+readback=()
+while IFS= read -r line; do
+    if [[ "$line" =~ ^(KM_[A-Z0-9_]+)= ]]; then
+        readback+=("${BASH_REMATCH[1]}")
+    fi
+done < "$ENV_FILE"
+
+(( ${#readback[@]} == ${#emitted[@]} )) \
+    || km_die "$ENV_FILE reads back ${#readback[@]} KM_* assignments, but this run emitted ${#emitted[@]}. What is on disk is not what was written here."
+
+for key in "${REQ_ENV[@]}"; do
+    in_list "$key" "${readback[@]}" \
+        || km_die "$ENV_FILE carries no $key, which profile $DERIVED requires. The projection is complete as a file and incomplete as an environment, which is exactly the readable-but-wrong artefact the leading dash can no longer catch."
+done
+
 km_log "projection written: $ENV_FILE (profile $DERIVED asserted and derived, ${#emitted[@]} keys)"
