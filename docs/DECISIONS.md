@@ -3607,7 +3607,7 @@ unit starts netVM, the uplink comes up, and QEMU is a child of the unit with the
 `.con` not invoked. Literal absence moves to G3. No mechanism changed; the gate
 was measuring two things under one name.
 
-**Revision note, 2026-08-17 (step 3a part 2, gate G1 — E1's unnamed
+**Revision note (2026-08-17, step 3a part 2, gate G1 — E1's unnamed
 precondition):** E1's *what the probe did not cover* list names three things. A
 fourth, unnamed, is the one that decided the gate. E1a was necessarily measured
 with the environment file **already present**: `EnvironmentFile=` without a
