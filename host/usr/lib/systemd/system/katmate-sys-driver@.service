@@ -66,11 +66,20 @@ ExecStartPre=/usr/lib/katmate/katmate-check-image %i
 ExecStartPre=+/usr/lib/katmate/katmate-activate-lvs %i
 ExecStartPre=+/usr/lib/katmate/katmate-generate-env %p %i
 
-# E1, measured 2026-08-06 on MINIS: EnvironmentFile= IS read late enough to see a
-# file created by ExecStartPre= in the same unit. Candidate A — one unit per VM,
-# no second unit class, and the projection is produced and consumed inside one
-# unit's lifetime, so a half-started VM cannot leave a live env file for the next
-# start to inherit.
+# The leading `-` is load-bearing, not defensive. E1 (2026-08-06) measured that
+# EnvironmentFile= is read late enough to see a file created by ExecStartPre= in
+# the same unit; it measured that on a file that already existed. It is read
+# before EVERY Exec*, ExecStartPre= included, and without the `-` an absent file
+# fails the execution-environment setup before the generator above can run —
+# which is how this unit failed its first start (ADR-030 §8, revision notes
+# 2026-08-17 and 2026-08-19).
+#
+# The `-` removes an enforcement point from systemd and does not remove the
+# enforcement. The only path that reaches ExecStart= with no projection is an
+# ExecStartPre= that exits 0 without having produced one, and katmate-generate-env
+# is written so that path does not exist: it reads back what it published before
+# it exits. ADR-032 §2 puts binary decisions in the T4 executable that owns the
+# input, not in a directive that can only tell present from absent.
 EnvironmentFile=-/run/katmate/vm/%i.env
 
 # --- the VMM ------------------------------------------------------------------
