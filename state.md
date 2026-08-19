@@ -228,8 +228,12 @@ missing one required key is refused by name, with exit 1 and not 2.
 
 ### G1 was executed and FAILED; the template is still UNVERIFIED in full
 
-Both halves are true and they are not in tension, which is why *Next steps*
-item 3 now states them together. G1 ran on 2026-08-17 and failed **above**
+**Superseded 2026-08-19 by the gate run** (the entry above): G1 was re-run after
+the A′ correction and passed, and *Next steps* item 3 now withdraws *"UNVERIFIED
+in full"*. This heading is what that session recorded and is kept as such.
+
+Both halves were true when written and they were not in tension, which is why
+*Next steps* item 3 stated them together. G1 ran on 2026-08-17 and failed **above**
 `ExecStart=` — the environment-file load, before the generator was spawned — so
 nothing in the transcription of `net-sys.con` was exercised. The gate criteria
 stay in `~/3a2-report.md` § S3.5 and are deliberately not copied here.
@@ -654,6 +658,10 @@ block is left as written rather than rewritten, because it is the carry-in the
 gate session was actually given; how much of *"UNVERIFIED in full"* G1 retires
 is a ruling and not a note's to make.
 
+**Ruled 2026-08-19, and item 3 below carries it:** the pass retires the **start
+path**; the **stop path** stays UNVERIFIED, and `katmate-activate-lvs` met an
+already-active LV so activation from inactive is not claimed.
+
 What the gate session must carry in, and what is *not* in the report:
 
 1. **Preconditions in order.** rsync; **re-install** `/usr/lib/katmate/*` and
@@ -665,7 +673,7 @@ What the gate session must carry in, and what is *not* in the report:
    QEMU holding `vm_sys_netvm` would make G1 measure the workaround instead of
    the mechanism.
 3. **G1 was executed on 2026-08-17 and FAILED, and
-   `katmate-sys-driver@.service` is still UNVERIFIED in full.** Both, because the
+   `katmate-sys-driver@.service` was UNVERIFIED in full.** Both, because the
    failure was **above** `ExecStart=`: `EnvironmentFile=` without a leading `-`
    is loaded before every `Exec*`, so the absent projection failed the
    execution-environment setup before the `ExecStartPre=` that creates it was
@@ -673,10 +681,20 @@ What the gate session must carry in, and what is *not* in the report:
    `systemd-analyze verify` still passes — which is a parse, not a start. The
    correction is committed (ADR-030 revision note 2026-08-19: the directive is
    now `EnvironmentFile=-`, and the refusal it carried moved into
-   `katmate-generate-env`'s read-back, itself UNVERIFIED). G1 is therefore the
-   template's first execution past `ExecStartPre=`, and G4 is the observation
-   that `-nodefaults` did not remove a device the guest needs. Gate criteria stay
-   in `~/3a2-report.md` § S3.5.
+   `katmate-generate-env`'s read-back, itself UNVERIFIED). G1 was re-run on
+   2026-08-19 after that correction and reached `ExecStart=`, with QEMU running
+   under the unit; G4 was the observation about the same start.
+   **"UNVERIFIED in full" is withdrawn as of 2026-08-19 and kept above as what was
+   published.** What the pass retires is the start path — the three
+   `ExecStartPre=`, the `EnvironmentFile=` load, the argv, and the VMM as a child
+   of the unit. What it does not touch is the stop path —
+   `KillMode=control-group`, `TimeoutStopSec=30s`, SIGTERM with no graceful guest
+   shutdown — which first executes at the next `systemctl stop` and is settled by
+   a stop ending QEMU within 30 s against a guest journal showing whether the
+   filesystem was remounted read-only first. One preflight also ran without work
+   to do: `katmate-activate-lvs` met an already-active linear LV, so activation
+   from inactive under systemd is not claimed. Gate criteria stay in
+   `~/3a2-report.md` § S3.5; the outstanding gates are G5, G6, H1, H3.
 4. **What is still not shippable:** `katmate-app-offline@` (part 3, and its gates
    need an `app-web.meta` that does not exist), and the deletion of both `.con`
    files, which is 3a's last commit and only if every line is placed. Deletion
