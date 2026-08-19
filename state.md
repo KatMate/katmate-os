@@ -643,6 +643,17 @@ measure is written, installed and signed; nothing has started a VM. The
 deliberately not summarised here — a second copy of a gate criterion is how a
 gate ends up measured against the wrong wording, which is what happened to G1.
 
+**Superseded in part, 2026-08-19 — read this block against the session entry at
+the top of the file.** G1 and G4 have since run and the operator has ruled them
+**passed**. Two statements here are contradicted by that run: *"nothing has
+started a VM"*, and item 3's *"`katmate-sys-driver@.service` is still UNVERIFIED
+in full"* — the template has now executed past `ExecStartPre=` and through
+`ExecStart=`, while its stop path remains UNVERIFIED and the entry lists what
+else the run did not exercise. **Gates still outstanding: G5, G6, H1, H3.** The
+block is left as written rather than rewritten, because it is the carry-in the
+gate session was actually given; how much of *"UNVERIFIED in full"* G1 retires
+is a ruling and not a note's to make.
+
 What the gate session must carry in, and what is *not* in the report:
 
 1. **Preconditions in order.** rsync; **re-install** `/usr/lib/katmate/*` and
