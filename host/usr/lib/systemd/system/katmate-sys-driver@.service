@@ -71,7 +71,7 @@ ExecStartPre=+/usr/lib/katmate/katmate-generate-env %p %i
 # no second unit class, and the projection is produced and consumed inside one
 # unit's lifetime, so a half-started VM cannot leave a live env file for the next
 # start to inherit.
-EnvironmentFile=/run/katmate/vm/%i.env
+EnvironmentFile=-/run/katmate/vm/%i.env
 
 # --- the VMM ------------------------------------------------------------------
 # Every value that crosses is a scalar interpolated at a FIXED position, in the
