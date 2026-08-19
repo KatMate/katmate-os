@@ -46,6 +46,108 @@
 
 ---
 
+## This session (2026-08-11) — 3a part 2, first half: the `trap` relocation is verified in both directions, and the host has T1
+
+Delegated implementation session on the Acer, reaching MINIS over ssh — one
+session, two machines, so *never edit on MINIS* follows from the topology rather
+than from discipline: the session had no editor there. **Closed at the §2.3 / §3
+boundary by operator decision**, because §2.3 is a complete measurement and §3
+is new work with its own risk. Three commits, all signed (`6fd9821`, `d4224fb`,
+`703befe`). Report: `~/3a2-report.md`.
+
+The read pass **halted with ten divergences** before any file was modified; an
+eleventh was found during the work. All were ruled on, and two of them changed
+what part 2 will ship (see *the privilege boundary*, below, and G1's split).
+
+### What exists now
+
+- **`/etc/katmate/vm/` is live** — both T1 files, `root:root 0644`, flat, one
+  per VM (ADR-032 §7). **Copied, never authored**, verified by `cmp` and
+  `sha256sum` against the staging tree, because a second authored copy is the
+  drift ADR-032 exists to prevent. The validator passes over the directory with
+  cross-file rules evaluated over a guaranteed-complete set of two.
+- **The T1 staging tree is `local/etc/katmate/vm/` in the repository**, ignored
+  via `.gitignore`, mirroring install paths inside itself so the install step
+  stays a copy. It is **not** under `host/`: in `host/` the path asserts what
+  ships, and T1 is user-authored by definition. `docs/HOST-CONFIG.md` records
+  the requirement, both paths, and that build-order step 6 replaces the
+  hand-copy with installer provisioning.
+- **`/var/lib/katmate/netvm/` is live** with `vmlinuz`, `initrd.img` and
+  `netvm.meta`, written by `netvm.sh` step 11 on a real build. This was the
+  precondition G1 was waiting on.
+- **`/var/lib/katmate/kernels/` exists** and holds the shared microVM kernel —
+  **placed by hand.** `build/foundation.sh` gained the step that installs it
+  (`d4224fb`, with `KATMATE_KERNELS_DIR` in `config.sh` so the path is stated
+  once), and **the script was not run.** That step is **UNVERIFIED** and first
+  executes at the next foundation rebuild; the hand-placed file is not evidence
+  for it.
+
+### The one thing this session was convened to measure
+
+**The `netvm.sh` `trap - EXIT` relocation is VERIFIED, in both directions** —
+part 1 carried it as the single unverified change. Injected from outside the
+script, never by editing it: run 1 an invalid `DEBIAN_MIRROR` (fails in step 2,
+`netvm_cleanup` **removed** the LV), run 2 `chattr +i /var/lib/katmate` (step 11
+`install -d` returns EPERM even as root, the LV **stood**, and the rollback was
+provably silent). Run 3 was clean, so **step 11 is verified in the writing
+direction too**, its payload hash-identical to the `out/netvm/` export. Three
+host reboots, each an operator gate.
+
+**The reading rule made the measurement legible, and was ruled before run 2's
+result was known:** an absent LV is not by itself evidence against the
+relocation. A steps-1–10 failure and a step-11 failure produce the same `lvs`
+output and are told apart only by *where the run failed*, so a repeat after a
+mirror flake is not retrying for a desired result — no measurement was produced.
+A repeat after a step-11 result would be, and was refused in advance.
+
+Consequence for the brief: **"reboot before each run" is conditional, not
+unconditional.** The condition is a held device — open count, or a `jbd2`
+kthread on this LV's `dm-N` — and it was measured **absent** before run 2 and
+**present** before run 3. A remedy with no condition to remedy is habit, not
+caution; where the condition is present the reboot stands, and it stays an
+operator gate because the root volume is LUKS and the passphrase is entered at
+the machine.
+
+### The privilege boundary in the `ExecStartPre=` chain became visible
+
+ADR-032 §2 gives `katmate-check-image` "backing-chain and payload existence"
+while also arguing for a cheapest-gate-first chain that runs before anything is
+activated. Measured on MINIS as uid 1000: `lvs vg0` exits 5 on
+`/dev/mapper/control` and the `vg0` lock, and membership of group `disk` does
+not help. Both halves cannot hold. Ruled: `check-image` narrows to plain files
+(kernel, initrd, `<image>.meta`) and **LV existence moves to
+`katmate-activate-lvs`**, already `ExecStartPre=+`, where `lvchange -K -ay`
+*is* the existence check. No third executable, no widened privileged set.
+Written into ADR-032 as a revision note in the following session (`98a6ff2`).
+
+### Corrections this session forced on documents
+
+- **The netVM guest kernel is `6.12.101+deb13-amd64`**, not `6.12.96`. Runs 2
+  and 3 took what trixie offers — the build is declarative, so this is the
+  mechanism working, not a defect. Applied below; `docs/SESSIONS.md:1032` still
+  names 6.12.96 and is deliberately **not** corrected, because dated session
+  records are not rewritten.
+- **`vm_personal_home` is present on MINIS**, against this file's claim that it
+  was deleted 2026-08-02. Recorded where the claim is made, and **unresolved in
+  either direction** — a session does not silently reconcile a document with the
+  tree.
+- **The T1 location moved** from `~/katmate-t1/` to `local/etc/katmate/vm/`, and
+  the files are now also installed on MINIS.
+- **The stuck-`jbd2` symptom became a test.** This file already described the
+  symptom correctly twice, inside historical entries — but neither was a test,
+  and nothing said that `mount` is not the condition. Run 2 produced an LV
+  **unmounted yet open**, and run 3 produced a *successful* build whose
+  filesystem came out `clean` while the device was *still* held. The test is now
+  in *Invariants & gotchas* with both measurements behind it.
+
+### What this session is evidence for
+
+A destructive property was measured by injecting failure from **outside** the
+script under test — no sabotage in the history, and no file edited on the
+machine that would revert it. And the ADR was tested by trying to *implement*
+it: a sentence in ADR-032 §2 that reads as one requirement turned out to be two,
+which is the same finding class as G1 measuring two properties under one name.
+
 ## This session (2026-08-09, second of two) — 3a part 1: the data layer exists, and the schema tells the truth on its first day
 
 Delegated implementation session on the Acer, whole tree visible. Five commits,

@@ -5,8 +5,9 @@
 > each working session. Detailed proofs and command sequences live in git
 > history and the ADRs — this file references them rather than repeating them.
 
-**Milestone:** v0.2 (in development) · **Last updated:** 2026-08-17
-(two sessions: 3a part 2 first half on 2026-08-11, second half on 2026-08-17).
+**Milestone:** v0.2 (in development) · **Last updated:** 2026-08-19
+(two sessions: 3a part 2 second half on 2026-08-17, the A′ correction on
+2026-08-19).
 
 ## Current focus
 
@@ -41,7 +42,82 @@ restartable — and so updatable — without touching running VMs.
 Direction unchanged: IOMMU-capable platforms only (VT-d/AMD-Vi); VT-x-only
 frozen (ADR-015). MINIS is primary host and merge target.
 
-## This session (2026-08-17) — 3a part 2, second half: the control layer exists as code, and nothing has started a VM yet
+## This session (2026-08-19) — the A′ correction: the projection becomes optional to systemd and the refusal moves into the generator
+
+Delegated implementation session on the Acer, phase 2 of the day. Six commits,
+all signed. Brief: `~/3a2-phase2-brief.md`; report: `~/3a2-phase2-report.md`.
+Phase 1 of the same day ran E1c on MINIS and is reported separately in
+`~/3a2-e1c-report.md`. **No gate was run and no VM was started** — deliberately,
+on the 2026-08-17 reasoning that the session writing a fix is the wrong one to
+judge it.
+
+### What E1c settled
+
+E1c measured on MINIS, systemd 261, `Type=simple`, on a `/run` where
+`/run/katmate` did not yet exist: one start of a probe carrying no KatMate
+content produced `PRE_SEES=[]` at the `ExecStartPre=` read and
+`PROBE_RESULT=[42]` at the `ExecStart=` read, `Result=success`,
+`ExecMainStatus=0`. The two reads share a journal timestamp and are separable
+only by PID. The first is the state E1a could not observe — the environment file
+absent at the first read, absorbed by a leading `-` rather than fatal; the second
+is the same re-read E1a did measure, now on a file that did not exist when the
+unit started.
+
+**The ruling is A′:** candidate A kept, its transcription corrected. Candidate B
+is rejected, with its reasons on the record in ADR-030's 2026-08-19 revision
+note. E1's `Type=oneshot` caveat is retired with the same measurement.
+
+### What changed
+
+- **ADR-030 gained the 2026-08-19 revision note** (`71e85b9`), committed first,
+  because the unit comment and the generator header both cite it by date. The
+  2026-08-17 note stands untouched: append-only.
+- **`katmate-sys-driver@.service`** — `EnvironmentFile=` is now
+  `EnvironmentFile=-/run/katmate/vm/%i.env` (`c19cfec`), and the comment above it
+  no longer cites E1 for a property E1 did not measure (`64b345e`). Two commits,
+  because one is behaviour and one is a wrong statement.
+- **`katmate-generate-env`** — its header carried the same over-reading
+  (`5fc510b`), and it now **reads back its own published output before exiting**
+  (`6ef40ac`): the file must exist and be non-empty, the count of `KM_*`
+  assignments on disk must equal the number of keys the run emitted, and every
+  key the derived profile requires must be present. Read as text, never sourced.
+
+**The `-` is not a fail-open, and this is the part to carry forward.** It removes
+an enforcement point from systemd's environment loader; the enforcement moves to
+the executable that owns the input (ADR-032 §2). The only path that can now reach
+`ExecStart=` with no projection is the generator exiting 0 without having
+published one, and the read-back is what closes it.
+
+### The read-back is UNVERIFIED
+
+It has never run as part of the executable. What was run on the Acer:
+`shellcheck -x` clean, `bash -n` clean, `git diff --summary` showing no mode
+change — all three static, none of them evidence of behaviour — plus an
+isolated scratchpad harness over a copy of the block, which is not the
+executable either. It first executes at the next `katmate-generate-env` run,
+which is the next session's G1. The pair of observations that would settle it:
+a start whose projection is complete reaches `ExecStart=`, and a projection
+missing one required key is refused by name, with exit 1 and not 2.
+
+### G1 was executed and FAILED; the template is still UNVERIFIED in full
+
+Both halves are true and they are not in tension, which is why *Next steps*
+item 3 now states them together. G1 ran on 2026-08-17 and failed **above**
+`ExecStart=` — the environment-file load, before the generator was spawned — so
+nothing in the transcription of `net-sys.con` was exercised. The gate criteria
+stay in `~/3a2-report.md` § S3.5 and are deliberately not copied here.
+
+### The operator's own commits of the same day
+
+Four, and they are his, not this session's: `7fcba02` recorded *Dev access to
+MINIS* in *Live state* (the `host` account, the fish login shell, and why a bash
+snippet has to arrive on stdin); `26cecf0` routed delegated sessions to that
+entry from `CLAUDE.md` before the first remote command; `5967a05` normalised the
+2026-08-17 revision note's heading to the parenthesis form; `62b17d6` made
+en_US explicit for a delegated session's chat and report, not only for the
+repository.
+
+## Previous session (2026-08-17) — 3a part 2, second half: the control layer exists as code, and nothing has started a VM yet
 
 Delegated implementation session on the Acer, reaching MINIS over ssh. Six
 commits, all signed (`98a6ff2`, `a83c2f5`, `2a23473`, `5265b62`, `b786e4a`,
@@ -122,112 +198,10 @@ wrote the template is the wrong one to judge it — the risk is not running out
 mid-gate but reading one's own output generously. The per-gate preconditions, what
 to observe and what counts as failing are in the report, § S3.5.
 
-## Previous session (2026-08-11) — 3a part 2, first half: the `trap` relocation is verified in both directions, and the host has T1
-
-Delegated implementation session on the Acer, reaching MINIS over ssh — one
-session, two machines, so *never edit on MINIS* follows from the topology rather
-than from discipline: the session had no editor there. **Closed at the §2.3 / §3
-boundary by operator decision**, because §2.3 is a complete measurement and §3
-is new work with its own risk. Three commits, all signed (`6fd9821`, `d4224fb`,
-`703befe`). Report: `~/3a2-report.md`.
-
-The read pass **halted with ten divergences** before any file was modified; an
-eleventh was found during the work. All were ruled on, and two of them changed
-what part 2 will ship (see *the privilege boundary*, below, and G1's split).
-
-### What exists now
-
-- **`/etc/katmate/vm/` is live** — both T1 files, `root:root 0644`, flat, one
-  per VM (ADR-032 §7). **Copied, never authored**, verified by `cmp` and
-  `sha256sum` against the staging tree, because a second authored copy is the
-  drift ADR-032 exists to prevent. The validator passes over the directory with
-  cross-file rules evaluated over a guaranteed-complete set of two.
-- **The T1 staging tree is `local/etc/katmate/vm/` in the repository**, ignored
-  via `.gitignore`, mirroring install paths inside itself so the install step
-  stays a copy. It is **not** under `host/`: in `host/` the path asserts what
-  ships, and T1 is user-authored by definition. `docs/HOST-CONFIG.md` records
-  the requirement, both paths, and that build-order step 6 replaces the
-  hand-copy with installer provisioning.
-- **`/var/lib/katmate/netvm/` is live** with `vmlinuz`, `initrd.img` and
-  `netvm.meta`, written by `netvm.sh` step 11 on a real build. This was the
-  precondition G1 was waiting on.
-- **`/var/lib/katmate/kernels/` exists** and holds the shared microVM kernel —
-  **placed by hand.** `build/foundation.sh` gained the step that installs it
-  (`d4224fb`, with `KATMATE_KERNELS_DIR` in `config.sh` so the path is stated
-  once), and **the script was not run.** That step is **UNVERIFIED** and first
-  executes at the next foundation rebuild; the hand-placed file is not evidence
-  for it.
-
-### The one thing this session was convened to measure
-
-**The `netvm.sh` `trap - EXIT` relocation is VERIFIED, in both directions** —
-part 1 carried it as the single unverified change. Injected from outside the
-script, never by editing it: run 1 an invalid `DEBIAN_MIRROR` (fails in step 2,
-`netvm_cleanup` **removed** the LV), run 2 `chattr +i /var/lib/katmate` (step 11
-`install -d` returns EPERM even as root, the LV **stood**, and the rollback was
-provably silent). Run 3 was clean, so **step 11 is verified in the writing
-direction too**, its payload hash-identical to the `out/netvm/` export. Three
-host reboots, each an operator gate.
-
-**The reading rule made the measurement legible, and was ruled before run 2's
-result was known:** an absent LV is not by itself evidence against the
-relocation. A steps-1–10 failure and a step-11 failure produce the same `lvs`
-output and are told apart only by *where the run failed*, so a repeat after a
-mirror flake is not retrying for a desired result — no measurement was produced.
-A repeat after a step-11 result would be, and was refused in advance.
-
-Consequence for the brief: **"reboot before each run" is conditional, not
-unconditional.** The condition is a held device — open count, or a `jbd2`
-kthread on this LV's `dm-N` — and it was measured **absent** before run 2 and
-**present** before run 3. A remedy with no condition to remedy is habit, not
-caution; where the condition is present the reboot stands, and it stays an
-operator gate because the root volume is LUKS and the passphrase is entered at
-the machine.
-
-### The privilege boundary in the `ExecStartPre=` chain became visible
-
-ADR-032 §2 gives `katmate-check-image` "backing-chain and payload existence"
-while also arguing for a cheapest-gate-first chain that runs before anything is
-activated. Measured on MINIS as uid 1000: `lvs vg0` exits 5 on
-`/dev/mapper/control` and the `vg0` lock, and membership of group `disk` does
-not help. Both halves cannot hold. Ruled: `check-image` narrows to plain files
-(kernel, initrd, `<image>.meta`) and **LV existence moves to
-`katmate-activate-lvs`**, already `ExecStartPre=+`, where `lvchange -K -ay`
-*is* the existence check. No third executable, no widened privileged set.
-Written into ADR-032 as a revision note in the following session (`98a6ff2`).
-
-### Corrections this session forced on documents
-
-- **The netVM guest kernel is `6.12.101+deb13-amd64`**, not `6.12.96`. Runs 2
-  and 3 took what trixie offers — the build is declarative, so this is the
-  mechanism working, not a defect. Applied below; `docs/SESSIONS.md:1032` still
-  names 6.12.96 and is deliberately **not** corrected, because dated session
-  records are not rewritten.
-- **`vm_personal_home` is present on MINIS**, against this file's claim that it
-  was deleted 2026-08-02. Recorded where the claim is made, and **unresolved in
-  either direction** — a session does not silently reconcile a document with the
-  tree.
-- **The T1 location moved** from `~/katmate-t1/` to `local/etc/katmate/vm/`, and
-  the files are now also installed on MINIS.
-- **The stuck-`jbd2` symptom became a test.** This file already described the
-  symptom correctly twice, inside historical entries — but neither was a test,
-  and nothing said that `mount` is not the condition. Run 2 produced an LV
-  **unmounted yet open**, and run 3 produced a *successful* build whose
-  filesystem came out `clean` while the device was *still* held. The test is now
-  in *Invariants & gotchas* with both measurements behind it.
-
-### What this session is evidence for
-
-A destructive property was measured by injecting failure from **outside** the
-script under test — no sabotage in the history, and no file edited on the
-machine that would revert it. And the ADR was tested by trying to *implement*
-it: a sentence in ADR-032 §2 that reads as one requirement turned out to be two,
-which is the same finding class as G1 measuring two properties under one name.
-
 ## Session archive
 
-Sessions older than the two above (2026-08-09 *second of two*, then *first of
-two*, then the
+Sessions older than the two above (2026-08-11, then 2026-08-09 *second of two*,
+then *first of two*, then the
 2026-08-06 pair, then 2026-08-03, then
 2026-08-02 *second of two*, then *first of two*, then 2026-07-28 back to
 2026-06-27) live in
@@ -260,6 +234,12 @@ extracted block against the pre-move blob.
 *second of two* entry (3a part 1) rotated out as the 2026-08-17 entry arrived. Two
 rotations in one day is not a defect — it is what keeping two sessions costs when
 two sessions close on the same day.
+
+**Closed 2026-08-19.** The 2026-08-11 entry (3a part 2, first half) rotated to
+the archive as the 2026-08-19 entry arrived, heading changed from *Previous
+session* to *This session* and the body moved verbatim — the same mechanism as
+the two rotations above. Recorded here because a rotation that is not recorded
+is indistinguishable from an entry that was lost.
 
 **Ordering note.** Both 2026-08-06 entries are same-day. *First of two* is the
 hygiene pass (midday); *second of two* is ADR-030 (evening). The hygiene pass
@@ -578,10 +558,19 @@ What the gate session must carry in, and what is *not* in the report:
 2. **netVM is DOWN and must stay down until the unit starts it.** A hand-started
    QEMU holding `vm_sys_netvm` would make G1 measure the workaround instead of
    the mechanism.
-3. **`katmate-sys-driver@.service` is UNVERIFIED in full.** `systemd-analyze
-   verify` passes; that is a parse, not a start. G1 is its first execution, and
-   G4 is the observation that `-nodefaults` did not remove a device the guest
-   needs.
+3. **G1 was executed on 2026-08-17 and FAILED, and
+   `katmate-sys-driver@.service` is still UNVERIFIED in full.** Both, because the
+   failure was **above** `ExecStart=`: `EnvironmentFile=` without a leading `-`
+   is loaded before every `Exec*`, so the absent projection failed the
+   execution-environment setup before the `ExecStartPre=` that creates it was
+   spawned. Nothing in the transcription of `net-sys.con` was exercised, and
+   `systemd-analyze verify` still passes — which is a parse, not a start. The
+   correction is committed (ADR-030 revision note 2026-08-19: the directive is
+   now `EnvironmentFile=-`, and the refusal it carried moved into
+   `katmate-generate-env`'s read-back, itself UNVERIFIED). G1 is therefore the
+   template's first execution past `ExecStartPre=`, and G4 is the observation
+   that `-nodefaults` did not remove a device the guest needs. Gate criteria stay
+   in `~/3a2-report.md` § S3.5.
 4. **What is still not shippable:** `katmate-app-offline@` (part 3, and its gates
    need an `app-web.meta` that does not exist), and the deletion of both `.con`
    files, which is 3a's last commit and only if every line is placed. Deletion
