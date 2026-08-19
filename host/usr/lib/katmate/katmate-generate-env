@@ -9,8 +9,10 @@
 # Writes /run/katmate/vm/<instance>.env — the merge of T2, T1 and the start-time
 # scalars into a fixed, typed key set. A PROJECTION, never a source: it is
 # regenerated at every start and lives in /run, so nothing stale survives a
-# reboot, and it is read by `EnvironmentFile=` in the same unit that produced it
-# (ADR-030 §8, candidate A, gate E1 passed 2026-08-06).
+# reboot, and it is read by `EnvironmentFile=-` in the same unit that produced it
+# (ADR-030 §8, candidate A as corrected; E1 2026-08-06 measured the re-read on a
+# file that already existed, E1c 2026-08-19 measured the first creation — which
+# is why the `-` is there and why this file reads back what it publishes).
 #
 # It also performs the check ADR-032 §6 exists for: the unit name ASSERTS a
 # profile, this file DERIVES one, and a mismatch fails here — before QEMU —
