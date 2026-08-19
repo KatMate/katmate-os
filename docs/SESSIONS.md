@@ -46,6 +46,87 @@
 
 ---
 
+## This session (2026-08-17) — 3a part 2, second half: the control layer exists as code, and nothing has started a VM yet
+
+Delegated implementation session on the Acer, reaching MINIS over ssh. Six
+commits, all signed (`98a6ff2`, `a83c2f5`, `2a23473`, `5265b62`, `b786e4a`,
+`80f5f5c`). Report: `~/3a2-report.md`, session-2 part. **Closed before the gates,
+deliberately** — see the end of this entry.
+
+### What exists now
+
+- **Five T4 executables at `host/usr/lib/katmate/`**, installed to
+  `/usr/lib/katmate/` on MINIS: `katmate-check-waypipe`, `katmate-check-image`,
+  `katmate-activate-lvs`, `katmate-generate-env`, `katmate-publish-nics`. One
+  executable per check, none taking a mode argument, all `katmate-<verb>-<noun>`.
+  Two exit codes: **1 = the check failed, 2 = it was called wrongly** — a caller
+  must not read non-zero as uniformly invalid.
+- **`katmate-lib.sh`**, sourced and not executed, holding the canonical paths, the
+  diagnostic style and the T1/T2 readers. It carries **no policy**: the profile
+  function lives only in `katmate-generate-env`, because ADR-032 §2 allows exactly
+  one path to a profile.
+- **Two units at `host/usr/lib/systemd/system/`**, installed on MINIS and
+  **neither enabled**: `katmate-publish-nics.service` (oneshot,
+  `RemainAfterExit`, empty capability bounding set, only `/run` writable) and
+  `katmate-sys-driver@.service`.
+- **`/run/katmate/nics/uplink0` is published by its own unit**, not by hand:
+  `uplink0 -> 0000:01:00.0 (0x10ec:0x8125)`, claimed by `netvm`.
+
+### The one thing that is not yet true
+
+**No VM has been started from a unit.** `katmate-sys-driver@.service` is
+**UNVERIFIED in full**; `systemd-analyze verify` passes on it, and that is a
+parse, not a start. Everything in the ExecStartPre chain has been run by hand and
+observed — the projection, the LV activation from a genuinely inactive LV, the
+profile-mismatch and stale-label refusals — but the chain has never run *as* a
+chain, under systemd, with QEMU after it.
+
+### The label mapping is answered by counting, not by a scheme
+
+`katmate-publish-nics` takes labels from **T1** and devices from
+`/sys/bus/pci/drivers/vfio-pci/`, and publishes **only where the pairing is
+forced: one label in use, one device bound.** Anything else refuses and names the
+deferred question. A hardcoded mapping was rejected twice over: it would put a
+host inventory fact into a release-owned file, and it would settle the durable
+descriptor by accident in the one place `HOST-CONFIG.md` §3 says it must be
+**measured, not chosen**.
+
+### Two defects found in this session's own code, both by checks rather than by review
+
+- **`shellcheck` SC2318.** In bash 5.3 every right-hand side of a single
+  `local a=… b="$a"` is expanded before any assignment takes effect, so the
+  projection would have been written to `/run/katmate/` instead of
+  `/run/katmate/vm/` — a plausible file at the wrong path, which no exit-code test
+  would have caught.
+- **A refusal left the previous projection standing.** Measured, not reasoned.
+  Harmless to systemd, which never reaches `ExecStart=` when an `ExecStartPre=`
+  fails, but a complete and readable *wrong* file in `/run`: ADR-030 §8's "nothing
+  stale survives" is a property of every exit path. Moving the removal to the top
+  then exposed a second hazard — composing the path before validating `%i` would
+  have made an `rm -f` as uid 0 on an attacker-supplied name — closed in the same
+  edit and both re-measured.
+
+### The schema now has two implementations, and that is a standing risk
+
+`tools/validate-properties.fish` (fish, developer-side, not installed on any host)
+and `katmate-generate-env` (bash, on the start path) both enforce the T1 schema.
+The second exists because ADR-032 §3 requires a forbidden key to be rejected *at
+parse*, and parse-at-start happens on the host. The split is **structural rules in
+the executable, semantic warnings in the validator** — but they must not disagree,
+which is the discipline ADR-015 states about itself. Nothing yet measures that
+they agree; a fixture both must reject is the obvious check and belongs with
+G5/H3.
+
+### Why this session stopped before the gates
+
+Not budget alone. A gate is passed by observation quoted verbatim, so the six are
+output-heavy by contract; G1 is the first unit start of a VM on this host and its
+failure modes (`LimitMEMLOCK`, the serial chardev, `-nodefaults` removing
+something the guest needs) each carry a diagnosis cycle. And the session that
+wrote the template is the wrong one to judge it — the risk is not running out
+mid-gate but reading one's own output generously. The per-gate preconditions, what
+to observe and what counts as failing are in the report, § S3.5.
+
 ## This session (2026-08-11) — 3a part 2, first half: the `trap` relocation is verified in both directions, and the host has T1
 
 Delegated implementation session on the Acer, reaching MINIS over ssh — one

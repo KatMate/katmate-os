@@ -6,8 +6,8 @@
 > history and the ADRs — this file references them rather than repeating them.
 
 **Milestone:** v0.2 (in development) · **Last updated:** 2026-08-19
-(two sessions: 3a part 2 second half on 2026-08-17, the A′ correction on
-2026-08-19).
+(two sessions, both 2026-08-19: the A′ correction *first of two*, then the gate
+run *second of two* in which G1 and G4 passed).
 
 ## Current focus
 
@@ -42,7 +42,134 @@ restartable — and so updatable — without touching running VMs.
 Direction unchanged: IOMMU-capable platforms only (VT-d/AMD-Vi); VT-x-only
 frozen (ADR-015). MINIS is primary host and merge target.
 
-## This session (2026-08-19) — the A′ correction: the projection becomes optional to systemd and the refusal moves into the generator
+## This session (2026-08-19, second of two) — the gate run: G1 and G4 pass, and a VM starts from a unit for the first time
+
+Delegated measurement session on the Acer, reaching MINIS over ssh; phase 3 of
+the day. **No commits, and no tracked file edited** — the session measured and
+reported, nothing else. Brief: `~/3a2-g1-brief.md`; report: `~/3a2-g1-report.md`.
+This entry was written by a separate recording session
+(`~/3a2-g1-record-brief.md`, `~/3a2-g1-record-report.md`), on the 2026-08-17
+reasoning applied one turn further: the session that measures does not also rule,
+and the session that rules does not also write the record.
+
+**The operator has ruled G1 and G4 PASSED**, on the observations in
+`~/3a2-g1-report.md` §§ 3–6. The report itself writes no verdict; it states which
+of S3.5's named observations were seen and which were not, and leaves the ruling
+where it belongs.
+
+### The first VM started from a unit in this project
+
+`systemctl start katmate-sys-driver@netvm.service`, 15:26:19 CEST. QEMU is
+**PID 706658**, **`PPID 1`**, in its own process group and session, named by
+`Main PID:`, and the unit's cgroup holds it **and nothing else** — parented by
+the unit rather than by a shell, read four independent ways (`systemd-cgls`, the
+cgroup's `cgroup.procs`, `/proc/706658/cgroup`, `ps`). The three
+`ExecStartPre=` ran in the template's order — `katmate-check-image`,
+`katmate-activate-lvs`, `katmate-generate-env` — each `0/SUCCESS` and each naming
+itself in its own diagnostic, and **`ExecStart=` was reached after them**. The
+guest booted through to `graphical.target`; the passed-through RTL8125 came up
+**`Link is Up - 1Gbps/Full`** at t+7.46 s, and MAC **`38:05:25:34:7C:47`**
+answered an ARP scan at lease `10.3.1.103`, `REACHABLE`. No ping was issued, per
+the invariant.
+
+This closes the 2026-08-17 entry's *"**No VM has been started from a unit**"*,
+which was that entry's one thing not yet true.
+
+**`net-sys.con` was not invoked** — and that is **derived, not observed**: the
+report's §7 records the session's complete set of state-changing commands (two
+`systemctl start`, one no-op `reset-failed`, one `nmap -sn`), no launcher
+invocation is among them, and a `bash net-sys.con` could not have produced
+`PPID 1` inside the unit's cgroup. The distinction is kept because the report
+never names the file.
+
+### The read-back's first execution
+
+`6ef40ac` gave `katmate-generate-env` a read-back that had never executed as part
+of the executable. It executed here, and this is the line:
+
+> `[katmate-generate-env] projection written: /run/katmate/vm/netvm.env (profile sys-driver asserted and derived, 12 keys)`
+
+**N = 12**, and the twelve `KM_*` assignments were **counted independently on
+disk** by the session rather than read off that line — the read-back's own
+equality check is the executable checking its own arithmetic, so a count made by
+a different tool is what turns N into a measurement. `ExecStart=` was reached
+afterwards. *"asserted and derived"* is the rest of the same line: the profile
+the unit name asserts and the profile `f(class, netvm, nic)` derives are equal,
+so ADR-032 §6's mismatch refusal did not fire either.
+
+**The read-back is half-settled, and it is said in those words.** Observation 1 —
+a start whose projection is complete reaches `ExecStart=` — is now measured.
+**Observation 2 — a projection missing a required key refused by name, with exit
+1 and not 2 — remains unmeasured.** It is an injection, it belongs to G6/H1, and
+nothing was injected in this run.
+
+### G4, in the same start
+
+Not a second start: every G4 observation comes from PID 706658, the process G1's
+observations come from. `-nodefaults` (argv 3), `-no-user-config` (argv 4) and
+`-monitor none` (argv 19–20) read from `/proc/706658/cmdline`. Two design claims
+measured live for the first time beside them: **`-append` survived as one argv
+element** (`root=/dev/vda rw console=ttyS0`, which the guest read back as its
+whole command line), so the braced `${}` interpolation at a fixed position
+behaved as ADR-030 §3 requires and no value became additional arguments; and
+**`-sandbox on,…` is the last argv element**, so nothing was appended after it
+that could have overridden it. Under those flags the guest kept its console, its
+disk (`vm_sys_netvm` went `-wi-a-----` → `-wi-ao----`) and its uplink, and the
+RTC — the other candidate `-nodefaults` might have removed — produced no
+complaint anywhere in the boot.
+
+### What the run did not exercise, and is therefore not claimed
+
+- **`katmate-activate-lvs` never ran against an inactive LV.** `vm_sys_netvm` is
+  **linear**, carries no skip-activation `k` flag and was already active at host
+  boot, so the second preflight was measured succeeding and being idempotent on
+  an already-active LV. The template's comment about an RO-frozen thin LV keeping
+  `k` permanently is true of the AppVM thin volumes, not of this one.
+- **No in-guest observation at all.** That `netvm-agent.service` started is a line
+  the guest's own systemd printed to the console; that the agent **answers** on
+  vsock port 1025 is untested. WireGuard/ProtonVPN bring-up, the DNS-leak policy
+  and the internal-segment peer are unchanged and unverified.
+- **No stop.** The unit's stop behaviour (`KillMode=control-group`,
+  `TimeoutStopSec=30s`, SIGTERM with no graceful guest shutdown) is
+  **UNVERIFIED**; it first executes at the next `systemctl stop`.
+- **`User=` is empty and QEMU runs as uid 0.** Nothing about the C-gate remainder
+  moved (open problem #17). A passing G1 is not evidence for C1.
+
+### H1's recipe is broken by this state
+
+S3.5's H1 injection — `lvchange -an vg0/vm_sys_netvm` — **cannot run** while
+706658 holds the LV open, and stopping CID 3 is an ask-first action. The order is
+therefore: ask, stop the unit, confirm the LV drops to `-wi-a-----`, then inject.
+**The alternative injection is unaffected:** pointing T2's `NETVM_LV` at a
+nonexistent LV changes no LV state at all, and is the cheaper route.
+
+### Two MACs for one segment, until the `.con` files go
+
+`net-sys.con:27` still hands QEMU the authored `52:54:0a:64:01:01`, while the
+unit path derives and emits `52:54:00:21:b2:08`. **The same internal p2p segment
+now has two MACs, depending on which launcher starts netVM.** Nothing is due
+before G3 — the `.con` deletion is 3a's last commit and this dies with it — but
+it is recorded so that deletion is not the first time anyone notices.
+
+### Three published statements this run contradicted, corrected in the same pass
+
+The internal MAC (three sites: the *Live state* value, the *Invariants* body
+sentence, and the *Pending (2026-08-09)* note, which is no longer pending), the
+memlock invariant's *"the only path"*, and the getty prediction under
+*Next steps*. Each is corrected in place and dated, and the superseded wording is
+kept where the file's habit is to record that something was published before it
+was true.
+
+### The machine is left with netVM running
+
+706658 is alive, `NRestarts=0`, holding `/dev/vg0/vm_sys_netvm` and the RTL8125
+at `0000:01:00.0`; **killing it takes the host's guests off the network.**
+`/run/katmate/` holds exactly two files — `nics/uplink0` and `vm/netvm.env`, both
+`root:root 0644` in `root:root 0755` directories. **Sleep targets are not
+masked** and were not masked by that session: no build is running, so the `jbd2`
+hazard is absent, but a host suspend now would suspend a running netVM.
+
+## Previous session (2026-08-19, first of two) — the A′ correction: the projection becomes optional to systemd and the refusal moves into the generator
 
 Delegated implementation session on the Acer, phase 2 of the day. Six commits,
 all signed. Brief: `~/3a2-phase2-brief.md`; report: `~/3a2-phase2-report.md`.
@@ -117,90 +244,10 @@ entry from `CLAUDE.md` before the first remote command; `5967a05` normalised the
 en_US explicit for a delegated session's chat and report, not only for the
 repository.
 
-## Previous session (2026-08-17) — 3a part 2, second half: the control layer exists as code, and nothing has started a VM yet
-
-Delegated implementation session on the Acer, reaching MINIS over ssh. Six
-commits, all signed (`98a6ff2`, `a83c2f5`, `2a23473`, `5265b62`, `b786e4a`,
-`80f5f5c`). Report: `~/3a2-report.md`, session-2 part. **Closed before the gates,
-deliberately** — see the end of this entry.
-
-### What exists now
-
-- **Five T4 executables at `host/usr/lib/katmate/`**, installed to
-  `/usr/lib/katmate/` on MINIS: `katmate-check-waypipe`, `katmate-check-image`,
-  `katmate-activate-lvs`, `katmate-generate-env`, `katmate-publish-nics`. One
-  executable per check, none taking a mode argument, all `katmate-<verb>-<noun>`.
-  Two exit codes: **1 = the check failed, 2 = it was called wrongly** — a caller
-  must not read non-zero as uniformly invalid.
-- **`katmate-lib.sh`**, sourced and not executed, holding the canonical paths, the
-  diagnostic style and the T1/T2 readers. It carries **no policy**: the profile
-  function lives only in `katmate-generate-env`, because ADR-032 §2 allows exactly
-  one path to a profile.
-- **Two units at `host/usr/lib/systemd/system/`**, installed on MINIS and
-  **neither enabled**: `katmate-publish-nics.service` (oneshot,
-  `RemainAfterExit`, empty capability bounding set, only `/run` writable) and
-  `katmate-sys-driver@.service`.
-- **`/run/katmate/nics/uplink0` is published by its own unit**, not by hand:
-  `uplink0 -> 0000:01:00.0 (0x10ec:0x8125)`, claimed by `netvm`.
-
-### The one thing that is not yet true
-
-**No VM has been started from a unit.** `katmate-sys-driver@.service` is
-**UNVERIFIED in full**; `systemd-analyze verify` passes on it, and that is a
-parse, not a start. Everything in the ExecStartPre chain has been run by hand and
-observed — the projection, the LV activation from a genuinely inactive LV, the
-profile-mismatch and stale-label refusals — but the chain has never run *as* a
-chain, under systemd, with QEMU after it.
-
-### The label mapping is answered by counting, not by a scheme
-
-`katmate-publish-nics` takes labels from **T1** and devices from
-`/sys/bus/pci/drivers/vfio-pci/`, and publishes **only where the pairing is
-forced: one label in use, one device bound.** Anything else refuses and names the
-deferred question. A hardcoded mapping was rejected twice over: it would put a
-host inventory fact into a release-owned file, and it would settle the durable
-descriptor by accident in the one place `HOST-CONFIG.md` §3 says it must be
-**measured, not chosen**.
-
-### Two defects found in this session's own code, both by checks rather than by review
-
-- **`shellcheck` SC2318.** In bash 5.3 every right-hand side of a single
-  `local a=… b="$a"` is expanded before any assignment takes effect, so the
-  projection would have been written to `/run/katmate/` instead of
-  `/run/katmate/vm/` — a plausible file at the wrong path, which no exit-code test
-  would have caught.
-- **A refusal left the previous projection standing.** Measured, not reasoned.
-  Harmless to systemd, which never reaches `ExecStart=` when an `ExecStartPre=`
-  fails, but a complete and readable *wrong* file in `/run`: ADR-030 §8's "nothing
-  stale survives" is a property of every exit path. Moving the removal to the top
-  then exposed a second hazard — composing the path before validating `%i` would
-  have made an `rm -f` as uid 0 on an attacker-supplied name — closed in the same
-  edit and both re-measured.
-
-### The schema now has two implementations, and that is a standing risk
-
-`tools/validate-properties.fish` (fish, developer-side, not installed on any host)
-and `katmate-generate-env` (bash, on the start path) both enforce the T1 schema.
-The second exists because ADR-032 §3 requires a forbidden key to be rejected *at
-parse*, and parse-at-start happens on the host. The split is **structural rules in
-the executable, semantic warnings in the validator** — but they must not disagree,
-which is the discipline ADR-015 states about itself. Nothing yet measures that
-they agree; a fixture both must reject is the obvious check and belongs with
-G5/H3.
-
-### Why this session stopped before the gates
-
-Not budget alone. A gate is passed by observation quoted verbatim, so the six are
-output-heavy by contract; G1 is the first unit start of a VM on this host and its
-failure modes (`LimitMEMLOCK`, the serial chardev, `-nodefaults` removing
-something the guest needs) each carry a diagnosis cycle. And the session that
-wrote the template is the wrong one to judge it — the risk is not running out
-mid-gate but reading one's own output generously. The per-gate preconditions, what
-to observe and what counts as failing are in the report, § S3.5.
-
 ## Session archive
 
-Sessions older than the two above (2026-08-11, then 2026-08-09 *second of two*,
+Sessions older than the two above (2026-08-17, then 2026-08-11, then
+2026-08-09 *second of two*,
 then *first of two*, then the
 2026-08-06 pair, then 2026-08-03, then
 2026-08-02 *second of two*, then *first of two*, then 2026-07-28 back to
@@ -240,6 +287,14 @@ the archive as the 2026-08-19 entry arrived, heading changed from *Previous
 session* to *This session* and the body moved verbatim — the same mechanism as
 the two rotations above. Recorded here because a rotation that is not recorded
 is indistinguishable from an entry that was lost.
+
+**Closed 2026-08-19, and this is the second rotation of that day.** The
+2026-08-17 entry (3a part 2, second half) rotated out as the gate-run entry
+arrived — same mechanism, same check: the heading changed from *Previous
+session* to *This session*, the body moved verbatim, and the moved copy was
+verified by hashing it against the pre-move block in `HEAD` rather than by
+reading it. Two rotations on 2026-08-19 for the reason 2026-08-17 already
+recorded: the file keeps two sessions, and here two closed on one day.
 
 **Ordering note.** Both 2026-08-06 entries are same-day. *First of two* is the
 hygiene pass (midday); *second of two* is ADR-030 (evening). The hygiene pass
