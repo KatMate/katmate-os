@@ -146,10 +146,17 @@ an unstaged modification in `git status` is usually his.
 ## Language
 
 Everything in the repository is **en_US** — code, comments, diagnostics, commit
-messages, documentation (decided 2026-08-09). Working dialogue with the operator
-is Slovenian. `tools/validate-properties.fish` and `bin/katmate-cid` are still
-Slovenian; that translation is a named open item and its own commit, not
-something to do in passing.
+messages, documentation (decided 2026-08-09).
+
+**A delegated session writes en_US throughout — its chat output and its report
+included.** The Slovenian working dialogue is the operator's own chat, not this
+one. A report is the input from which en_US repository content is written, so a
+Slovenian report inserts a translation step between the measurement and the
+record, and translation is where wording drifts.
+
+`tools/validate-properties.fish` and `bin/katmate-cid` are still Slovenian; that
+translation is a named open item and its own commit, not something to do in
+passing.
 
 ## Running things
 
