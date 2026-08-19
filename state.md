@@ -1064,13 +1064,21 @@ frozen `vm_home_skel` vs qcow2 branch.
   regardless of `-overcommit mem-lock=off` or hugepages. A manual
   `sudo bash net-sys.con` inherits the SHELL's `ulimit -l` (default 8192 KB) →
   QEMU dies with "cannot allocate memory" at `VFIO_MAP_DMA`, NOT a real OOM.
-  `ulimit -l unlimited` before launch is therefore **mandatory, and today it is
-  the only path: there is no `netVM.service`.** This entry used to name one as
-  "the production path" with a `LimitMEMLOCK=infinity` drop-in — the only unit
-  that ever existed was a March *user* unit pointing at the retired `net.con`,
-  long disabled and removed 2026-07-25. A real unit, or the launch daemon, will
-  need `LimitMEMLOCK=infinity`; until then the manual `ulimit` is not a
-  workaround, it is the mechanism.
+  `ulimit -l unlimited` before launch is therefore **mandatory on the manual
+  path** — which, until 2026-08-19, was the only path there was.
+  **A unit is now a path too (measured 2026-08-19, G1).**
+  `katmate-sys-driver@.service` carries `LimitMEMLOCK=infinity`, and the QEMU it
+  started holds `Max locked memory unlimited` with vfio's full-RAM pinning
+  succeeding at 1 G resident. This entry read *"mandatory, and today it is the
+  only path: there is no `netVM.service`"* until that run, and the sentence was
+  true when written — the only unit that had ever existed was a March *user*
+  unit pointing at the retired `net.con`, long disabled and removed 2026-07-25,
+  which is why an earlier version of this entry naming one as "the production
+  path" was wrong. **The invariant underneath is untouched:** VFIO pins the
+  entire guest RAM, so the limit has to be lifted somewhere. What changed is
+  only where — a directive rather than an interactive shell — and for a manual
+  `sudo bash net-sys.con` the `ulimit` is still not a workaround but the
+  mechanism.
 
 - **vfio passthrough — FLReset- (RTL8125):** the RTL8125 reports `FLReset-` (no
   function-level reset) with small BARs (~80K, so NOT a large-BAR/memory-hole
