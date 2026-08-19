@@ -37,6 +37,12 @@ session must know it *before* it has read anything, not because it matters more.
 **Sync is one-way: Acer → MINIS, `rsync --delete`.** An edit to a tracked file
 made on MINIS is removed at the next sync, without a diagnostic.
 
+**Reaching MINIS is not `ssh 10.3.1.3`, and the shell that answers does not run
+sh.** The account, the key, and how a bash or sh snippet has to be delivered are
+in `state.md` § *Live state*, under *Dev access to MINIS*. A brief that hands you
+an `ssh <ip> '…'` one-liner for MINIS is wrong on both counts; read that entry
+before you issue the first remote command, whatever the brief says.
+
 **The Acer is not a KatMate host.** It runs no VMs; none of `/etc/katmate`,
 `/var/lib/katmate`, `/opt/katmate` exists on it, and `sudo -n` needs a password.
 Anything an Acer session produces that belongs at a canonical path is a
