@@ -636,6 +636,23 @@ touched.
    from both sides of the comparison. A fixture that both must accept and one
    that both must refuse is the obvious check, and belongs with G5/H3.
 
+   **Half of it is now measured, and the entry is otherwise unchanged
+   (2026-08-21).** G5 and H3 ran that check against **one** implementation: the
+   validator refused two forbidden keys (`persistence` on `class = sys`, `nic`
+   on `class = app`) and one duplicate `nic` label, each as an error, each exit
+   1. **`katmate-generate-env` was not run against the same fixtures**, so the
+   two implementations still have nothing measuring their agreement and the
+   drift risk above is exactly as it was.
+
+   *The reason belongs on the record with the fact:* running
+   `katmate-generate-env` against a fixture is a **start-path** action, and the
+   host it would run on has netVM deliberately running — the G5/H3 brief scoped
+   the session to the validator and its exit status for that reason, not by
+   oversight. The fixtures survive at `/tmp/g5h3/` on MINIS and are the ready
+   input for the generator half, but **`/tmp` there is a tmpfs**: they do not
+   outlive a MINIS reboot. `~/3a2-g5h3-report.md` § 5 reproduces every one of
+   them in full, so they are rebuildable from the report alone.
+
 20. **`validate-properties.fish --strict` has never been executed.** Added
    2026-08-21 with the G5/H3 run, which did not exercise it: S3.5 names neither
    row against it, so both gates were measured in the default mode and the flag
