@@ -644,8 +644,10 @@ CYBRland-derived `desktop/` subtree) — **decision taken, document not written*
 the number stays reserved and the gap in the sequence is an honest record of
 that. `ADR-032` = *where each tier lives* (2026-08-09).
 
-**Next session: 3a part 2, the gates — G1, G4, G5, G6, H1, H3.** The code they
-measure is written, installed and signed; nothing has started a VM. The
+**Next session: 3a part 2, the gates — G6 and H1.** G1 and G4 passed
+2026-08-19 and G5 and H3 passed 2026-08-21; the two that remain are the two that
+need netVM stopped. The code they
+measure is written, installed and signed. The
 **per-gate preconditions, what to observe and what counts as failing are in
 `~/3a2-report.md` § S3.5**, written by the session that built the subject and
 deliberately not summarised here — a second copy of a gate criterion is how a
@@ -661,6 +663,11 @@ else the run did not exercise. **Gates still outstanding: G5, G6, H1, H3.** The
 block is left as written rather than rewritten, because it is the carry-in the
 gate session was actually given; how much of *"UNVERIFIED in full"* G1 retires
 is a ruling and not a note's to make.
+
+**Further, 2026-08-21.** G5 and H3 have since run and the operator has ruled them
+**passed**; *"Gates still outstanding: G5, G6, H1, H3"* above is superseded and
+**the list is now G6 and H1**. Appended rather than edited, for the same reason
+the block itself was: it records the carry-in a session was actually given.
 
 **Ruled 2026-08-19, and item 3 below carries it:** the pass retires the **start
 path**; the **stop path** stays UNVERIFIED, and `katmate-activate-lvs` met an
@@ -698,7 +705,9 @@ What the gate session must carry in, and what is *not* in the report:
    filesystem was remounted read-only first. One preflight also ran without work
    to do: `katmate-activate-lvs` met an already-active linear LV, so activation
    from inactive under systemd is not claimed. Gate criteria stay in
-   `~/3a2-report.md` § S3.5; the outstanding gates are G5, G6, H1, H3.
+   `~/3a2-report.md` § S3.5; the outstanding gates are G6 and H1 (G5 and H3
+   passed 2026-08-21, on fixtures and the validator alone — neither touches this
+   template).
 4. **What is still not shippable:** `katmate-app-offline@` (part 3, and its gates
    need an `app-web.meta` that does not exist), and the deletion of both `.con`
    files, which is 3a's last commit and only if every line is placed. Deletion
