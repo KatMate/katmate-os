@@ -868,7 +868,21 @@ question at two sites.
 
 **Open, mechanical:** translate `tools/validate-properties.fish` and
 `bin/katmate-cid` to en_US. Both are Slovenian in comments and diagnostics;
-the repository rule is en_US throughout (decided 2026-08-09). Own commit.
+the repository rule is en_US throughout (decided 2026-08-09). Own commit. The
+item is also stated in `CLAUDE.md` § *Language*; that is a routing pointer, not
+a second source, and the two do not need reconciling.
+
+**Pair the `LC_ALL=C` pin with that translation — same commit, decided
+2026-08-21.** G5 measured that the validator's duplicate-`nic` diagnostic
+accuses a **locale-dependent** file: it enumerates with `find … | sort` and
+raises the error on whichever file is processed **second**, so `LANG=en_US.UTF-8`
+and `LC_ALL=C` swap which of the two filenames the message names. **The rule is
+unaffected** — the pair is rejected either way, one error, exit 1 — but the
+diagnostic reads as an accusation of one specific file, and on an installation
+target the locale is not known. Both changes touch every `err` and `opozorilo`
+site, both are about what the validator tells a human, and doing them separately
+opens the file twice for one concern. Neither was done in the session that found
+it: no file under `tools/` was edited there.
 
 **Deferred, own session (architecture, thinking-on):** memory backing —
 hugepages vs memfd, whether `share=on` has any consumer, C3 `LimitMEMLOCK`
