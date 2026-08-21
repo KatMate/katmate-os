@@ -169,88 +169,10 @@ at `0000:01:00.0`; **killing it takes the host's guests off the network.**
 masked** and were not masked by that session: no build is running, so the `jbd2`
 hazard is absent, but a host suspend now would suspend a running netVM.
 
-## Previous session (2026-08-19, first of two) — the A′ correction: the projection becomes optional to systemd and the refusal moves into the generator
-
-Delegated implementation session on the Acer, phase 2 of the day. Six commits,
-all signed. Brief: `~/3a2-phase2-brief.md`; report: `~/3a2-phase2-report.md`.
-Phase 1 of the same day ran E1c on MINIS and is reported separately in
-`~/3a2-e1c-report.md`. **No gate was run and no VM was started** — deliberately,
-on the 2026-08-17 reasoning that the session writing a fix is the wrong one to
-judge it.
-
-### What E1c settled
-
-E1c measured on MINIS, systemd 261, `Type=simple`, on a `/run` where
-`/run/katmate` did not yet exist: one start of a probe carrying no KatMate
-content produced `PRE_SEES=[]` at the `ExecStartPre=` read and
-`PROBE_RESULT=[42]` at the `ExecStart=` read, `Result=success`,
-`ExecMainStatus=0`. The two reads share a journal timestamp and are separable
-only by PID. The first is the state E1a could not observe — the environment file
-absent at the first read, absorbed by a leading `-` rather than fatal; the second
-is the same re-read E1a did measure, now on a file that did not exist when the
-unit started.
-
-**The ruling is A′:** candidate A kept, its transcription corrected. Candidate B
-is rejected, with its reasons on the record in ADR-030's 2026-08-19 revision
-note. E1's `Type=oneshot` caveat is retired with the same measurement.
-
-### What changed
-
-- **ADR-030 gained the 2026-08-19 revision note** (`71e85b9`), committed first,
-  because the unit comment and the generator header both cite it by date. The
-  2026-08-17 note stands untouched: append-only.
-- **`katmate-sys-driver@.service`** — `EnvironmentFile=` is now
-  `EnvironmentFile=-/run/katmate/vm/%i.env` (`c19cfec`), and the comment above it
-  no longer cites E1 for a property E1 did not measure (`64b345e`). Two commits,
-  because one is behaviour and one is a wrong statement.
-- **`katmate-generate-env`** — its header carried the same over-reading
-  (`5fc510b`), and it now **reads back its own published output before exiting**
-  (`6ef40ac`): the file must exist and be non-empty, the count of `KM_*`
-  assignments on disk must equal the number of keys the run emitted, and every
-  key the derived profile requires must be present. Read as text, never sourced.
-
-**The `-` is not a fail-open, and this is the part to carry forward.** It removes
-an enforcement point from systemd's environment loader; the enforcement moves to
-the executable that owns the input (ADR-032 §2). The only path that can now reach
-`ExecStart=` with no projection is the generator exiting 0 without having
-published one, and the read-back is what closes it.
-
-### The read-back is UNVERIFIED
-
-It has never run as part of the executable. What was run on the Acer:
-`shellcheck -x` clean, `bash -n` clean, `git diff --summary` showing no mode
-change — all three static, none of them evidence of behaviour — plus an
-isolated scratchpad harness over a copy of the block, which is not the
-executable either. It first executes at the next `katmate-generate-env` run,
-which is the next session's G1. The pair of observations that would settle it:
-a start whose projection is complete reaches `ExecStart=`, and a projection
-missing one required key is refused by name, with exit 1 and not 2.
-
-### G1 was executed and FAILED; the template is still UNVERIFIED in full
-
-**Superseded 2026-08-19 by the gate run** (the entry above): G1 was re-run after
-the A′ correction and passed, and *Next steps* item 3 now withdraws *"UNVERIFIED
-in full"*. This heading is what that session recorded and is kept as such.
-
-Both halves were true when written and they were not in tension, which is why
-*Next steps* item 3 stated them together. G1 ran on 2026-08-17 and failed **above**
-`ExecStart=` — the environment-file load, before the generator was spawned — so
-nothing in the transcription of `net-sys.con` was exercised. The gate criteria
-stay in `~/3a2-report.md` § S3.5 and are deliberately not copied here.
-
-### The operator's own commits of the same day
-
-Four, and they are his, not this session's: `7fcba02` recorded *Dev access to
-MINIS* in *Live state* (the `host` account, the fish login shell, and why a bash
-snippet has to arrive on stdin); `26cecf0` routed delegated sessions to that
-entry from `CLAUDE.md` before the first remote command; `5967a05` normalised the
-2026-08-17 revision note's heading to the parenthesis form; `62b17d6` made
-en_US explicit for a delegated session's chat and report, not only for the
-repository.
-
 ## Session archive
 
-Sessions older than the two above (2026-08-17, then 2026-08-11, then
+Sessions older than the two above (2026-08-19 *first of two* — the A′
+correction, rotated there 2026-08-21 — then 2026-08-17, then 2026-08-11, then
 2026-08-09 *second of two*,
 then *first of two*, then the
 2026-08-06 pair, then 2026-08-03, then
