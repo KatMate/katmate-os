@@ -636,6 +636,32 @@ touched.
    from both sides of the comparison. A fixture that both must accept and one
    that both must refuse is the obvious check, and belongs with G5/H3.
 
+20. **`validate-properties.fish --strict` has never been executed.** Added
+   2026-08-21 with the G5/H3 run, which did not exercise it: S3.5 names neither
+   row against it, so both gates were measured in the default mode and the flag
+   stayed untouched. **What is unknown is the warning-versus-error accounting
+   under it** — the flag's stated job is to make warnings count as errors, and
+   nothing has observed it doing so.
+
+   *Why this is not idle.* The G5/H3 control run measured the non-strict
+   behaviour precisely: a file that raises a warning still prints **`✓
+   veljavno`** and the directory exits **0**, because the per-file success line
+   compares **error** counts and warnings do not touch them. Under the default
+   mode that is arguably correct. Under `--strict` it is the one line whose
+   meaning must change, and whether it does is unmeasured — a `✓` printed beside
+   a promoted warning would be the *"silently wrong object"* this project keeps
+   finding, in the tool built to catch it.
+
+   *And this file already leans on the mode.* The *Next steps* paragraph
+   beginning *"Also carried in"* states that `--strict` **"cannot serve as a
+   pre-commit gate over the real T1 set until AppVM link topology is settled"**
+   — a claim about the behaviour of a mode no gate has ever run. The claim may
+   well be right; it is not evidence. *Gate, when it is worth one:* the same
+   fixtures, run twice — once plain, once `--strict` — with the `✓ veljavno`
+   line, the tally and the exit status compared across the pair. The `app_web`
+   *web*-manifest-without-network warning is the ready-made input, being the one
+   warning the real T1 set raises today.
+
 ## Next steps
 
 **ADR numbering.** `ADR-030` = *what the launch daemon reads* (2026-08-06).
