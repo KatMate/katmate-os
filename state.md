@@ -419,7 +419,13 @@ touched.
 - **Dev access to MINIS (dev-only; goes out with Open problem #4).** The account
   is **`host`**, not `winterbox`: `ssh host@10.3.1.3`. Publickey only; the Acer
   (`winterbox`, `10.3.1.100`) holds the key. `sudo -n` is passwordless on MINIS
-  via `/etc/sudoers.d/katmate-dev`. **The login shell on MINIS is fish**, so an
+  via `/etc/sudoers.d/katmate-dev`. **Every `systemctl` operation on a KatMate
+  unit from a delegated session goes through `sudo -n` — `start`, `stop`,
+  `restart` and `reset-failed` alike, not only `lvs` and root-owned file reads.**
+  Without it polkit refuses at the D-Bus layer *before the unit is reached*
+  (*"Access denied … requires interactive authentication"*), and that refusal
+  measures nothing about the unit: it cost the 2026-08-22 session one issued stop
+  that never ran. **The login shell on MINIS is fish**, so an
   sh or bash snippet cannot be passed as `ssh host@10.3.1.3 '…'` — fish rejects
   `$?` and the line dies before it runs anything. **Two delivery forms, and which
   one depends on who is typing.** From the operator's own shell, feed the snippet
