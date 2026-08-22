@@ -784,6 +784,59 @@ touched.
    *web*-manifest-without-network warning is the ready-made input, being the one
    warning the real T1 set raises today.
 
+21. **Every stop is a hard termination — the clean shutdown path exists and is
+   not wired to the unit.** Added 2026-08-22, when the stop path first executed.
+   **This is an unwired mechanism, not an open architectural question.** The
+   clean path is decided, implemented and live-gated: `netvm-agent`'s SHUTDOWN
+   opcode `0x05` signals netVM's own PID 1 with `SIGRTMIN+4` under `CAP_KILL`
+   (ADR-024) — no bus, no `logind`, no polkit, so none of the dbus-free
+   invariant applies to it. What is missing is one directive:
+   **`katmate-sys-driver@.service` carries no `ExecStop=` or `ExecStopPost=` that
+   invokes it**, so `systemctl stop` is SIGTERM to QEMU and the guest is killed
+   where it stands. The template says as much in its own comment, and places the
+   ordering in step 3b as the launch daemon's job — including refusing to tear
+   down a `provides_network` VM with live dependents.
+
+   **The measured consequence.** The 2026-08-22 stop produced no guest output at
+   all, and the boot that followed it replayed the filesystem journal:
+   `EXT4-fs (vda): recovery complete`, corroborated by the guest's own journald
+   reporting its log *"corrupted or uncleanly shut down"*. Measured once, on one
+   stop and the one boot after it — the general form, *a journal replay on
+   `vm_sys_netvm` at every boot following a stop*, is what the mechanism implies
+   and not what was measured.
+
+   **The initrd carries no `fsck`** — `Warning: fsck not present, so skipping
+   root file system`, from the same boot. So the repair is the **kernel's ext4
+   journal replay alone**: journalled metadata is made consistent, and the
+   filesystem is **never consistency-checked**. Nothing has measured whether it
+   is otherwise sound. **This stays true after `ExecStop=` lands**, because a
+   guest that misses `TimeoutStopSec` falls back to SIGTERM — a clean path
+   reduces how often the replay happens, and does not remove the case.
+
+   **The precondition on the wiring, and the order it forces.** The host has
+   **never observed `netvm-agent` answering on vsock 1025** — only starting, as a
+   line the guest's own systemd printed to a one-way console. So the order is:
+   **(a)** gate PING and SHUTDOWN from the host, **(b)** then add `ExecStop=`,
+   **(c)** then re-measure the stop path. Wiring before (a) would put an assumed
+   mechanism precondition on the start path, and this project has buried two
+   already: **ADR-021's QMP→ACPI→logind shutdown** and **ADR-025's Path A**, both
+   accepted and both killed afterwards by a mechanism that was not there. This
+   would be the third.
+
+   *Carried with it, smaller:* **the stop deactivates no LV.** There is no
+   teardown step today, and netVM does not need one — its rootfs is linear, stays
+   active, and the open count simply drops to 0. **Disposable AppVMs will need
+   one**, because their qcow2 delta must be destroyed; that is where the absence
+   becomes a defect rather than a fact.
+
+   *And the condition on what the 2026-08-22 measurement retires:* **the stop
+   path was measured with QEMU running as root.** Once the `User=`/privilege
+   split lands — it is in § *Next steps* as *Launch daemon / privilege split*,
+   and is C1/C3/C5a of ADR-027's C-gate — SIGTERM goes to an unprivileged process
+   in the cgroup. `KillMode=control-group` should still cover it, but *should*
+   is the word, and **the measurement must be retaken**. This is a pass with a
+   stated condition, not a new gate.
+
 ## Next steps
 
 **ADR numbering.** `ADR-030` = *what the launch daemon reads* (2026-08-06).
