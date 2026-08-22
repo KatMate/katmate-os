@@ -68,6 +68,15 @@ Codeberg Pages — never project work.
    be read — every wrong assertion this project has recorded came from reasoning
    over a description instead of the thing.
 
+   **A grep pattern containing `$` needs `grep -F`, or the `$` escaped.** A `$`
+   in mid-pattern is an anchor in a BRE, so that branch is silently
+   unsatisfiable: a search for `case "$DERIVED"` reported the marker absent
+   while the line was present on HEAD. Only that one alternative of the pattern
+   was affected — the others matched — so the search read as partially
+   successful rather than as broken. It belongs here and not in a session entry
+   because it produces a false negative in exactly the read this list exists to
+   make: the one that is supposed to stop the tree being asserted from memory.
+
 `docs/ARCHITECTURE.md` and `docs/SECURITY-MODEL.md` are the frame.
 `ROADMAP.md` § *Build order* says which step this is and what it gates.
 
