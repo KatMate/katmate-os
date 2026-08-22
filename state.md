@@ -444,6 +444,18 @@ touched.
   documentation. rsync stays Acer→MINIS into `~/katmate-build/`. `10.3.1.3` is
   stable on the home LAN; that it is not a persistent networkd profile is the
   Host entry above, and the two are not in conflict.
+- **Installed vs tree, 2026-08-22 — one file, deliberately.** The installed
+  `/usr/lib/katmate/katmate-generate-env` on MINIS now **differs from the
+  repository**, and only in the stale-label refusal's wording (*"it was created
+  for …"* → *"`$NIC_FILE` claims …"*). Behaviour is unchanged; nothing else in
+  the set moved. It stands until the next rsync + re-install, and it is recorded
+  here so the **hash-first check** the *Invariants* section now requires expects
+  the mismatch, finds it in one named file, and does not read it as drift.
+  *Consequence, so the two records do not appear to contradict each other:*
+  **G6's transcript in `~/3a2-g6h1-report.md` § B.4 quotes the pre-reword
+  wording**, because the gate ran against the installed copy before this commit
+  existed. The gate result stands as measured; the sentence it quotes is the one
+  the executable printed that morning.
 - **foundation** (`vm_tpl_foundation`, thin RO): clean, systemd-free,
   init/agent/waypipe/user baked in.
 - **netVM** (CID 3 — unchanged by the new map; Debian trixie, q35, **sysVM class

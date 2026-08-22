@@ -325,7 +325,7 @@ if [[ -n "${NIC_LABEL:-}" ]]; then
     have_device="$(<"$sysfs/device")"
 
     if [[ "$have_vendor" != "$want_vendor" || "$have_device" != "$want_device" ]]; then
-        km_die "nic label '$NIC_LABEL' is STALE: it was created for $want_vendor:$want_device but $KM_VFIO_BDF is now $have_vendor:$have_device. Refusing to start — handing an unknown device to a VM holding a passed-through NIC is the silent misassignment this check exists for (ADR-030 §5, gate G6)."
+        km_die "nic label '$NIC_LABEL' is STALE: $NIC_FILE claims $want_vendor:$want_device but $KM_VFIO_BDF is now $have_vendor:$have_device. Refusing to start — handing an unknown device to a VM holding a passed-through NIC is the silent misassignment this check exists for (ADR-030 §5, gate G6)."
     fi
 
     # The kernel's own list of bound devices is authoritative and is not copied
