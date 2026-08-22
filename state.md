@@ -1254,6 +1254,26 @@ frozen `vm_home_skel` vs qcow2 branch.
   `10.3.1.3` / restrict nft so SSH is not reachable over the VPN tunnel.
 
 ## Invariants & gotchas (quick reminders — detail in git/ADRs)
+- **`systemctl start` on a `RemainAfterExit=yes` oneshot is a silent no-op —
+  `restart` is the verb.** `katmate-publish-nics.service` is re-run with
+  **`restart`**, never `start`: the unit is already `active (exited)`, so `start`
+  returns **0**, does nothing, and leaves the stale output standing. Measured
+  2026-08-22 at G6's undo, where the label kept the injected `NIC_VENDOR` and its
+  injected hash across a `start` that reported success. Anyone writing *"re-run
+  `katmate-publish-nics`"* into a procedure has to write `restart`. **The
+  bounding property, so this is not read as worse than it is:** a stale label
+  cannot reach a VM, because refusing exactly that is what gate G6 measures — the
+  start dies at `katmate-generate-env` before QEMU. The hazard is a silent no-op
+  during *repair*, not a stale label in production.
+- **Hash the installed set as the first action of every gate session.**
+  `/usr/lib/katmate/*` and both units, against the Acer repository, **before any
+  gate runs**. A gate measures the *installed* copy; without the hash the result
+  rests on an unstated assumption that the install equals the tree. That is the
+  gap `~/3a2-g6h1-report.md` § 3.1 had to name after the fact — the check was
+  taken later the same day and matched across three legs, but a check taken after
+  the measurement cannot support it. mtime is not a substitute: the `sync.fish`
+  invariant below is precisely that rsync preserves mtime, so an old file can
+  look current.
 - **netVM is `dbus`-free by manifest — bus-dependent mechanisms are INERT, not
   merely unconfigured.** `netvm.sh` ships neither `dbus` nor `libpam-systemd`
   (ADR-021's own exclusion, reaffirmed by ADR-024). Consequence: `logind`,
