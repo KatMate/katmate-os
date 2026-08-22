@@ -702,7 +702,63 @@ touched.
    outlive a MINIS reboot. `~/3a2-g5h3-report.md` § 5 reproduces every one of
    them in full, so they are rebuildable from the report alone.
 
-20. **`validate-properties.fish --strict` has never been executed.** Added
+20. ~~**`validate-properties.fish --strict` has never been executed.**~~ —
+   **Closed 2026-08-22 by measurement, and accepted.** The gate this entry
+   specifies at the end of its own text was run exactly as written: the same
+   G5/H3 fixtures, hash-confirmed identical to the ones the plain-mode readings
+   were taken on, run twice — once plain, once `--strict`. Source:
+   `~/3a2-g6h1-report.md` part 1. What was measured:
+
+   - **The `✓ veljavno` line is withheld** under `--strict` from a file whose
+     only diagnostic is a warning. On the control pair, `app_web.toml` prints its
+     `opozorilo:` line and **no** `✓`; the clean `netvm.toml` beside it keeps its
+     `✓` in both modes.
+   - **The tally counts the promoted warning, and says so in its own output** —
+     control `skupaj: 0 napak, 1 opozoril` → `skupaj: 1 napak, 1 opozoril
+     (--strict: opozorila štejejo kot napake)`; the H3 set `2 napak` → **`3
+     napak`**. The G5 set reads identically in both modes, having no warning to
+     promote, and that null result is recorded as one.
+   - **Exit status 0 → 1** on the control pair, read twice in two shells — once
+     as bash `$?`, once as fish `$status`, in separate invocations.
+   - **The object this entry was built around — a `✓` printed beside a promoted
+     warning — did not occur.**
+
+   **Not measured, and therefore not claimed:** `--strict` in the no-argument
+   form over the live `/etc/katmate/vm/`, and its interaction with an exit 2,
+   which nothing in that run produced.
+
+   **Two things survive this closure, and are put here because they will be read
+   again.**
+
+   1. ***This file's published claim is now evidenced rather than asserted — for
+      one pair, and not for the live directory.*** The *Next steps* paragraph
+      beginning *"Also carried in"* states that `--strict` *"cannot serve as a
+      pre-commit gate over the real T1 set until AppVM link topology is
+      settled"*; under `--strict` that pair exits **1** on the `app_web` warning
+      alone, so what was a claim about an unrun mode is now its measured
+      behaviour. **The provenance is stated exactly, because it bounds the
+      claim:** the control fixtures are the pair G5/H3 built from the
+      repository's `properties.toml` files, and **nothing in either session read
+      the live `/etc/katmate/vm/`**. The statement is evidenced for that pair. It
+      is **not** evidenced for the live directory, and that difference is the
+      difference between a measurement and a generalisation of one.
+   2. ***Under `--strict` the per-file severity word does not change.***
+      `opozorilo:` stays `opozorilo:`, and **no `NAPAKA:` line appears** for the
+      promoted file. The promotion lives in exactly three places — the **tally**,
+      the **absence of the `✓`**, and the **exit status**. So a reader scanning
+      per-file severities sees one warning and no error, while the tally and the
+      status say one error; the two are reconciled only by the mode note on the
+      tally line. This is consistent with the source, where `warn` increments the
+      error count under `--strict` while still printing its own word, and nothing
+      here calls it a defect. **Its consequence for anyone reading strict output:
+      the tally and the exit status are the accounting; the per-file severity
+      words are not.** That is also the shape of the sharp edge #20 existed to
+      look for — it is simply not where the entry expected to find it.
+
+   **The entry as it stood is kept below, because the gate it specifies is the
+   gate that ran.**
+
+   *As published 2026-08-21:* Added
    2026-08-21 with the G5/H3 run, which did not exercise it: S3.5 names neither
    row against it, so both gates were measured in the default mode and the flag
    stayed untouched. **What is unknown is the warning-versus-error accounting
@@ -914,6 +970,13 @@ non-zero as uniformly invalid. `validate-properties.fish --strict` cannot serve
 as a pre-commit gate over the real T1 set until AppVM link topology is settled —
 the `web`-manifest-without-network warning it raises on `app_web` is true, and
 was deliberately not silenced.
+
+**Measured 2026-08-22, with its bound.** That second sentence was a claim about a
+mode nothing had run. It now is not: under `--strict` the real T1 pair exits **1**
+on the `app_web` warning alone. **Evidenced for that pair only** — the fixtures
+are built from the repository's `properties.toml` files, and nothing has run the
+validator over the live `/etc/katmate/vm/`. Closed open problem #20 carries the
+measurement and the rest of the bound.
 
 **New as of 2026-08-17, and unmeasured: the T1 schema has two implementations.**
 `tools/validate-properties.fish` (fish, developer-side, installed on no host) and
