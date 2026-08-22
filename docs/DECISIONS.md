@@ -3993,3 +3993,37 @@ for uid 0, carries LV existence, because `lvchange -K -ay` *is* an existence
 check and fails by name on an absent LV. No third executable, no widened
 privilege, and the ordering §2 argues for survives. The privilege boundary did
 not move; it became visible.
+
+**Revision note (2026-08-22, §1 — the runtime projection's lifetime, and what it
+is authority for):** §1's table gives `/run/katmate/` as *"derived at start;
+nothing wins on upgrade; rebuilt every start"*. That says where it comes from and
+says nothing about how long it lasts, and the 2026-08-22 measurements make the
+difference matter.
+
+**A runtime projection describes the *last start*, not a running VM.** It is
+written by `ExecStartPre=`, it is **not removed at stop**, and it survives both a
+clean stop and a failed start; `/run` being tmpfs, it is cleared only at boot.
+**The authority for liveness is systemd's unit state, never the presence of a
+file under `/run/katmate/`.** Anything that needs to know which VMs are running
+asks systemd — that is ADR-029's division (systemd owns the VMM process) applied
+to the artefact rather than to the process.
+
+Measured, and this is what the note rests on: `/run/katmate/vm/netvm.env`
+survived the part-2 stop **byte-for-byte** — same size, same twelve keys, same
+mtime, with the unit `inactive (dead)` and no QEMU — and survived H1's failed
+start unchanged as well, describing in both cases a VM that was not running. The
+projection is regenerated at every start, so it cannot mislead the start path;
+what it can mislead is a **reader of `/run`**, and the rule above is the answer to
+that.
+
+**Decided at the same time, and recorded because it is the tempting fix:** an
+`ExecStopPost=` that removes the projection is **rejected**. The projection left
+behind by a *failed* start is exactly the evidence the next reader needs — it is
+what the executables computed on the way to refusing — and deleting it would
+delete precisely the case worth inspecting, in exchange for a liveness signal
+`/run` should not be carrying in the first place. The failure this project keeps
+finding is a plausible artefact that is no longer true; the answer is to state
+what the artefact means, not to make its absence mean something too.
+
+Nothing in §1 is withdrawn. The table row is unchanged; its lifetime and its
+authority are supplied.
