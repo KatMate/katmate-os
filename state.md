@@ -720,6 +720,53 @@ touched.
    outlive a MINIS reboot. `~/3a2-g5h3-report.md` § 5 reproduces every one of
    them in full, so they are rebuildable from the report alone.
 
+   **The read-back exists; the failure mode quoted above does not
+   (2026-08-22).** A read-only verification pass on HEAD `d15e707` opened the
+   question of whether this entry describes code that was ever written. It was
+   written: `6ef40ac` (2026-08-19 14:43, +62 lines, one file) added it, which
+   makes *"Added 2026-08-19 with the read-back itself"* accurate as to both date
+   and provenance — `fe2b30f` added this entry 26 minutes later. Nothing was
+   removed either: `git log -S 'no required-key set' --all` and `git log -S
+   'REQ_ENV' --all` each return exactly those two commits, and no removal exists
+   on any ref. That pass produced no report file; it was reported in chat.
+
+   **What is wrong is the mechanism, and it has been wrong since two days before
+   the read-back was written.** `katmate-generate-env:253` refuses `app-routed`
+   unconditionally, above the emit block and far above the `case`:
+
+   ```
+   if [[ "$DERIVED" == app-routed ]]; then
+       km_die "profile app-routed is derived and asserted, but AppVM link topology is not settled (ADR-029 C2) and no app-routed template ships. Nothing in this projection describes a link."
+   fi
+   ```
+
+   `git log -S 'no app-routed template ships' --all` returns only `2a23473`
+   (2026-08-17), and the guard is present in `6ef40ac` itself. An `app-routed`
+   instance dies there — before the projection is written, before the `case` is
+   reached. The `*)` arm is therefore **dead code for every reachable input**,
+   and the diagnostic this entry quotes cannot be produced by any input.
+   *"derives correctly, emits correctly, and then dies on the `*)` arm"*
+   describes behaviour the file does not have.
+
+   **The conclusion survives but grows, and the order is now part of it: closing
+   this is two changes in one commit** — removing the guard at 253 *and* writing
+   the `REQ_ENV` arm. Either alone is wrong. The guard removed alone produces
+   exactly the failure this entry predicted, live. The arm written alone sets a
+   second piece of dead code beside the first and changes nothing observable, so
+   no gate could tell it had happened. **The mine is the guard, not the arm** —
+   which inverts *"Closing it is writing one `REQ_ENV` arm"* above.
+
+   *Readability, as its own observation:* line 109 admits `app-routed` as one of
+   three valid profiles, and its `km_die` at 110 names all three again; line 253
+   refuses it outright, 144 lines below, with nothing in between saying so. A
+   reader who has read 109–110 does not learn that one of the three is
+   unstartable.
+
+   *Consequence for the fixture pair above:* until part 3, the
+   cross-implementation fixtures must be built from `class = sys` and
+   `app-offline` **only**. An `app-routed`-deriving fixture dies at 253 and
+   measures the guard, not the rule under test.
+
 20. ~~**`validate-properties.fish --strict` has never been executed.**~~ —
    **Closed 2026-08-22 by measurement, and accepted.** The gate this entry
    specifies at the end of its own text was run exactly as written: the same
