@@ -76,6 +76,12 @@
       `NetworkNamespacePath=`. C4 is additionally re-scoped by ADR-030: the
       `-sandbox` line lives in the unit template, is part of the signed ISO,
       and is not expressible as user data. Gates all axis-2 / vhost-user work.
+- [ ] **M2 — saturation of netVM's single event loop** (ADR-033, PROPOSED).
+      All AppVM traffic converges on one QEMU main loop and `dgram` has no
+      `vhost` equivalent, so that loop is in the data path for every frame.
+      Measurable **without a single AppVM** — a host-side generator writing to
+      `N` sockets, netVM's `utime` watched for the knee. **`N` is fixed after
+      M2 and not before**, so ADR-033 cannot be accepted until it is taken.
 
 ## Build order (first release, critical path)
 
