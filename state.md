@@ -5,10 +5,10 @@
 > each working session. Detailed proofs and command sequences live in git
 > history and the ADRs — this file references them rather than repeating them.
 
-**Milestone:** v0.2 (in development) · **Last updated:** 2026-08-22
-(the stop path's first execution, gates H1 and G6, and open problem #20 closed
-by measurement; the G5/H3 session is now *Previous session*, and the 2026-08-19
-gate run has rotated to `docs/SESSIONS.md`).
+**Milestone:** v0.2 (in development) · **Last updated:** 2026-08-24
+(the link measurement arc, ADR-033 written as PROPOSED, and three new open
+problems; the 2026-08-22 stop-path session is now *Previous session*, and the
+G5/H3 session has rotated to `docs/SESSIONS.md`).
 
 ## Current focus
 
@@ -43,7 +43,136 @@ restartable — and so updatable — without touching running VMs.
 Direction unchanged: IOMMU-capable platforms only (VT-d/AMD-Vi); VT-x-only
 frozen (ADR-015). MINIS is primary host and merge target.
 
-## This session (2026-08-22) — the stop path's first execution, H1 and G6, and every part-2 gate measured
+## This session (2026-08-24) — the link measurement arc: a socket-backed link starts with no peer, and the address is resolved per send
+
+Two delegated measurement sessions on the Acer, reaching MINIS over ssh, against
+two briefs. **No commits, and no tracked file edited by either** — both measured
+and reported. Briefs: `~/link-m1-brief.md`, `~/link-m2-brief.md`; reports:
+`~/link-m1-report.md` and `~/link-m2-report.md`. This entry was written by a
+separate recording session (`~/adr033-writepass-brief.md`,
+`~/adr033-writepass-report.md`), on the division 2026-08-19 established and the
+sessions since have kept: the session that measures does not also rule, and
+the session that rules does not also write the record.
+
+**The operator has ruled the measurements**, and ADR-033 is written from them
+and is **PROPOSED, not accepted** — `N` is not fixed until M2 is taken. Neither report writes a verdict;
+both state what was observed and what was not.
+
+### link-m1 (2026-08-24) — the backend exists, starts without a peer, and costs little
+
+- **`dgram` is a netdev type in QEMU 11.1.0 on MINIS.** It appears in
+  `-netdev help`. Per-type help does not exist in this version for any type, so
+  every option name used came from QEMU's own `-help` synopsis and from its
+  parse errors, not from expectation (§ 2a–§ 2c).
+- **The printed synopsis and the runtime disagree, from one binary.** The
+  synopsis brackets `remote` as optional —
+  `local.type=unix,local.path=path[,remote.type=unix,remote.path=path]` — and
+  the runtime refuses it: *"type=inet or type=unix requires remote parameter"*,
+  exit 1, nothing started (§ 2c against § 10). The `local.type=fd` form is the
+  only one the error does not name and was not tested.
+- **A device whose `remote.path` does not exist starts silently.** Zero bytes on
+  stderr, **+1 fd**, **+0 threads**, and **0 CPU ticks of the 6000 available**
+  over a 60 s window — every reading identical to a no-device control run in the
+  same script, except the one added socket fd (§ 9, § 11). A pair whose peer
+  paths both exist reads the same on every count, `ss -xap` included (§ 12).
+- **A stale `local.path` does not block a later bind.** A second QEMU bound the
+  same path after the first was killed, with 0 bytes on stderr and **a new
+  inode** (§ 19). *The mechanism is link-m2's, and carries link-m2's bound:* the
+  `unlink()` before `bind()` was traced against a path that was **absent**, so it
+  returned `ENOENT` and removed nothing. What is measured is that QEMU issues
+  the unlink unconditionally at that point — **not** that it succeeded against a
+  stale node (link-m2 § A.4).
+- **`q35` refuses the 31st `virtio-net-pci` on the default root bus.**
+  *"PCI: no slot/function available for virtio-net-pci, all in use or reserved"*,
+  naming `netdev=n30`, byte-identical across all three repetitions, after
+  `n0`–`n29` were placed (§ 20.1). It is a PCI topology limit and not a socket,
+  fd or netdev limit: each failed run still created **all 32** of its
+  `local.path` sockets, against `ulimit -n` 1024 and a peak of ~41 fds.
+- **The cost of an empty slot, as the tables give it.** Three repetitions per
+  point, reported individually; the first of each is quoted here and the three
+  agree to within 12 kB at every point. Nothing is divided and nothing is
+  extrapolated — the reports do neither (§ 25).
+
+  | | `q35` + `virtio-net-pci` | `microvm` + `virtio-net-device` |
+  |---|---|---|
+  | VmRSS kB, `N`=0 | 38724 | 38068 |
+  | VmRSS kB, `N`=1 | 39584 | 38620 |
+  | VmRSS kB, `N`=8 | 43400 | not run |
+  | VmSize kB, `N`=0 | 1430112 | 1425232 |
+  | VmSize kB, `N`=1 | 1432588 | 1425392 |
+  | VmSize kB, `N`=8 | 1462392 | not run |
+  | threads | 3 at every `N` | 3 at every `N` |
+  | CPU ticks / 60 s | 0 at every `N` | 0 at every `N` |
+
+  `VmHWM` was taken as well and is the only figure in the set recording a
+  transient peak: at `q35` `N`=8 it is ~58 MB against a settled RSS of ~43 MB.
+  **All of it is a machine paused at reset under `-accel tcg`**, with no guest,
+  no kernel and no disk. The zeros are properties of that state.
+
+### link-m2 (2026-08-24) — no `connect()`, and the peer is found after the fact
+
+- **The startup trace, outside dynamic linking, is three calls.**
+  `unlink(local.path)` → `ENOENT`, `socket(AF_UNIX, SOCK_DGRAM|SOCK_CLOEXEC)` →
+  9, `bind(9, …)` → 0. **There is no `connect()` at all** — not a failed one, not
+  a deferred one — and **`remote.path` appears nowhere in the trace**: not
+  `stat`-ed, not opened, not warned about (§ A.3). The trace filter was verified
+  first against a purpose-written program known to issue `socket`, `bind`,
+  `connect`, `sendto` and `unlink` on `AF_UNIX` `SOCK_DGRAM`, so the absence is
+  an absence of the call and not of the filter (§ A.1).
+- **The result: frames reach a peer that appears afterwards.** A guest emitted
+  ten broadcast frames into an absent peer — `h.sock` sampled every second
+  across the window and absent at each of the ten — the receiver then bound the
+  peer path, and **the first datagram to arrive carried `seq=000010`**: the
+  first frame emitted after the socket existed. `seq=000000`–`000009` appear
+  nowhere in the receiver's log, checked by pattern over the whole of it. From
+  `000010` the stream is contiguous to `000052`. Arrival was **0.605 s after
+  bind** (§ B2.2–§ B2.4).
+- **The reverse direction works, and is a separate result.** A 63-byte frame
+  sent out of the socket bound at `h.sock` reached the guest, which printed it —
+  into a QEMU started before the peer existed and never restarted (§ B2.5). It
+  neither strengthens nor weakens the first result.
+- **What the guest is not told.** Its `sendto` of an 18-byte payload returned
+  **`rc=18, errno=0` identically in both windows**, peerless and peered. The
+  failure, if QEMU sees one at all, is not reported upward (§ B2.2). The `[init]
+  RX` lines in the peerless window are the guest hearing its own broadcast on a
+  local socket, not evidence of anything crossing the backend, and the report
+  says so where they appear.
+- **QEMU wrote 0 bytes to stderr for the whole run** — peerless window, peered
+  window and reverse direction alike. The only line it ever writes is the one it
+  writes at exit (§ B2.6).
+- **What QEMU does with a frame while the peer is absent was not observed.**
+  Whether it issues a failing `sendto` per frame or discards without a syscall
+  needs a trace of the *running* QEMU; Part A's trace covers startup on a machine
+  paused at reset. Nothing is claimed about buffering either: nothing predating
+  the bind arrived, which is a statement about what arrived (§ B.6).
+
+### Every measurement was taken unprivileged, and that is a result about the design
+
+**No `sudo` anywhere in either session**, and neither reports any step that
+indicated needing it. An unprivileged user bound `AF_UNIX` datagram sockets,
+started QEMU under TCG, traced its own processes, compiled a static `/init`, and
+built a `cpio` carrying a `/dev/console` device node — the last via the kernel
+tree's own `gen_init_cpio`, because `mknod` needs privilege and the brief did
+not. Every failure observed in either session was a QEMU option refusal, a PCI
+topology refusal or a guest-side `errno`; **no permission error occurred
+anywhere.**
+
+**netVM was up and untouched throughout both.** PID `2114876`, argv read and
+compared byte-for-byte before and after every launch in every part of both
+sessions. No `systemctl`, no unit operation, no LV, and no `-enable-kvm` process
+started by either session.
+
+**Nothing under `/etc/katmate/`, `/var/lib/katmate/` or `/run/katmate/` was read
+or written.** Those names appear in both sessions only inside the netVM argv
+string that `pgrep` printed out of `/proc`.
+
+That set of three is not only a statement about how the sessions behaved. The
+mechanism ADR-033 proposes was exercised end to end — socket creation, bind,
+a booting guest, frames in both directions — by uid 1000, on a host whose live
+state was never touched. **An AppVM's start path needing no privileged network
+step is the property the ADR claims, and this is the first evidence for it.**
+
+## Previous session (2026-08-22) — the stop path's first execution, H1 and G6, and every part-2 gate measured
 
 Delegated measurement session on the Acer, reaching MINIS over ssh, in two runs
 against one brief. **No commits, and no tracked file edited** — the session
