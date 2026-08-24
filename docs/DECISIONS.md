@@ -4027,3 +4027,202 @@ what the artefact means, not to make its absence mean something too.
 
 Nothing in §1 is withdrawn. The table row is unchanged; its lifetime and its
 authority are supplied.
+
+---
+
+## ADR-033 — AppVM link topology: p2p over AF_UNIX datagrams, from a static slot pool
+
+**Status:** PROPOSED. Its viability premises are measured (link-m1 and link-m2,
+2026-08-24, MINIS); its sizing premise is not. **`N` may not be fixed until M2
+is taken.** Nothing below may be cited beyond what the two reports state.
+
+**Depends on:** [ADR-022](DECISIONS.md#adr-022) (an AppVM routes through a netVM
+and has no neighbour on the host), [ADR-025](DECISIONS.md#adr-025) (NETCFG
+programs addressing inside the guest), [ADR-029](DECISIONS.md#adr-029) (systemd
+owns the VMM process), [ADR-030](DECISIONS.md#adr-030) (what the launch daemon
+reads), [ADR-032](DECISIONS.md#adr-032) (where each tier lives)
+
+**Closes:** the *"AppVM link topology — opened, not settled"* item left by
+ADR-029's C2 finding, and with it the unconditional guard in
+`katmate-generate-env` that refuses profile `app-routed`.
+
+**Measurement sources:** `~/link-m1-report.md` and `~/link-m2-report.md`, both
+2026-08-24, both measured on MINIS against QEMU 11.1.0, unprivileged throughout,
+with netVM running and untouched. Neither report is in the repository; section
+numbers below are theirs. Every figure in this ADR comes from one of the two.
+
+**Context:**
+
+`ARCHITECTURE.md` fixes the model, and has since before it was implementable:
+isolation between AppVMs is carried by **topology** — a per-AppVM p2p link with
+a link-scoped `/32` — never by a per-AppVM firewall rule. An AppVM has no
+neighbour on the host and no guest-to-guest path.
+
+**The p2p model fixes the device count independently of any backend choice.** A
+`/32` per AppVM means one netVM-side interface per AppVM. That is the cost of
+the model, not of the mechanism chosen here, and the only topology avoiding it
+is a shared segment where every guest is an L2 neighbour of every other and
+separation is a bridge port attribute whose absence is not an error but
+reachability. **Rejected on the model, not on measurement.**
+
+So the question was narrower than it looked: given one netVM interface per
+AppVM, what carries the frames? Three candidates were weighed against the
+record — a tap pair joined by a per-link bridge; a shared bridge with port
+isolation; and `-netdev dgram` over AF_UNIX socket paths.
+
+**Decision:**
+
+**A link is a pair of AF_UNIX datagram sockets under `/run/katmate/link/`.**
+Each end is opened by the QEMU process that owns it, by path, at start. No
+descriptor handover, no parent holding fds, no tap, no bridge, no network
+namespace, and **no `CAP_NET_ADMIN` anywhere in an AppVM's start path**.
+
+**netVM starts with a fixed pool of `N` link slots.** A slot is a `virtio-net`
+device with a `dgram` backend on a fixed socket path. Empty slots have no peer.
+An AppVM is allocated a free slot at launch and releases it at teardown; NETCFG
+then programs the `/32` inside each guest exactly as it does today.
+
+**Slot allocation is CID allocation's mechanism on a second namespace.**
+[ADR-017](DECISIONS.md#adr-017) already allocates and reconciles CIDs; a slot is
+another field on the same allocation, not a new subsystem.
+
+### What was measured, and what it settled
+
+**The pool is viable — a slot with no peer is startable, and later usable.**
+
+- **A device whose `remote.path` does not exist starts silently.** Zero bytes on
+  stderr, one added fd, **no added thread**, and **zero CPU ticks of 6000
+  available** over a 60 s window (link-m1 § 11, against the no-device control in
+  § 9).
+- **The address is resolved per send.** A guest emitted ten broadcast frames
+  into an absent peer, the peer path was then created, and the **first datagram
+  to arrive carried `seq=000010`** — the first frame emitted after the socket
+  existed. `seq=000000`–`000009` appear nowhere in the receiver's log; from
+  `000010` the stream is contiguous. Arrival was 0.605 s after bind. The reverse
+  direction works and is a separate result. (link-m2 § B2.2–§ B2.5.)
+- **The startup trace names no peer.** Outside dynamic linking, a shape-(ii)
+  QEMU issues exactly `unlink(local)` → `ENOENT`, `socket(AF_UNIX,
+  SOCK_DGRAM|SOCK_CLOEXEC)`, `bind()`. **No `connect()`, and `remote.path`
+  appears nowhere in the trace** — not `stat`-ed, not opened. `ss -xap` reads
+  `u_dgr UNCONN, peer *` whether or not the peer exists. (link-m2 § A.3, on a
+  trace filter verified against a program known to issue all five call kinds,
+  § A.1; `ss` readings link-m1 §§ 11–12.)
+- **A stale socket path does not block a later start**, and the `unlink()` above
+  is the mechanism: QEMU replaces the node rather than adopting it. (link-m1
+  § 19 measures the result — a new inode at the same path; link-m2 § A.4 has the
+  call, with the bound that it was traced against an absent path.)
+- **`CONFIG_VIRTIO_NET=y`** in the custom microVM kernel, alongside `PACKET`,
+  `INET`, `IPV6`, `VIRTIO_MMIO` and `VIRTIO_MMIO_CMDLINE_DEVICES`, all builtin
+  (link-m1 § 3a–§ 3b, link-m2 § B0.2). This reading is of the `.config` beside
+  the image, **not of the image**: `CONFIG_IKCONFIG` is unset and
+  `extract-ikconfig` recovers nothing, so if behaviour ever contradicts one of
+  these symbols, that is evidence about the config/image pairing and not about
+  the backend (link-m2 § B0.4).
+
+**The cost of an empty slot is small, and asymmetric between machine types.**
+Paused QEMU, three repetitions per point, reported individually in link-m1
+§§ 20–21. The readings below are the first repetition of each point; the three
+agree to within 12 kB at every point measured.
+
+| | `q35` + `virtio-net-pci` | `microvm` + `virtio-net-device` |
+|---|---|---|
+| RSS, `N`=0 → 1 | 38.7 → 39.5 MB | 38.1 → 38.6 MB |
+| RSS, `N`=0 → 8 | 38.7 → 43.3 MB | not measured |
+| VmSize, `N`=0 → 1 | 1430112 → 1432588 kB | 1425232 → 1425392 kB |
+| VmSize, `N`=8 | 1462392 kB | not measured |
+| threads | 3 at every `N` | 3 at every `N` |
+| CPU / 60 s | 0 ticks | 0 ticks |
+
+The reports compute no per-device cost and extrapolate to no value of `N`
+(link-m1 § 25), so neither does this table: what it shows is the two machine
+types' readings side by side, at the points that were run.
+
+**The binding limit is PCI topology, not memory.** `q35` refuses the 31st
+`virtio-net-pci` on the default root bus — `PCI: no slot/function available`,
+naming `netdev=n30`, all three repetitions, after placing `n0`–`n29` (link-m1
+§ 20.1). netVM already carries a vfio NIC, virtio-blk and vhost-vsock
+(`net-sys.con:19,24,25`), so **the practical ceiling is below 30 and has not
+been measured.** Raising it means added PCIe root ports, which is a topology
+change and a separate decision.
+
+### Costs accepted, stated rather than argued away
+
+- **There is no carrier.** A datagram socket cannot represent an absent peer.
+  The guest's `sendto` returned `rc=18, errno=0` **identically** in the peerless
+  and peered windows (link-m2 § B2.2): the failure is never reported upward, and
+  the guest's interface shows link-up regardless. A tap backend can signal
+  link-down; this cannot. **Start ordering is therefore entirely the launch
+  daemon's responsibility** and the guest cannot assist.
+- **No `vhost` acceleration.** `vhost-net` binds to a tap fd and has no
+  socket-backend equivalent; `vhost-user` would bring a switching daemon and
+  shared memory into the TCB and is rejected. Every frame crosses QEMU's main
+  loop, and one frame is one datagram at roughly MTU size.
+- **Loss instead of backpressure** on a full receive buffer. Ethernet permits
+  it and guest TCP absorbs it, but the behaviour under load is loss.
+- **A less-trodden path in the VMM.** `-netdev tap` with `vhost` is the most
+  exercised network path in QEMU/KVM; `dgram` is not, and the backend is
+  reachable from the guest's virtqueue. Taken deliberately, and recorded in
+  `OBSERVATIONS.md` as KatMate's own choice.
+- **Growth beyond the pool costs a netVM restart**, and with it every AppVM's
+  connectivity.
+- **The printed synopsis and the runtime disagree.** QEMU 11.1.0 brackets
+  `remote` as optional and then refuses it as mandatory for `unix` and `inet`
+  (link-m1 § 2c against § 10). **KatMate treats the runtime refusal as
+  authoritative** and every slot names a peer path whether or not the peer
+  exists. Worth reporting upstream.
+
+**Consequences:**
+
+*Easier*
+
+- An AppVM's start path needs no privileged network step at all.
+- Reconcile ([ADR-017](DECISIONS.md#adr-017)) gains a slot field, not a device
+  inventory; no orphan device class is created.
+- `app-routed` becomes startable: the guard in `katmate-generate-env` and the
+  `REQ_ENV` arm fall **together in one commit**, which is what open problem #19
+  requires and in the order it requires.
+- ADR-015's `web`-manifest-without-network warning stops firing on `app_web`
+  once its T1 names a netVM, and `--strict` becomes usable over the real T1 set.
+
+*Harder*
+
+- netVM's device count becomes a boot-time constant, bounded by PCI topology
+  rather than by memory, and the bound is lower than the pool sizes considered.
+- **Socket files outlive their processes, including on a failed start.** A QEMU
+  that fails during device realisation still leaves every path it bound — 96
+  files from three failed runs, measured (link-m1 § 20.1, § 23).
+  `ExecStopPost=` must unlink the slot's socket, and, as with the projection,
+  **presence of the file is not authority for liveness**; systemd is. Same rule,
+  same ADR-032 paragraph.
+- **The guest emits IPv6 router solicitations unprompted.** Two `ICMPv6 0x85`
+  frames appeared in a 30 s window with no configuration asking for them
+  (link-m2 § B2.4). If netVM ever answers with an RA, the AppVM acquires
+  addressing by SLAAC **outside NETCFG** — a second source of one truth, which
+  this project does not tolerate. AppVM images set `accept_ra=0`; netVM sends no
+  RA on internal links.
+- The netVM-side slot-to-interface mapping must be stable and legible, or NETCFG
+  programs the right `/32` on the wrong interface. **Unresolved.**
+
+*To revisit*
+
+- If M2 shows the single main loop saturating at a small number of active links,
+  the p2p model itself — not this backend — needs revisiting, since a per-link
+  bridge concentrates the same traffic in the same process.
+
+**Remaining gate:**
+
+**M2 — saturation of netVM's single main loop.** All AppVM traffic converges on
+one QEMU process with one event loop, and `dgram` has no `vhost` equivalent, so
+that loop is in the data path for every frame. Measurable **without a single
+AppVM**: a host-side generator writing to `N` sockets, with netVM's `utime`
+watched for the knee. Frames need not be valid — the guest discards them at the
+ethernet layer *after* QEMU has done the work being measured. **`N` is fixed
+after M2, not before.**
+
+**Open in this ADR, deliberately:** the slot-to-interface naming scheme; `N`;
+the socket path convention under `/run/katmate/link/`; whether a released slot
+is reused immediately or quarantined; what a slot's MAC derives from (ADR-025's
+sha256 scheme is the obvious candidate and is not assumed); and whether QEMU
+issues a failing `sendto` per frame or discards without a syscall while a peer
+is absent — unmeasured, and relevant only to the cost of an AppVM transmitting
+into a dead slot.
