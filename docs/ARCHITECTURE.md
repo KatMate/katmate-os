@@ -343,6 +343,17 @@ netVM topology:
   a link-scoped `/32` route, delivered by **NETCFG at launch** and withdrawn at
   teardown. **Nothing is baked** — on a clean boot netVM has no internal route,
   which is correct: with no AppVMs running there is nowhere to route.
+- **What carries a link — proposed, not settled**
+  ([ADR-033](DECISIONS.md#adr-033), PROPOSED): a link is a pair of **AF_UNIX
+  datagram sockets**, one end opened by each QEMU by path at start. **The host
+  holds no network object for it** — no tap, no bridge, no namespace, and no
+  privileged network step in an AppVM's start path. netVM starts with a **fixed
+  pool of link slots**, allocated and reconciled the way CIDs are
+  ([ADR-017](DECISIONS.md#adr-017)); an AppVM takes a free slot at launch and
+  releases it at teardown. **The pool size is open** pending ADR-033's M2
+  measurement. Until that ADR is accepted the mechanism of record is the one the
+  `Link` row in § *Object model* states — TAP — and the two are deliberately left
+  disagreeing rather than reconciled early.
 - **nft:** static, AppVM-agnostic. Input drop; forward limited to
   segment ↔ `proton`, referencing only the aggregate `10.100.1.0/24`, never a
   per-AppVM rule. Per-`/32` isolation is **topology**, not firewall.
