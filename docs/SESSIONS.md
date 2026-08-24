@@ -46,6 +46,93 @@
 
 ---
 
+## This session (2026-08-21) — G5 and H3: the validator reports a duplicate `nic` label and a forbidden key as errors, not warnings
+
+Delegated measurement session on the Acer, reaching MINIS over ssh. **No commits,
+and no tracked file edited** — the session observed and reported. Brief:
+`~/3a2-g5h3-brief.md`; report: `~/3a2-g5h3-report.md`. This entry was written by a
+separate recording session (`~/3a2-g5h3-record-brief.md`,
+`~/3a2-g5h3-record-report.md`), on the same division as 2026-08-19: the session
+that measures does not also rule, and the session that rules does not also write
+the record.
+
+**The operator has ruled G5 and H3 PASSED**, on the row-by-row observations in
+`~/3a2-g5h3-report.md` § 4. That report writes no verdict; it states which of
+S3.5's named observations were seen and which were not.
+
+Neither gate starts a VM, reads `/sys` or needs root. The subject is
+`tools/validate-properties.fish` and its exit status, and nothing else was
+touched.
+
+### The fixtures are the real T1 files, and that is measured rather than assumed
+
+Both gates ran against fixtures built from the live `netvm.toml` and
+`app_web.toml`, not from TOML composed for the occasion, so the only thing
+differing between a fixture and a valid file is the thing under test. **Hash
+identity was confirmed across three copies** — the Acer tree's
+`local/etc/katmate/vm/`, the MINIS build copy, and the installed
+`/etc/katmate/vm/` — and the validator that ran on MINIS is byte-identical to the
+one in the repository (`f05e111a…`). That is the rsync-then-cargo trap checked by
+hash instead of by mtime.
+
+Delivered by `scp` to **`/tmp/g5h3/` on MINIS, a tmpfs**, never under
+`/etc/katmate/`: a fixture written there would be a claim about tier. **One
+directory per gate**, because G5's rule is cross-file and H3's `class = app`
+fixture would otherwise trip it as well, leaving the two gates measuring one error
+between them. Each gate was run **twice, in two shells** — the exit status read
+once as bash `$?` and once as fish `$status`, in separate ssh invocations —
+identical output and identical status every time.
+
+### G5, in one run
+
+`NAPAKA: podvojena 'nic' oznaka 'uplink0': isto oznako zahteva že …/netvm2.toml`
+— the severity word is the validator's own `NAPAKA` (*error*), not `opozorilo`
+(*warning*), and the tally is **`skupaj: 1 napak, 0 opozoril`**. The cross-file
+branch printed affirmatively — **`pravila čez datoteke: ovrednotena nad 2
+datotekami`** — so the rule was evaluated over a set the validator knew to be
+complete, which is the whole reason ADR-032 §4 requires the directory form. Exit
+**1, not 2**: a 2 would have measured nothing about the rule and meant only that
+the validator had been called wrongly.
+
+### H3, in one run
+
+Two `NAPAKA` lines, one per fixture — `prepovedan ključ pri class=app: 'nic'` and
+`prepovedan ključ pri class=sys: 'persistence'` — tally **`skupaj: 2 napak`**,
+exit **1**. **Neither forbidden key was reported as a warning**, which is the
+failure mode the row is built around. The `persistence` value used is a *valid*
+enum member, so what fired is the forbidden-key rule alone and not a type error
+wearing its name.
+
+### The control run is what makes H3's single warning unambiguous
+
+An unauthorised addition by the measuring session (its report § 6.1): a third
+directory holding both real T1 files **unmodified**, validated in the same run.
+It exits **0** with `0 napak, 1 opozoril`.
+
+That one warning is the `app_web` *web*-manifest-without-network line this file
+already records under *Next steps* as true and deliberately not silenced — and
+because it appears **identically over the unmodified pair**, it is demonstrably a
+property of the base file rather than of H3's injected `nic` key. Without the
+control, H3's tally `2 napak, 1 opozoril` would have left that warning's owner
+open, and *"a forbidden key fails validation, not warns"* is exactly the row a
+loose warning would have muddied.
+
+### netVM was not touched
+
+PID **706658**, `PPID 1`, `NRestarts=0`, the same `ExecMainStartTimestamp` at the
+start and at the end of the session — the process the 2026-08-19 gate run left
+behind, at 2 d 8 h. No unit was started or stopped, no LV activated, nothing
+written under `/etc/katmate/`, `/var/lib/katmate/`, `/usr/lib/katmate/` or
+`/run/katmate/`; the installed T1 pair still carries its 2026-08-11 mtimes.
+**The stop-path measurement G6 and H1 are waiting for is unconsumed.** Sleep
+targets remain unmasked.
+
+**Consumed 2026-08-22, and the sentence above is superseded** — appended rather
+than rewritten, because it records what was true when this session ended. The
+stop was executed on 2026-08-22 at 08:26, H1 at 08:29 and G6 at 08:51, and
+netVM was restarted at 08:51:56 as `MainPID 2114876`. Sleep targets are still
+unmasked. See the 2026-08-22 entry above.
+
 ## This session (2026-08-19, second of two) — the gate run: G1 and G4 pass, and a VM starts from a unit for the first time
 
 Delegated measurement session on the Acer, reaching MINIS over ssh; phase 3 of
