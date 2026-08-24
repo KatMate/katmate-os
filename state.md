@@ -1068,6 +1068,27 @@ CYBRland-derived `desktop/` subtree) — **decision taken, document not written*
 the number stays reserved and the gap in the sequence is an honest record of
 that. `ADR-032` = *where each tier lives* (2026-08-09).
 
+**Debt carried to ADR-033's acceptance, and it is not part of that ADR's own
+open list.** ADR-033's *Costs accepted* section asserts that `-netdev tap` with
+`vhost` is the most exercised network path in QEMU/KVM and that `dgram` is not.
+**That claim appears in neither link report, and no external source was gathered
+for it.** At acceptance it must be either **sourced** or **restated as judgement
+rather than fact**. An unsourced superlative about someone else's code is what
+`OBSERVATIONS.md`'s own conventions forbid — *"Provenance is mandatory"* and
+*"No comparative judgement"* — and a rule this project enforces in one file and
+suspends in another is not a rule. **`OBSERVATIONS.md` is clean of it**: the
+2026-08-24 entry was written without the clause, deliberately, and it must stay
+clean.
+
+*Ruled 2026-08-24:* the clause **stays in the ADR meanwhile**. A revision note
+spent on a PROPOSED ADR that will be revisited at acceptance buys nothing, and
+removing a sentence from an ADR is not a delegated session's to do.
+
+*Found and flagged by the write pass* (`~/adr033-writepass-report.md` § 5), not
+by the session that wrote the clause — which is the reason it is written here at
+all. A debt whose only trace is the conversation that created it lasts exactly
+as long as that conversation.
+
 **Next session: 3a part 2, the gates — G6 and H1.** G1 and G4 passed
 2026-08-19 and G5 and H3 passed 2026-08-21; the two that remain are the two that
 need netVM stopped. The code they
