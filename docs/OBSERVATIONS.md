@@ -32,6 +32,84 @@ can be re-examined without re-doing the research.
 
 ---
 
+# 2026-08-24
+
+## 1. KatMate's network backend is one this tree exercises nowhere else — bearing on ADR-033
+
+**Decision under review:** [ADR-033](DECISIONS.md#adr-033) — a link is a pair
+of AF_UNIX datagram sockets, carried by QEMU's `-netdev dgram`.
+
+**`[V]` `dgram` is the only network backend in this project that no other
+component uses.** Every `-netdev` in the repository is `tap`: `net-sys.con:26`
+and `host/usr/lib/systemd/system/katmate-sys-driver@.service:137`, both netVM's
+internal segment. `app_web.con` carries no network device of any kind — the
+finding that renamed ADR-030's gate G2. So every gate this project has run
+against a network backend has run against `tap`, and ADR-033 selects one with
+no gate history here at all.
+
+**`[V]` The backend is reachable from the guest's virtqueue.** Measured
+2026-08-24 on MINIS, QEMU 11.1.0 (`~/link-m2-report.md` § B2.4): a guest wrote
+to its `virtio-net-device` and the bytes arrived on the host's socket as a
+complete ethernet frame — broadcast destination, the `mac=` given to the
+frontend as source, IPv4, UDP 4242 → 4242, payload intact. Guest-controlled
+bytes reach this code path by design; that is what a network backend is.
+
+**`[V]` The choice was made for stated properties, not by default.** ADR-033
+records them and the measurements behind them: a slot with no peer starts
+silently and costs one fd and no thread, the address is resolved per send so a
+peer may appear afterwards, and an AppVM's start path needs no privileged
+network step. The alternatives were weighed in the ADR against the model, not
+discovered to be unavailable.
+
+**What this says about our decisions.** Nothing here is a claim about how well
+exercised `dgram` is in QEMU generally — this project has no source for that and
+none was gathered, so no such claim is made. What is checkable and is recorded
+is narrower and is the part that bears on us: **our own gate history covers
+`tap` and does not cover this backend**, on a code path guest bytes reach.
+ADR-033's M2 is a saturation measurement and not a robustness one, so it does
+not close this either.
+
+## 2. QEMU 11.1.0's printed synopsis and its runtime disagree, from one binary — bearing on ADR-033
+
+**Decision under review:** [ADR-033](DECISIONS.md#adr-033) — every link slot
+names a peer path whether or not the peer exists.
+
+**`[V]` The synopsis brackets `remote` as optional.** From
+`qemu-system-x86_64 -help` on MINIS, verbatim
+(`~/link-m1-report.md` § 2c, 2026-08-24):
+
+```
+-netdev dgram,id=str,local.type=unix,local.path=path[,remote.type=unix,remote.path=path]
+```
+
+**`[V]` The same binary refuses it as mandatory.** A `local`-only invocation
+exits 1 with nothing started (§ 10):
+
+```
+qemu-system-x86_64: -netdev dgram,id=n0,local.type=unix,local.path=…: type=inet or type=unix requires remote parameter
+```
+
+**`[V]` Per-type help does not exist in this version**, for `dgram` or for
+`stream`: `-netdev dgram,help` returns *"Help is not available for this
+option"*, rc=1 (§ 2b). So the printed synopsis and the parse errors are the
+only option documentation the binary offers, and they do not agree with each
+other.
+
+**`[V]` The `local.type=fd` form is the one the error does not name**, and is
+therefore the only `local` form for which the optional bracket may hold. It was
+not run and nothing is claimed about it (§ 10).
+
+**What this says about our decisions.** **KatMate treats the runtime refusal as
+authoritative over the printed synopsis** — a document describes and a runtime
+decides, and where they disagree only one of them is what will happen. ADR-033's
+slot therefore always names a peer path, which costs nothing since the path need
+not exist. The general form is the rule this project already applies to its own
+documents: where an ADR and the tree disagree, the disagreement is the finding
+and neither side is automatically right. Worth reporting upstream; not reported
+by this session.
+
+---
+
 # 2026-07-28
 
 ## 1. Asynchronous block I/O — bearing on the `aio=threads` choice
