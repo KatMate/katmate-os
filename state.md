@@ -967,6 +967,99 @@ touched.
    is the word, and **the measurement must be retaken**. This is a pass with a
    stated condition, not a new gate.
 
+22. **Kernel provenance is unverifiable — no image can be tied to a config.**
+   Added 2026-08-24, from link-m1 § 3c–§ 3d and link-m2 § B0.1, § B0.4.
+   `~/katmate-kernels/` holds **different bytes under one filename on the two
+   machines**:
+
+   | | sha256 | size | banner |
+   |---|---|---|---|
+   | Acer | `a7581389…` | 14115840 | `6.12.87 (winterbox@cyberdome) … Wed May 13 20:33:23 CEST 2026` |
+   | MINIS | `b34026dd…` | 14156800 | `6.12.87-dirty (host@archlinux) … Wed Jul 1 08:10:48 CEST 2026` |
+
+   The two stored `.config` files differ too, in toolchain-detection symbols and
+   `SECURITY_PATH`; **none of the differing symbols is a networking symbol**, so
+   the `CONFIG_VIRTIO_NET=y` answer is the same whichever copy is read. That is
+   the only thing the difference does *not* affect.
+
+   **`CONFIG_IKCONFIG` is unset in both configs** (Acer line 165, MINIS line
+   166) and `scripts/extract-ikconfig` against the MINIS image returns rc=1,
+   `Cannot find kernel config.`, zero bytes out. So neither image carries an
+   embedded config and **no image can be checked against any config** — only
+   dated. The MINIS config was written four minutes after the MINIS image's
+   build banner; the Acer config postdates the Acer image's banner by six weeks.
+   That is consistency, not proof, and neither report claims the pairing.
+
+   **The kernel AppVMs boot on MINIS is the `-dirty` build.** `app_web.con:29`
+   sets `KERNEL /home/host/katmate-kernels/vmlinuz-katmate-microvm-amd64-6.12.87`
+   and `-dirty` is what `CONFIG_LOCALVERSION_AUTO=y` produces from an unclean
+   source tree — so the image every AppVM runs **corresponds to no commit**, and
+   the filename says `6.12.87` as though it did.
+
+   **The proposed fix, named and not taken:** sha256 of the image *and* of the
+   config recorded in T2 meta, verified by `katmate-check-image`, which already
+   reads `<image>.meta` and already runs as uid 1000 on plain files (ADR-032's
+   2026-08-11 revision note). **Not `CONFIG_IKCONFIG`** — setting it would make
+   the config readable from inside the guest, which buys provenance on the host
+   by widening what a compromised guest can read.
+
+   **Release-blocker candidate**, beside the dev sshd (#4) and the installer
+   secrets (#3). What makes it one is not the `-dirty` suffix: it is that a
+   filename asserts an identity that does not hold, which is this project's
+   recurring failure class rather than a new one. Others on the record: the
+   stale BDF (*Invariants*); the documented `~/katmate-build/katmate-os/` path
+   that never existed and misled a delegated session (*Invariants*, corrected
+   2026-08-09); and the runtime projection that describes the last start and was
+   read as describing a running VM (ADR-032, 2026-08-22 revision note). No count
+   is given here, because the count is not measurable and the pattern is.
+
+23. **A link's socket outlives its process, including on a failed start.**
+   Added 2026-08-24, from link-m1 § 13.1, § 20.1 and § 23, and link-m2 § A.3.
+   QEMU creates its `local.path` at start and **does not unlink it at exit** —
+   not on a clean `SIGTERM`, and not when the process dies before it is ever
+   usable. The startup trace carries the `unlink()` before `bind()` and **no
+   `unlink` at exit at all**, which is the mechanism behind the observation.
+
+   **The sharp case is the failed start.** Three `N`=32 runs left **96 socket
+   files** — 3 × 32, every path each run bound. Those processes executed: the
+   netdev backends were created and all 32 sockets bound, and the failure came
+   later, at **device realisation** (`PCI: no slot/function available`, naming
+   `netdev=n30`). So a socket file on disk is not even evidence that the VM it
+   belongs to reached a usable state, let alone that it is running.
+
+   **Consequence for the launch daemon: `ExecStopPost=` must unlink the slot's
+   socket**, and **presence of the file is not authority for liveness** —
+   systemd's unit state is. This is the **second instance of that rule**, and it
+   is the same rule: ADR-032's 2026-08-22 revision note establishes it for the
+   runtime projection under `/run/katmate/`, which survives both a clean stop and
+   a failed start. The difference worth keeping: the projection is deliberately
+   **not** removed at stop, because a failed start's projection is the evidence
+   worth inspecting. A stale socket path is not evidence of anything — it is
+   rebound under a new inode by the next process to want it (#22's sibling
+   finding, link-m1 § 19) — so here the cleanup is wanted and there it is not.
+
+24. **AppVM guests emit IPv6 router solicitations unprompted.** Added
+   2026-08-24, from link-m2 § B2.4. Two 70-byte frames to `33:33:00:00:00:02`
+   (IPv6 all-routers multicast), ICMPv6 type `0x85`, at t+5.661 s and t+23.070 s
+   of a 30 s window, from the guest's link-local address. **Nothing configured
+   them.** The guest was a single static `/init` that sets one IPv4 address by
+   ioctl and sends UDP; it has no shell, no network manager and no `accept_ra`
+   handling of its own. The kernel sent them because `CONFIG_IPV6=y` and nothing
+   said not to.
+
+   **The risk is not the solicitation, it is an answer.** If netVM ever replies
+   with an RA on an internal link, the AppVM acquires addressing by **SLAAC,
+   outside NETCFG** — a second source of one truth, which is the failure class
+   this project spends most of its discipline on. NETCFG describes a link and is
+   the only thing that should (ADR-023, ADR-025).
+
+   **Proposed and not taken:** `accept_ra=0` in AppVM images, and no RA from
+   netVM on internal links. Both are one-line changes in places this session did
+   not touch — the AppVM image manifest and the netVM manifest — and either alone
+   would close it, which is a reason to take both rather than to choose. Nothing
+   has measured what netVM currently does when an RS arrives on an internal link;
+   **no AppVM has ever had a network device**, so the case has never occurred.
+
 ## Next steps
 
 **ADR numbering.** `ADR-030` = *what the launch daemon reads* (2026-08-06).
