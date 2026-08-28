@@ -255,9 +255,42 @@ installed bytes. Two reductions are tracked separately:
 
 Until the second is closed for netVM, "minimal TCB" describes the intent of
 this design and only partly its current state. **netVM does not require a root
-VMM** — the three privileged steps (vfio node, TAP creation, LVM activation)
-are launcher-side and drop before `exec qemu`; the only real obstacle is
-`RLIMIT_MEMLOCK`, which is configuration.
+VMM** — the privileged steps are launcher-side and drop before `exec qemu`; the
+only real obstacle is `RLIMIT_MEMLOCK`, which is configuration.
+
+**[ADR-033](DECISIONS.md#adr-033) removes one of them, and the two claims that
+follow are separate.** This sentence listed **three** privileged steps — vfio
+node, TAP creation, LVM activation. The TAP was `tap-int0`, netVM's internal
+segment, and that device is the one the slot pool replaces: a link is a pair of
+AF_UNIX datagram sockets opened by each QEMU by path. **netVM's launcher is
+therefore down to two privileged steps — the vfio node and LVM activation —
+and both remain.**
+
+**Separately, and this is the stronger of the two: an AppVM's start path needs
+no privileged network step at all.** No `CAP_NET_ADMIN`, no tap, no bridge, no
+network namespace, no descriptor handed in by a privileged parent. The QEMU
+process opens its own end of the link, by path, as the invoking user.
+
+The evidence is a startup trace of that QEMU, taken 2026-08-24 on MINIS
+(`~/link-m2-report.md` § A.3). Outside dynamic linking it issues exactly
+`unlink(local.path)` → `ENOENT`, `socket(AF_UNIX, SOCK_DGRAM|SOCK_CLOEXEC)`,
+`bind()`. There is **no `connect()` at all**, and `remote.path` appears nowhere
+in the trace — not `stat`-ed, not opened, not warned about. The trace filter was
+verified first against a purpose-written program known to issue `socket`,
+`bind`, `connect`, `sendto` and `unlink` on `AF_UNIX SOCK_DGRAM`, so the absence
+is an absence of the call and not of the filter (§ A.1). Beyond the trace, the
+whole three-session measurement arc — link-m1 and link-m2 (2026-08-24) and
+link-m3 (2026-08-28) — **ran unprivileged from end to end, and no step in any of
+them indicated needing `sudo`**: an unprivileged user bound the sockets, booted
+guests on them, and drove frames across in both directions. That is a result
+about the design and not only about how the sessions were run.
+
+**The bound, stated with the same clarity as the claim.** What leaves is a
+privileged step in the **AppVM start path**. It is not a general reduction of
+the host's TCB: netVM's own privileged steps are untouched — **the vfio NIC
+above all**, which pins the entire guest RAM and needs a device node, a group
+and a lifted `RLIMIT_MEMLOCK` — and the netVM VMM still runs as root (gap #11).
+Nothing here changes what netVM is trusted with.
 
 The domain indicator adds one host-kernel dependency: AF_VSOCK socket
 diagnostics (`vsock_diag`), used to resolve a window's pid to a guest CID
