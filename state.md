@@ -1013,6 +1013,58 @@ touched.
    read as describing a running VM (ADR-032, 2026-08-22 revision note). No count
    is given here, because the count is not measurable and the pattern is.
 
+   **Revision note 2026-08-28 — the entry is too broad: one image is tied to a
+   config, one is not.** From two read-only investigations of 2026-08-28, one on
+   the MINIS kernel tree and one on the Acer's. **Neither produced a report
+   file; both reported in chat**, so there is no 2026-08-28 session entry to
+   look for. Every MINIS figure below is therefore chat-only and marked as such;
+   every Acer figure was re-derived from the tree in the same pass that wrote
+   this note.
+
+   **MINIS: the chain exists.** *(Chat-only — measured on MINIS 2026-08-28, not
+   re-derivable on the Acer.)* At `/home/host/src/kernel/linux-6.12.y`,
+   `arch/x86/boot/bzImage` is byte-identical to the archived vmlinuz
+   (`b34026dd…`), and `include/config/auto.conf` — what Kbuild wrote at the
+   start of that build — is symbol-for-symbol identical to the archived
+   `config-katmate-microvm-amd64-6.12.87` once shell quoting is normalised:
+   1718 lines against 1718, zero differing. That image *is* tied to that config,
+   through the build tree.
+
+   **Acer: the chain is broken.** *(Re-derived on the Acer 2026-08-28.)* The
+   tree at `~/src/kernel/linux-6.12.y` is clean at HEAD `8bf2f55ef`, tag
+   `v6.12.87`, and its `arch/x86/boot/bzImage` is byte-identical to the archived
+   vmlinuz (`a7581389…`) — and is the only `bzImage` under `$HOME`. But
+   `include/config/auto.conf` was overwritten 2026-06-30, **47 days** after the
+   image was linked (banner `Wed May 13 20:33:23 CEST 2026`), and now differs
+   from the archived config by six lines. `.config.old` is byte-identical to the
+   archived config (`4e30950b…`) — but both are June-30 artefacts, and they
+   establish the tree's *pre-reconfigure* state, **not** its state at build
+   time.
+
+   **Which half of this entry's own sentence that changes.** *"That is
+   consistency, not proof"* closes a compound sentence covering both machines.
+   Its **MINIS half is superseded** — that config is tied to that build by
+   `auto.conf`, not merely written four minutes after it. Its **Acer half
+   stands, confirmed**: the 2026-08-28 read went looking for something that
+   would upgrade it to proof and found nothing.
+
+   **So what is wrong here is the scope, not the content.** It is not that no
+   image can be tied to a config. One can and one cannot, for a reason that is
+   neither about the image nor about the config: **the evidence of provenance
+   lives in the build tree, and the next reconfigure deletes it silently.** It
+   survived on MINIS by accident; it did not survive on the Acer. Nothing in the
+   distributed artefact carries it — `CONFIG_IKCONFIG` is unset, Acer line 165
+   as recorded above — so the tree is the only witness, and it is a witness that
+   any `make menuconfig` overwrites.
+
+   **The consequence, named and not decided:** a fingerprint taken where the
+   kernel enters the pipeline would capture the chain while the witness still
+   exists. In the tree that boundary is `Makefile:44–47` — target
+   `$(KERNEL_VMLINUZ)`, copying from `$KERNEL_SRC_DIR` into `$(OUT)` — and
+   `build/foundation.sh:268–274`, step 11, installing into
+   `$KATMATE_KERNELS_DIR`. Where such a hash would live, and what would refuse
+   what on a mismatch, is not decided here. **#22 stays open.**
+
 23. **A link's socket outlives its process, including on a failed start.**
    Added 2026-08-24, from link-m1 § 13.1, § 20.1 and § 23, and link-m2 § A.3.
    QEMU creates its `local.path` at start and **does not unlink it at exit** —
