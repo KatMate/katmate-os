@@ -1188,6 +1188,30 @@ touched.
    as equivalent while being something else. An absent record is the honest one.
    ADR-034 records the decision; this note is the instance.
 
+   **Revision note 2026-08-28 — for the MINIS kernel the chain now exists
+   outside the build tree. #22 is not closed.** From the capture session of the
+   same date, recorded in the note above; no report file, chat-only.
+
+   **What has changed** is only the perishability. The 2026-08-28 note above
+   identified the real problem as the witness living in the build tree, where
+   any `make menuconfig` overwrites it. For **this one image on MINIS** that is
+   no longer in force: `AUTOCONF_MATCH=yes`, the two `sha256` values and the ten
+   `SRC_DIRTY_PATHS` now exist in a file beside the kernel, and destroying
+   `include/config/auto.conf` no longer destroys the record of what it said.
+
+   **What has not changed** is this entry's substance. The image still carries
+   no embedded config; `CONFIG_IKCONFIG` is still unset; `extract-ikconfig`
+   remains **untested by any of these three sessions**, exactly as the note
+   above records. The sidecar is unsigned, sits beside the file it describes,
+   and defends against drift and forgetting rather than against anyone who can
+   write to that directory. It is a record, not integrity.
+
+   **The Acer's half of #22 stands unchanged, and deliberately so.** No witness
+   survives there, no sidecar was written, and none will be. ADR-034 is the
+   mechanism; the note above is the instance. **#22 stays open** — it will close
+   when the pipeline carries and checks the sidecar, which is ADR-034's
+   acceptance and not this pass.
+
 23. **A link's socket outlives its process, including on a failed start.**
    Added 2026-08-24, from link-m1 § 13.1, § 20.1 and § 23, and link-m2 § A.3.
    QEMU creates its `local.path` at start and **does not unlink it at exit** —
