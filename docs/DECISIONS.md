@@ -4315,6 +4315,16 @@ which is this file's practice for that one line and only that line: `405289c`
 way, and `5f753b9` (2026-07-23) rewrote ADR-025's to record live-gating. The
 body below is untouched and stays append-only.
 
+**One sentence earlier in this ADR is superseded by that change, and is not
+edited.** The M2 revision note above states *"It does not accept this ADR, whose
+status stays PROPOSED"*. **That was true on the morning of 2026-08-28** — M2 was
+discharged hours before the ruling — **and was superseded the same day by the
+status line above, which is the authority on this ADR's status.** The note stands
+as written because it was true when written. **Its substantive claim remains
+true of what M2 did:** discharging a gate is not the same act as accepting the
+ADR that named it, and M2's discharge did not accept this one. The acceptance is
+a separate ruling, recorded here.
+
 **What acceptance rests on — three measurement sessions, and what each
 discharged.**
 
