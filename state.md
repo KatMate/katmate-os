@@ -1126,6 +1126,20 @@ touched.
    because the version is well-defined")*. **Neither form carries a commit
    SHA.**
 
+   **Revision note 2026-08-28 — two smaller divergences from the same two
+   reads,** neither of which produced a report file; both reported in chat.
+
+   - **`Module.symvers` is present in the MINIS kernel tree and absent from the
+     Acer's.** *(MINIS: chat-only, 2026-08-28. Acer: re-derived the same day.)*
+     Recorded because it is an asymmetry between two trees at the same commit;
+     **no cause is assigned.**
+   - **Neither read re-tested `scripts/extract-ikconfig` against either image.**
+     This entry's finding that no image carries an embedded config — rc=1,
+     `Cannot find kernel config.`, zero bytes out — therefore **stands untested
+     by the 2026-08-28 reads** and is not re-asserted by them. What they did
+     re-derive is that `CONFIG_IKCONFIG` is unset in the Acer archived config,
+     line 165, exactly as recorded above.
+
 23. **A link's socket outlives its process, including on a failed start.**
    Added 2026-08-24, from link-m1 § 13.1, § 20.1 and § 23, and link-m2 § A.3.
    QEMU creates its `local.path` at start and **does not unlink it at exit** —
