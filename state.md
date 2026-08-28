@@ -5,10 +5,12 @@
 > each working session. Detailed proofs and command sequences live in git
 > history and the ADRs — this file references them rather than repeating them.
 
-**Milestone:** v0.2 (in development) · **Last updated:** 2026-08-24
-(the link measurement arc, ADR-033 written as PROPOSED, and three new open
-problems; the 2026-08-22 stop-path session is now *Previous session*, and the
-G5/H3 session has rotated to `docs/SESSIONS.md`).
+**Milestone:** v0.2 (in development) · **Last updated:** 2026-08-28
+(kernel provenance — ADR-034 written as DRAFT and the first sidecar captured on
+MINIS; and gate M2 measured — no knee, ADR-033 given a revision note and its `N`
+ruled at 16. **No session rotation was performed**, so the arc heading below
+still reads *2026-08-24* while its `link-m3` subsection is 2026-08-28; that
+subsection says so in its own first paragraph).
 
 ## Current focus
 
