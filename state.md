@@ -2205,3 +2205,39 @@ frozen `vm_home_skel` vs qcow2 branch.
   second does not subsume the first: if only the second is run and it fails, you
   cannot tell whether the codec, the dispatch, or the build broke. The first test
   costs seconds and buys that separation. (Workspace split, 2026-07-13.)
+
+- **A parsing harness is code, and needs the same behavioural proof as the thing
+  it measures.** A `bash -n` and a clean `gcc` are parses; so is a driver script
+  that has never been run against real output. link-m3's Part 2 harness was
+  **wrong three times** before the sweep ran, and each defect would have produced
+  a confident wrong number rather than an error:
+
+  1. `printf "t=%9.3f"` emits `t=` and the padded number as **two** `awk` fields,
+     so `$3` was the timestamp and the interface name was in `$4`. Every
+     per-interface guest count read **zero** while the guest's own total read
+     13 370 101 — the sweep would have reported **100 % loss at every `N`**, the
+     most dramatic possible result and entirely an artefact.
+  2. Process-level CPU (`/proc/<pid>/stat`) reads ~199 % of a core under
+     `-accel kvm` because it **conflates the event loop with the vCPU thread**.
+     The gate's subject is one thread, so the process figure would have made a
+     saturated single loop look like a process with headroom on a 16-core box.
+  3. The vCPU thread's `comm` is `CPU 0/KVM` — it **contains a space** — so its
+     columns shifted and it read as zero.
+
+  A fourth was caught only because the harness had been given a line whose job
+  was to catch it: per-thread ticks summed to **9042** against a process total of
+  **11930**. Measured rather than explained away: process `utime` includes
+  guest-mode time (process `gtime` rose 33 → 822 over the window) while the
+  per-thread rows do not. So the **event-loop row is sound** — that thread runs
+  no guest code and its `gtime` is 0 at both ends — the **vCPU row is a floor,
+  not a total**, and the two are not claimed to sum.
+
+  **One throwaway repetition before a sweep costs minutes, and it is the
+  difference between a measurement and a fiction.** Add a reconciliation line
+  that must hold, so the harness can fail loudly instead of quietly. This is
+  again a reading in the link arc carried by a behavioural check rather than by a
+  clean compile — link-m2 § A.1 verified an `strace` filter against a program
+  known to issue the calls, § B1.2 proved a receiver printed before its silence
+  was trusted, and link-m3 § P1.2a caught a `timeout` that fired while `/init`
+  was still in its device-poll, so the check ran, printed, looked like a pass and
+  never reached the code under test. (link-m3, 2026-08-28.)
