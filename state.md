@@ -1140,6 +1140,54 @@ touched.
      re-derive is that `CONFIG_IKCONFIG` is unset in the Acer archived config,
      line 165, exactly as recorded above.
 
+   **Note 2026-08-28 — the first provenance capture: a sidecar exists on MINIS,
+   written before the ADR that defines it.** From the capture session of
+   2026-08-28 on MINIS; like the two reads above it **produced no report file
+   and reported in chat**, so every figure here is chat-only unless marked
+   otherwise. Recorded because the file is now a fact about that machine and
+   nothing else in the tree says so.
+
+   **What was written** *(chat-only — MINIS, 2026-08-28)*:
+   `~/katmate-kernels/vmlinuz-katmate-microvm-amd64-6.12.87.provenance`, beside
+   the image it describes. 851 bytes, 10 keys, mode `0644`, owner `host:host`,
+   sha256 `bfed14af7ae10df630fec00865203f725e654607ae6ff7fd3ee2b9a9e014def3`.
+   It records `KERNEL_SHA256=b34026dd…`, `CONFIG_SHA256=7720cf22…`,
+   `AUTOCONF_MATCH=yes`, `SRC_COMMIT=8bf2f55e…`, `SRC_TAG=v6.12.87`, the banner
+   read out of the image, and `CAPTURED_BY=manual capture, tools/ implementation
+   pending`. Written the way the pipeline writes payload files — dotted
+   `mktemp` in the target directory, `chmod 0644`, `mv -f` — as
+   `build/foundation.sh` step 11 and `netvm.sh` step 11 do *(re-derived: those
+   two are `build/foundation.sh:268–274` and `build/netvm.sh:345–347`)*.
+
+   **`AUTOCONF_MATCH=yes` was measured in that session, not carried forward.**
+   `include/config/auto.conf` against the archived config, quoting normalised:
+   **1718 symbol lines against 1718, empty diff**, run twice — once in the
+   measurement pass and once again at write time. The earlier reading of
+   2026-08-28 was deliberately not reused, so the field stands on its own.
+
+   **The byte-identity gate was re-confirmed three times**, the last immediately
+   before the `mv`, so **the file cannot outlive the identity it asserts**. Had
+   the tree changed between the measurement and the write, the capture would
+   have halted rather than recorded a stale pairing.
+
+   **`SRC_DIRTY_PATHS` carries the ten deleted paths** — the manifest
+   `scripts/setlocalversion`'s single bit does not provide, and the field this
+   whole question turned on.
+
+   **It was written before ADR-034 was accepted, and that is the reasoning, not
+   an oversight.** The witness is `include/config/auto.conf` in that tree, and
+   the next `make menuconfig` or `make clean` there destroys it. Waiting for
+   acceptance would have meant accepting an ADR about a pairing that no longer
+   existed. The ADR records the same asymmetry as a decision; this note records
+   that the capture preceded it.
+
+   **The Acer is deliberately without one.** *(Re-derived on the Acer.)* Its
+   `auto.conf` was overwritten 47 days after that image was linked, so a sidecar
+   there could only fill `SRC_COMMIT` and `SRC_TAG` from today's tree and
+   present them in the same fields that are true on MINIS — a record that reads
+   as equivalent while being something else. An absent record is the honest one.
+   ADR-034 records the decision; this note is the instance.
+
 23. **A link's socket outlives its process, including on a failed start.**
    Added 2026-08-24, from link-m1 § 13.1, § 20.1 and § 23, and link-m2 § A.3.
    QEMU creates its `local.path` at start and **does not unlink it at exit** —
