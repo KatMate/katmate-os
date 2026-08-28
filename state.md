@@ -1422,6 +1422,47 @@ by the session that wrote the clause — which is the reason it is written here 
 all. A debt whose only trace is the conversation that created it lasts exactly
 as long as that conversation.
 
+**`N` is ruled: 16 (2026-08-28), and what still bounds the pool.** ADR-033 held
+`N` behind gate M2. M2 is measured (see the `link-m3` entry above) and **`N` is
+no longer gated by saturation**: there is no knee, so there is no count of active
+links to stay below. The loop is at its ceiling from one link and is shared
+continuously from there, and thirty links cost it no more than one does. The
+operator has ruled **`N` = 16**, and the reasoning is the record — the number
+alone would not survive the first question about it:
+
+- **It sits well below netVM's ceiling, with margin.** The measured ceiling is
+  **30** `virtio-net-pci` on the default q35 root bus. netVM carries four other
+  PCI devices — the vfio NIC, `virtio-blk-pci`, `vhost-vsock-pci` and
+  `virtio-rng-pci` — so roughly **26** slots would remain for link devices.
+  **That ~26 is ARITHMETIC, not measurement: netVM's own ceiling has never been
+  run.** It is also a subtraction taken on this session's subject, which carried
+  network devices and nothing else; netVM's launcher does not use `-nodefaults`,
+  so its real figure can only be lower. 16 leaves margin for devices netVM has
+  not acquired yet.
+- **The subtraction is four and not five, and that is deliberate.**
+  `net-sys.con:27` carries a **fifth** PCI device,
+  `-device virtio-net-pci,netdev=int0` — the internal p2p segment. It is not
+  subtracted because **it is the device the pool replaces**: the slot pool *is*
+  the internal segment, generalised from one peer to `N`. Without this clause the
+  30 − 4 arithmetic reads as an arithmetic error rather than as a choice.
+- **An empty slot is measured cheap.** link-m1 §§ 20–21: a device whose peer path
+  does not exist adds one fd, **no thread** and **zero CPU ticks** over a 60 s
+  window, at a few hundred kB of RSS. link-m3 confirms the no-thread half under
+  load — 4 threads at every `N` from 1 to 30, idle and loaded alike. Slots that
+  are never filled cost close to nothing, so a generous pool is not paid for
+  until it is used.
+- **Growth beyond the pool costs a netVM restart**, and with it every AppVM's
+  connectivity (ADR-033, *Costs accepted*). That is what argues against a small
+  `N`. It is also why 16 is generous rather than maximal: the cost of guessing
+  low is a restart, and the cost of guessing high is nearly nothing — but a value
+  at the arithmetic ceiling would leave netVM no room to acquire a device.
+
+**What still bounds the pool, and it is not M2.** `N` is now bounded by **netVM's
+own PCI slot ceiling, which is unmeasured.** Raising it means added PCIe root
+ports — a topology change, and a separate decision that ADR-033 already names as
+one. Measuring netVM's actual ceiling is the outstanding work here; the ~26 above
+must not be cited as though it had been.
+
 **Next session: 3a part 2, the gates — G6 and H1.** G1 and G4 passed
 2026-08-19 and G5 and H3 passed 2026-08-21; the two that remain are the two that
 need netVM stopped. The code they
