@@ -35,7 +35,7 @@ baked into code.
 | `Nic` | host inventory | PCI address, IOMMU group, binding (host / `vfio-pci`), `assigned_to: Option<VmRef>`. Assignable to **at most one** VM. The same shape later serves USB controllers and audio. |
 | `Image` | build artifact | foundation (thin, RO) / `app-<type>` (thin snapshot, RO) / sysVM image (linear RW LV) / instance qcow2 delta. Orthogonal to runtime. |
 | `Vm` | runtime unit | name, class (`app` \| `sys`), CID, image ref, resources, **`netvm: Option<VmRef>`**, **`provides_network: bool`**. |
-| `Link` | runtime, host-owned | one p2p segment: TAP, `/32` addressing, the fragment delivered by NETCFG. Created at launch, destroyed at teardown. Owned by the launch daemon; never by a guest. |
+| `Link` | runtime, host-owned | one p2p segment: a pair of AF_UNIX datagram sockets, `/32` addressing, the fragment delivered by NETCFG. Created at launch, destroyed at teardown. Owned by the launch daemon; never by a guest ([ADR-033](DECISIONS.md#adr-033)). |
 | `Policy` | two-layer | (a) compile-time opcode set per VM class (absent-not-disabled); (b) the static nft ruleset **baked into a netVM image**. |
 
 The entire topology is two fields on `Vm`: `netvm` (whom do I route through) and
@@ -49,8 +49,11 @@ The entire topology is two fields on `Vm`: `netvm` (whom do I route through) and
   netVM never changes as AppVMs come and go; isolation is carried by **topology**
   (per-AppVM `/32` p2p links), never by per-AppVM firewall rules
   ([ADR-021](DECISIONS.md#adr-021)).
-- **`netvm: None` is a first-class offline AppVM.** No `Link`, no TAP, no route.
-  Air-gap is the *absence of an object*, not a rule denying traffic.
+- **`netvm: None` is a first-class offline AppVM.** No `Link`, no socket pair,
+  no route. Air-gap is the *absence of an object*, not a rule denying traffic —
+  and under [ADR-033](DECISIONS.md#adr-033)'s mechanism that is more literally
+  true than it was under a tap: there is no host-side network object for the
+  link to be an absence *of*. Nothing is created, so there is nothing to deny.
 - **One physical NIC = one q35 driver domain.** A VM holding a passed-through NIC
   runs `-machine q35` (PCI topology for vfio), full systemd + networkd +
   initramfs + firmware — and holds **no secrets**.
@@ -343,17 +346,19 @@ netVM topology:
   a link-scoped `/32` route, delivered by **NETCFG at launch** and withdrawn at
   teardown. **Nothing is baked** — on a clean boot netVM has no internal route,
   which is correct: with no AppVMs running there is nowhere to route.
-- **What carries a link — proposed, not settled**
-  ([ADR-033](DECISIONS.md#adr-033), PROPOSED): a link is a pair of **AF_UNIX
-  datagram sockets**, one end opened by each QEMU by path at start. **The host
-  holds no network object for it** — no tap, no bridge, no namespace, and no
-  privileged network step in an AppVM's start path. netVM starts with a **fixed
-  pool of link slots**, allocated and reconciled the way CIDs are
+- **What carries a link** ([ADR-033](DECISIONS.md#adr-033)): a link is a pair of
+  **AF_UNIX datagram sockets**, one end opened by each QEMU by path at start.
+  **The host holds no network object for it** — no tap, no bridge, no namespace,
+  and no privileged network step in an AppVM's start path. netVM starts with a
+  **fixed pool of link slots**, allocated and reconciled the way CIDs are
   ([ADR-017](DECISIONS.md#adr-017)); an AppVM takes a free slot at launch and
-  releases it at teardown. **The pool size is open** pending ADR-033's M2
-  measurement. Until that ADR is accepted the mechanism of record is the one the
-  `Link` row in § *Object model* states — TAP — and the two are deliberately left
-  disagreeing rather than reconciled early.
+  releases it at teardown. **The pool holds 16 slots**, bounded by netVM's PCI
+  slot count rather than by anything the link mechanism costs. A datagram socket
+  carries no link state, so the absence of a peer is invisible to the guest and
+  **start ordering is the launch daemon's alone** (§ *Known gaps* 14 in
+  `SECURITY-MODEL.md`). The `Link` row in § *Object model* now states the same
+  mechanism; the two disagreed while the ADR was proposed, deliberately, and no
+  longer do.
 - **nft:** static, AppVM-agnostic. Input drop; forward limited to
   segment ↔ `proton`, referencing only the aggregate `10.100.1.0/24`, never a
   per-AppVM rule. Per-`/32` isolation is **topology**, not firewall.
