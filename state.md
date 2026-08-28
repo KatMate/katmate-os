@@ -60,6 +60,12 @@ the session that rules does not also write the record.
 and is **PROPOSED, not accepted** — `N` is not fixed until M2 is taken. Neither report writes a verdict;
 both state what was observed and what was not.
 
+**Superseded 2026-08-28: ADR-033 is Accepted, and `N` is 16.** M2 was taken by
+link-m3 and the operator has accepted the ADR; its status line now reads
+`Accepted (2026-08-28)`. The paragraph above is left as written because it is
+what this section published at the time, and because the condition it names —
+*"`N` is not fixed until M2 is taken"* — was met rather than abandoned.
+
 ### link-m1 (2026-08-24) — the backend exists, starts without a peer, and costs little
 
 - **`dgram` is a netdev type in QEMU 11.1.0 on MINIS.** It appears in
@@ -1424,6 +1430,17 @@ by the session that wrote the clause — which is the reason it is written here 
 all. A debt whose only trace is the conversation that created it lasts exactly
 as long as that conversation.
 
+**DISCHARGED 2026-08-28, by restatement and not by sourcing.** Acceptance
+arrived and no external source had been gathered, so the clause is **restated as
+judgement** in a revision note appended to ADR-033 (*"the tap/vhost comparison is
+judgement, not a sourced fact"*). The note names the belief as KatMate's, held
+without a source, and sets beside it the checkable fact that is about this tree:
+every `-netdev` here is `tap`, `app_web.con` carries no network device, so our
+own gate history covers `tap` and does not cover `dgram`. **The clause itself is
+not edited** — the ADR body is append-only and it stands as written, qualified by
+the note. `OBSERVATIONS.md` was clean of the superlative and stays clean; nothing
+was added to it.
+
 **`N` is ruled: 16 (2026-08-28), and what still bounds the pool.** ADR-033 held
 `N` behind gate M2. M2 is measured (see the `link-m3` entry above) and **`N` is
 no longer gated by saturation**: there is no knee, so there is no count of active
@@ -1464,6 +1481,36 @@ own PCI slot ceiling, which is unmeasured.** Raising it means added PCIe root
 ports — a topology change, and a separate decision that ADR-033 already names as
 one. Measuring netVM's actual ceiling is the outstanding work here; the ~26 above
 must not be cited as though it had been.
+
+**ADR-033 is Accepted (2026-08-28), and what follows it is three sessions, in
+this order.** Acceptance is a decision; none of the work below was done by it,
+and the order is a dependency order rather than a preference.
+
+1. **The pool in netVM.** Sixteen `dgram` slots on fixed socket paths, in
+   `net-sys.con` and in `katmate-sys-driver@.service`, replacing the `tap-int0`
+   device that is netVM's internal segment today. Nothing downstream can be
+   tested against a pool that does not exist, which is why it is first. It also
+   settles by construction two of ADR-033's own open items — the socket path
+   convention under `/run/katmate/link/` and the slot-to-interface naming — and
+   **that naming is the one the ADR flags as unresolved**: NETCFG programs a
+   `/32`, and a mapping that is not stable and legible programs the right address
+   on the wrong interface. `ExecStopPost=` must unlink the slot's socket, since a
+   socket file outlives its process including on a failed start (open problem
+   #23).
+2. **The `app-routed` template.** An AppVM taking a free slot at launch and
+   releasing it at teardown, with slot allocation carried as a field on ADR-017's
+   existing CID allocation rather than as a new subsystem.
+3. **The guard and the `REQ_ENV` arm, together in one commit.** This is open
+   problem **#19**, and its requirement is unchanged by acceptance: the
+   unconditional refusal of profile `app-routed` in `katmate-generate-env` and
+   the `REQ_ENV` arm behind it fall **in the same commit**, in that order, or the
+   profile becomes startable while its environment contract is unenforced.
+   **#19 stays open until then** — this pass did not close it and did not touch
+   `katmate-generate-env`.
+
+Two consequences ride along and belong to whoever does step 1: ADR-015's
+`web`-manifest-without-network warning stops firing on `app_web` once its T1
+names a netVM, and `--strict` becomes usable over the real T1 set.
 
 **Next session: 3a part 2, the gates — G6 and H1.** G1 and G4 passed
 2026-08-19 and G5 and H3 passed 2026-08-21; the two that remain are the two that
