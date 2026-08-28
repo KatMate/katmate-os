@@ -172,6 +172,123 @@ a booting guest, frames in both directions — by uid 1000, on a host whose live
 state was never touched. **An AppVM's start path needing no privileged network
 step is the property the ADR claims, and this is the first evidence for it.**
 
+### link-m3 (2026-08-28) — no knee: the loop is saturated at one link and shared from there
+
+**This subsection is dated four days after the heading above it.** The parent
+heading reads *2026-08-24* because that is when link-m1 and link-m2 ran; link-m3
+ran on **2026-08-28** and is filed here because it is the same arc's third
+session, not because it shares their date. Read the measurement date off this
+line, not off the section heading.
+
+Brief `~/link-m3-brief.md`, report `~/link-m3-report.md`. **No commits by that
+session and no tracked file edited** — it measured and reported; this entry is
+the record, written separately, on the division the arc has kept throughout.
+
+**M2 is measured, and the result is not the one ADR-033 anticipated.** The ADR
+asks where one event loop stops keeping up as active links are added. It does not
+stop anywhere in the range that starts: it is **already saturated with one link**,
+and every further link is served out of the same, already-full core.
+
+- **There is no knee, because the loop is at its ceiling from `N`=1.** The event
+  loop thread sits at **99.6 %** of one core with a single active link and at
+  **98.7–99.6 %** across all eighteen 60 s windows, while delivered load rises
+  from ~174 000 to ~316 000 frames/s as `N` goes 1 → 30. Individually, and never
+  averaged: `N`=1 → 176 646 · 173 671 · 173 668 frames/s; `N`=2 → 222 899 ·
+  223 798 · 226 366; `N`=4 → 261 670 · 258 731 · 259 001; `N`=8 → 280 687 ·
+  279 936 · 283 463; `N`=16 → 302 994 · 302 921 · 295 716; `N`=30 → 317 385 ·
+  315 851 · 313 888. **The loop does not break down under link count — it is
+  shared, and the degradation is continuous.** What stops scaling is throughput
+  *per link*: ~174 000 frames/s on one, about 10 600 each on thirty.
+- **Zero loss, in all eighteen runs.** `gen_ok` equals `guest_pkts` as identical
+  integers, link by link and repetition by repetition; guest `rx_bytes` equals
+  generator `bytes_ok` exactly (`N`=2: `20350147882` against `20350147882`).
+  `rx_errs=0` and `rx_fifo=0` throughout, and `tx_pkts=0` — the guest transmitted
+  nothing.
+- **The refusal reaches the sender as `EAGAIN`**, one errno wide, on every socket
+  of every run — never as a frame accepted and then dropped. **It falls
+  monotonically with `N`**, 69.3 M → 31.9 M in absolute count and ≈87 % → ≈63 %
+  of attempts, consistent across all three repetitions at every point. That is
+  the opposite of a rise, and it follows from the line above: as `N` grows the
+  loop delivers more frames per second in total, so more of the generator's
+  attempts find room.
+- **Per-interface counts do not diverge.** At `N`=30 the thirty links span
+  **7 frames in 634 765** (repetition 1); repetitions 2 and 3 span **2** and
+  **1**. The worst relative spread anywhere in the sweep is **0.054 %**, at
+  `N`=4. **The bound, which is the report's own:** the generator is strictly
+  round-robin, so offered load is exactly equal per link by construction — what
+  is measured is the loop's evenness *given equal offering*, and not its
+  behaviour when one link offers far more than another, which was not measured.
+- **`N`=30 starts and 31 refuses**, *"PCI: no slot/function available for
+  virtio-net-pci"* naming `netdev=n30`, byte-identical across five observations,
+  under KVM with a booting guest that enumerated all thirty interfaces. So the
+  ceiling is **PCI topology** — not the accelerator, not the guest. This
+  reproduces link-m1 § 20.1 on a different footing; that session found it under
+  TCG on a machine paused at reset. **It is not netVM's ceiling** (see
+  § *Next steps*).
+- **Thread count is 4 at every `N`, idle and under load alike**, sampled at
+  t+5 s, t+30 s and t+55 s inside every window and never varying. link-m1
+  measured **3** at every idle `N`; that was TCG on a machine paused at reset,
+  and the fourth thread here is the vCPU. **A `dgram` backend adds no thread**,
+  which is link-m1 § 11's idle finding holding under load.
+
+**Whether these are the subject's numbers or the generator's, and why it is the
+subject.** The criterion was fixed in Part 1 before the data existed: well under
+the generator's proven ceiling of 431 046 frames/s means the subject, approaching
+it means the generator. The highest aggregate, 317 385 frames/s, is **73.6 %** of
+that ceiling — *not* comfortably clear of it, and the report does not pretend
+otherwise. It concludes **the subject**, on three grounds worth carrying rather
+than just the conclusion: 31.9 M refusals mean the subject's socket queues were
+**full**, which a generator-limited run cannot produce — the ceiling run itself
+had **zero** errors; the loop is at ~99 % of one core, and no extra offered load
+makes a thread already at 100 % drain faster; and where the ceiling run had its
+sink at 67 % of a core with no refusals, this has the loop at 99 % with refusals
+in the tens of millions. The residual is named as a limit of the apparatus: a
+measurement wanting to push *past* this point needs more offered load than one
+generator core can produce.
+
+**The instrument is not the one the ADR names, and that must be visible to
+anyone reading the gate as discharged.** ADR-033's *Remaining gate* sentence
+specifies **netVM's own `utime`** watched for the knee. This session measured a
+**standalone QEMU of the same shape** — `-machine q35,accel=kvm -cpu host -smp 1`,
+read out of `net-sys.con` rather than invented — because netVM carries no `dgram`
+device today and giving it one would *be* the pool that `N` was not yet fixed
+for. The substitution was the brief's, stated openly in it.
+
+**Conditions, which differ from link-m1's and link-m2's and are not
+interchangeable with them:**
+
+- **netVM was DOWN for the whole session.** MINIS had rebooted on 2026-08-25 and
+  netVM had not been started since; the session found it so, raised it as a
+  blocking divergence and halted, and the operator ruled that it not be started —
+  it is not the subject, and an idle machine is a cleaner laboratory. The
+  subsection above (*"Every measurement was taken unprivileged"*) says netVM was
+  **up and untouched throughout both**; that statement is true of link-m1 and
+  link-m2 and is **not** extended to link-m3. What link-m3 can evidence instead:
+  no KatMate unit was started, stopped or reconfigured, the unit's state was read
+  and not changed, and nothing under `/etc/katmate/`, `/var/lib/katmate/` or
+  `/run/katmate/` was read or written.
+- **The MINIS host kernel had moved**, `7.1.8-hardened1-2-hardened` →
+  `7.1.9-hardened1-1-hardened`. The AF_UNIX datagram path is kernel code, so
+  **these figures are this kernel's and are not directly comparable with
+  link-m1's or link-m2's.**
+- **The accelerator was KVM**, on the operator's ruling and against link-m1's and
+  link-m2's TCG: netVM runs on KVM, the subject is netVM's shape, and under TCG a
+  knee could have been the guest's ceiling rather than the loop's — measuring the
+  wrong thing without showing it. `/dev/kvm` opened unprivileged; a silent TCG
+  fallback was forbidden and was not needed.
+- **No `sudo` anywhere**, as in both earlier sessions. An unprivileged user opened
+  `/dev/kvm`, ran eighteen 60 s KVM guests, bound up to thirty AF_UNIX datagram
+  sockets per run, and built a `cpio` carrying a `/dev/console` node via the
+  kernel tree's own `gen_init_cpio`.
+
+**What the session did not measure, and therefore does not claim:** Part 3 was
+skipped, there being no knee to control against, so nothing is claimed about what
+idle backends cost alongside an active one; nothing above `N`=30 or between the
+points run; no per-link cost and no recommended value; nothing at other frame
+sizes, the sweep being 1514-byte frames only; and **whether QEMU-as-sender retries
+or discards on `EAGAIN`**, which ADR-033 already carries as open and which no
+`strace` in this session touched.
+
 ## Previous session (2026-08-22) — the stop path's first execution, H1 and G6, and every part-2 gate measured
 
 Delegated measurement session on the Acer, reaching MINIS over ssh, in two runs
