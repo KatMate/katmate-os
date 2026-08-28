@@ -4371,6 +4371,40 @@ exists yet:
   `/run/katmate/link/`, whether a released slot is reused or quarantined, and
   what a slot's MAC derives from.
 
+**Revision note (2026-08-28, § *Costs accepted* — the tap/vhost comparison is
+judgement, not a sourced fact):** the fourth bullet of § *Costs accepted* reads,
+in part:
+
+> **A less-trodden path in the VMM.** `-netdev tap` with `vhost` is the most
+> exercised network path in QEMU/KVM; `dgram` is not…
+
+**The first clause is a superlative about someone else's code, and this project
+gathered no source for it.** It appears in none of the three link reports, and
+none was sought. The debt was flagged by the 2026-08-24 write pass — not by the
+session that wrote the clause — and carried in `state.md` § *Next steps* as
+something to be **sourced or restated as judgement at acceptance**. Acceptance
+has arrived and no source was gathered, so it is **restated as judgement**:
+
+**KatMate's judgement, held without a source, is that `tap` with `vhost` is the
+better-exercised path and `dgram` the less-trodden one.** It is a belief this
+project acts on, not a measured or cited fact, and nothing may be built on it
+that could not be built on an opinion.
+
+**What is checkable, and is a fact, is narrower and is about this tree:** every
+`-netdev` in this repository is `tap` (`net-sys.con:26` and
+`katmate-sys-driver@.service:137`, both netVM's internal segment), and
+`app_web.con` carries no network device at all — so **our own gate history covers
+`tap` and does not cover `dgram`**, on a code path guest bytes reach.
+`docs/OBSERVATIONS.md` § 1 records exactly that, and records it **without** the
+superlative, deliberately and from the day it was written. That file's own
+conventions — *"Provenance is mandatory"*, *"No comparative judgement"* — are why
+the clause could not stand there as fact, and a rule this project enforces in one
+file cannot be suspended in another.
+
+**The clause above is not edited.** This file is append-only in its body, the
+original stands as written, and this note is what qualifies it. Gate M2 does not
+close the question either: it measured saturation and not robustness.
+
 ---
 
 ## ADR-034 — Kernel provenance: a sidecar captured at build, carried into T2, checked at install
