@@ -4032,9 +4032,15 @@ authority are supplied.
 
 ## ADR-033 — AppVM link topology: p2p over AF_UNIX datagrams, from a static slot pool
 
-**Status:** PROPOSED. Its viability premises are measured (link-m1 and link-m2,
-2026-08-24, MINIS); its sizing premise is not. **`N` may not be fixed until M2
-is taken.** Nothing below may be cited beyond what the two reports state.
+**Status:** Accepted (2026-08-28). Its viability premises were measured by
+link-m1 and link-m2 (2026-08-24, MINIS) and its sizing premise by link-m3
+(2026-08-28, MINIS), which took gate **M2**; `N` is **16**, ruled on that
+measurement and recorded in `state.md` § *Next steps*. This line read
+`PROPOSED` until acceptance, and the sentences it carried — *"its sizing
+premise is not"* and *"`N` may not be fixed until M2 is taken"* — were true
+when written and are discharged by the acceptance note at the end of this ADR.
+**Accepted is a decision and not an implementation:** no pool exists in netVM
+and no `app-routed` template ships.
 
 **Depends on:** [ADR-022](DECISIONS.md#adr-022) (an AppVM routes through a netVM
 and has no neighbour on the host), [ADR-025](DECISIONS.md#adr-025) (NETCFG
@@ -4301,6 +4307,69 @@ by the accelerator or by whether a guest runs. **This is not netVM's ceiling**,
 which remains unmeasured: the paragraph above under *"The binding limit is PCI
 topology, not memory"* still stands, and `state.md` § *Next steps* carries the
 arithmetic and the value of `N` ruled from it.
+
+**Acceptance note (2026-08-28) — what this rests on, and what it does not yet
+do:** the status line above was changed from `PROPOSED` to `Accepted` in place,
+which is this file's practice for that one line and only that line: `405289c`
+(2026-06-13) moved ADR-010 and ADR-011 from `Proposed` to `Accepted` the same
+way, and `5f753b9` (2026-07-23) rewrote ADR-025's to record live-gating. The
+body below is untouched and stays append-only.
+
+**What acceptance rests on — three measurement sessions, and what each
+discharged.**
+
+- **link-m1** (2026-08-24, `~/link-m1-report.md`) — that the **pool is
+  possible**. `dgram` exists as a netdev type in QEMU 11.1.0; a slot whose
+  `remote.path` does not exist starts silently, at one added fd, **no added
+  thread** and **zero CPU ticks** over 60 s; a stale socket path does not block
+  a later start; and the binding limit is PCI topology, `q35` refusing the 31st
+  `virtio-net-pci` on the default root bus.
+- **link-m2** (2026-08-24, `~/link-m2-report.md`) — that the **peer may appear
+  afterwards**, which is what makes a pool of empty slots usable rather than
+  merely startable. The startup trace is `unlink` → `socket` → `bind` with **no
+  `connect()`** and `remote.path` nowhere in it; a guest emitted ten frames into
+  an absent peer and the first datagram to arrive after the peer bound carried
+  `seq=000010`. The address is resolved per send.
+- **link-m3** (2026-08-28, `~/link-m3-report.md`) — gate **M2**, the sizing
+  premise, discharged by the revision note above. **There is no knee**: the
+  event loop is saturated at **one** link and shared continuously from there, so
+  `N` is not bounded by saturation. What now bounds it is netVM's own PCI slot
+  ceiling, which is unmeasured.
+
+**`N` is 16.** Ruled by the operator on 2026-08-28 and recorded with its
+reasoning in `state.md` § *Next steps*: below an **arithmetic** ceiling of
+roughly 26 — the measured 30 on the default `q35` root bus, less netVM's vfio
+NIC, `virtio-blk-pci`, `vhost-vsock-pci` and `virtio-rng-pci`, the internal
+segment's own `virtio-net-pci` not being subtracted because it is the device the
+pool replaces — with margin for devices netVM has not acquired, an empty slot
+measured cheap, and growth beyond the pool costing a netVM restart. **netVM's
+own ceiling has never been run.**
+
+**One cost this ADR accepted was measured and its consequent did not hold**, and
+acceptance does not quietly drop it. § *Costs accepted* predicts loss rather than
+backpressure on a full receive buffer. The buffer filled and the loss did not
+follow: zero frames lost in eighteen runs, the refusal arriving at the sender as
+`EAGAIN`. **The bound stands as the revision note states it** — the sender in
+that measurement was a program that counts its refusals, the real sender is
+another QEMU, and **what QEMU-as-sender does on `EAGAIN` is unmeasured**. The
+clause is therefore not withdrawn by acceptance; it is accepted with its
+consequent known to be unmeasured for the sender that matters.
+
+**What acceptance does NOT do.** It is a decision, and none of the following
+exists yet:
+
+- **no slot pool in netVM** — neither `net-sys.con` nor
+  `katmate-sys-driver@.service` carries a `dgram` netdev, and netVM's internal
+  segment is still the `tap-int0` device;
+- **no `app-routed` template ships**, and the guard in `katmate-generate-env`
+  **still refuses that profile**;
+- **open problem #19 stays open.** Its requirement is unchanged: the guard and
+  the `REQ_ENV` arm fall **together in one commit**, and acceptance does not
+  substitute for that commit;
+- the items under *Open in this ADR* that acceptance does not touch remain open —
+  the slot-to-interface naming scheme, the socket path convention under
+  `/run/katmate/link/`, whether a released slot is reused or quarantined, and
+  what a slot's MAC derives from.
 
 ---
 
