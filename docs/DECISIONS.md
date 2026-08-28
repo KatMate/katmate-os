@@ -4227,6 +4227,81 @@ issues a failing `sendto` per frame or discards without a syscall while a peer
 is absent — unmeasured, and relevant only to the cost of an AppVM transmitting
 into a dead slot.
 
+**Revision note (2026-08-28, § *Remaining gate*, § *Costs accepted* and
+§ *To revisit* — M2 measured, and a cost that did not occur):** M2 has been taken
+(`~/link-m3-report.md`, MINIS, 2026-08-28) and **is discharged**. This note
+records what it found. **It does not accept this ADR, whose status stays
+PROPOSED**, and it changes no sentence above: this file is append-only and the
+original text stands as written.
+
+**1. There is no knee, because the loop is saturated at one link.** The gate
+above expects a point at which the single main loop stops keeping up as active
+links are added. There is no such point in the range that starts. The event loop
+thread is at **99.6 %** of one core with **one** active link, and at
+**98.7–99.6 %** across all eighteen 60 s windows of a sweep over
+`N ∈ {1, 2, 4, 8, 16, 30}`, three repetitions each. Delivered load rises from
+~174 000 to ~316 000 frames/s over that range and never falls. **`N` is
+therefore no longer gated by saturation** — there is no knee to stay below, and
+thirty links cost the loop no more than one does. What scales down is throughput
+per link: ~174 000 frames/s on one link, about 10 600 each on thirty.
+
+**2. A cost this ADR accepted did not occur — and only half of the clause is
+contradicted.** § *Costs accepted* reads:
+
+> **Loss instead of backpressure** on a full receive buffer. Ethernet permits
+> it and guest TCP absorbs it, but the behaviour under load is loss.
+
+**The premise held and the consequent did not.** The receive buffer *did* fill —
+31.9 M refusals in a single 60 s window at `N`=30, against
+`/proc/sys/net/unix/max_dgram_qlen` = **512** datagrams, which is the entire
+buffer between the two processes. What followed was not loss. **Zero frames were
+lost in all eighteen runs**: the count the generator was told had been accepted
+equals the count the guest's own driver recorded, as identical integers, link by
+link and repetition by repetition, with the byte totals matching exactly as well.
+The full buffer refused the sender with `EAGAIN` — one errno wide, on every
+socket of every run — rather than accepting a frame and discarding it.
+
+**The bound on that, which is why the cost is not simply gone.** The sender in
+this measurement was a purpose-written program that **counts** its refusals. The
+real sender is another QEMU, and **whether QEMU-as-sender retries or discards on
+`EAGAIN` is unmeasured** — it is already among this ADR's own open items above,
+and M2 did not close it. So what is now measured is what the **socket** does:
+backpressure, not silent loss. What the **sending VMM** does with that
+backpressure remains open, and the accepted cost stands until it is measured.
+
+**3. § *To revisit* is NOT triggered.** That clause reads: *"If M2 shows the
+single main loop saturating at a small number of active links, the p2p model
+itself — not this backend — needs revisiting."* The loop saturates at **one**
+link, which is smaller than any number the clause anticipated — and the clause
+still does not fire, because **saturating at one link and degrading with link
+count are different findings, and only the second implicates the model.** A
+per-link bridge would concentrate the same traffic in the same process; it would
+not give that process a second core. The measurement shows the shared ceiling
+being divided, not a cost that grows with the number of links: per-interface
+counts span **7 frames in 634 765** at `N`=30 (repetitions 2 and 3: **2** and
+**1**), worst 0.054 % anywhere in the sweep — with the bound that the generator
+offered exactly equal load per link, so this is the loop's evenness under equal
+offering and not under unequal.
+
+**4. What the gate was measured with, which is not what the sentence above
+names.** The *Remaining gate* text specifies **netVM's own `utime`** watched for
+the knee. M2 was taken against a **standalone QEMU of the same shape** —
+`-machine q35,accel=kvm -cpu host -smp 1`, taken from `net-sys.con` rather than
+invented — because netVM carries no `dgram` device today, and giving it one would
+*be* the pool whose size was the undecided thing. netVM was **down** throughout
+and was not touched. Recorded here so that the difference is visible to anyone
+reading this gate as discharged.
+
+**5. The device ceiling, reproduced, and what it is not.** `N`=30 starts and 31
+refuses — *"PCI: no slot/function available for virtio-net-pci"*, naming
+`netdev=n30`, byte-identical across five observations — this time under KVM with
+a booting guest that enumerated all thirty interfaces, where link-m1 § 20.1 found
+it under TCG on a machine paused at reset. The ceiling is PCI topology, unmoved
+by the accelerator or by whether a guest runs. **This is not netVM's ceiling**,
+which remains unmeasured: the paragraph above under *"The binding limit is PCI
+topology, not memory"* still stands, and `state.md` § *Next steps* carries the
+arithmetic and the value of `N` ruled from it.
+
 ---
 
 ## ADR-034 — Kernel provenance: a sidecar captured at build, carried into T2, checked at install
