@@ -76,12 +76,20 @@
       `NetworkNamespacePath=`. C4 is additionally re-scoped by ADR-030: the
       `-sandbox` line lives in the unit template, is part of the signed ISO,
       and is not expressible as user data. Gates all axis-2 / vhost-user work.
-- [ ] **M2 — saturation of netVM's single event loop** (ADR-033, PROPOSED).
-      All AppVM traffic converges on one QEMU main loop and `dgram` has no
-      `vhost` equivalent, so that loop is in the data path for every frame.
-      Measurable **without a single AppVM** — a host-side generator writing to
-      `N` sockets, netVM's `utime` watched for the knee. **`N` is fixed after
-      M2 and not before**, so ADR-033 cannot be accepted until it is taken.
+- [x] **M2 — saturation of netVM's single event loop** (ADR-033, Accepted
+      2026-08-28). All AppVM traffic converges on one QEMU main loop and `dgram`
+      has no `vhost` equivalent, so that loop is in the data path for every
+      frame. Measurable **without a single AppVM** — a host-side generator
+      writing to `N` sockets, watched for the knee. **Taken 2026-08-28**
+      (`~/link-m3-report.md`), against a standalone QEMU of netVM's shape rather
+      than netVM itself, netVM carrying no `dgram` device to measure. **There is
+      no knee:** the event loop is saturated at **one** active link — 99.6 % of
+      one core — and stays at 98.7–99.6 % across `N` = 1 … 30 while aggregate
+      throughput rises, so the ceiling is shared continuously rather than reached
+      at some count of links. `N` is therefore not bounded by saturation; it is
+      **16**, bounded by netVM's PCI slot count. The precondition this entry
+      carried — *"ADR-033 cannot be accepted until it is taken"* — is discharged,
+      and the ADR was accepted the same day.
 
 ## Build order (first release, critical path)
 
