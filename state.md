@@ -1834,12 +1834,26 @@ frozen `vm_home_skel` vs qcow2 branch.
   front panel and the VIA USB2.0 hub path drop it to 480M. (This mattered less
   than we thought — the real bug was the udev rule — but the topology note holds.)
 
-- **The running kernel on MINIS is Arch stock `7.0.12-arch1-1`, NOT a 6.12.y
-  microvm kernel.** `~/src/kernel/linux-6.12.y/` (and any 6.12.94 tree) is the
-  GUEST microvm kernel source, unrelated to the host. Do not build host modules
-  against it (vermagic mismatch) and do not reason about host USB/driver
-  behaviour from 6.12.y. The custom `6.12.87`/`6.12.94` kernels are `-kernel`
-  payloads for guests only.
+- **The running kernel on MINIS is a hardened Arch kernel,
+  `7.1.9-hardened1-1-hardened`, NOT a 6.12.y microvm kernel.**
+  `~/src/kernel/linux-6.12.y/` (and any 6.12.94 tree) is the GUEST microvm
+  kernel source, unrelated to the host. Do not build host modules against it
+  (vermagic mismatch) and do not reason about host USB/driver behaviour from
+  6.12.y. The custom `6.12.87`/`6.12.94` kernels are `-kernel` payloads for
+  guests only. **Corrected 2026-08-28:** this entry read `7.0.12-arch1-1` until
+  then; `uname -r` on MINIS reports `7.1.9-hardened1-1-hardened` *(chat-only —
+  read on MINIS 2026-08-28, no report file)*. The machine has moved to a
+  **hardened** kernel, which the entry did not anticipate, so a host-side
+  measurement taken before that date may not reproduce.
+
+- **Check a config's header line before reading symbols out of it.** Line 3 of a
+  Kconfig-generated file names the version it was generated for
+  (`# Linux/x86 6.12.87 Kernel Configuration`). The MINIS kernel tree's
+  `.config` is an unrelated **Arch 7.0.12 host config**, written five days after
+  the 6.12.87 build; reading `CONFIG_LOCALVERSION*` out of it returned the right
+  answers from the wrong file, and only the header caught it *(chat-only —
+  MINIS, 2026-08-28)*. A `.config` sitting in a kernel tree is not evidence that
+  it belongs to that tree's last build.
 
 - **Root device has no partition table:** debootstrap is directly on the LV, so
   `root=/dev/vda` (NOT `vda1`).
