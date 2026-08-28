@@ -1212,6 +1212,23 @@ touched.
    when the pipeline carries and checks the sidecar, which is ADR-034's
    acceptance and not this pass.
 
+   **Note 2026-08-28 — two items ADR-034 hands forward to its acceptance,**
+   recorded here so they are not lost between the draft and the pipeline work.
+
+   - **The sidecar is not sourceable, by decision, and no consumer exists yet.**
+     `BANNER` carries spaces and unescaped parentheses, so `. file` fails on it;
+     ADR-034 keeps `foundation.meta`'s shape and gives up its POSIX-sourceable
+     property rather than inventing a quoting convention that file does not use.
+     Any reader parses `^KEY=` and takes the rest of the line verbatim. Whether
+     that is `sed`, as `build/app-layer.sh:101`'s `meta_get()` does, or something
+     else, is settled by the first implementation to read it — *(re-derived:
+     `meta_get()` is at `build/app-layer.sh:101`, with its stated reason at
+     lines 99–100)*.
+   - **The `tools/` capture script does not exist.** The MINIS sidecar carries
+     `CAPTURED_BY=manual capture, tools/ implementation pending` *(chat-only)*,
+     and whether the tool re-takes that capture once it lands, or leaves it
+     standing as the record it already is, is open in ADR-034's own list.
+
 23. **A link's socket outlives its process, including on a failed start.**
    Added 2026-08-24, from link-m1 § 13.1, § 20.1 and § 23, and link-m2 § A.3.
    QEMU creates its `local.path` at start and **does not unlink it at exit** —
