@@ -4226,3 +4226,239 @@ sha256 scheme is the obvious candidate and is not assumed); and whether QEMU
 issues a failing `sendto` per frame or discards without a syscall while a peer
 is absent — unmeasured, and relevant only to the cost of an AppVM transmitting
 into a dead slot.
+
+---
+
+## ADR-034 — Kernel provenance: a sidecar captured at build, carried into T2, checked at install
+
+**Status:** DRAFT — proposed, not accepted. It rests on two read-only
+investigations (MINIS tree and Acer tree, 2026-08-28) and on one capture already
+taken under it (MINIS, 2026-08-28, § *The first capture* below). **Nothing here
+may be cited as measured beyond that capture's own readings.**
+
+**Depends on:** [ADR-005](DECISIONS.md#adr-005) (direct-kernel boot, no initrd),
+[ADR-011](DECISIONS.md#adr-011) (build and update pipeline),
+[ADR-030](DECISIONS.md#adr-030) (what a launcher reads),
+[ADR-032](DECISIONS.md#adr-032) (where each tier lives, §5 payload and metadata
+share a directory)
+
+**Bears on:** open problem **#22** and its 2026-08-28 revision notes. This ADR
+does not close #22 — it removes the cause of the next instance.
+
+**Sources:** three sessions, all 2026-08-28 — the MINIS tree read, the Acer tree
+read, and the capture on MINIS. **None produced a report file; all three
+reported in chat**, so there is no 2026-08-28 session entry to look for and no
+document to cite by section. Every figure below is therefore marked for what it
+is: *chat-only* where it was read on MINIS and cannot be re-derived on the Acer,
+unmarked where it was re-derived from the Acer tree or from this repository.
+`state.md`'s three 2026-08-28 revision notes under #22 carry the same
+distinction and the same readings.
+
+**Numbering:** `ADR-034` was taken as the next free number on 2026-08-28 —
+`ADR-033` is the highest written. **`ADR-031` is reserved, not free:** it is
+held for the GPL-3.0 licence declaration covering the CYBRland-derived
+`desktop/` subtree, decision taken and document not written, per `state.md`
+§ *Next steps* and `docs/HOST-CONFIG.md:225`. The gap in the sequence is a
+record, not an opening.
+
+**Context:**
+
+The microVM kernel is built **outside the pipeline**, by hand, in a source tree
+on each machine, and enters as a file. `Makefile:44–47` copies it from
+`KERNEL_SRC_DIR` into `$(OUT)`; `build/foundation.sh:268–274` installs it from
+there into `$KATMATE_KERNELS_DIR`. Three copies, no record taken at any hop.
+This ADR does not change where the kernel is built. It changes what is written
+down when it enters.
+
+Two read-only investigations established what the current arrangement costs:
+
+- The two machines hold **different kernels under one filename**. MINIS:
+  `6.12.87-dirty (host@archlinux)`, 2026-07-01 *(chat-only)*. Acer: `6.12.87
+  (winterbox@cyberdome)`, 2026-05-13. The name asserts an identity that does
+  not hold.
+- **`-dirty` was not a patch** *(chat-only — MINIS)*. Ten tracked files deleted,
+  371 deletions and **zero added or modified lines**, none of them compiling
+  into an x86 kernel. Establishing that took a session, because
+  `scripts/setlocalversion` records **one bit** and no manifest of what the dirt
+  was.
+- **On MINIS the provenance chain exists** *(chat-only)*: the tree's
+  `include/config/auto.conf` is symbol-for-symbol identical to the archived
+  config. **On the Acer it is broken**: `auto.conf` was overwritten 47 days
+  after the image was linked, and nothing else in that tree ties the archived
+  config to that build.
+
+The last point is the finding this ADR is written around:
+
+> **The evidence of provenance lives in the build tree, and the next reconfigure
+> deletes it silently.** It survived on MINIS by accident. Nothing in the
+> distributed artefact carries it, so the tree is the only witness — and any
+> `make menuconfig` overwrites the witness.
+
+Two things are being confused when this is called one problem, and separating
+them decides where the work goes:
+
+- **Identity** — *what is this file?* `sha256` of image and config, plus the
+  banner. Needs only the files; capturable at any time, by anyone.
+- **Pairing** — *which config produced this image?* Needs `auto.conf` from that
+  tree in its post-build state. Perishable, and capturable **only in the tree,
+  at build time**.
+
+`Makefile:44` sees `KERNEL_SRC_DIR` — an image and a config, no tree. **Pairing
+cannot be captured at the pipeline boundary.** The pipeline can only carry what
+was captured and verify identity.
+
+**Decision:**
+
+**A kernel entering the pipeline is accompanied by a provenance sidecar,
+written in the build tree by a tool in this repository, at the time of the
+build.**
+
+Beside `vmlinuz-katmate-microvm-<arch>-<ver>`, a file
+`vmlinuz-katmate-microvm-<arch>-<ver>.provenance`, flat `KEY=value` — the
+`foundation.meta` shape, since [ADR-030](DECISIONS.md#adr-030) §1, on T2, states
+that no second format is introduced — but **read with a parser and never with
+`source`** (see *Deliberately not sourceable* below):
+
+```
+KATMATE_PROVENANCE_VERSION=1
+KERNEL_SHA256=      the image
+CONFIG_SHA256=      the archived config
+AUTOCONF_MATCH=     yes | no        symbol-for-symbol against auto.conf at capture
+SRC_COMMIT=         git rev-parse HEAD
+SRC_TAG=            git describe --tags
+SRC_DIRTY_PATHS=    git diff-index --name-only HEAD, or empty
+BANNER=             the version string read out of the image
+CAPTURED=           ISO-8601 UTC
+```
+
+Sub-decisions, each with the reason it went that way:
+
+- **`SRC_DIRTY_PATHS` is the load-bearing field.** `setlocalversion` writes one
+  bit; this writes the manifest. Had it existed, the MINIS `-dirty` question
+  would have been answered by reading a file instead of by a session, and the
+  Acer's would still be answerable. Captured at build it costs nothing.
+- **`AUTOCONF_MATCH` states what was checked, not what is true.** It records
+  that the archived config was compared against the tree's own witness at
+  capture time. A capture too late to find `auto.conf` writes `no` — which is
+  information, not failure.
+- **The tool lives in `tools/`, in this repository, and is run by hand** in the
+  kernel tree after a build. The format is then defined by the repository rather
+  than by habit, and the tool is reviewable, versioned and diffable like
+  everything else. The kernel build itself stays outside the pipeline,
+  unchanged.
+- **The sidecar travels beside the kernel**, into `$(OUT)` and then into
+  `$KATMATE_KERNELS_DIR`, on `netvm.meta`'s precedent: payload and its metadata
+  share an author, a lifecycle and an upgrade owner
+  ([ADR-032](DECISIONS.md#adr-032) §5), so they share a directory.
+  Copy-then-rename with a dotted temporary name, as `foundation.sh` step 11 and
+  `netvm.sh` step 11 already do.
+- **Deliberately not sourceable, and this is a departure that must be stated.**
+  `foundation.meta`'s defining property, in its own words at
+  `build/foundation.sh:226–227`, is *flat KEY=value, POSIX-sourceable — the
+  preflight reads it with no parser*. This file keeps the shape and gives that
+  property up. `BANNER` carries spaces and unescaped parentheses; the first
+  capture's value is `6.12.87-dirty (host@archlinux) #1 SMP PREEMPT_DYNAMIC Wed
+  Jul 1 08:10:48 CEST 2026`, and `. file` fails on it. `SRC_DIRTY_PATHS` is a
+  path list that will be longer in other cases. The alternative — inventing a
+  quoting convention `foundation.meta` does not use — would make one format look
+  like two, and would put shell syntax around data that is not shell. **Every
+  reader of this file parses `^KEY=` and takes the rest of the line verbatim**,
+  as `build/app-layer.sh`'s `meta_get()` already does with `sed` for a file that
+  *is* sourceable, and for the same stated reason: a build script should not
+  execute a data file to read it. The file carries no shell metacharacters that
+  a `sed` extraction cares about, and any consumer that needs one field gets one
+  line.
+- **The hash does not go into `app-<type>.meta`.** `build/app-layer.sh` already
+  refuses to copy the waypipe tag into every app-layer meta — *provenance needs
+  to identify the generation, not restate its contents*. One kernel, one record,
+  beside the kernel.
+- **Absent is not refused.** A kernel with no sidecar still builds; the pipeline
+  records `KERNEL_PROVENANCE=absent` in `foundation.meta`. Both existing kernels
+  have no sidecar, and the Acer's pairing is unrecoverable — refusing them would
+  stop legitimate work to punish a gap this ADR exists to close going forward.
+  This is the project's own *absent, not disabled* shape: the meta states
+  honestly that provenance was not recorded, rather than implying it was.
+- **`-dirty` is recorded, never refused.** The investigation showed a `-dirty`
+  kernel whose dirt was ten deletions irrelevant to x86, and a clean kernel
+  whose pairing is lost. **Cleanliness is not provenance.** A refusal keyed on
+  the banner would have blocked the better-documented of the two kernels and
+  passed the worse.
+- **Verification happens at install, not at launch.** `foundation.sh` step 11
+  compares the sidecar's `KERNEL_SHA256` against the file it is installing and
+  refuses on mismatch. `katmate-check-image` is unchanged: its header states
+  *EXISTENCE ONLY … the cheapest gate in the `ExecStartPre=` chain*
+  (`host/usr/lib/katmate/katmate-check-image:8–9`), and hashing 14 MB at every
+  start would break that contract. **Launch-time integrity is measured boot and
+  TPM sealing** — already in the backlog — and a weaker imitation of it inside a
+  preflight would be worse than none, because it would read as coverage.
+
+### The first capture, and why the two machines are treated differently
+
+**MINIS is captured; the Acer is deliberately left without a sidecar.** The
+asymmetry is the decision, not an inconsistency, and it follows from what each
+tree can still prove.
+
+MINIS still holds the witness. *(This paragraph's readings are chat-only —
+taken on MINIS 2026-08-28, no report file, and not re-derivable on the Acer.)*
+On 2026-08-28 the tree's `arch/x86/boot/bzImage` was re-confirmed byte-identical
+to the archived vmlinuz (three times, the last immediately before the write, so
+the file cannot outlive the identity it asserts), and `include/config/auto.conf`
+was compared against the archived config afresh in that session — 1718 symbol
+lines against 1718, **empty diff**, nothing carried forward from the earlier
+read. Capture there is not reconstruction: it writes down something that exists
+today and that the next `make menuconfig` in that tree destroys. The sidecar was
+written to
+`~/katmate-kernels/vmlinuz-katmate-microvm-amd64-6.12.87.provenance`,
+`AUTOCONF_MATCH=yes`, `SRC_DIRTY_PATHS` carrying the ten deleted paths that
+`setlocalversion`'s one bit does not name.
+
+The Acer has no witness. *(Re-derived on the Acer 2026-08-28.)* `auto.conf` was
+overwritten 47 days after that image was linked. A capture there would fill
+`SRC_COMMIT` and `SRC_TAG` from **today's** tree and present them in the same
+fields that are true on MINIS — a form that reads as equivalent and is not. **An
+absent record is more honest than a filled-in one**, so the Acer's kernel gets
+no sidecar and any build there records `KERNEL_PROVENANCE=absent`.
+
+The general rule this fixes: **capture is only meaningful while the tree that
+built the image still holds `auto.conf` from that build.** After that, the
+correct action is to record nothing and say so.
+
+**Consequences:**
+
+*Easier*
+
+- The `-dirty` question becomes a file read rather than a session.
+- Two machines' kernels become comparable by a fixed record rather than by an
+  investigation, and the filename stops being the only identity.
+- `foundation.meta` states plainly whether provenance was recorded, so its
+  absence is visible rather than assumed.
+
+*Harder*
+
+- **A manual step is added to a manual build**, and a forgotten capture yields
+  `KERNEL_PROVENANCE=absent` silently — visible in the meta, but nothing forces
+  it. The alternative is bringing the kernel build into the pipeline, which this
+  ADR deliberately does not do.
+- The sidecar is **unsigned and sits beside the file it describes**. It defends
+  against drift, mis-identification and forgetting; it does not defend against
+  an adversary who can write to that directory. Stated so it is not mistaken
+  for integrity.
+- A second file now travels with the kernel through three hops, and each hop
+  must carry it or the record is lost where it is least noticed.
+
+*To revisit*
+
+- If the kernel build ever enters the pipeline, capture becomes automatic and
+  `absent` should become refusable.
+- netVM is **out of scope**: its kernel comes from a signed Debian package
+  inside the guest, so its provenance is better than the AppVM kernel's and
+  merely unrecorded — `netvm.meta` notes the version and nothing else. Recording
+  it is a separate and smaller question.
+
+**Open in this draft, deliberately:** the tool's name and invocation; whether
+`SRC_DIRTY_PATHS` records paths only or also a hash of the diff, which would
+distinguish ten deletions from ten edits without carrying the edits; whether
+`katmate-update.sh` re-verifies the sidecar on a release bump; and whether the
+existing MINIS sidecar — written by hand before the tool exists, and carrying
+`CAPTURED_BY=manual capture, tools/ implementation pending` — is re-taken by the
+tool once it lands, or left standing as the record it already is.
