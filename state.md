@@ -1065,6 +1065,67 @@ touched.
    `$KATMATE_KERNELS_DIR`. Where such a hash would live, and what would refuse
    what on a mismatch, is not decided here. **#22 stays open.**
 
+   **Revision note 2026-08-28 — what the `-dirty` suffix on MINIS actually is:
+   ten deleted files, and no patch.** From the same two read-only
+   investigations of 2026-08-28; **neither produced a report file, both reported
+   in chat.** The working hypothesis this tested — that the MINIS kernel carried
+   a patch existing nowhere but that directory — did not hold. Every MINIS
+   figure here is chat-only; the Acer figures were re-derived from the tree.
+
+   **`-dirty` comes from ten deleted tracked files and nothing else.**
+   *(Chat-only — MINIS, 2026-08-28.)* Measured by counting rather than by
+   reading the diff: 431 diff lines, **371 deletions, zero added and zero
+   modified lines**, ten `deleted file mode` hunks, zero `new file mode`, zero
+   mode changes. No surviving file is modified. Nothing is staged, and
+   `git status --porcelain -uall` reports no untracked file.
+
+   **No patch exists anywhere beside it.** *(Chat-only — MINIS, 2026-08-28.)* No
+   `*.patch` or `*.diff` under the tree or in its parent, no `patches/`
+   directory, no quilt `series`, empty stash, one local branch tracking
+   `origin/linux-6.12.y` at the same commit, HEAD at annotated tag `v6.12.87`,
+   remote is upstream stable
+   (`git.kernel.org/pub/scm/linux/kernel/git/stable/linux.git`).
+
+   **The ten are `mips`, `nios2`, `openrisc`, `parisc`, `sh`, a perf bpf
+   skeleton and one bpf selftest. None of them compiles into an x86 kernel.** So
+   the suffix is accurate about the tree and says nothing about the code that
+   was built.
+
+   **All ten are present on the Acer, and that is the whole difference between
+   the machines.** *(Re-derived on the Acer 2026-08-28: each of the ten checked
+   individually and found present, and the class enumerated — **53 of 53**
+   tracked `*vmlinux*` paths present, zero missing.)* On MINIS the same
+   enumeration gave 43 present and 10 missing.
+
+   **The shape of the deleted set, with no cause assigned.** The ten basenames
+   are `vmlinux.its.S`, `vmlinux.scr`, `vmlinux.h`, `vmlinux.c` and the contents
+   of a directory *named* `vmlinux/`. Of the 53 tracked `*vmlinux*` paths,
+   **36 contain `lds`** and all 36 survive on MINIS; the survivor total there is
+   **43**, which is those 36 plus 7 non-`lds` paths (`scripts/extract-vmlinux`,
+   `scripts/link-vmlinux.sh`, `scripts/Makefile.vmlinux`, and so on). Those are
+   two counts and not one. `.gitignore` does not account for the set: five of
+   the ten match no rule, and two of the apparent matches are **negation**
+   rules, which mean the opposite of a match *(chat-only — MINIS)*. The
+   `--exclude='vmlinux.*'` gotcha in `CLAUDE.md` predicts a wider casualty list
+   than this one — every `vmlinux.lds.S` would be gone, and none is. That is an
+   observation about this tree, not a correction to the gotcha.
+
+   **What was built is not lost.** *(Chat-only — MINIS, 2026-08-28.)* The MINIS
+   tree still holds the byte-identical `bzImage`, and `vmlinux`, `System.map`
+   and `Module.symvers` from the same link. The earlier formulation in this
+   entry — that the image *"corresponds to no commit"* — is right about the
+   commit and wrong if read as saying the build is unrecoverable.
+
+   **The reading discipline this produced.** A `-dirty` banner carries **one
+   bit**: the tree was unclean, with no manifest of what the dirt was. So the
+   ten deletions visible today cannot be shown to be the build-time state — they
+   are consistent with it, and that is all. A bare `6.12.87` carries **two
+   facts**, because `scripts/setlocalversion` emits no suffix only when HEAD is
+   at an annotated tag *and* the tree is clean *(re-derived on the Acer: the
+   `scm_version()` comment, "If we are at the tagged commit, we ignore it
+   because the version is well-defined")*. **Neither form carries a commit
+   SHA.**
+
 23. **A link's socket outlives its process, including on a failed start.**
    Added 2026-08-24, from link-m1 § 13.1, § 20.1 and § 23, and link-m2 § A.3.
    QEMU creates its `local.path` at start and **does not unlink it at exit** —
