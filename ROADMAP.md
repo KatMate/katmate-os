@@ -39,8 +39,15 @@
 - [ ] Kernel provenance sidecar — `tools/capture-kernel-provenance` writes
       `<vmlinuz>.provenance` in the kernel tree at build time; the sidecar
       travels with the kernel through both build hops and the foundation build
-      records `KERNEL_PROVENANCE` in its metadata (ADR-034). The tool is
-      committed; the travel and the metadata field are not.
+      records `KERNEL_PROVENANCE` in its metadata (ADR-034). The tool, the
+      preflight check and both hops are committed. The metadata field and the
+      step-11 install are written but UNVERIFIED — only a real `make
+      foundation` exercises them.
+- [ ] Kernel provenance: the release orchestrator's presence check (ADR-034
+      § A.3) — **blocked by open problem #25**, not deferred. `KERNEL_SRC_DIR`
+      derives from `$HOME` and resolves under `/root` when the script runs as
+      root, so the check could not fire where it matters. Neither this entry
+      nor #25 closes while the other stands.
 - [ ] Suspend/resume fix under `linux-hardened`
 - [ ] Remove secrets from installer (prompts / `wg genkey`); rotate burned WG key
 - [ ] Remove dev-only sshd (host + netVM) — SECURITY-MODEL #4
