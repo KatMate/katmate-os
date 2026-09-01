@@ -46,6 +46,161 @@
 
 ---
 
+## This session (2026-08-22) — the stop path's first execution, H1 and G6, and every part-2 gate measured
+
+Delegated measurement session on the Acer, reaching MINIS over ssh, in two runs
+against one brief. **No commits, and no tracked file edited** — the session
+measured and reported. Brief: `~/3a2-g6h1-brief.md`; report:
+`~/3a2-g6h1-report.md`, whose CONTINUATION sections carry the second run; the
+restarted guest's complete console is `~/3a2-g6h1-restart-console.txt`. This
+entry was written by a separate recording session (`~/3a2-writepass-brief.md`,
+`~/3a2-writepass-report.md`), on the same division as 2026-08-19 and 2026-08-21:
+the session that measures does not also rule, and the session that rules does not
+also write the record.
+
+**The operator has ruled H1 and G6 PASSED**, and the **stop path** an execution
+of its intended path, on the observations in `~/3a2-g6h1-report.md` §§ 2–3 and
+CONTINUATION part B. That report writes no verdict; it states which of S3.5's
+named observations were seen and which were not. Open problem **#20** is closed
+by the same run and by the operator's ruling — see § *Open problems*.
+
+**Every unit operation went through `sudo -n`.** The brief's literal
+`systemctl stop …` was refused by polkit at the D-Bus layer in 0.022 s, before
+the unit was reached — a refusal that measures nothing about the unit and cost
+the measurement nothing. The privilege is the one § *Live state* / *Dev access to
+MINIS* documents, and that entry now says so in the terms a unit operation needs.
+
+### The stop, 08:26 — SIGTERM from PID 1, 0.441 s, and a guest that said nothing
+
+**The first execution of the stop path in this project.** QEMU named the signal
+itself — `qemu-system-x86_64: terminating on signal 15 from pid 1 (/sbin/init)`
+at **08:26:05.619666** — and systemd recorded `Deactivated successfully.` at
+**08:26:06.061060**, **0.441 s** later, against a `TimeoutStopUSec=30s` read from
+the *running* unit rather than from the template. **No timeout, no `SIGKILL`, no
+escalation:** the journal was searched across the window for
+`state 'stop-sigterm' timed out` and `Killing process` and carries neither. The
+unit ended `inactive (dead)` with **`Result=success`** — not `failed` —
+`MainPID=0`, `NRestarts=0`, and its cgroup gone.
+
+**The guest emitted no console output at all** between the SIGTERM and the
+deactivation: no shutdown sequence, no unmount, **no `EXT4-fs (vda): re-mounted
+… ro`**. It was **terminated, not shut down**, which is what the template's own
+comment says a stop here does. The consequence was predicted in the same report
+and measured later that morning — see § *The restart*.
+
+**The stop deactivated no LV and removed no file.** `vm_sys_netvm` went
+`-wi-ao----` → `-wi-a-----` — still active, `dmsetup` open count `1` → `0` —
+while `vm_tpl_foundation`, `vm_app_web`, `vm_app_web_home` and `vm_pool` read
+identically either side. `/run/katmate/vm/netvm.env` **survived byte-for-byte**:
+same 552 B, same 12 keys, same `Aug 19 15:26` mtime; so did `nics/uplink0`. There
+is no teardown step at all, and the new open problem below carries what that will
+mean once disposable AppVMs have a qcow2 delta to destroy.
+
+The matched pair either side of the stop came from **one read-only script run
+twice**, so *"the same commands at both moments"* is a property of the method
+rather than an assertion.
+
+### H1, 08:29 — the second preflight refuses and the third never spawns
+
+The injection is the cheaper of S3.5's two recipes, and the one the rotated
+2026-08-19 entry named as unaffected by a running QEMU: **T2's `NETVM_LV` pointed
+at a nonexistent LV**, `vg0/vm_sys_netvm_absent`, written from outside the
+executable. The target was **proven absent** rather than assumed — `lvs` exit 5,
+*"Failed to find logical volume"* — and the value is deliberately a
+syntactically valid `vg/lv`, so that it survives the first preflight's shape
+check and reaches the second.
+
+- **Preflight 1 passed, and named the injected value on its way through.**
+  `katmate-check-image` logged `rootfs LV (existence checked by
+  katmate-activate-lvs): vg0/vm_sys_netvm_absent`, then `payload OK`, exit
+  `0/SUCCESS`. The division of labour the ADR-032 §2 revision note describes did
+  exactly what it says.
+- **Preflight 2 refused, with exit 1.** `katmate-activate-lvs`: `FATAL: rootfs
+  LV: cannot activate vg0/vm_sys_netvm_absent`. **`km_die`, not `km_usage`** —
+  `katmate-lib.sh:52–53` gives the first exit 1 and the second exit 2, so the
+  executable **decided**; it was not called wrongly. systemd recorded
+  `status=1/FAILURE`.
+- **Preflight 3 never spawned, and this is shown two ways.** No
+  `katmate-generate-env` line exists anywhere in the start window, and
+  `systemctl show -p ExecStartPre` records the third entry as
+  `start_time=[n/a] … pid=0 code=(null)` — never started, not merely silent.
+- **No VM.** Unit `failed` / `Result=exit-code`, `MainPID=0`,
+  `(no qemu process)`, and `systemd-cgls` → *"Unit … not found"*: no cgroup was
+  created for the invocation at all.
+
+**The injection was undone and the undo verified by read-back**, not asserted:
+the T2 file was read out in full and hashed back to `bb2a5086…`, byte-identical
+to its pre-injection state.
+
+### G6, 08:51 — the third preflight refuses a falsified label
+
+`NIC_VENDOR` in the published label `/run/katmate/nics/uplink0` was edited
+`0x10ec` → `0x8086` (Realtek → Intel) and read back **before** the start, with
+`/sys` unchanged at `0x10ec`. `/run/katmate/nics/` is under `/run` and is not a
+tier directory, so the injection needed no separate authorisation.
+
+**Preflights 1 and 2 passed; the third, `katmate-generate-env`, refused with exit
+1** — again `km_die` and not `km_usage`. Its message quotes **both**
+vendor:device pairs and **cites gate G6 by name**, beside ADR-030 §5. The unit
+reached `failed` under a **new** `InvocationID` (`492d09a5…`, distinct from H1's
+`0c0637dc…`), so the failure is unambiguously that start's, and **no QEMU process
+and no cgroup ever existed**.
+
+`katmate-activate-lvs` ran against the real LV on the way through, which H1's
+injection had prevented — and met an **already-active** LV again, so **activation
+from inactive is still unexercised**, exactly as § *Next steps* item 3 already
+records.
+
+**The undo was the publisher regenerating its own output**, not a hand edit:
+`systemctl restart katmate-publish-nics.service`, after which the label read back
+byte-identical to the pre-state hash `66e91857…`, with only its mtime moved. The
+`start`-versus-`restart` distinction that fell out of that undo is in
+§ *Invariants & gotchas*.
+
+### The restart, 08:51:56 — the predicted journal replay on its first observation
+
+`reset-failed`, then start. **The prediction the stop had made was measured on
+its first observation:**
+
+> `[    1.797848] EXT4-fs (vda): recovery complete`
+
+and **corroborated independently, by a different subsystem** — the guest's own
+journald reporting `File …/system.journal corrupted or uncleanly shut down,
+renaming and replacing`. The guest noticed what the host had done to it.
+
+The rest of the boot is unremarkable, and that is the point: all three
+`ExecStartPre=` `0/SUCCESS`, the projection regenerated with the **same 12 keys**
+and **content identical** to the pre-stop one (diffed line by line; only the mtime
+moved — so the two injections left nothing behind in it), and the uplink up at
+**t+7.457 s** on MAC `38:05:25:34:7c:47`, against **t+7.458 s** on the 2026-08-19
+boot. **No ARP scan was run**, so the DHCP lease is not claimed for this boot.
+netVM is up as **`MainPID 2114876`** and holds the uplink again.
+
+### The installed set was hashed against the tree, and what that does not cover
+
+The first action of the second run, before anything else: **six executables under
+`/usr/lib/katmate/` and both units are byte-identical across three legs** — the
+installed copy, the MINIS build copy `~/katmate-build/host/`, and the Acer
+repository — with no file present in one location and absent from another.
+
+**This establishes identity at 2026-08-22 08:49 and at no other moment.** It does
+not reach backwards: nobody hashed them during G1/G4, G5/H3, the stop, H1 or G6.
+What supports those runs is the installed files' mtimes, all `Aug 19 14:52` —
+before every gate since, with no rsync or re-install in between — **and that is
+evidence, not proof.** This project's own `sync.fish` invariant is that mtime is
+exactly what cannot be trusted after an rsync. That gap is why the hash is now
+the first action of a gate session rather than an afterthought
+(§ *Invariants & gotchas*).
+
+### Every gate in scope for step 3a part 2 is now measured
+
+**G1 and G4** (2026-08-19), **G5 and H3** (2026-08-21), the **stop path**, **H1**
+and **G6** (2026-08-22). **G2, G3 and H2 stay out of scope** — part 3, and the
+`.con` deletion. *"The list is now G6 and H1"* is superseded at all three sites
+that state it — the 2026-08-21 entry below, and two under § *Next steps* — and
+each is appended to rather than rewritten, because each records the carry-in a
+session was actually given.
+
 ## This session (2026-08-21) — G5 and H3: the validator reports a duplicate `nic` label and a forbidden key as errors, not warnings
 
 Delegated measurement session on the Acer, reaching MINIS over ssh. **No commits,

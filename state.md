@@ -45,7 +45,47 @@ restartable — and so updatable — without touching running VMs.
 Direction unchanged: IOMMU-capable platforms only (VT-d/AMD-Vi); VT-x-only
 frozen (ADR-015). MINIS is primary host and merge target.
 
-## This session (2026-08-24) — the link measurement arc: a socket-backed link starts with no peer, and the address is resolved per send
+## This session (2026-09-01) — kernel provenance: the witness held, the tool was gated, and the gate found the defect
+
+Five delegated sessions on the Acer, reaching MINIS over ssh, closing ADR-034
+from DRAFT to Accepted. Reports outside the repository:
+`~/adr034-pregate-report.md`, `~/adr034-tool-gate-report.md`,
+`~/adr034-gate2-report.md`, `~/adr034-g8-report.md`,
+`~/adr034-acceptance-report.md`.
+
+**The witness held.** The MINIS kernel tree still carries
+`include/config/auto.conf` from the 2026-07-01 build, unchanged in the 65 days
+since, and it pairs to the archived config symbol-for-symbol. That is what the
+whole ADR was racing: the evidence lives in the build tree and the next
+reconfigure deletes it.
+
+**The comparison had to be specified before it could be implemented.** The two
+files disagree on order (3434 differing lines over the same 1718 symbols) and on
+quoting (21 symbols, 86 lines), and on neither does any symbol carry a different
+value. A tool implementing the draft schema line literally would have written
+`AUTOCONF_MATCH=no` for a pairing recorded as identical three times. The ADR now
+carries the comparison; the code does not define it alone.
+
+**The gate found a defect a smoke test could not.** An early-exiting pipeline
+consumer raced its producer and aborted with no diagnostic — 49/200 on MINIS,
+1/40 on the Acer. The Acer smoke test had roughly a 97.5% chance of missing it
+and did; the gate caught it because a gate runs the thing more than once. Fixed
+by reading to end of input, 200/200 clean after, extracted value byte-identical
+either side of the fix.
+
+**Refutation was measured, not only confirmation.** A config differing in exactly
+one symbol of 1718 produces `no` with exactly two fields moving, and the
+symbol-set claim was closed in both directions against a control that yields
+`yes`. That control matters: without it a `no` from the rig cannot be told from a
+`no` caused by the rig.
+
+**What was committed:** ADR-034 accepted with `tools/capture-kernel-provenance`
+(sha256 `5b1f16c3823cf72defc1cca37d014d700a2681e04a3fc350dd4266a0e4c1df22`), the
+ROADMAP and ARCHITECTURE reconciliation, and this entry. **What was not:** the
+sidecar does not travel with the kernel and no image metadata records it. That is
+the next commit and a separate session.
+
+## Previous session (2026-08-24) — the link measurement arc: a socket-backed link starts with no peer, and the address is resolved per send
 
 Two delegated measurement sessions on the Acer, reaching MINIS over ssh, against
 two briefs. **No commits, and no tracked file edited by either** — both measured
@@ -297,161 +337,6 @@ sizes, the sweep being 1514-byte frames only; and **whether QEMU-as-sender retri
 or discards on `EAGAIN`**, which ADR-033 already carries as open and which no
 `strace` in this session touched.
 
-## Previous session (2026-08-22) — the stop path's first execution, H1 and G6, and every part-2 gate measured
-
-Delegated measurement session on the Acer, reaching MINIS over ssh, in two runs
-against one brief. **No commits, and no tracked file edited** — the session
-measured and reported. Brief: `~/3a2-g6h1-brief.md`; report:
-`~/3a2-g6h1-report.md`, whose CONTINUATION sections carry the second run; the
-restarted guest's complete console is `~/3a2-g6h1-restart-console.txt`. This
-entry was written by a separate recording session (`~/3a2-writepass-brief.md`,
-`~/3a2-writepass-report.md`), on the same division as 2026-08-19 and 2026-08-21:
-the session that measures does not also rule, and the session that rules does not
-also write the record.
-
-**The operator has ruled H1 and G6 PASSED**, and the **stop path** an execution
-of its intended path, on the observations in `~/3a2-g6h1-report.md` §§ 2–3 and
-CONTINUATION part B. That report writes no verdict; it states which of S3.5's
-named observations were seen and which were not. Open problem **#20** is closed
-by the same run and by the operator's ruling — see § *Open problems*.
-
-**Every unit operation went through `sudo -n`.** The brief's literal
-`systemctl stop …` was refused by polkit at the D-Bus layer in 0.022 s, before
-the unit was reached — a refusal that measures nothing about the unit and cost
-the measurement nothing. The privilege is the one § *Live state* / *Dev access to
-MINIS* documents, and that entry now says so in the terms a unit operation needs.
-
-### The stop, 08:26 — SIGTERM from PID 1, 0.441 s, and a guest that said nothing
-
-**The first execution of the stop path in this project.** QEMU named the signal
-itself — `qemu-system-x86_64: terminating on signal 15 from pid 1 (/sbin/init)`
-at **08:26:05.619666** — and systemd recorded `Deactivated successfully.` at
-**08:26:06.061060**, **0.441 s** later, against a `TimeoutStopUSec=30s` read from
-the *running* unit rather than from the template. **No timeout, no `SIGKILL`, no
-escalation:** the journal was searched across the window for
-`state 'stop-sigterm' timed out` and `Killing process` and carries neither. The
-unit ended `inactive (dead)` with **`Result=success`** — not `failed` —
-`MainPID=0`, `NRestarts=0`, and its cgroup gone.
-
-**The guest emitted no console output at all** between the SIGTERM and the
-deactivation: no shutdown sequence, no unmount, **no `EXT4-fs (vda): re-mounted
-… ro`**. It was **terminated, not shut down**, which is what the template's own
-comment says a stop here does. The consequence was predicted in the same report
-and measured later that morning — see § *The restart*.
-
-**The stop deactivated no LV and removed no file.** `vm_sys_netvm` went
-`-wi-ao----` → `-wi-a-----` — still active, `dmsetup` open count `1` → `0` —
-while `vm_tpl_foundation`, `vm_app_web`, `vm_app_web_home` and `vm_pool` read
-identically either side. `/run/katmate/vm/netvm.env` **survived byte-for-byte**:
-same 552 B, same 12 keys, same `Aug 19 15:26` mtime; so did `nics/uplink0`. There
-is no teardown step at all, and the new open problem below carries what that will
-mean once disposable AppVMs have a qcow2 delta to destroy.
-
-The matched pair either side of the stop came from **one read-only script run
-twice**, so *"the same commands at both moments"* is a property of the method
-rather than an assertion.
-
-### H1, 08:29 — the second preflight refuses and the third never spawns
-
-The injection is the cheaper of S3.5's two recipes, and the one the rotated
-2026-08-19 entry named as unaffected by a running QEMU: **T2's `NETVM_LV` pointed
-at a nonexistent LV**, `vg0/vm_sys_netvm_absent`, written from outside the
-executable. The target was **proven absent** rather than assumed — `lvs` exit 5,
-*"Failed to find logical volume"* — and the value is deliberately a
-syntactically valid `vg/lv`, so that it survives the first preflight's shape
-check and reaches the second.
-
-- **Preflight 1 passed, and named the injected value on its way through.**
-  `katmate-check-image` logged `rootfs LV (existence checked by
-  katmate-activate-lvs): vg0/vm_sys_netvm_absent`, then `payload OK`, exit
-  `0/SUCCESS`. The division of labour the ADR-032 §2 revision note describes did
-  exactly what it says.
-- **Preflight 2 refused, with exit 1.** `katmate-activate-lvs`: `FATAL: rootfs
-  LV: cannot activate vg0/vm_sys_netvm_absent`. **`km_die`, not `km_usage`** —
-  `katmate-lib.sh:52–53` gives the first exit 1 and the second exit 2, so the
-  executable **decided**; it was not called wrongly. systemd recorded
-  `status=1/FAILURE`.
-- **Preflight 3 never spawned, and this is shown two ways.** No
-  `katmate-generate-env` line exists anywhere in the start window, and
-  `systemctl show -p ExecStartPre` records the third entry as
-  `start_time=[n/a] … pid=0 code=(null)` — never started, not merely silent.
-- **No VM.** Unit `failed` / `Result=exit-code`, `MainPID=0`,
-  `(no qemu process)`, and `systemd-cgls` → *"Unit … not found"*: no cgroup was
-  created for the invocation at all.
-
-**The injection was undone and the undo verified by read-back**, not asserted:
-the T2 file was read out in full and hashed back to `bb2a5086…`, byte-identical
-to its pre-injection state.
-
-### G6, 08:51 — the third preflight refuses a falsified label
-
-`NIC_VENDOR` in the published label `/run/katmate/nics/uplink0` was edited
-`0x10ec` → `0x8086` (Realtek → Intel) and read back **before** the start, with
-`/sys` unchanged at `0x10ec`. `/run/katmate/nics/` is under `/run` and is not a
-tier directory, so the injection needed no separate authorisation.
-
-**Preflights 1 and 2 passed; the third, `katmate-generate-env`, refused with exit
-1** — again `km_die` and not `km_usage`. Its message quotes **both**
-vendor:device pairs and **cites gate G6 by name**, beside ADR-030 §5. The unit
-reached `failed` under a **new** `InvocationID` (`492d09a5…`, distinct from H1's
-`0c0637dc…`), so the failure is unambiguously that start's, and **no QEMU process
-and no cgroup ever existed**.
-
-`katmate-activate-lvs` ran against the real LV on the way through, which H1's
-injection had prevented — and met an **already-active** LV again, so **activation
-from inactive is still unexercised**, exactly as § *Next steps* item 3 already
-records.
-
-**The undo was the publisher regenerating its own output**, not a hand edit:
-`systemctl restart katmate-publish-nics.service`, after which the label read back
-byte-identical to the pre-state hash `66e91857…`, with only its mtime moved. The
-`start`-versus-`restart` distinction that fell out of that undo is in
-§ *Invariants & gotchas*.
-
-### The restart, 08:51:56 — the predicted journal replay on its first observation
-
-`reset-failed`, then start. **The prediction the stop had made was measured on
-its first observation:**
-
-> `[    1.797848] EXT4-fs (vda): recovery complete`
-
-and **corroborated independently, by a different subsystem** — the guest's own
-journald reporting `File …/system.journal corrupted or uncleanly shut down,
-renaming and replacing`. The guest noticed what the host had done to it.
-
-The rest of the boot is unremarkable, and that is the point: all three
-`ExecStartPre=` `0/SUCCESS`, the projection regenerated with the **same 12 keys**
-and **content identical** to the pre-stop one (diffed line by line; only the mtime
-moved — so the two injections left nothing behind in it), and the uplink up at
-**t+7.457 s** on MAC `38:05:25:34:7c:47`, against **t+7.458 s** on the 2026-08-19
-boot. **No ARP scan was run**, so the DHCP lease is not claimed for this boot.
-netVM is up as **`MainPID 2114876`** and holds the uplink again.
-
-### The installed set was hashed against the tree, and what that does not cover
-
-The first action of the second run, before anything else: **six executables under
-`/usr/lib/katmate/` and both units are byte-identical across three legs** — the
-installed copy, the MINIS build copy `~/katmate-build/host/`, and the Acer
-repository — with no file present in one location and absent from another.
-
-**This establishes identity at 2026-08-22 08:49 and at no other moment.** It does
-not reach backwards: nobody hashed them during G1/G4, G5/H3, the stop, H1 or G6.
-What supports those runs is the installed files' mtimes, all `Aug 19 14:52` —
-before every gate since, with no rsync or re-install in between — **and that is
-evidence, not proof.** This project's own `sync.fish` invariant is that mtime is
-exactly what cannot be trusted after an rsync. That gap is why the hash is now
-the first action of a gate session rather than an afterthought
-(§ *Invariants & gotchas*).
-
-### Every gate in scope for step 3a part 2 is now measured
-
-**G1 and G4** (2026-08-19), **G5 and H3** (2026-08-21), the **stop path**, **H1**
-and **G6** (2026-08-22). **G2, G3 and H2 stay out of scope** — part 3, and the
-`.con` deletion. *"The list is now G6 and H1"* is superseded at all three sites
-that state it — the 2026-08-21 entry below, and two under § *Next steps* — and
-each is appended to rather than rewritten, because each records the carry-in a
-session was actually given.
-
 ## Session archive
 
 Sessions older than the two above (2026-08-21 — G5 and H3, rotated there
@@ -492,6 +377,14 @@ extracted block against the pre-move blob.
 *second of two* entry (3a part 1) rotated out as the 2026-08-17 entry arrived. Two
 rotations in one day is not a defect — it is what keeping two sessions costs when
 two sessions close on the same day.
+
+**Closed 2026-09-01.** The 2026-08-22 entry (the stop path, H1 and G6) rotated to
+the archive as the 2026-09-01 entry arrived, heading changed from *Previous
+session* to *This session* and the body moved verbatim — the same mechanism as
+the rotations above. Verified by diffing the extracted block against the pre-move
+blob: 155 lines, identical apart from that one heading word. Recorded here
+because a rotation that is not recorded is indistinguishable from an entry that
+was lost.
 
 **Closed 2026-08-19.** The 2026-08-11 entry (3a part 2, first half) rotated to
 the archive as the 2026-08-19 entry arrived, heading changed from *Previous
@@ -1354,6 +1247,72 @@ touched.
      and whether the tool re-takes that capture once it lands, or leaves it
      standing as the record it already is, is open in ADR-034's own list.
 
+   **Note 2026-09-01 — the tool exists, is committed, and is gated; #22 does not
+   close.** ADR-034 is Accepted (2026-09-01) and
+   `tools/capture-kernel-provenance` is committed, sha256
+   `5b1f16c3823cf72defc1cca37d014d700a2681e04a3fc350dd4266a0e4c1df22`. Four
+   sessions of 2026-09-01 gated it, reports at `~/adr034-pregate-report.md`,
+   `~/adr034-tool-gate-report.md`, `~/adr034-gate2-report.md` and
+   `~/adr034-g8-report.md`.
+
+   **What the gate established** *(all on MINIS unless noted)*: the tool's output
+   against the hand-captured sidecar — 10 keys standing against 12 produced,
+   **8 pairing identically**, `CAPTURED` and `CAPTURED_BY` differing by
+   construction, 2 new; `BANNER` byte for byte with `cmp` exit 0, 84 bytes each
+   side; a config differing in exactly one symbol of 1718 producing
+   `AUTOCONF_MATCH=no` with exactly two fields moving; and the symbol-set claim
+   measured in both directions (1718/1718 → `yes`, 1717/1718 → `no`,
+   1718/1717 → `no`) against a control built from the same bytes as the real
+   pair. `SRC_DIRTY_STAT`'s first value is `10 files changed, 371 deletions(-)`.
+
+   **#22 is not closed by this.** The tool removes the *cause* going forward — a
+   kernel built from now on can carry a record of its pairing. It does nothing
+   for the two images that already exist: the Acer's pairing is unrecoverable,
+   and the sidecar does not yet travel with the kernel through the build hops, so
+   nothing downstream reads one. #22 closes when the pipeline carries and checks
+   it, which is the next commit and not this one.
+
+   **Note 2026-09-01 — a second kernel image on MINIS that nothing describes.**
+   *(Found by enumeration during the pre-gate read, `~/adr034-pregate-report.md`
+   § 3.2 and § 6.5.)* Beside the 6.12.87 tree there is a second source directory
+   at a different version carrying its own built `arch/x86/boot/bzImage`
+   (14238720 bytes, dated 2026-07-06) and **no `.git` directory**. It fails two
+   of the three criteria the pre-gate used to identify the build tree, so it
+   created no ambiguity about which tree was read. No sidecar describes it, and
+   no artefact in the repository refers to it. **No cause is assigned** — this
+   entry records that the file exists and that nothing accounts for it.
+
+   **Note 2026-09-01 — the spare config and the archived config are different
+   objects, and differ in exactly one symbol.** *(Measured in the pre-gate read
+   § 5 and re-derived on MINIS during the gate.)* A `.bak` config written ten
+   minutes before the archived one differs from it by two bytes, in one line:
+   `CONFIG_PAHOLE_VERSION=131` against `CONFIG_PAHOLE_VERSION=0`. Same line
+   count, different sha256 — `499a53a2…` against `7720cf22…`. The archived one is
+   what `CONFIG_SHA256` names, so the two are not two copies of one object and a
+   future capture must hash the archived file and not the spare.
+
+   It also means **a kernel config is not reproducible independently of the
+   environment that generated it**: that symbol records whether a tool was
+   detected at configure time, so the same source and the same answers yield
+   different configs on machines that differ in what is installed. Recorded as a
+   fact. **No cause is assigned** to why the two files differ in that symbol.
+
+   **Note 2026-09-01 — all ten dirty paths in the kernel tree are `vmlinux*`
+   files.** The ten paths `SRC_DIRTY_PATHS` records are deletions, and every one
+   of them has `vmlinux` in its basename or in a parent directory name — across
+   `mips`, `nios2`, `openrisc`, `parisc`, `sh`, a perf bpf skeleton and one bpf
+   selftest. The pattern is uniform.
+
+   **This is consistent with the `--exclude='vmlinux.*'` incident recorded under
+   *Invariants & gotchas*, and is not offered as a finding.** **No cause is
+   assigned, and none can be:** no command and no date exist for it. The earlier
+   2026-08-28 revision note above already records the arithmetic that cuts
+   against the simple reading — 36 of the 53 tracked `*vmlinux*` paths contain
+   `lds` and all 36 survive — so the observation here is the uniformity of the
+   pattern and nothing more. It is written down because a uniform pattern with no
+   recorded cause is the kind of thing a later session will otherwise rediscover
+   and over-read.
+
 23. **A link's socket outlives its process, including on a failed start.**
    Added 2026-08-24, from link-m1 § 13.1, § 20.1 and § 23, and link-m2 § A.3.
    QEMU creates its `local.path` at start and **does not unlink it at exit** —
@@ -1921,6 +1880,27 @@ frozen `vm_home_skel` vs qcow2 branch.
   `10.3.1.3` / restrict nft so SSH is not reachable over the VPN tunnel.
 
 ## Invariants & gotchas (quick reminders — detail in git/ADRs)
+- **A refusal list is also an execution order, and a check behind a refusal is
+  untested until that refusal is relaxed.** Measured 2026-09-01 on
+  `tools/capture-kernel-provenance`. Relaxing one refusal — a missing git tag
+  stopped being fatal and became an empty field — made a *later* check reachable
+  for the first time: on a tagless tree the earlier refusal had always fired
+  first, so the whitespace-in-paths check had never executed on that input at
+  all. Nothing about the later check changed. **The general lesson:** a gate that
+  exercises a refusal proves only that the refusal fires, never that anything
+  behind it works, and relaxing a refusal can expose untested code without any
+  edit to that code. When a refusal is removed or softened, the checks downstream
+  of it are new code as far as evidence is concerned.
+- **Documentation vocabulary: abstract in ADR prose, machine names where they
+  identify a measurement site.** Ruled 2026-09-01. A machine named in design
+  prose is concreteness that belongs here in `state.md`, not in an ADR — write
+  *"the build machine"*, *"the kernel build tree"*. But a machine named beside a
+  measurement is **provenance**, and a measurement without a site is a weaker
+  measurement: ADR-033's *"(2026-08-24, MINIS)"* is the precedent, and ADR-034's
+  acceptance note names sites for the same reason. Session reports live outside
+  the repository, so the ADR is often the only thing that will still know where a
+  figure was taken. Repository-relative paths and measured numbers are always
+  fine.
 - **`systemctl start` on a `RemainAfterExit=yes` oneshot is a silent no-op —
   `restart` is the verb.** `katmate-publish-nics.service` is re-run with
   **`restart`**, never `start`: the unit is already `active (exited)`, so `start`
