@@ -36,6 +36,11 @@
 - [ ] AppVM domain model + three-layer composition (ADR-014, ADR-010)
 - [x] `katmate-update` implementation (MVP)
 - [ ] Base image build pipeline — foundation + app-`<type>` images, shell+Make (ADR-011)
+- [ ] Kernel provenance sidecar — `tools/capture-kernel-provenance` writes
+      `<vmlinuz>.provenance` in the kernel tree at build time; the sidecar
+      travels with the kernel through both build hops and the foundation build
+      records `KERNEL_PROVENANCE` in its metadata (ADR-034). The tool is
+      committed; the travel and the metadata field are not.
 - [ ] Suspend/resume fix under `linux-hardened`
 - [ ] Remove secrets from installer (prompts / `wg genkey`); rotate burned WG key
 - [ ] Remove dev-only sshd (host + netVM) — SECURITY-MODEL #4

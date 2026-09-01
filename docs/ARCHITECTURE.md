@@ -122,6 +122,15 @@ so none of the `-K -ay` skip-activation handling applies to it.
   (`vmlinuz-katmate-microvm-amd64-6.12.x`), MicroVM-optimized config:
   virtio-blk / virtio-net / virtio-vsock, ext4, tmpfs, user namespaces, cgroups.
   Goals: fast direct kernel boot, low memory footprint, minimal attack surface.
+- The kernel is built **outside the pipeline**, by hand, in a source tree on
+  the build machine, and enters as a file. A **provenance sidecar** written
+  beside it in that tree by `tools/capture-kernel-provenance` records its
+  identity (image and config hashes, banner) and its pairing to the tree that
+  produced it ([ADR-034](DECISIONS.md#adr-034)). Pairing is perishable: the
+  evidence lives in the build tree and the next reconfigure deletes it, so
+  capture is meaningful only while that tree still holds the generated config
+  from that build. A kernel with no sidecar still builds — the foundation
+  metadata then records `KERNEL_PROVENANCE=absent`. Absent, not refused.
 - The kernel is **monolithic** — the listed subsystems are builtin, with no
   loadable modules. It is passed to QEMU via `-kernel` at launch and does
   **not** live inside the guest rootfs; the foundation image therefore carries
@@ -168,6 +177,7 @@ custom MicroVM kernel             external to the image, passed via -kernel
 | System RW changes (ephemeral) | instance qcow2 delta |
 | Application data, documents | raw thin home LV (RW, persistent) |
 | Custom MicroVM kernel | host filesystem, passed via `-kernel` |
+| Kernel provenance sidecar | beside the kernel, `<vmlinuz>.provenance` |
 
 Update flow ([ADR-019](DECISIONS.md#adr-019)):
 
@@ -191,6 +201,10 @@ pacman hook and nothing to detect.
    new external `-kernel` for the next foundation release. Waypipe fixes
    that do not build on trixie are backported onto the pinned tag (same
    practice).
+   Provenance is captured in the kernel tree at build time
+   ([ADR-034](DECISIONS.md#adr-034)), before the image leaves it; a capture
+   taken after that tree has been reconfigured cannot establish pairing, and
+   the correct action is then to record nothing and say so.
 
 `katmate-update` **never touches sysVMs**: netVM has no waypipe and no shared
 foundation. It has its own track, `netvm-update`, driven by Debian security
