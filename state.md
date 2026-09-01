@@ -45,7 +45,39 @@ restartable — and so updatable — without touching running VMs.
 Direction unchanged: IOMMU-capable platforms only (VT-d/AMD-Vi); VT-x-only
 frozen (ADR-015). MINIS is primary host and merge target.
 
-## This session (2026-09-01) — kernel provenance: the witness held, the tool was gated, and the gate found the defect
+## This session (2026-09-01, second of two) — the sidecar travels, and the path it travels from does not resolve as root
+
+Delegated session on the Acer, gating on MINIS. Implements what ADR-034's
+acceptance note left outstanding: *"the sidecar does not travel"* and *"no image
+metadata records provenance"*. Report: `~/adr034-travel-report.md`.
+
+**What landed.** `kernel_provenance_check()` in `build/lib.sh`, called from
+`foundation.sh`'s preflight; `KERNEL_PROVENANCE` in the step-10 metadata block;
+the step-11 sidecar install; and the sidecar riding the `Makefile`'s kernel-copy
+hop. A function rather than an inline block, deliberately: a sourced function can
+be gated without running a build, and `make foundation` is not available as a
+gate — it would drop the frozen foundation and every app layer below it to test a
+preflight.
+
+**What was gated, and what was not.** Eight arms against the real `lib.sh`,
+sourced, with the fixture produced by running the committed tool rather than
+hand-written: absent, matching, hash-mismatch, missing `KERNEL_SHA256`,
+unreadable, `AUTOCONF_MATCH=no`, `IMAGE_MATCH=no`, and a record filed under a
+different name. Plus the Makefile hop twice. **Step 10's field and step 11's
+install are UNVERIFIED** — only a real `make foundation` exercises them.
+
+**The session's most valuable result is a defect it did not go looking for.**
+`KERNEL_SRC_DIR` derives from `$HOME`, and both scripts that read it require
+root, so as root it resolves to a directory that does not exist. That is open
+problem **#25**. It cost this session two rulings: the proposed source-side
+asymmetry check was **deferred entirely** rather than written somewhere it could
+not fire, and ADR-034 § A.3's orchestrator presence check is **blocked, not
+deferred** — the ruling stands and is simply not implementable yet.
+
+**The shape of that mistake is the lesson**, and it is in *Invariants & gotchas*:
+a check that cannot fire reads exactly like a check that found nothing.
+
+## Previous session (2026-09-01, first of two) — kernel provenance: the witness held, the tool was gated, and the gate found the defect
 
 Five delegated sessions on the Acer, reaching MINIS over ssh, closing ADR-034
 from DRAFT to Accepted. Reports outside the repository:
@@ -84,258 +116,6 @@ symbol-set claim was closed in both directions against a control that yields
 ROADMAP and ARCHITECTURE reconciliation, and this entry. **What was not:** the
 sidecar does not travel with the kernel and no image metadata records it. That is
 the next commit and a separate session.
-
-## Previous session (2026-08-24) — the link measurement arc: a socket-backed link starts with no peer, and the address is resolved per send
-
-Two delegated measurement sessions on the Acer, reaching MINIS over ssh, against
-two briefs. **No commits, and no tracked file edited by either** — both measured
-and reported. Briefs: `~/link-m1-brief.md`, `~/link-m2-brief.md`; reports:
-`~/link-m1-report.md` and `~/link-m2-report.md`. This entry was written by a
-separate recording session (`~/adr033-writepass-brief.md`,
-`~/adr033-writepass-report.md`), on the division 2026-08-19 established and the
-sessions since have kept: the session that measures does not also rule, and
-the session that rules does not also write the record.
-
-**The operator has ruled the measurements**, and ADR-033 is written from them
-and is **PROPOSED, not accepted** — `N` is not fixed until M2 is taken. Neither report writes a verdict;
-both state what was observed and what was not.
-
-**Superseded 2026-08-28: ADR-033 is Accepted, and `N` is 16.** M2 was taken by
-link-m3 and the operator has accepted the ADR; its status line now reads
-`Accepted (2026-08-28)`. The paragraph above is left as written because it is
-what this section published at the time, and because the condition it names —
-*"`N` is not fixed until M2 is taken"* — was met rather than abandoned.
-
-### link-m1 (2026-08-24) — the backend exists, starts without a peer, and costs little
-
-- **`dgram` is a netdev type in QEMU 11.1.0 on MINIS.** It appears in
-  `-netdev help`. Per-type help does not exist in this version for any type, so
-  every option name used came from QEMU's own `-help` synopsis and from its
-  parse errors, not from expectation (§ 2a–§ 2c).
-- **The printed synopsis and the runtime disagree, from one binary.** The
-  synopsis brackets `remote` as optional —
-  `local.type=unix,local.path=path[,remote.type=unix,remote.path=path]` — and
-  the runtime refuses it: *"type=inet or type=unix requires remote parameter"*,
-  exit 1, nothing started (§ 2c against § 10). The `local.type=fd` form is the
-  only one the error does not name and was not tested.
-- **A device whose `remote.path` does not exist starts silently.** Zero bytes on
-  stderr, **+1 fd**, **+0 threads**, and **0 CPU ticks of the 6000 available**
-  over a 60 s window — every reading identical to a no-device control run in the
-  same script, except the one added socket fd (§ 9, § 11). A pair whose peer
-  paths both exist reads the same on every count, `ss -xap` included (§ 12).
-- **A stale `local.path` does not block a later bind.** A second QEMU bound the
-  same path after the first was killed, with 0 bytes on stderr and **a new
-  inode** (§ 19). *The mechanism is link-m2's, and carries link-m2's bound:* the
-  `unlink()` before `bind()` was traced against a path that was **absent**, so it
-  returned `ENOENT` and removed nothing. What is measured is that QEMU issues
-  the unlink unconditionally at that point — **not** that it succeeded against a
-  stale node (link-m2 § A.4).
-- **`q35` refuses the 31st `virtio-net-pci` on the default root bus.**
-  *"PCI: no slot/function available for virtio-net-pci, all in use or reserved"*,
-  naming `netdev=n30`, byte-identical across all three repetitions, after
-  `n0`–`n29` were placed (§ 20.1). It is a PCI topology limit and not a socket,
-  fd or netdev limit: each failed run still created **all 32** of its
-  `local.path` sockets, against `ulimit -n` 1024 and a peak of ~41 fds.
-- **The cost of an empty slot, as the tables give it.** Three repetitions per
-  point, reported individually; the first of each is quoted here and the three
-  agree to within 12 kB at every point. Nothing is divided and nothing is
-  extrapolated — the reports do neither (§ 25).
-
-  | | `q35` + `virtio-net-pci` | `microvm` + `virtio-net-device` |
-  |---|---|---|
-  | VmRSS kB, `N`=0 | 38724 | 38068 |
-  | VmRSS kB, `N`=1 | 39584 | 38620 |
-  | VmRSS kB, `N`=8 | 43400 | not run |
-  | VmSize kB, `N`=0 | 1430112 | 1425232 |
-  | VmSize kB, `N`=1 | 1432588 | 1425392 |
-  | VmSize kB, `N`=8 | 1462392 | not run |
-  | threads | 3 at every `N` | 3 at every `N` |
-  | CPU ticks / 60 s | 0 at every `N` | 0 at every `N` |
-
-  `VmHWM` was taken as well and is the only figure in the set recording a
-  transient peak: at `q35` `N`=8 it is ~58 MB against a settled RSS of ~43 MB.
-  **All of it is a machine paused at reset under `-accel tcg`**, with no guest,
-  no kernel and no disk. The zeros are properties of that state.
-
-### link-m2 (2026-08-24) — no `connect()`, and the peer is found after the fact
-
-- **The startup trace, outside dynamic linking, is three calls.**
-  `unlink(local.path)` → `ENOENT`, `socket(AF_UNIX, SOCK_DGRAM|SOCK_CLOEXEC)` →
-  9, `bind(9, …)` → 0. **There is no `connect()` at all** — not a failed one, not
-  a deferred one — and **`remote.path` appears nowhere in the trace**: not
-  `stat`-ed, not opened, not warned about (§ A.3). The trace filter was verified
-  first against a purpose-written program known to issue `socket`, `bind`,
-  `connect`, `sendto` and `unlink` on `AF_UNIX` `SOCK_DGRAM`, so the absence is
-  an absence of the call and not of the filter (§ A.1).
-- **The result: frames reach a peer that appears afterwards.** A guest emitted
-  ten broadcast frames into an absent peer — `h.sock` sampled every second
-  across the window and absent at each of the ten — the receiver then bound the
-  peer path, and **the first datagram to arrive carried `seq=000010`**: the
-  first frame emitted after the socket existed. `seq=000000`–`000009` appear
-  nowhere in the receiver's log, checked by pattern over the whole of it. From
-  `000010` the stream is contiguous to `000052`. Arrival was **0.605 s after
-  bind** (§ B2.2–§ B2.4).
-- **The reverse direction works, and is a separate result.** A 63-byte frame
-  sent out of the socket bound at `h.sock` reached the guest, which printed it —
-  into a QEMU started before the peer existed and never restarted (§ B2.5). It
-  neither strengthens nor weakens the first result.
-- **What the guest is not told.** Its `sendto` of an 18-byte payload returned
-  **`rc=18, errno=0` identically in both windows**, peerless and peered. The
-  failure, if QEMU sees one at all, is not reported upward (§ B2.2). The `[init]
-  RX` lines in the peerless window are the guest hearing its own broadcast on a
-  local socket, not evidence of anything crossing the backend, and the report
-  says so where they appear.
-- **QEMU wrote 0 bytes to stderr for the whole run** — peerless window, peered
-  window and reverse direction alike. The only line it ever writes is the one it
-  writes at exit (§ B2.6).
-- **What QEMU does with a frame while the peer is absent was not observed.**
-  Whether it issues a failing `sendto` per frame or discards without a syscall
-  needs a trace of the *running* QEMU; Part A's trace covers startup on a machine
-  paused at reset. Nothing is claimed about buffering either: nothing predating
-  the bind arrived, which is a statement about what arrived (§ B.6).
-
-### Every measurement was taken unprivileged, and that is a result about the design
-
-**No `sudo` anywhere in either session**, and neither reports any step that
-indicated needing it. An unprivileged user bound `AF_UNIX` datagram sockets,
-started QEMU under TCG, traced its own processes, compiled a static `/init`, and
-built a `cpio` carrying a `/dev/console` device node — the last via the kernel
-tree's own `gen_init_cpio`, because `mknod` needs privilege and the brief did
-not. Every failure observed in either session was a QEMU option refusal, a PCI
-topology refusal or a guest-side `errno`; **no permission error occurred
-anywhere.**
-
-**netVM was up and untouched throughout both.** PID `2114876`, argv read and
-compared byte-for-byte before and after every launch in every part of both
-sessions. No `systemctl`, no unit operation, no LV, and no `-enable-kvm` process
-started by either session.
-
-**Nothing under `/etc/katmate/`, `/var/lib/katmate/` or `/run/katmate/` was read
-or written.** Those names appear in both sessions only inside the netVM argv
-string that `pgrep` printed out of `/proc`.
-
-That set of three is not only a statement about how the sessions behaved. The
-mechanism ADR-033 proposes was exercised end to end — socket creation, bind,
-a booting guest, frames in both directions — by uid 1000, on a host whose live
-state was never touched. **An AppVM's start path needing no privileged network
-step is the property the ADR claims, and this is the first evidence for it.**
-
-### link-m3 (2026-08-28) — no knee: the loop is saturated at one link and shared from there
-
-**This subsection is dated four days after the heading above it.** The parent
-heading reads *2026-08-24* because that is when link-m1 and link-m2 ran; link-m3
-ran on **2026-08-28** and is filed here because it is the same arc's third
-session, not because it shares their date. Read the measurement date off this
-line, not off the section heading.
-
-Brief `~/link-m3-brief.md`, report `~/link-m3-report.md`. **No commits by that
-session and no tracked file edited** — it measured and reported; this entry is
-the record, written separately, on the division the arc has kept throughout.
-
-**M2 is measured, and the result is not the one ADR-033 anticipated.** The ADR
-asks where one event loop stops keeping up as active links are added. It does not
-stop anywhere in the range that starts: it is **already saturated with one link**,
-and every further link is served out of the same, already-full core.
-
-- **There is no knee, because the loop is at its ceiling from `N`=1.** The event
-  loop thread sits at **99.6 %** of one core with a single active link and at
-  **98.7–99.6 %** across all eighteen 60 s windows, while delivered load rises
-  from ~174 000 to ~316 000 frames/s as `N` goes 1 → 30. Individually, and never
-  averaged: `N`=1 → 176 646 · 173 671 · 173 668 frames/s; `N`=2 → 222 899 ·
-  223 798 · 226 366; `N`=4 → 261 670 · 258 731 · 259 001; `N`=8 → 280 687 ·
-  279 936 · 283 463; `N`=16 → 302 994 · 302 921 · 295 716; `N`=30 → 317 385 ·
-  315 851 · 313 888. **The loop does not break down under link count — it is
-  shared, and the degradation is continuous.** What stops scaling is throughput
-  *per link*: ~174 000 frames/s on one, about 10 600 each on thirty.
-- **Zero loss, in all eighteen runs.** `gen_ok` equals `guest_pkts` as identical
-  integers, link by link and repetition by repetition; guest `rx_bytes` equals
-  generator `bytes_ok` exactly (`N`=2: `20350147882` against `20350147882`).
-  `rx_errs=0` and `rx_fifo=0` throughout, and `tx_pkts=0` — the guest transmitted
-  nothing.
-- **The refusal reaches the sender as `EAGAIN`**, one errno wide, on every socket
-  of every run — never as a frame accepted and then dropped. **It falls
-  monotonically with `N`**, 69.3 M → 31.9 M in absolute count and ≈87 % → ≈63 %
-  of attempts, consistent across all three repetitions at every point. That is
-  the opposite of a rise, and it follows from the line above: as `N` grows the
-  loop delivers more frames per second in total, so more of the generator's
-  attempts find room.
-- **Per-interface counts do not diverge.** At `N`=30 the thirty links span
-  **7 frames in 634 765** (repetition 1); repetitions 2 and 3 span **2** and
-  **1**. The worst relative spread anywhere in the sweep is **0.054 %**, at
-  `N`=4. **The bound, which is the report's own:** the generator is strictly
-  round-robin, so offered load is exactly equal per link by construction — what
-  is measured is the loop's evenness *given equal offering*, and not its
-  behaviour when one link offers far more than another, which was not measured.
-- **`N`=30 starts and 31 refuses**, *"PCI: no slot/function available for
-  virtio-net-pci"* naming `netdev=n30`, byte-identical across five observations,
-  under KVM with a booting guest that enumerated all thirty interfaces. So the
-  ceiling is **PCI topology** — not the accelerator, not the guest. This
-  reproduces link-m1 § 20.1 on a different footing; that session found it under
-  TCG on a machine paused at reset. **It is not netVM's ceiling** (see
-  § *Next steps*).
-- **Thread count is 4 at every `N`, idle and under load alike**, sampled at
-  t+5 s, t+30 s and t+55 s inside every window and never varying. link-m1
-  measured **3** at every idle `N`; that was TCG on a machine paused at reset,
-  and the fourth thread here is the vCPU. **A `dgram` backend adds no thread**,
-  which is link-m1 § 11's idle finding holding under load.
-
-**Whether these are the subject's numbers or the generator's, and why it is the
-subject.** The criterion was fixed in Part 1 before the data existed: well under
-the generator's proven ceiling of 431 046 frames/s means the subject, approaching
-it means the generator. The highest aggregate, 317 385 frames/s, is **73.6 %** of
-that ceiling — *not* comfortably clear of it, and the report does not pretend
-otherwise. It concludes **the subject**, on three grounds worth carrying rather
-than just the conclusion: 31.9 M refusals mean the subject's socket queues were
-**full**, which a generator-limited run cannot produce — the ceiling run itself
-had **zero** errors; the loop is at ~99 % of one core, and no extra offered load
-makes a thread already at 100 % drain faster; and where the ceiling run had its
-sink at 67 % of a core with no refusals, this has the loop at 99 % with refusals
-in the tens of millions. The residual is named as a limit of the apparatus: a
-measurement wanting to push *past* this point needs more offered load than one
-generator core can produce.
-
-**The instrument is not the one the ADR names, and that must be visible to
-anyone reading the gate as discharged.** ADR-033's *Remaining gate* sentence
-specifies **netVM's own `utime`** watched for the knee. This session measured a
-**standalone QEMU of the same shape** — `-machine q35,accel=kvm -cpu host -smp 1`,
-read out of `net-sys.con` rather than invented — because netVM carries no `dgram`
-device today and giving it one would *be* the pool that `N` was not yet fixed
-for. The substitution was the brief's, stated openly in it.
-
-**Conditions, which differ from link-m1's and link-m2's and are not
-interchangeable with them:**
-
-- **netVM was DOWN for the whole session.** MINIS had rebooted on 2026-08-25 and
-  netVM had not been started since; the session found it so, raised it as a
-  blocking divergence and halted, and the operator ruled that it not be started —
-  it is not the subject, and an idle machine is a cleaner laboratory. The
-  subsection above (*"Every measurement was taken unprivileged"*) says netVM was
-  **up and untouched throughout both**; that statement is true of link-m1 and
-  link-m2 and is **not** extended to link-m3. What link-m3 can evidence instead:
-  no KatMate unit was started, stopped or reconfigured, the unit's state was read
-  and not changed, and nothing under `/etc/katmate/`, `/var/lib/katmate/` or
-  `/run/katmate/` was read or written.
-- **The MINIS host kernel had moved**, `7.1.8-hardened1-2-hardened` →
-  `7.1.9-hardened1-1-hardened`. The AF_UNIX datagram path is kernel code, so
-  **these figures are this kernel's and are not directly comparable with
-  link-m1's or link-m2's.**
-- **The accelerator was KVM**, on the operator's ruling and against link-m1's and
-  link-m2's TCG: netVM runs on KVM, the subject is netVM's shape, and under TCG a
-  knee could have been the guest's ceiling rather than the loop's — measuring the
-  wrong thing without showing it. `/dev/kvm` opened unprivileged; a silent TCG
-  fallback was forbidden and was not needed.
-- **No `sudo` anywhere**, as in both earlier sessions. An unprivileged user opened
-  `/dev/kvm`, ran eighteen 60 s KVM guests, bound up to thirty AF_UNIX datagram
-  sockets per run, and built a `cpio` carrying a `/dev/console` node via the
-  kernel tree's own `gen_init_cpio`.
-
-**What the session did not measure, and therefore does not claim:** Part 3 was
-skipped, there being no knee to control against, so nothing is claimed about what
-idle backends cost alongside an active one; nothing above `N`=30 or between the
-points run; no per-link cost and no recommended value; nothing at other frame
-sizes, the sweep being 1514-byte frames only; and **whether QEMU-as-sender retries
-or discards on `EAGAIN`**, which ADR-033 already carries as open and which no
-`strace` in this session touched.
 
 ## Session archive
 
@@ -377,6 +157,14 @@ extracted block against the pre-move blob.
 *second of two* entry (3a part 1) rotated out as the 2026-08-17 entry arrived. Two
 rotations in one day is not a defect — it is what keeping two sessions costs when
 two sessions close on the same day.
+
+**Closed 2026-09-01 (second of two).** The 2026-08-24 entry (the link
+measurement arc) rotated to the archive as the second 2026-09-01 entry arrived,
+heading changed from *Previous session* to *This session* and the body moved
+verbatim — the same mechanism as the rotations above. Verified by diffing the
+extracted block against the pre-move blob. Two sessions on one day are recorded
+*first of two* / *second of two*, as the 2026-08-19 and 2026-08-09 pairs already
+are.
 
 **Closed 2026-09-01.** The 2026-08-22 entry (the stop path, H1 and G6) rotated to
 the archive as the 2026-09-01 entry arrived, heading changed from *Previous
@@ -1313,6 +1101,22 @@ touched.
    recorded cause is the kind of thing a later session will otherwise rediscover
    and over-read.
 
+   **Note 2026-09-01 (second of two) — the sidecar now travels on the build
+   path, and #22 still does not close.** `kernel_provenance_check()` is in
+   `build/lib.sh` and runs in `foundation.sh`'s preflight; `KERNEL_PROVENANCE`
+   is written into `foundation.meta` at step 10; the sidecar is installed beside
+   the kernel at step 11 and copied into `out/` by the `Makefile`. Gated by
+   sourcing the real function — eight arms, fixture produced by the committed
+   tool — and by running the kernel-copy target twice. **Step 10's field and
+   step 11's install are UNVERIFIED**: only a real `make foundation` exercises
+   them, and this session was forbidden from running one.
+
+   **What still does not close #22.** The record now survives the hops for a
+   kernel captured from here on. It does nothing for the two images that already
+   exist, nothing reads a sidecar at install or launch, and the orchestrator's
+   presence check (ADR-034 § A.3) is **blocked by #25**. #22 closes when the
+   pipeline both carries and checks the record.
+
 23. **A link's socket outlives its process, including on a failed start.**
    Added 2026-08-24, from link-m1 § 13.1, § 20.1 and § 23, and link-m2 § A.3.
    QEMU creates its `local.path` at start and **does not unlink it at exit** —
@@ -1359,6 +1163,87 @@ touched.
    would close it, which is a reason to take both rather than to choose. Nothing
    has measured what netVM currently does when an RS arrives on an internal link;
    **no AppVM has ever had a network device**, so the case has never occurred.
+
+25. **`KERNEL_SRC_DIR` derives from `$HOME`, and both scripts that read it
+   require root — so as root it resolves to a directory that does not exist.**
+   Added 2026-09-01 (second of two), measured on MINIS while establishing
+   whether a proposed check could fire.
+
+   `build/config.sh:33` reads
+   `KERNEL_SRC_DIR="${KERNEL_SRC_DIR:-$HOME/katmate-kernels}"`. The measurement,
+   verbatim, both uids, against the synced copy on MINIS:
+
+   ```
+   line 33: KERNEL_SRC_DIR="${KERNEL_SRC_DIR:-$HOME/katmate-kernels}"
+
+   as uid 1000 (host):   $HOME=/home/host
+     ( cd build; source config.sh; echo "$KERNEL_SRC_DIR" )
+     /home/host/katmate-kernels
+
+   as root, which is how both scripts actually run:
+     sudo -n bash -c 'cd build; source config.sh; echo "$KERNEL_SRC_DIR"'
+     /root/katmate-kernels
+     [exit=0]
+
+     sudo -n bash -c 'echo "$HOME"'
+     /root
+
+   resolved: /root/katmate-kernels
+   directory DOES NOT EXIST
+
+   what katmate-update.sh:114 tests as root:
+   result: FALSE — the existing check would die as root
+   ```
+
+   **The blast radius, from every use in the tree.** `Makefile:23,45,47` is
+   **unaffected** — it carries its own hardcoded `/home/host/katmate-kernels`.
+   `build/foundation.sh:52,53,132` uses the variable only in diagnostic text and
+   a comment, so it prints a wrong path in an error message and nothing more.
+   `build/katmate-update.sh:114` is a hard `die` and **fires as root**, with
+   `115` naming the wrong cause: *"missing kernel vmlinuz for 6.12.87 in
+   /root/katmate-kernels"*, when the kernel is present and the path is not.
+   `121` logs the same wrong path.
+
+   **The Makefile's hardcoding is a workaround whose motivating condition is
+   still live.** *Invariants & gotchas* already records why it exists — `$(HOME)`
+   under `sudo` is `/root`. What is new is that the condition has been displaced
+   into `config.sh`, where a **second** consumer now depends on it and breaks:
+   the Makefile carries its own value and survives, `katmate-update.sh` reads
+   `config.sh` and does not.
+
+   **It fails safe.** Line 114 sits before every `run`-wrapped mutation, so a
+   real release dies before touching anything. The fault is the misleading
+   message and the blocked check, not a destructive action.
+
+   **ADR-034 § A.3's presence check is blocked on this**, and `ROADMAP.md`
+   carries the pointer in both directions. **No cause is assigned**, and nothing
+   was fixed here: a fix touches the existing check at `114`, which is a separate
+   concern from the commit that found it.
+
+26. **An instance delta on MINIS that `katmate-update.sh` refuses.** Added
+   2026-09-01 (second of two). Observed while running `--dry-run` as uid 1000
+   for an unrelated gate; **unrelated to the provenance work, and its only claim
+   is that it exists.**
+
+   ```
+   [katmate-update] found 2 instance delta(s):
+              /var/lib/katmate/instances/scratch.qcow2
+              /var/lib/katmate/instances/test_web.qcow2
+   [katmate-update] all deltas free (no qemu holds them)
+   [katmate-update] FATAL: delta '/var/lib/katmate/instances/scratch.qcow2' maps
+                    to unknown app type 'scratch' — expected one of: web vault
+   ```
+
+   The script derives an app type from the delta's filename suffix and refuses
+   one it does not recognise. `scratch.qcow2` yields `scratch`, which is not in
+   `APP_TYPES`. **`katmate-update.sh --dry-run` therefore cannot currently
+   complete on that machine, even as uid 1000** — a second blocker in the same
+   script as #25 and independent of it.
+
+   **No cause is assigned.** Nothing in the repository records where
+   `scratch.qcow2` came from or what it is for, and this session did not
+   investigate, delete or rename it. Whether the delta should go or the script
+   should tolerate an unknown type is not decided here.
 
 ## Next steps
 
@@ -1880,6 +1765,27 @@ frozen `vm_home_skel` vs qcow2 branch.
   `10.3.1.3` / restrict nft so SSH is not reachable over the VPN tunnel.
 
 ## Invariants & gotchas (quick reminders — detail in git/ADRs)
+- **A code path that only ever runs in its convenient mode is untested in the
+  mode that matters — and "convenient" usually means "without root".** A script
+  with a `--dry-run`, a `--check`, a `--no-act` or any other unprivileged mode
+  will be exercised in that mode, because that is the mode a person can run
+  safely and repeatedly. Everything the privileged path does differently is then
+  covered by nothing. **Environment is the usual difference and the easiest to
+  miss:** `sudo` resets `HOME`, `PATH`, and the whole environment under
+  `env_reset`, so any default of the form `${VAR:-$HOME/...}` resolves to one
+  place when a person tests it and another when the tool runs for real.
+  Measured 2026-09-01 as open problem **#25**, where a dry-run that requires no
+  root had passed a check hundreds of times that dies as root — but the shape is
+  not specific to that script.
+
+  **The general rule: when a script has a privileged mode and an unprivileged
+  one, any value it derives from the environment must be measured in BOTH.** One
+  command settles it — `sudo -n bash -c 'source <config>; echo "$VAR"'` beside
+  the same line without `sudo`. And the reason this class hides so well is worth
+  stating on its own: **a check that cannot fire is indistinguishable from a
+  check that found nothing.** Both are silent. Neither appears in a log. The
+  only way to tell them apart is to make the condition true on purpose and
+  confirm the check notices.
 - **A refusal list is also an execution order, and a check behind a refusal is
   untested until that refusal is relaxed.** Measured 2026-09-01 on
   `tools/capture-kernel-provenance`. Relaxing one refusal — a missing git tag
