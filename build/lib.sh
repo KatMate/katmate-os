@@ -99,3 +99,88 @@ chroot_run() {
   local mnt="$1"; shift
   chroot "$mnt" /usr/bin/env DEBIAN_FRONTEND=noninteractive "$@"
 }
+
+# --- kernel provenance (ADR-034) ---------------------------------------------
+# Establish what provenance record accompanies the kernel this build is about to
+# use, and refuse if that record describes a DIFFERENT kernel. ADR-034's
+# acceptance note (2026-09-01) § G puts this in the preflight and not at the end:
+# "a mismatch fails BEFORE the expensive build rather than after the image is
+# frozen and its metadata already written."
+#
+# THIS IS THE ONLY FUNCTION IN THIS FILE THAT RETURNS A VALUE ON STDOUT.
+# It prints `absent` or `recorded`, which foundation.sh captures into
+# KERNEL_PROVENANCE for foundation.meta (§ B: the field carries recorded|absent
+# and NEVER a hash — a hash there would be a second copy of a value that already
+# lives in the sidecar). Every diagnostic therefore goes to stderr, so a caller
+# writing KERNEL_PROVENANCE="$(kernel_provenance_check ...)" captures the value
+# and nothing else.
+#
+# The caller MUST keep `set -e`. die() runs inside the command-substitution
+# subshell, so its exit(1) ends that subshell rather than the script; the
+# assignment then carries status 1 and `set -e` stops the build. Wrapping the
+# call in `|| true`, or dropping `set -e`, silently turns every die below into
+# an empty KERNEL_PROVENANCE and a build that continues.
+#
+# The sidecar path is DERIVED here and never passed in: <image>.provenance, the
+# same derivation tools/capture-kernel-provenance makes. Passing it as a
+# parameter would let the two ends disagree about which record describes which
+# kernel, and that binding is what the file exists for.
+#
+# The sidecar is PARSED, never sourced. It is deliberately not sourceable —
+# BANNER carries spaces and unescaped parentheses, so `. file` fails on it
+# (tools/capture-kernel-provenance:46-53 states this and why). ^KEY= with sed,
+# exactly as build/app-layer.sh:101 meta_get() already reads foundation.meta.
+#
+# Absent is not refused (ADR-034): a kernel with no sidecar still builds and the
+# meta records KERNEL_PROVENANCE=absent, stating honestly that provenance was not
+# recorded rather than implying it was. But a MALFORMED record is not an absent
+# one and is never flattened into one — a sidecar that exists and cannot be read,
+# or that carries no KERNEL_SHA256, is a die.
+#
+# A sidecar recording AUTOCONF_MATCH=no or IMAGE_MATCH=no WARNS and does not
+# refuse, and KERNEL_PROVENANCE still reads `recorded` — because it was. The
+# field records whether a capture happened; whether the pairing held is the
+# sidecar's own business and lives in exactly one place. Refusing here would
+# reject a kernel ADR-034 explicitly allows to exist, and would repeat the error
+# its own -dirty finding names: "a refusal keyed on the banner would have blocked
+# the better-documented of the two kernels and passed the worse."
+kernel_provenance_check() {
+  local image="$1"                       # the vmlinuz this build will use
+  local sidecar="$image.provenance"      # derived, never a parameter
+  local recorded_sha actual_sha field value
+
+  if [[ ! -e "$sidecar" ]]; then
+    echo "absent"
+    return 0
+  fi
+
+  [[ -f "$sidecar" && -r "$sidecar" ]] || die "Provenance sidecar exists but cannot be read: $sidecar
+A record that cannot be read is not the same as no record. Refusing rather than
+writing KERNEL_PROVENANCE=absent, which would claim this kernel was never captured."
+
+  recorded_sha="$(sed -n 's/^KERNEL_SHA256=//p' "$sidecar" | head -n1)"
+  [[ -n "$recorded_sha" ]] || die "Provenance sidecar carries no KERNEL_SHA256: $sidecar
+A malformed record is not an absent one and is not flattened into one (ADR-034)."
+
+  actual_sha="$(sha256sum -- "$image" | awk '{print $1}')"
+  [[ "$recorded_sha" == "$actual_sha" ]] || die "Provenance sidecar describes a different kernel than the one being built in.
+  sidecar:  $sidecar
+  records:  $recorded_sha
+  actual:   $actual_sha
+  image:    $image
+This is the case this check exists for. Re-capture in the kernel build tree with
+tools/capture-kernel-provenance, or remove the stale sidecar."
+
+  # Captured, but the capture may record that a pairing could not be established.
+  # Warn, name the field, never refuse. KERNEL_PROVENANCE stays `recorded`.
+  for field in AUTOCONF_MATCH IMAGE_MATCH; do
+    value="$(sed -n "s/^$field=//p" "$sidecar" | head -n1)"
+    if [[ "$value" == "no" ]]; then
+      echo "WARNING (ADR-034): $sidecar records $field=no." >&2
+      echo "  The kernel IS captured and KERNEL_PROVENANCE stays 'recorded'; what" >&2
+      echo "  could not be established is that one pairing. Not a refusal." >&2
+    fi
+  done
+
+  echo "recorded"
+}

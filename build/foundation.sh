@@ -51,6 +51,13 @@ fi
   Build the MicroVM kernel (Debian LTS sources + katmate-microvm config, ADR-005)
   and place the vmlinuz at that path, or: cp \$KERNEL_SRC_DIR/vmlinuz-... \$KERNEL_VMLINUZ
   (Makefile copies it from $KERNEL_SRC_DIR/. No .deb: the host boots it via -kernel.)"
+
+# Provenance of THAT kernel, established before anything destructive happens
+# (ADR-034 acceptance note § G). Returns absent|recorded on stdout; dies on a
+# sidecar that describes a different kernel, or that exists and is malformed.
+# `set -e` above is what makes the die reach this script — see lib.sh.
+KERNEL_PROVENANCE="$(kernel_provenance_check "$KERNEL_VMLINUZ")"
+log "Kernel provenance: $KERNEL_PROVENANCE ($KERNEL_VMLINUZ)"
 [[ -f "$VM_AGENT_BIN" ]] || die "Missing vm-agent binary: $VM_AGENT_BIN
   Build the Rust vm-agent and copy it here (ADR-018):
     (cd agent && cargo build --release && cp target/release/vm-agent $VM_AGENT_BIN)"
@@ -240,6 +247,7 @@ KATMATE_META_VERSION=1
 WAYPIPE_TAG=$WAYPIPE_VERSION
 WAYPIPE_PATCH_LEVEL=$WAYPIPE_PATCH_LEVEL
 KERNEL_VERSION=$KERNEL_VERSION
+KERNEL_PROVENANCE=$KERNEL_PROVENANCE
 BUILD_DATE=$(date -u +%Y-%m-%dT%H:%M:%SZ)
 FOUNDATION_LV=$VG/$FOUNDATION_LV
 EOF
@@ -272,6 +280,23 @@ KERNEL_TMP="$KATMATE_KERNELS_DIR/.$KERNEL_BASE.new"
 cp -- "$KERNEL_VMLINUZ" "$KERNEL_TMP"
 chmod 0644 "$KERNEL_TMP"
 mv -f -- "$KERNEL_TMP" "$KATMATE_KERNELS_DIR/$KERNEL_BASE"
+
+# The provenance sidecar travels with the kernel it describes (ADR-034): payload
+# and metadata share an author, a lifecycle and an upgrade owner, so they share a
+# directory (ADR-032 §5, netvm.meta's precedent). Copied only if it exists —
+# absent is not refused, and a build machine with an uncaptured kernel still
+# builds. Same dotted temporary as the kernel above, for the same reason: a
+# partial file named vmlinuz-*.provenance would be matched by any glob looking
+# for one.
+if [[ -f "$KERNEL_VMLINUZ.provenance" ]]; then
+  log "Install kernel provenance sidecar -> $KATMATE_KERNELS_DIR"
+  SIDECAR_TMP="$KATMATE_KERNELS_DIR/.$KERNEL_BASE.provenance.new"
+  cp -- "$KERNEL_VMLINUZ.provenance" "$SIDECAR_TMP"
+  chmod 0644 "$SIDECAR_TMP"
+  mv -f -- "$SIDECAR_TMP" "$KATMATE_KERNELS_DIR/$KERNEL_BASE.provenance"
+else
+  log "No provenance sidecar beside $KERNEL_BASE — nothing to install (KERNEL_PROVENANCE=$KERNEL_PROVENANCE)"
+fi
 
 log "$FOUNDATION_LV ready: RO-frozen thin foundation."
 log "Next: sudo make app-web / sudo make app-vault (thin snapshots of this LV)."
