@@ -41,11 +41,24 @@ $(APP_TARGETS): app-%: $(BUILD)/app-layer.sh manifests/%.list
 	$(BUILD)/app-layer.sh $*
 
 # clear, guided failure for the kernel hook (foundation step only)
+# The ADR-034 provenance sidecar rides along, conditionally: absent is not
+# refused, so a kernel captured before the tool existed still builds. It is
+# copied inside this rule rather than as a target of its own, because the two
+# files must travel together and a separate target could copy one without the
+# other. Consequence, stated rather than worked around: the sidecar arrives only
+# when the kernel is (re)copied, so an out/ kernel already in place will not gain
+# a sidecar until out/ is emptied.
 $(KERNEL_VMLINUZ):
 	@if [ -f "$(KERNEL_SRC_DIR)/$(notdir $(KERNEL_VMLINUZ))" ]; then \
 	  mkdir -p $(OUT); \
 	  cp "$(KERNEL_SRC_DIR)/$(notdir $(KERNEL_VMLINUZ))" "$@"; \
 	  echo "Copied kernel: $@"; \
+	  if [ -f "$(KERNEL_SRC_DIR)/$(notdir $(KERNEL_VMLINUZ)).provenance" ]; then \
+	    cp "$(KERNEL_SRC_DIR)/$(notdir $(KERNEL_VMLINUZ)).provenance" "$@.provenance"; \
+	    echo "Copied provenance sidecar: $@.provenance"; \
+	  else \
+	    echo "No provenance sidecar beside the source kernel (ADR-034: absent is not refused)"; \
+	  fi; \
 	else \
 	  echo "MISSING: $@"; \
 	  echo "  Custom MicroVM kernel (ADR-005). Expected source:"; \
