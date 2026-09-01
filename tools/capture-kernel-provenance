@@ -1,0 +1,387 @@
+#!/usr/bin/env bash
+#
+# capture-kernel-provenance — write a provenance sidecar for a hand-built
+# MicroVM kernel, at the time of the build, from inside the build tree.
+#
+# ADR-034. The microVM kernel is built outside the pipeline, by hand, and enters
+# as a file. Two different things are being recorded:
+#
+#   identity — what is this file?          sha256 of image and config, banner.
+#              Capturable at any time, by anyone, from the files alone.
+#   pairing  — which config produced this image?
+#              Needs include/config/auto.conf from THAT tree in its post-build
+#              state. Perishable: the next reconfigure of the tree deletes it.
+#
+# Only the tree can answer the second, which is why this tool runs in the tree
+# and not at the pipeline boundary. Run it after a build, before any
+# `make menuconfig`, `make clean` or reconfigure.
+#
+# Usage:
+#   cd <kernel build tree>
+#   capture-kernel-provenance [--force] <archived-vmlinuz> <archived-config>
+#
+# The build tree is $PWD and is not an argument. The sidecar path is DERIVED,
+# never given: <archived-vmlinuz>.provenance. Deriving it makes the binding
+# between record and payload structural rather than a parameter that can be
+# passed wrong. Both arguments may point anywhere; in normal use neither is
+# inside $PWD.
+#
+# Exit codes (tools/validate-properties.fish sets this convention):
+#   0  sidecar written
+#   1  refusal — see "Refusals" below; no file written
+#   2  usage error
+#
+# A check that could not run must not exit 0. validate-properties.fish states
+# the reason in its own words at its empty-input branch: "an empty output and
+# exit 0 would look like success". The same applies to a record with a field
+# this tool could not establish.
+#
+# Diagnostics go to STDERR. STDOUT carries exactly one line, the path of the
+# sidecar written, so the tool composes. (validate-properties.fish sends its
+# findings to stdout; that is not followed here, for the reason above.)
+#
+# ---------------------------------------------------------------------------
+# The file this writes: twelve keys, flat KEY=value, in a fixed order.
+#
+# DELIBERATELY NOT SOURCEABLE, and this is a departure ADR-034 states and
+# justifies. foundation.meta's defining property is "flat KEY=value,
+# POSIX-sourceable — the preflight reads it with no parser". This file keeps the
+# shape and gives that property up: BANNER carries spaces and unescaped
+# parentheses, so `. file` fails on it, and SRC_DIRTY_PATHS is a path list.
+# Inventing a quoting convention foundation.meta does not use would make one
+# format look like two. EVERY READER PARSES ^KEY= AND TAKES THE REST OF THE LINE
+# VERBATIM, as build/app-layer.sh:101 meta_get() already does with sed.
+#
+# ---------------------------------------------------------------------------
+# Four bounds, stated so a later reader does not "fix" them:
+#
+# 1. UNTRACKED FILES ARE INVISIBLE to `git diff-index`, and therefore to
+#    SRC_DIRTY_PATHS and SRC_DIRTY_STAT. A file that was never added does not
+#    appear in this record. This is a stated limitation of the fields, not a
+#    defect: `git status --porcelain -uall` is the reading that sees them, and
+#    it is not what the schema records.
+#
+# 2. AUTOCONF_MATCH COVERS SET SYMBOLS ONLY. auto.conf carries only set symbols;
+#    an archived .config also carries "# CONFIG_X is not set" comment lines
+#    (2601 of them against 1718 set symbols, in the pairing this was measured
+#    on). Those are not compared. This is not a gap: an unset symbol carries no
+#    information beyond its absence, and because the comparison is between the
+#    two complete normalised streams, a symbol present on one side and absent on
+#    the other shows up as a difference in either direction.
+#
+# 3. REFUSING TO WRITE AN INCOMPLETE RECORD IS NOT ADR-034's "absent is not
+#    refused". That clause governs the PIPELINE, which tolerates a kernel with
+#    no sidecar and records KERNEL_PROVENANCE=absent rather than failing the
+#    build. This is the TOOL, which must not write a sidecar carrying a field it
+#    could not establish. A record that is wrong without saying so is worse than
+#    no record.
+#
+# 4. A MISSING auto.conf OR bzImage IS NOT A REFUSAL. It is AUTOCONF_MATCH=no /
+#    IMAGE_MATCH=no. Absent and differing are deliberately the same answer: the
+#    field records what was CHECKED, not why it failed. The distinction is on
+#    stderr, where a human reads it, and not in the file, where a parser would
+#    have to branch on it.
+#
+# 5. SRC_TAG MAY LEGITIMATELY BE EMPTY, and that is not a failure. `git describe
+#    --tags` fails on a tree with no reachable tag. SRC_TAG is then empty and a
+#    warning names the condition on stderr — the same shape bound 4 describes for
+#    an absent witness. `git rev-parse HEAD` stays a refusal, and the two are
+#    deliberately NOT symmetric: SRC_COMMIT is the tree's IDENTITY and names the
+#    exact state that was built, while SRC_TAG is LEGIBILITY. A tool that refused
+#    to record provenance because a tree carries no reachable tag would be
+#    imposing a kernel-build policy from the wrong place, and this file already
+#    has a shape for "this could not be established".
+#
+#    As with SRC_DIRTY_STAT, an empty value here is unambiguous: the tool writes
+#    all twelve keys or it writes nothing, so there is no partial record, and an
+#    empty value means established-and-empty rather than not-recorded.
+#
+# ---------------------------------------------------------------------------
+# Refusals — non-zero exit, named diagnostic on stderr, NO file written:
+#
+#   * $PWD is not a kernel tree (no .git, or no top-level Makefile)
+#   * either argument is missing or unreadable
+#   * the vmlinuz has no HdrS magic at 0x202
+#   * no NUL terminator within the 512-byte banner window (a truncated BANNER
+#     is the exact failure class this tool exists to prevent)
+#   * the banner is empty, or contains a newline
+#   * `git rev-parse HEAD` fails — but NOT `git describe --tags`; see bound 5
+#   * any dirty path contains whitespace — an ambiguous space-joined list is
+#     worse than a refusal
+#   * this script cannot hash itself, so CAPTURED_BY cannot be established
+#   * the sidecar exists and --force was not given
+#
+# ---------------------------------------------------------------------------
+# BANNER extraction. `grep`/`strings` over a bzImage finds NOTHING and fails
+# SILENTLY with rc=1 — the "Linux version ..." string lives in the compressed
+# payload. The method used here is the x86 boot protocol header
+# (Documentation/arch/x86/boot.rst), which is uncompressed:
+#
+#   1. magic "HdrS" at file offset 0x202  — refuse if absent, because every
+#      offset below is meaningless without it
+#   2. 16-bit LITTLE-ENDIAN kernel_version field at 0x20E
+#   3. string offset = that value + 0x200
+#   4. NUL-terminated string there; the value carries no "Linux version " prefix
+#
+# The two bytes are combined explicitly as little-endian rather than read with
+# `od -tu2`, which is host-endian and would be wrong on a big-endian builder
+# even though it is right on x86.
+#
+# The value is byte-exact. It contains date padding such as the double space in
+# "Jul  1"; any comparison that collapses whitespace is wrong.
+#
+# THE awk PROGRAM READS TO EOF AND PRINTS AT END. It does not exit at the first
+# record, and the absence of that `exit` is deliberate — do NOT add it back as an
+# optimisation. `awk ... { print; exit }` closes the pipe while `dd` is still
+# issuing its 512 one-byte writes; `dd` then takes SIGPIPE, and under
+# `set -o pipefail` with `set -e` the script aborts with exit 141 and NO
+# diagnostic at all. Measured: 1 failure in 40 trials on the Acer, and 2 failures
+# in 4 executions on MINIS inside a single gate run. It is a race, so a green run
+# is not evidence that the pipeline is sound — which is how it survived a smoke
+# test and was caught only by a gate.
+#
+# Reading to EOF cannot change the value: the NUL guard above has already
+# established that a terminator exists inside the window, so record 1 is the
+# whole banner either way.
+#
+# Reading the window into a bash variable instead, to avoid the pipe entirely,
+# was considered and rejected: bash variables cannot hold NUL bytes and $(...)
+# discards them silently, so it would replace one silent truncation with another
+# at the same spot.
+#
+# The gzip-offset fallback for a stripped image is deliberately NOT implemented.
+# It has never been exercised, and an untested fallback path in a provenance
+# tool is worse than its absence: it reads as coverage.
+#
+# ---------------------------------------------------------------------------
+# AUTOCONF_MATCH compares the two files as MAPPINGS from symbol to value, not as
+# text. Measured, on the one pairing that exists:
+#
+#   * they disagree on ORDER — 3434 differing lines in a file-order diff of two
+#     files carrying the same 1718 symbols. auto.conf is in Kbuild's order, the
+#     .config in menu order. Both orders are stable properties of their formats
+#     and neither is meaningful.
+#   * they disagree on QUOTING — 21 symbols, 86 diff lines, every one the same
+#     shape: auto.conf writes the value bare, the .config writes it in double
+#     quotes. No symbol has a different value on the two sides. The quotes are
+#     .config syntax, not part of any value.
+#
+# A tool comparing text in file order would write AUTOCONF_MATCH=no for a
+# pairing this project has recorded as identical three times. Hence: take
+# ^CONFIG_ lines only, strip one leading and one trailing double quote from the
+# value, sort, compare. No whitespace change, no case change, no symbol dropped.
+#
+# Standalone by design: it does NOT source build/config.sh. It runs inside a
+# foreign directory — a kernel source tree — where config.sh's ROOT_DIR
+# computation and LVM names have no meaning.
+
+set -euo pipefail
+export LC_ALL=C
+export GIT_OPTIONAL_LOCKS=0
+
+readonly TOOL_NAME="capture-kernel-provenance"
+
+log()  { echo "==> $*" >&2; }
+warn() { echo "warning: $*" >&2; }
+die()  { echo "ERROR: $*" >&2; exit 1; }
+usage_die() {
+  echo "usage error: $*" >&2
+  echo "usage: cd <kernel build tree> && $TOOL_NAME [--force] <archived-vmlinuz> <archived-config>" >&2
+  exit 2
+}
+
+sha256_of() { sha256sum -- "$1" | awk '{print $1}'; }
+
+# ^CONFIG_ lines, one quote layer stripped from the value, sorted.
+# grep exits 1 on no match; that must not abort the run under pipefail.
+norm_symbols() {
+  { grep '^CONFIG_' -- "$1" || true; } | sed 's/="\(.*\)"$/=\1/' | sort
+}
+
+# --- arguments --------------------------------------------------------------
+
+FORCE=0
+ARGS=()
+while (( $# )); do
+  case "$1" in
+    --force) FORCE=1; shift ;;
+    -h|--help) usage_die "help requested" ;;
+    --) shift; while (( $# )); do ARGS+=("$1"); shift; done ;;
+    -*) usage_die "unknown flag: $1" ;;
+    *)  ARGS+=("$1"); shift ;;
+  esac
+done
+
+(( ${#ARGS[@]} == 2 )) || usage_die "expected 2 positional arguments, got ${#ARGS[@]}"
+
+ARCHIVED_VMLINUZ="${ARGS[0]}"
+ARCHIVED_CONFIG="${ARGS[1]}"
+
+# --- $PWD must be a kernel build tree ---------------------------------------
+
+TREE="$PWD"
+[[ -d "$TREE/.git" ]] \
+  || die "\$PWD is not a kernel build tree: no .git directory in $TREE"
+[[ -f "$TREE/Makefile" ]] \
+  || die "\$PWD is not a kernel build tree: no top-level Makefile in $TREE"
+
+# --- arguments must exist and be readable ------------------------------------
+
+[[ -f "$ARCHIVED_VMLINUZ" && -r "$ARCHIVED_VMLINUZ" ]] \
+  || die "archived vmlinuz missing or unreadable: $ARCHIVED_VMLINUZ"
+[[ -f "$ARCHIVED_CONFIG" && -r "$ARCHIVED_CONFIG" ]] \
+  || die "archived config missing or unreadable: $ARCHIVED_CONFIG"
+
+# --- the sidecar path is derived, never given --------------------------------
+
+SIDECAR="${ARCHIVED_VMLINUZ}.provenance"
+SIDECAR_DIR="$(dirname -- "$SIDECAR")"
+SIDECAR_BASE="$(basename -- "$SIDECAR")"
+
+if [[ -e "$SIDECAR" && $FORCE -eq 0 ]]; then
+  die "sidecar already exists: $SIDECAR (pass --force to overwrite)"
+fi
+[[ -d "$SIDECAR_DIR" && -w "$SIDECAR_DIR" ]] \
+  || die "sidecar directory missing or not writable: $SIDECAR_DIR"
+
+# --- CAPTURED_BY: this script's own name and hash -----------------------------
+# Records WHICH VERSION of the tool wrote the record, without the tool needing
+# to know where the katmate-os repository lies — which it cannot know from
+# inside a kernel tree.
+
+SELF="$0"
+if [[ "$SELF" != */* ]]; then
+  SELF="$(command -v -- "$SELF" 2>/dev/null || true)"
+fi
+[[ -n "$SELF" && -r "$SELF" ]] \
+  || die "cannot locate and read this script to hash it; CAPTURED_BY cannot be established"
+TOOL_SHA="$(sha256_of "$SELF")"
+
+# --- BANNER ------------------------------------------------------------------
+
+log "Reading boot protocol header from $ARCHIVED_VMLINUZ"
+
+MAGIC="$(dd if="$ARCHIVED_VMLINUZ" bs=1 skip=514 count=4 2>/dev/null || true)"
+[[ "$MAGIC" == "HdrS" ]] \
+  || die "no HdrS magic at 0x202 in $ARCHIVED_VMLINUZ (read '$MAGIC') — not a bzImage; every offset below it would be meaningless"
+
+# 16-bit little-endian kernel_version field at 0x20E (526 decimal), combined
+# explicitly rather than with od -tu2, which is host-endian.
+B0=""; B1=""
+read -r B0 B1 < <(od -An -tu1 -j 526 -N 2 -- "$ARCHIVED_VMLINUZ")
+[[ "$B0" =~ ^[0-9]+$ && "$B1" =~ ^[0-9]+$ ]] \
+  || die "could not read the 16-bit kernel_version field at 0x20E"
+KVER_FIELD=$(( B0 + 256 * B1 ))
+BANNER_OFF=$(( KVER_FIELD + 512 ))
+log "kernel_version field at 0x20E = $KVER_FIELD -> banner at file offset $BANNER_OFF"
+
+# The window must contain the NUL terminator, or the string read from it is
+# truncated without saying so.
+NUL_COUNT="$(dd if="$ARCHIVED_VMLINUZ" bs=1 skip="$BANNER_OFF" count=512 2>/dev/null \
+             | tr -dc '\000' | wc -c)"
+(( NUL_COUNT > 0 )) \
+  || die "no NUL terminator within 512 bytes at offset $BANNER_OFF — the banner would be truncated"
+
+BANNER="$(dd if="$ARCHIVED_VMLINUZ" bs=1 skip="$BANNER_OFF" count=512 2>/dev/null \
+          | awk 'BEGIN { RS = "\0" } NR == 1 { b = $0 } END { print b }')"
+
+[[ -n "$BANNER" ]] || die "banner string at offset $BANNER_OFF is empty"
+[[ "$BANNER" != *$'\n'* ]] \
+  || die "banner contains a newline; it cannot be written as one KEY=value line"
+
+# --- git fields --------------------------------------------------------------
+
+SRC_COMMIT="$(git rev-parse HEAD 2>/dev/null)" \
+  || die "git rev-parse HEAD failed in $TREE"
+[[ -n "$SRC_COMMIT" ]] || die "git rev-parse HEAD produced no output in $TREE"
+
+# Not a refusal (bound 5): SRC_COMMIT is identity, SRC_TAG is legibility.
+SRC_TAG="$(git describe --tags 2>/dev/null || true)"
+if [[ -z "$SRC_TAG" ]]; then
+  warn "git describe --tags found no reachable tag in $TREE -> SRC_TAG is empty"
+fi
+
+DIRTY=()
+while IFS= read -r p; do
+  [[ -n "$p" ]] && DIRTY+=("$p")
+done < <(git diff-index --name-only HEAD --)
+
+for p in ${DIRTY[@]+"${DIRTY[@]}"}; do
+  [[ "$p" != *[[:space:]]* ]] \
+    || die "dirty path contains whitespace: '$p' — a space-joined list would be ambiguous"
+done
+
+SRC_DIRTY_PATHS=""
+if (( ${#DIRTY[@]} > 0 )); then
+  SRC_DIRTY_PATHS="${DIRTY[*]}"
+fi
+
+# The summary line of --stat, e.g. "10 files changed, 371 deletions(-)".
+# Empty when the tree is clean. This is the field that answers "was the dirt a
+# patch?" by reading rather than by a session.
+SRC_DIRTY_STAT="$(git diff-index --stat HEAD -- | tail -n 1 | sed 's/^[[:space:]]*//')"
+
+# --- hashes and the two match fields -----------------------------------------
+
+log "Hashing $ARCHIVED_VMLINUZ"
+KERNEL_SHA256="$(sha256_of "$ARCHIVED_VMLINUZ")"
+log "Hashing $ARCHIVED_CONFIG"
+CONFIG_SHA256="$(sha256_of "$ARCHIVED_CONFIG")"
+
+TREE_IMAGE="$TREE/arch/x86/boot/bzImage"
+IMAGE_MATCH="no"
+if [[ -f "$TREE_IMAGE" && -r "$TREE_IMAGE" ]]; then
+  if [[ "$(sha256_of "$TREE_IMAGE")" == "$KERNEL_SHA256" ]]; then
+    IMAGE_MATCH="yes"
+  else
+    warn "arch/x86/boot/bzImage differs from the archived vmlinuz -> IMAGE_MATCH=no"
+  fi
+else
+  warn "no readable arch/x86/boot/bzImage in the tree -> IMAGE_MATCH=no"
+fi
+
+AUTOCONF="$TREE/include/config/auto.conf"
+AUTOCONF_MATCH="no"
+if [[ -f "$AUTOCONF" && -r "$AUTOCONF" ]]; then
+  if cmp -s <(norm_symbols "$AUTOCONF") <(norm_symbols "$ARCHIVED_CONFIG"); then
+    AUTOCONF_MATCH="yes"
+  else
+    warn "include/config/auto.conf and the archived config differ as symbol->value mappings -> AUTOCONF_MATCH=no"
+  fi
+else
+  warn "include/config/auto.conf is absent: the witness is gone, the pairing cannot be established -> AUTOCONF_MATCH=no"
+fi
+
+CAPTURED="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+CAPTURED_BY="$TOOL_NAME $TOOL_SHA"
+
+# --- write -------------------------------------------------------------------
+# Copy-then-rename with a dotted temporary name in the target directory, so a
+# reader never sees a partial sidecar and no glob matches the temporary.
+# build/foundation.sh step 11 and build/netvm.sh step 11 do the same.
+# Nothing is written under $PWD.
+
+TMP="$(mktemp -- "$SIDECAR_DIR/.$SIDECAR_BASE.XXXXXX")"
+trap 'rm -f -- "$TMP"' EXIT
+
+{
+  printf 'KATMATE_PROVENANCE_VERSION=1\n'
+  printf 'KERNEL_SHA256=%s\n'  "$KERNEL_SHA256"
+  printf 'CONFIG_SHA256=%s\n'  "$CONFIG_SHA256"
+  printf 'AUTOCONF_MATCH=%s\n' "$AUTOCONF_MATCH"
+  printf 'IMAGE_MATCH=%s\n'    "$IMAGE_MATCH"
+  printf 'SRC_COMMIT=%s\n'     "$SRC_COMMIT"
+  printf 'SRC_TAG=%s\n'        "$SRC_TAG"
+  printf 'SRC_DIRTY_PATHS=%s\n' "$SRC_DIRTY_PATHS"
+  printf 'SRC_DIRTY_STAT=%s\n' "$SRC_DIRTY_STAT"
+  printf 'BANNER=%s\n'         "$BANNER"
+  printf 'CAPTURED=%s\n'       "$CAPTURED"
+  printf 'CAPTURED_BY=%s\n'    "$CAPTURED_BY"
+} > "$TMP"
+
+chmod 0644 -- "$TMP"
+mv -f -- "$TMP" "$SIDECAR"
+trap - EXIT
+
+log "Wrote $SIDECAR (AUTOCONF_MATCH=$AUTOCONF_MATCH, IMAGE_MATCH=$IMAGE_MATCH)"
+printf '%s\n' "$SIDECAR"

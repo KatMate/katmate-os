@@ -4419,10 +4419,19 @@ close the question either: it measured saturation and not robustness.
 
 ## ADR-034 — Kernel provenance: a sidecar captured at build, carried into T2, checked at install
 
-**Status:** DRAFT — proposed, not accepted. It rests on two read-only
-investigations (MINIS tree and Acer tree, 2026-08-28) and on one capture already
-taken under it (MINIS, 2026-08-28, § *The first capture* below). **Nothing here
-may be cited as measured beyond that capture's own readings.**
+**Status:** Accepted (2026-09-01). The draft rested on two read-only
+investigations of 2026-08-28 — the MINIS kernel tree and the Acer's — and on one
+capture taken under it by hand on MINIS the same day, before the tool existed.
+Acceptance rests on those plus four sessions between 2026-08-28 and 2026-09-01, a
+pre-gate read, a first gate, a fix-and-regate and one closing gate, all run from
+the Acer against MINIS; their reports are named in the acceptance note at the end
+of this ADR, and the tool they gated is `tools/capture-kernel-provenance`,
+committed with this change. This line read `DRAFT — proposed, not accepted` until
+acceptance, and the sentence it carried — *"Nothing here may be cited as measured
+beyond that capture's own readings"* — was true when written and is discharged by
+that note. **Accepted is a decision and not an implementation:** the sidecar does
+not yet travel with the kernel through the build hops, and no image metadata
+records it.
 
 **Depends on:** [ADR-005](DECISIONS.md#adr-005) (direct-kernel boot, no initrd),
 [ADR-011](DECISIONS.md#adr-011) (build and update pipeline),
@@ -4650,3 +4659,213 @@ distinguish ten deletions from ten edits without carrying the edits; whether
 existing MINIS sidecar — written by hand before the tool exists, and carrying
 `CAPTURED_BY=manual capture, tools/ implementation pending` — is re-taken by the
 tool once it lands, or left standing as the record it already is.
+
+**Acceptance note (2026-09-01) — what acceptance rests on, what the schema
+became, and what it does not yet do:** the status line above was changed from
+`DRAFT` to `Accepted` in place, which is this file's practice for that one line
+and only that line, on ADR-033's precedent (2026-08-28) and ADR-010/ADR-011's
+before it. The body below is untouched and stays append-only.
+
+**What acceptance rests on — four sessions, and what each discharged.**
+
+- **The pre-gate read** (2026-09-01, MINIS, `~/adr034-pregate-report.md`) — that the
+  witness still exists. The build tree's generated config survived, unchanged in
+  the 65 days since the build; the tree image and the archived image are the same
+  bytes; and the archived config pairs to the tree symbol-for-symbol. It also
+  established the banner extraction method, which could not be settled by reading
+  and had to be run against a real image.
+- **The first gate** (2026-09-01, MINIS, `~/adr034-tool-gate-report.md`) — which the
+  tool **failed**, and the failure is why this note can be written. See *the
+  defect* below.
+- **The fix and the re-gate** (2026-09-01, Acer and MINIS, `~/adr034-gate2-report.md`) — the two
+  readings the first gate could not take, plus the measured before-and-after of
+  the defect.
+- **One closing gate** (2026-09-01, MINIS, `~/adr034-g8-report.md`) — the last claim in
+  the tool that stood on argument rather than measurement, closed in both
+  directions against a control.
+
+### A. The four items left open in the draft, and what they resolved to
+
+**1. The tool's name and invocation.** `tools/capture-kernel-provenance`, bash,
+**standalone** — it does not source the build pipeline's configuration, because
+it runs inside a kernel source tree where that configuration's path computation
+and storage names have no meaning. The build tree is the **working directory**
+and is not an argument. The sidecar path is **derived** from the image argument
+and never given, so the binding between a record and the payload it describes is
+structural rather than a parameter that can be passed wrong. It refuses to
+overwrite an existing sidecar without `--force`.
+
+**2. Whether `SRC_DIRTY_PATHS` also carries a hash of the diff.** It does not.
+The path list stays, and a second field `SRC_DIRTY_STAT` is added carrying the
+`--stat` summary line. **The hash was rejected on two grounds.** It distinguishes
+two different dirty states from each other but says nothing about the nature of
+either — it cannot tell ten deletions from ten edits, which is the question that
+cost a session. And `git diff` output is not stable across diff algorithm,
+rename detection and context settings, so the hash would depend on the machine
+that took it; an identifier that looks stable and is not is worse than none. The
+summary line answers *was the dirt a patch?* by reading. Its first measured value
+is `10 files changed, 371 deletions(-)`.
+
+**3. Whether the release orchestrator re-verifies the sidecar on a version
+bump.** It checks **presence, not content**. A second full verification would be
+a second implementation of one truth with nothing holding the two in step, which
+is this project's characteristic failure class. Presence is a different
+assertion, taken early, and it foretells `KERNEL_PROVENANCE=absent` at the point
+where a release is being assembled rather than leaving a reader to discover it
+afterwards.
+
+**4. Whether the hand-captured sidecar is re-taken by the tool or left
+standing.** It is **replaced by the tool's output**, on the condition that the
+tool first reproduce it. **The condition was met** — § D — and the hand-captured
+file is quoted in full at § F before being replaced, because until this note it
+survived verbatim only in reports that live outside this repository.
+
+### B. What changed in the schema, and why the version did not
+
+- **`IMAGE_MATCH` is added.** The first capture is recorded as having verified
+  the tree image against the archived image three times and having written none
+  of it down. The field exists so that the check is **recorded** and not merely
+  performed.
+- **`SRC_DIRTY_STAT` is added**, per A.2.
+- **`CAPTURED_BY` is promoted from an ad-hoc field to schema.** The first capture
+  invented it and was right to: who wrote a record is part of the record. It
+  carries the tool's name and the tool's own hash, so the file says which version
+  of the tool wrote it without the tool needing to know where this repository
+  lies — which, from inside a kernel tree, it cannot.
+- **`SRC_TAG` may be empty, and a failing `git describe --tags` is not a
+  refusal.** `SRC_COMMIT` is the tree's **identity** and names the exact state
+  that was built; `SRC_TAG` is **legibility**. A provenance tool that refused to
+  record anything because a tree carries no reachable tag would be imposing a
+  kernel-build policy from the wrong place. A failing `git rev-parse HEAD`
+  remains a refusal.
+- **The schema is now twelve keys**, and `KATMATE_PROVENANCE_VERSION` stays `1`:
+  nothing has ever read a sidecar, so there is no reader to break.
+- **An empty value is unambiguous.** The tool writes twelve keys or writes
+  nothing — there is no partial record — so an empty field means *established and
+  empty*, never *not recorded*.
+
+### C. `AUTOCONF_MATCH` — the comparison is specified here, not left to the tool
+
+This is the substantive addition, and the reason it belongs in the ADR rather
+than only in code is that **the schema line as originally written was
+under-specified, and a tool implementing it literally would have contradicted a
+measurement this project had already recorded twice.**
+
+**The two files are compared as mappings from symbol to value, not as text.**
+
+- **Order is not meaningful.** The two disagree on it: **3434** differing lines
+  in a file-order diff of two files carrying the same **1718** symbols, because
+  the generated file is in the build system's order and the archived config in
+  menu order. Both orders are stable properties of their formats.
+- **Quoting is not meaningful.** The two disagree on it: **21** symbols, **86**
+  diff lines, every one the same shape, and **no symbol has a different value on
+  the two sides**. The quotes are the config format's syntax, not part of any
+  value.
+
+**Bound: the comparison covers set symbols only** — 1718 on each side. The
+archived config also carries **2601** *"is not set"* comment lines that the
+generated file does not have by construction. This is not a gap: an unset symbol
+carries no information beyond its absence, and comparing the two complete
+normalised streams catches a symbol present on one side and absent on the other
+**in either direction**. That was an argument in the tool's own header, and it is
+now measured — § D.
+
+### D. The gate, and what it established
+
+**Against the hand-captured record** (MINIS, 2026-09-01). The standing record has **10** keys and the
+produced one **12**. **Eight pair identically.** `CAPTURED` and `CAPTURED_BY`
+differ **by construction** — the captures are four days apart, and the field
+moved from free text to name-and-hash. **Two are new**, `IMAGE_MATCH` and
+`SRC_DIRTY_STAT`.
+
+**`BANNER` was compared byte for byte**, not by eye: `cmp` exit **0**, **84**
+bytes on each side, identical hashes, with the date's double space present in the
+produced value.
+
+**The banner extraction.** A text search over the compressed image finds nothing
+and fails **silently**; the method is the boot protocol setup header, guarded by
+its magic so that a file which is not such an image is refused rather than read
+at meaningless offsets. The version field read the **same value on two different
+images** — the MINIS 6.12.87 build and the Acer's — built by different people on
+different machines on different dates.
+
+**A defect the gate found, and that a single run would have hidden.** An
+early-exiting pipeline consumer raced its producer; when it won, the tool aborted
+**with no diagnostic at all**. It was reproduced at **24.5%** — 49 of 200 runs, on
+**MINIS** — and at **2.5%** — 1 of 40, on the **Acer**. The two 200-run series
+are both MINIS: the unfixed tool and the fixed one, run back to back against the
+same inputs. At 2.5% a single smoke test had roughly a **97.5%** chance of
+missing it, and did. Fixed by reading to end of input: **200 of 200** runs clean
+afterwards, with the extracted value **byte-identical before and after** (`cmp`
+exit 0 between the pre-fix and post-fix values), so the repair changed the
+failure rate and not the measurement.
+
+**Refutation, not only confirmation.** A fixture that must be accepted proves
+half of a comparison.
+
+- A config differing in **exactly one** symbol out of 1718 produces `no`, with
+  **exactly two** fields moving: the match field and the hash of the file that
+  changed.
+- The symbol-set claim was measured **in both directions** — one symbol removed
+  from the generated file, then the same symbol removed from the archived config
+  — each against a **control** built from the same bytes as the real pair, which
+  yields `yes`. Counts: 1718/1718 → `yes`; 1717/1718 → `no`; 1718/1717 → `no`.
+  All three on MINIS, 2026-09-01.
+
+### E. What acceptance does not claim
+
+- **The self-hash refusal is unexercised.** Forcing it is contrived and would
+  prove less than it costs.
+- **Multi-symbol asymmetry is untested.** Only one symbol in each direction was
+  measured.
+- **A missing symbol whose value is quoted is untested.** The normalisation
+  strips quotes before comparing, so it is the same code path — but that is an
+  argument, and it is recorded here as one.
+- **The compressed-image fallback is deliberately not implemented.** It has never
+  been exercised, and an untested fallback path in a provenance tool is worse
+  than its absence, because it reads as coverage.
+
+### F. The hand-captured record, quoted before it is replaced
+
+This is the reference fixture. It was captured **by hand, before the tool
+existed**, and it is the only thing the tool could be gated against; § A.4
+replaces it with the tool's output. It is reproduced here in full so the record
+is in this repository and not only in a report outside it.
+
+```
+KATMATE_PROVENANCE_VERSION=1
+KERNEL_SHA256=b34026dd2b95cd364235ff90eb0be43f405927ab9b994f174681b9367e48c3ce
+CONFIG_SHA256=7720cf221b77e61995ae502bcd59b07f066d42fab5d14edae8af2b212bd95281
+AUTOCONF_MATCH=yes
+SRC_COMMIT=8bf2f55ef536982e44802d99340119dac6f50636
+SRC_TAG=v6.12.87
+SRC_DIRTY_PATHS=arch/mips/generic/vmlinux.its.S arch/mips/mobileye/vmlinux.its.S arch/nios2/boot/compressed/vmlinux.scr arch/openrisc/kernel/vmlinux.h arch/parisc/boot/compressed/vmlinux.scr arch/sh/boot/compressed/vmlinux.scr arch/sh/boot/romimage/vmlinux.scr tools/perf/util/bpf_skel/vmlinux/.gitignore tools/perf/util/bpf_skel/vmlinux/vmlinux.h tools/testing/selftests/bpf/prog_tests/vmlinux.c
+BANNER=6.12.87-dirty (host@archlinux) #1 SMP PREEMPT_DYNAMIC Wed Jul  1 08:10:48 CEST 2026
+CAPTURED=2026-08-28T06:58:54Z
+CAPTURED_BY=manual capture, tools/ implementation pending
+```
+
+Ten keys. `CAPTURED_BY` here is the ad-hoc field that § B promotes to schema; its
+free-text value is what that promotion replaces.
+
+### G. What acceptance does NOT do — the implementation is the next commit
+
+Acceptance is a decision. None of the following exists yet, and this note does
+not claim it:
+
+- **The sidecar does not travel.** It is written in the kernel build tree and
+  stays there; neither build hop copies it, so a record written today is lost at
+  the point it is least noticed.
+- **No image metadata records provenance.** The `KERNEL_PROVENANCE` field named
+  in the decision above is not written by any build.
+
+Two rulings belong to that work and are recorded here so they are not
+re-derived:
+
+- **The check goes in the build's preflight**, beside the existing check for the
+  kernel file, so a mismatch fails **before** the expensive build rather than
+  after the image is frozen and its metadata already written.
+- **`KERNEL_PROVENANCE` carries `recorded` or `absent`, not a hash.** A hash
+  there would be a second copy of a value that already lives in the sidecar —
+  the same objection the app-layer build already makes about restating a version
+  it does not own.
