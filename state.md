@@ -463,9 +463,11 @@ touched.
    `netvm-agent` — a RUN opcode or an equivalent — without which every internal
    check costs either a console or a drift.
 
-13. **The comment at `netvm.sh` line 224 is wrong.** (Cited as line 210 until
-   2026-08-09; the file has moved under it.) It claims the manifest
-   lacks `chpasswd(8)`. Both `chpasswd` and `usermod` ARE in the image (under
+13. **The comment at `netvm.sh` line 228 is wrong.** (Cited as line 210 until
+   2026-08-09 and as line 224 until 2026-09-02; the file has moved under it
+   twice, and the citation has now been corrected twice. Only the line number
+   changes here; the finding is unaltered.) It claims the manifest lacks
+   `chpasswd(8)`. Both `chpasswd` and `usermod` ARE in the image (under
    `/usr/sbin`, confirmed by mount on 07-23). The actual cause of the original
    failure is that `chroot_run`'s PATH does not carry `/usr/sbin` — hence the
    absolute path. Cosmetic.
@@ -1244,6 +1246,49 @@ touched.
    `scratch.qcow2` came from or what it is for, and this session did not
    investigate, delete or rename it. Whether the delta should go or the script
    should tolerate an unknown type is not decided here.
+
+27. **The `netvm-agent` unit baked into the netVM image still names the Path A
+   mechanism ADR-025 rejected.** Added 2026-09-02, from the ADR-035 read pass
+   (`~/adr035-readpass-report.md` § 8 D3). **Read from the tree only** — nothing
+   was run, no image was mounted, and this says nothing about the installed
+   image on MINIS.
+
+   `build/netvm.sh` writes the unit into the guest at step 7 (heredoc, lines
+   242–263). Two of its lines describe a mechanism that was measured dead the
+   day after they were written:
+
+   ```
+   252	# CAP_NET_ADMIN: /etc/systemd/network/ writes + networkctl reload + nft (NETCFG).
+   258	ReadWritePaths=/etc/systemd/network /run
+   ```
+
+   ADR-025 § *Mechanism resolved (2026-07-21): Path B* records that no
+   dbus-less `networkctl reload` trigger exists — the classical bus call inert
+   (E1), the varlink surface carrying no config-mutation method (E2), and
+   `SIGRTMIN+1` terminating networkd rather than reloading it (E3) — and that
+   the agent programs `AF_NETLINK` directly, so *"the E4 `tmpfiles.d` DAC line
+   is not needed"*.
+
+   **The agent carries no code that writes there.**
+   `git grep -F 'systemd/network' -- agent/` returns nothing, and `netlink.rs`'s
+   own header states the design: the MAC→ifindex step is read-only sysfs and
+   the rest is rtnetlink, with no dump parsing and no state.
+
+   **What this is, stated narrowly.** The comment at 252 is a wrong statement of
+   *why* `CAP_NET_ADMIN` is held; `ReadWritePaths=` at 258 grants write access
+   to a directory nothing writes to. Neither is a defect in behaviour — the
+   agent works by the path ADR-025 chose — and neither has been observed on a
+   running system by this record.
+
+   **Ruled 2026-09-02: the fix lands in the netVM slot-pool commit, where the
+   unit is rewritten anyway — not before.** That is § *Next steps* step 1. A
+   passing edit would buy an image rebuild for a comment.
+
+   *One thing a later session should not have to rediscover:* this is the
+   **guest-side** unit, baked into the image by `netvm.sh`, so changing it costs
+   a `netvm.sh` run. It is **not**
+   `host/usr/lib/systemd/system/katmate-sys-driver@.service`, the host-side unit
+   that § *Next steps* step 1 also names. Two units, one step.
 
 ## Next steps
 
