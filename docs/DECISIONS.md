@@ -2059,6 +2059,47 @@ The `state.md` invariant naming `52:54:0a:64:01:01` as the internal segment's
 identity is stale from the moment the generator lands, and is corrected in the
 same pass.
 
+**Revision note (2026-09-02, § *Replacement* — [ADR-035](DECISIONS.md#adr-035)
+§2 scopes *"derived, never authored"*):** the *Replacement* paragraph above
+states the rule without naming what it governs. ADR-035 §2 supplies the scope:
+it governs **identity** MACs — a MAC that names an instance — and a netVM
+link-pool slot is not an instance. The netVM side of pool slot `k` carries
+`52:54:01:00:00:kk`, a pool constant written literally in T4, never projected
+and derived from nothing; the two middle octets are reserved zero and will
+never carry address bytes. The third octet `01` partitions slot MACs from the
+`52:54:00` identity MACs this ADR's derivation produces, so the two classes
+cannot collide by construction. ADR-035 rejects hash-derived slot MACs
+explicitly, and on this ADR's own evidence: uniqueness across sixteen would
+become probabilistic, and the agent returns a first match.
+
+**Nothing in this ADR's mechanism changes.** The wire validation above requires
+of `match_mac` only that the address be unicast with the locally-administered
+bit set, and `0x52` satisfies it for both classes.
+
+**This note records a supersession and changes no sentence above it.** It
+narrows the rule rather than overturning it. ADR-035 is PROPOSED, none of its
+six gates has been taken, and no pool exists — what is recorded here is the
+scope a later ADR gives this ADR's rule, not an implementation.
+
+**Revision note (2026-09-02, the payload table's `local_addr` row —
+[ADR-035](DECISIONS.md#adr-035) §3):** the table above validates `local_addr`
+totally against `INTERNAL_LOCAL` (`10.100.1.1`), and § *Alternatives considered*
+reserves loosening that constant for the proxy case. ADR-035 §3 leaves the
+constant exactly where it is and changes what it means. Under a sixteen-slot
+link pool there are sixteen netVM-side interfaces, each ADD carries the same
+`local_addr`, and every active slot holds `10.100.1.1/32`. **That sharing is now
+by design, not by accident** — one gateway identity on every link, which is what
+keeps any per-instance network fact out of an AppVM's configuration and lets
+every AppVM image carry the same gateway.
+
+**No validator constant moves and no sentence above is edited.** What changes is
+that the constant is load-bearing in a way it was not when it was written as
+*"v1 has exactly one legal local"*. That one address can be held on many
+interfaces at once is a claim about the kernel, and ADR-035 gates it (G2) —
+including the half a confirmation cannot show — rather than assuming it.
+
+**This note records a supersession and changes no sentence above it.**
+
 ---
 
 ## ADR-026 — Domain indicator carriers: host-resolved waypipe CID, never guest-supplied window properties
@@ -3455,6 +3496,43 @@ is rewritten to cite E1 and E1c together and to state why the `-` is there;
 `katmate-generate-env` gains the read-back; G1, G4, G6 and H1 become runnable;
 H1's three-preflight wording stands unchanged, since the chain is not split.
 
+**Revision note (2026-09-02, §3 — the premise is superseded, the conclusion is
+restored on a new model, and the count was already overtaken):** three separate
+things, recorded together because they are one section's fate.
+
+**1. The premise is gone.** §3 grounds itself in a netns and a tap: a
+`NetworkNamespacePath=/run/netns/katmate-%i`, and a tap created inside it and
+owned by the per-VM uid so QEMU opens it without `CAP_NET_ADMIN`.
+[ADR-033](DECISIONS.md#adr-033) abolished both. A link is a pair of AF_UNIX
+datagram sockets opened by path at start — no netns, no tap, no bridge, and no
+`CAP_NET_ADMIN` anywhere in an AppVM's start path. Those two bullets describe a
+mechanism this project no longer intends to build.
+
+**2. The conclusion is restored, on the new model, by
+[ADR-035](DECISIONS.md#adr-035) §9** — and restored more strongly than §3
+claimed it. Under the netVM link pool the template's network argv is sixteen
+literal `-netdev dgram` / `-device virtio-net-pci` pairs, with `%i` in the
+socket paths and constant MACs, and **no network scalar crosses at all**;
+`KM_MAC_INT` retires with `tap-int0`. §3's principle — a fixed, validated key
+set, each key at a fixed position, the braced `${}` form so a value can never
+become an argument — is untouched, and is what ADR-035 builds on.
+
+**3. The arithmetic was overtaken before either later ADR, by this project's own
+template.** §3 reads *"Exactly two values still cross"* and names `KM_CID` and
+`KM_VFIO_BDF`. The shipped template interpolates **nine** distinct `${KM_*}`
+values in its `ExecStart=` — measured 2026-09-02 by reading
+`host/usr/lib/systemd/system/katmate-sys-driver@.service`: the two named, plus
+`KM_MEM`, `KM_VCPUS`, `KM_KERNEL`, `KM_INITRD`, `KM_ROOT_DEVICE`,
+`KM_ROOTFS_DEV` and `KM_MAC_INT`. The count is a statement about a template that
+did not exist when §3 was written, and it is recorded here so the sentence is not
+read literally by a later session. **The rule the count illustrates held
+throughout and holds now** — every one of the nine is in the fixed key set, at a
+fixed position, in the braced form.
+
+**This note records a supersession and changes no sentence above it.** ADR-035
+is PROPOSED and none of its six gates has been taken, so §9's restoration is a
+decision about argv, not a template that ships.
+
 ---
 
 ## ADR-032 — Where each tier lives: the path is the tier, and T4 is more than the template
@@ -4185,6 +4263,40 @@ file cannot be suspended in another.
 **The clause above is not edited.** This file is append-only in its body, the
 original stands as written, and this note is what qualifies it. Gate M2 does not
 close the question either: it measured saturation and not robustness.
+
+**Revision note (2026-09-02, § *Open in this ADR, deliberately* — four items
+closed by [ADR-035](DECISIONS.md#adr-035), one closed earlier, one still open):**
+the section above leaves six items open on purpose. Their state is now:
+
+- **the slot-to-interface naming scheme** — closed by ADR-035 §8. Slot `k` is
+  named `kmkk` inside netVM, a view of the constant MAC produced by udev, and
+  **never load-bearing**: NETCFG selects by MAC, nft references the segment or
+  the peer `/28`, and if the rename never happens nothing programmatic changes.
+- **`N`** — closed earlier, by the acceptance note above, at **16**.
+- **the socket path convention under `/run/katmate/link/`** — closed by ADR-035
+  §5: `/run/katmate/link/<netvm>/<kk>/{netvm,appvm,owner}`, one directory per
+  slot under the netVM instance's directory, with the tree owned by whoever
+  starts the netVM and never removed by a stop.
+- **whether a released slot is reused immediately or quarantined** — closed by
+  ADR-035 §6: **reused immediately**. Free is a state and not a timer, and the
+  quarantine is that FREE is DOWN.
+- **what a slot's MAC derives from** — closed by ADR-035 §2: **nothing**. It is
+  the T4 constant `52:54:01:00:00:kk`. This ADR named
+  [ADR-025](DECISIONS.md#adr-025)'s sha256 scheme as *"the obvious candidate"*
+  and declined to assume it; ADR-035 rejects it, because uniqueness across
+  sixteen would become probabilistic and the agent returns a first match.
+
+**The sixth remains open, and accepting ADR-035 would not close it.** This ADR
+states it as *"whether QEMU issues a failing `sendto` per frame or discards
+without a syscall while a peer is absent"*; the M2 revision note above states it
+as *"whether QEMU-as-sender retries or discards on `EAGAIN`"*. Both are about
+what the sending VMM does when the socket will not take the frame, both are
+unmeasured, and ADR-035 lists the second among the things it leaves open. This
+note does not rule on whether the two formulations are one question.
+
+**This note records a supersession and changes no sentence above it.** ADR-035
+is PROPOSED and none of its six gates has been taken: what is closed above is
+the design question in each case, never the mechanism.
 
 ---
 
