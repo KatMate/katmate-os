@@ -46,6 +46,46 @@
 
 ---
 
+## This session (2026-09-01, first of two) — kernel provenance: the witness held, the tool was gated, and the gate found the defect
+
+Five delegated sessions on the Acer, reaching MINIS over ssh, closing ADR-034
+from DRAFT to Accepted. Reports outside the repository:
+`~/adr034-pregate-report.md`, `~/adr034-tool-gate-report.md`,
+`~/adr034-gate2-report.md`, `~/adr034-g8-report.md`,
+`~/adr034-acceptance-report.md`.
+
+**The witness held.** The MINIS kernel tree still carries
+`include/config/auto.conf` from the 2026-07-01 build, unchanged in the 65 days
+since, and it pairs to the archived config symbol-for-symbol. That is what the
+whole ADR was racing: the evidence lives in the build tree and the next
+reconfigure deletes it.
+
+**The comparison had to be specified before it could be implemented.** The two
+files disagree on order (3434 differing lines over the same 1718 symbols) and on
+quoting (21 symbols, 86 lines), and on neither does any symbol carry a different
+value. A tool implementing the draft schema line literally would have written
+`AUTOCONF_MATCH=no` for a pairing recorded as identical three times. The ADR now
+carries the comparison; the code does not define it alone.
+
+**The gate found a defect a smoke test could not.** An early-exiting pipeline
+consumer raced its producer and aborted with no diagnostic — 49/200 on MINIS,
+1/40 on the Acer. The Acer smoke test had roughly a 97.5% chance of missing it
+and did; the gate caught it because a gate runs the thing more than once. Fixed
+by reading to end of input, 200/200 clean after, extracted value byte-identical
+either side of the fix.
+
+**Refutation was measured, not only confirmation.** A config differing in exactly
+one symbol of 1718 produces `no` with exactly two fields moving, and the
+symbol-set claim was closed in both directions against a control that yields
+`yes`. That control matters: without it a `no` from the rig cannot be told from a
+`no` caused by the rig.
+
+**What was committed:** ADR-034 accepted with `tools/capture-kernel-provenance`
+(sha256 `5b1f16c3823cf72defc1cca37d014d700a2681e04a3fc350dd4266a0e4c1df22`), the
+ROADMAP and ARCHITECTURE reconciliation, and this entry. **What was not:** the
+sidecar does not travel with the kernel and no image metadata records it. That is
+the next commit and a separate session.
+
 ## This session (2026-08-24) — the link measurement arc: a socket-backed link starts with no peer, and the address is resolved per send
 
 Two delegated measurement sessions on the Acer, reaching MINIS over ssh, against

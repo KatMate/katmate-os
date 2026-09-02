@@ -5,12 +5,15 @@
 > each working session. Detailed proofs and command sequences live in git
 > history and the ADRs — this file references them rather than repeating them.
 
-**Milestone:** v0.2 (in development) · **Last updated:** 2026-08-28
-(kernel provenance — ADR-034 written as DRAFT and the first sidecar captured on
-MINIS; and gate M2 measured — no knee, ADR-033 given a revision note and its `N`
-ruled at 16. **No session rotation was performed**, so the arc heading below
-still reads *2026-08-24* while its `link-m3` subsection is 2026-08-28; that
-subsection says so in its own first paragraph).
+**Milestone:** v0.2 (in development) · **Last updated:** 2026-09-02
+(the ADR-035 arc — the July splice removed from `docs/DECISIONS.md`, five
+questions answered from the tree, and ADR-035 appended as PROPOSED with its
+supersessions recorded in ADR-025, ADR-030 and ADR-033. **One rotation was
+performed:** the 2026-09-01 *first of two* entry moved to `docs/SESSIONS.md`.
+**The note that stood here is retired.** It read *"No session rotation was
+performed"* and pointed at an arc heading dated *2026-08-24*; that entry rotated
+out on 2026-09-01, so the sentence had been describing a heading this file no
+longer carried).
 
 ## Current focus
 
@@ -45,7 +48,102 @@ restartable — and so updatable — without touching running VMs.
 Direction unchanged: IOMMU-capable platforms only (VT-d/AMD-Vi); VT-x-only
 frozen (ADR-015). MINIS is primary host and merge target.
 
-## This session (2026-09-01, second of two) — the sidecar travels, and the path it travels from does not resolve as root
+## This session (2026-09-02) — the ADR-035 arc: a splice removed, five questions answered, and the netVM link pool decided as PROPOSED
+
+Three delegated sessions on the Acer, one arc, ADR-035 from nothing to PROPOSED.
+**None of the three reached MINIS, measured any behaviour, or took any gate.**
+Reports outside the repository: `~/adr035-readpass-report.md`,
+`~/d1-splice-repair-report.md`, `~/adr035-write-report.md`.
+
+**Run 1 — the read pass (no commits).** Read the tree against ADR-033's open
+items and produced the divergence list the other two runs worked from. Two of
+its findings shaped everything after. **It found the splice:** a whole copy of
+ADR-025, pasted by `8837e12` (2026-07-20) into the middle of a word in ADR-024's
+consequences list, with its heading at **column 71** — so `grep '^## ADR-'` had
+never shown it, and every section map drawn of that file since July had been
+drawn over a document containing two ADR-025s and had reported one. And it found
+the **first-match rule**: `netlink::ifindex_by_mac`
+(`agent/crates/netvm-agent/src/netlink.rs:473–496`) walks `/sys/class/net`,
+compares each `address`, **returns the first match** (`:493`), rejects on none
+(`:496`), and neither counts nor sorts. With one internal interface that is
+invisible; with sixteen it is a correctness precondition nothing enforces, and it
+is why ADR-035 has a §7 at all.
+
+**Run 2 — the splice repair (`ab50241`, `a4dab42`).** Removed the pasted
+duplicate and restored the sentence it broke — the bullet *"Open problem #10
+closes on the live gate; the QMP-wiring Next-step items drop from `state.md`"*
+had been severed between `i` and `tems` with 229 lines in the gap. Not an edit to
+a decision: the region was a faithful duplicate at birth, and every present-day
+difference was a later canonical-side edit the copy never received.
+**`grep '^## ADR-'` is a complete section map of `docs/DECISIONS.md` again, for
+the first time since 2026-07-20.** `a4dab42` opened #27 and moved #13's citation.
+**Every line number past ADR-024 shifted by −229**, which a later session
+measures rather than carries.
+
+**Run 3 — the write pass (`1d3f22c`, `cdbf714`, and this entry).** Answered the
+five questions ADR-035's draft carried to the tree, appended the ADR verbatim as
+PROPOSED, and recorded its supersessions in ADR-025, ADR-030 and ADR-033. It
+opened on a halt — the brief named the draft at `~/ADR-035-DRAFT.md` and the file
+is at `~/Claude.assistent/ADR-035-DRAFT.md` — and the operator ruled before any
+read of it went further.
+
+**The five answers, which exist nowhere else in the repository.** Every one is a
+reading of source or configuration. **None is an observation of a running
+system.**
+
+1. **Today's NETCFG REMOVE deletes the payload's routes and the address, and
+   nothing else** (`agent/crates/netvm-agent/src/netcfg.rs:338–346`). `IFF_UP` is
+   **deliberately** not cleared, and the comment at `:331–333` gives the reason —
+   *"a shared netdev would be broken by it"*. There is **no neighbour delete and
+   no conntrack flush anywhere in the binary**: `netlink.rs` defines five `RTM_*`
+   constants (`NEWLINK`, `NEWADDR`, `DELADDR`, `NEWROUTE`, `DELROUTE`) and there
+   is no `link_down`. ADR-035 §6 requires all three.
+2. **ADD converges on `EEXIST`, and distinguishes it from every other errno**
+   (`netlink.rs:407`, `settle(e, &[libc::EEXIST], "addr add")`; one tolerance
+   list per direction, and `link_up` at `:390` tolerates nothing). The request
+   carries `NLM_F_EXCL` (`:400`), so the kernel is asked to refuse and the list
+   converts that refusal into OK. **Bound:** `settle` receives an errno and not
+   an interface, so what the kernel returns when the same address is added on a
+   *second* interface is ADR-035's G2 and is not readable from this tree.
+3. **Nothing bounds an instance name's length.** `km_check_instance`
+   (`host/usr/lib/katmate/katmate-lib.sh:64–69`, the only check
+   `katmate-generate-env:48` applies) is `^[a-z][a-z0-9_]*$` — a character class,
+   unbounded — and `tools/validate-properties.fish` never examines the filename
+   stem at all. **Open problem #28.**
+4. **The netVM's and an AppVM's QEMU do not share a uid.**
+   `katmate-sys-driver@.service` sets no `User=`, `Group=` or `DynamicUser=`, so
+   it is root; **there is no AppVM unit at all**, and `app_web.con:113` invokes
+   QEMU with no `sudo` (its three `sudo` calls are `lvchange`, at `:83,86,90`),
+   so an AppVM's QEMU is the invoking non-root user. ADR-035 §5 has an AppVM's
+   QEMU binding a socket inside a directory the netVM's QEMU owns, which is that
+   ADR's own open *Socket permissions* dependency.
+5. **`CONFIG_IP_PNP=y`**, with `_DHCP`, `_BOOTP` and `_RARP` all `=y`, in
+   `~/katmate-kernels/config-katmate-microvm-amd64-6.12.87` — header line checked
+   first, `Linux/x86 6.12.87`, per the invariant below. `CONFIG_IKCONFIG` is
+   **not set**, so this is a reading of the config file and **not** of the image.
+   Two bounds, neither resolved: the config's mtime is about six weeks *newer*
+   than the vmlinuz beside it, and **no `.provenance` sidecar exists for that
+   image on the Acer** — the unwitnessed pairing ADR-034 was written to close,
+   and it is not closed here.
+
+**No answer contradicted the draft**, so no halt was taken on one. The single
+numeric discrepancy is ADR-035 §5's *"roughly seventy"* characters of headroom
+against a measured **80**; it is named in the write report and in #28, the draft
+was **not** edited to fit the measurement, and whether the sentence changes is
+the operator's ruling.
+
+**Deliberately not done.** No change to `ARCHITECTURE.md` or
+`SECURITY-MODEL.md` — ADR-035 says both must change, and both change at
+acceptance, not at PROPOSED, because writing them now would describe a pool that
+does not exist. No implementation of any kind: no template, no unit, no agent
+code, no generator change. Nothing pushed.
+
+**One check worth keeping.** The write pass verified its append by comparing
+`grep -c -F '## ADR-'` against `grep -c '^## ADR-'` and requiring them equal —
+34 and 34. That is the check that would have caught the July splice on the day it
+landed, it costs one command, and it is now taken on every ADR append.
+
+## Previous session (2026-09-01, second of two) — the sidecar travels, and the path it travels from does not resolve as root
 
 Delegated session on the Acer, gating on MINIS. Implements what ADR-034's
 acceptance note left outstanding: *"the sidecar does not travel"* and *"no image
@@ -76,46 +174,6 @@ deferred** — the ruling stands and is simply not implementable yet.
 
 **The shape of that mistake is the lesson**, and it is in *Invariants & gotchas*:
 a check that cannot fire reads exactly like a check that found nothing.
-
-## Previous session (2026-09-01, first of two) — kernel provenance: the witness held, the tool was gated, and the gate found the defect
-
-Five delegated sessions on the Acer, reaching MINIS over ssh, closing ADR-034
-from DRAFT to Accepted. Reports outside the repository:
-`~/adr034-pregate-report.md`, `~/adr034-tool-gate-report.md`,
-`~/adr034-gate2-report.md`, `~/adr034-g8-report.md`,
-`~/adr034-acceptance-report.md`.
-
-**The witness held.** The MINIS kernel tree still carries
-`include/config/auto.conf` from the 2026-07-01 build, unchanged in the 65 days
-since, and it pairs to the archived config symbol-for-symbol. That is what the
-whole ADR was racing: the evidence lives in the build tree and the next
-reconfigure deletes it.
-
-**The comparison had to be specified before it could be implemented.** The two
-files disagree on order (3434 differing lines over the same 1718 symbols) and on
-quoting (21 symbols, 86 lines), and on neither does any symbol carry a different
-value. A tool implementing the draft schema line literally would have written
-`AUTOCONF_MATCH=no` for a pairing recorded as identical three times. The ADR now
-carries the comparison; the code does not define it alone.
-
-**The gate found a defect a smoke test could not.** An early-exiting pipeline
-consumer raced its producer and aborted with no diagnostic — 49/200 on MINIS,
-1/40 on the Acer. The Acer smoke test had roughly a 97.5% chance of missing it
-and did; the gate caught it because a gate runs the thing more than once. Fixed
-by reading to end of input, 200/200 clean after, extracted value byte-identical
-either side of the fix.
-
-**Refutation was measured, not only confirmation.** A config differing in exactly
-one symbol of 1718 produces `no` with exactly two fields moving, and the
-symbol-set claim was closed in both directions against a control that yields
-`yes`. That control matters: without it a `no` from the rig cannot be told from a
-`no` caused by the rig.
-
-**What was committed:** ADR-034 accepted with `tools/capture-kernel-provenance`
-(sha256 `5b1f16c3823cf72defc1cca37d014d700a2681e04a3fc350dd4266a0e4c1df22`), the
-ROADMAP and ARCHITECTURE reconciliation, and this entry. **What was not:** the
-sidecar does not travel with the kernel and no image metadata records it. That is
-the next commit and a separate session.
 
 ## Session archive
 
@@ -157,6 +215,37 @@ extracted block against the pre-move blob.
 *second of two* entry (3a part 1) rotated out as the 2026-08-17 entry arrived. Two
 rotations in one day is not a defect — it is what keeping two sessions costs when
 two sessions close on the same day.
+
+**Closed 2026-09-02.** The 2026-09-01 *first of two* entry (kernel provenance —
+the witness, the tool gate and the defect it found) rotated to the archive as the
+2026-09-02 entry arrived, so the file never held three at any point between the
+two commits — the 2026-08-22 rotation's condition, applied again. Same mechanism,
+same check: the heading changed from *Previous session* to *This session*, the
+body moved verbatim, and the moved copy was verified three ways rather than one —
+the extracted block diffs against the pre-move blob in exactly one line, the
+heading; the bodies hash identically (`243d3209…`); and the copy re-extracted
+from `docs/SESSIONS.md` at its new home diffs clean against what was written,
+with the pre-move block diffing clean against `HEAD` as the control. No ordinal
+changed: the entry keeps *first of two*, because the day it belongs to is still
+2026-09-01 and its pair is still above it here.
+
+**Today's other two runs have no heading of their own, deliberately.** The read
+pass and the splice repair are recorded inside the 2026-09-02 entry as runs 1 and
+2 of one arc, with their commits, rather than as two more dated headings. The
+operator ruled it: they are one continuous piece of work on ADR-035, and the
+*first of two* / *second of two* convention exists for a day's genuinely separate
+sessions. Recorded here because the archive's own rule is that a session without
+a dated heading cannot later be archived — these three are covered by one
+heading, and that is the heading a future rotation moves.
+
+**The list sentence at the head of this section was NOT updated, and is stale.**
+It reads *"Sessions older than the two above (2026-08-21 — G5 and H3, rotated
+there 2026-08-24 — then …)"*, and it already omitted the 2026-08-22 and
+2026-08-24 entries before this rotation; it now also omits 2026-09-01 *first of
+two*. It is left as written rather than repaired in passing, on the same
+reasoning as the two stranded cross-references below: a navigational sentence
+that is known stale is cheaper than one silently rewritten by a session that was
+not asked to. It is work for whoever next has a reason to touch it.
 
 **Closed 2026-09-01 (second of two).** The 2026-08-24 entry (the link
 measurement arc) rotated to the archive as the second 2026-09-01 entry arrived,
@@ -1290,6 +1379,47 @@ touched.
    `host/usr/lib/systemd/system/katmate-sys-driver@.service`, the host-side unit
    that § *Next steps* step 1 also names. Two units, one step.
 
+28. **No bound on an instance name's length, in the generator or in the
+   validator.** Added 2026-09-02, from the ADR-035 write pass
+   (`~/adr035-write-report.md` § 1.3). **Read from the tree only** — nothing was
+   run, and no socket was created.
+
+   `km_check_instance` is the only check `katmate-generate-env` applies to the
+   name it is handed (`katmate-generate-env:48`), and it is a character class:
+
+   ```
+   host/usr/lib/katmate/katmate-lib.sh:67
+       [[ "$name" =~ ^[a-z][a-z0-9_]*$ ]] \
+   ```
+
+   `[a-z0-9_]*` is unbounded. **`tools/validate-properties.fish` does not
+   examine the instance name at all** — it validates file *contents*, and the
+   instance name is the `.toml` filename stem, which it never reads as a name.
+   `grep -F 'string length'` over `tools/` and `host/` returns nothing, and every
+   `${#…}` in `host/` is an array element count, not a string length.
+
+   **Why this is a problem only now.** Until ADR-035 the instance name reached a
+   filename under `/etc/katmate/vm/`, an LV name and a projection key — all
+   places where a long name is ugly and nothing more. Under
+   [ADR-035](docs/DECISIONS.md#adr-035) §5 it reaches an **`AF_UNIX` socket
+   path**, `/run/katmate/link/<netvm>/<kk>/netvm`, and `sun_path` is 108 bytes.
+   The layout's fixed part is **27** (`/run/katmate/link/` = 18, `/kk/netvm` =
+   9), so the bound the layout leaves for the netVM instance name is **80**
+   characters under the NUL-terminated reading of `sun_path`, 81 without. A
+   longer name fails at `bind()` — at netVM's start, and ADR-033 measured that a
+   `dgram` device's startup is silent, so nothing tells the guest.
+
+   **ADR-035 §5 states the headroom as *"roughly seventy"*.** The measured figure
+   is 80. **The discrepancy is recorded and not resolved:** the write pass did
+   not edit the draft to fit a measurement, and whether the sentence is amended
+   or the finding stands beside it is the operator's ruling.
+
+   **Not fixed, and deliberately.** No bound was added anywhere. Where one
+   belongs — `km_check_instance`, the validator, or both — is a decision, and a
+   bound invented in passing by the session that found the gap is the kind of
+   silently-widened rule this project does not take. What this entry records is
+   that neither place has one today.
+
 ## Next steps
 
 **ADR numbering.** `ADR-030` = *what the launch daemon reads* (2026-08-06).
@@ -1396,6 +1526,41 @@ and the order is a dependency order rather than a preference.
    profile becomes startable while its environment contract is unenforced.
    **#19 stays open until then** — this pass did not close it and did not touch
    `katmate-generate-env`.
+
+**Further, 2026-09-02 — step 1 now has an ADR, and an acceptance path.**
+[ADR-035](docs/DECISIONS.md#adr-035) is appended as **PROPOSED** and decides the
+pool's identity: a slot is an index `k ∈ 0…15`, and its MAC
+(`52:54:01:00:00:kk`, a T4 constant written literally and never projected), its
+peer address (`10.100.1.(16 + k)`, the pool's peer block being `10.100.1.16/28`),
+its socket paths (`/run/katmate/link/<netvm>/<kk>/{netvm,appvm,owner}`) and its
+in-guest name (`kmkk`) are all **views of that index**, none derived from
+another. Step 1 above says it *"settles by construction two of ADR-033's own open
+items"*; those two — the path convention and the slot-to-interface naming — are
+now settled **on paper**, by ADR-035 §5 and §8, and step 1 becomes the
+implementation of a written decision rather than the place the decision gets
+taken. Four of ADR-033's six deliberately-open items are closed the same way;
+the revision note on that ADR lists all six with their state.
+
+**The acceptance path is ADR-035's six gates, and NONE has been taken.** G1 the
+pool exists — sixteen slots start under `-nodefaults`, all DOWN and
+networkd-unmanaged, with a seventeenth device's refusal as the measured ceiling
+netVM's own has never had. G2 one address on many links. G3 duplicate MACs
+refuse. G4 release leaves nothing. G5 the link tree survives a netVM restart.
+G6 the boundary holds. **Each has a refusal half**, and a gate is passed by
+observation quoted verbatim or it is not passed.
+
+**Three things step 1 inherits that were not visible before it had an ADR.**
+(a) The agent gains a duplicate-MAC check (§7), a neighbour delete, a conntrack
+flush, and a DOWN on REMOVE — **none of which exists today**; the 2026-09-02
+session entry quotes the code for each absence. (b) The netVM instance name
+reaches a `sun_path` for the first time, and nothing bounds its length — open
+problem **#28**. (c) `ARCHITECTURE.md` § *Networking*, its `Link` row, and
+`SECURITY-MODEL.md` § *Known gaps* 14 must change **at acceptance and not
+before**: at PROPOSED they would describe a pool that does not exist.
+
+**#27 is still where it was put.** Its fix lands in this step, where the
+guest-side `netvm-agent` unit is rewritten anyway — and ADR-035 says so in its
+own § *Context*, so the two records agree.
 
 Two consequences ride along and belong to whoever does step 1: ADR-015's
 `web`-manifest-without-network warning stops firing on `app_web` once its T1
