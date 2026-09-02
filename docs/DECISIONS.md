@@ -4640,3 +4640,383 @@ re-derived:
   there would be a second copy of a value that already lives in the sidecar —
   the same objection the app-layer build already makes about restating a version
   it does not own.
+
+---
+
+## ADR-035 — The netVM link pool: a slot is an index, and every face of a slot is a function of that index
+
+**Status:** PROPOSED (2026-09-02). Acceptance is gated on the measurements in
+§ *Gates*, none of which has been taken. **Proposed is a decision and not an
+implementation:** no pool exists in netVM, no `app-routed` template ships, and
+every claim below about the agent's code is a *reading of source* from the
+2026-09-02 read pass (`~/adr035-readpass-report.md`, not in the repository),
+not an observation of a running system.
+
+**Depends on:** [ADR-023](DECISIONS.md#adr-023) (NETCFG describes a link, never
+an AppVM), [ADR-025](DECISIONS.md#adr-025) (the NETCFG payload; `match_mac`
+selects the interface; `local_addr` is a v1 constant), [ADR-030](DECISIONS.md#adr-030)
+§3 (what crosses the boundary), [ADR-032](DECISIONS.md#adr-032) (`/run/katmate/`
+is derived state, and presence of a file is not authority for liveness),
+[ADR-033](DECISIONS.md#adr-033) (a link is a pair of AF_UNIX datagram sockets;
+netVM starts with a static pool; `N` = 16).
+
+**Closes:** the items ADR-033 left open *deliberately* — the slot-to-interface
+naming scheme, the socket path convention under `/run/katmate/link/`, whether a
+released slot is reused or quarantined, and what a slot's MAC derives from. It
+also settles one item ADR-033 did not name and which the read pass exposed:
+what `local_addr` means when there are sixteen interfaces and the validator
+permits one value.
+
+**Leaves open, and says so:** whether QEMU-as-sender retries or discards on
+`EAGAIN` (ADR-033's own open item, still unmeasured), and the mechanism by which
+the *AppVM end* of a link learns its addresses — see § *Dependencies surfaced*.
+
+**Context:**
+
+ADR-033 fixed the mechanism: sixteen `virtio-net` devices in netVM, each with a
+`dgram` backend on a fixed socket path, present from netVM's first instruction,
+peer or no peer. It left the pool's *identity* open on purpose, and it left one
+sentence as a warning rather than a design: *"the netVM-side slot-to-interface
+mapping must be stable and legible, or NETCFG programs the right `/32` on the
+wrong interface."*
+
+The read pass narrowed that sentence to a fact. ADR-025 resolved its mechanism
+to Path B: `handle_netcfg` is a wire adapter over `netcfg::handle`, and the
+interface is found by `netlink::ifindex_by_mac` — a `read_dir` over
+`/sys/class/net` comparing each `address`, **returning the first match**
+(`netlink.rs:493`), rejecting on none (`:496`), **not detecting more than one**,
+and imposing no order — nothing in the file sorts. Interface *names* appear
+nowhere in the selection. So the mapping question was never about names: it is
+**which MAC the netVM side of slot `k` carries, and who knows it when NETCFG is
+called.** With one internal interface the first-match rule was invisible; with
+sixteen, MAC uniqueness across the pool is a correctness precondition that
+nothing currently enforces, and the tie-break is directory order.
+
+The read pass exposed a second constraint ADR-033 did not name. ADR-025's table
+requires `local_addr == INTERNAL_LOCAL` (`10.100.1.1`), validated totally at
+decode, and the ADR reserves loosening that constant for the proxy case. Sixteen
+netVM-side interfaces means sixteen ADDs, each asked to carry the **same** local
+address. That is either a design or an accident, and this ADR makes it a design.
+
+Two things the read pass established that this ADR stands on, both readings of
+the tree: the netVM image bakes exactly one `[Match]`, in `20-uplink.network`,
+carrying only `MACAddress=` — so ADR-025's load-bearing corollary (*no catch-all
+match may ever be baked*) holds today and the sixteen slot interfaces will be
+networkd-unmanaged; and the guest-side `netvm-agent` unit baked by
+`build/netvm.sh` still grants `ReadWritePaths=/etc/systemd/network` from the
+dead Path A (open problem #27), which this pool's commit removes because it
+rewrites that unit anyway.
+
+**Decision:**
+
+**1. A slot is an index `k ∈ 0…15`, written as two hex digits `kk`, and every
+face of a slot is a function of `k` and nothing else.** There is one source of
+truth for a slot's identity — its position in the pool — and MAC, path, peer
+address and name are all *views* of it. None is derived from another, so none
+can drift from another. This is the property ADR-030 §3 was protecting when it
+forbade a MAC that byte-encodes an address: the failure it names is a MAC that
+*carries* the address and preserves it when the address changes. Here nothing
+carries anything; the index is the carrier, and the index does not change.
+
+**2. The netVM side of slot `k` carries MAC `52:54:01:00:00:kk` — a pool constant
+written literally in T4, never projected.** The third octet `01` partitions
+slot MACs from identity MACs, which stay `52:54:00` + three bytes of
+`sha256(<instance>)` per ADR-025: a slot MAC and an identity MAC cannot collide
+by construction, and two slot MACs in one pool cannot collide by construction.
+The two middle octets are **reserved zero**; they will never carry address bytes.
+The first octet is unchanged, so the address stays unicast and locally
+administered as `match_mac` requires. The AppVM side of the link keeps its
+instance-derived identity MAC; this ADR does not touch it.
+
+This narrows, and does not break, ADR-025's *"MACs are derived, never authored"*:
+that rule governs **identity** — a MAC that names an instance — and a slot is not
+an instance. A slot MAC is a protocol constant of the pool, in the same class as
+a port number, and it lives where protocol constants live: in T4, versioned and
+reviewed, not in T1 where an operator could author it and not in T3 where it
+would have to be regenerated. The host needs no computation and no state to know
+slot `k`'s MAC. `ip -br link` inside netVM shows sixteen addresses whose last
+octet *is* the slot. That is the legibility ADR-033 asked for.
+
+**3. Every active slot carries `10.100.1.1/32` — one gateway identity on every
+link, and ADR-025's constant stands unchanged.** Linux permits one address on
+many interfaces when each is a `/32` on its own point-to-point link with its own
+peer route; delivery to a local address does not depend on which interface holds
+it, and source selection for `netVM → peer` follows the peer route to slot `k`
+and picks the address on slot `k`. Nothing in the validator moves. What changes
+is that the constant is now load-bearing in a way it was not: every AppVM image
+may carry the same gateway, and no per-instance network fact ever reaches an
+AppVM's configuration. **This is a claim about the kernel and is gated (G2)**,
+including the half that a confirmation cannot show — that a frame arriving on
+slot `b` claiming slot `a`'s peer as its source is not treated as slot `a`.
+
+**4. The peer address of slot `k` is `10.100.1.(16 + k)` — the pool's peer block
+is `10.100.1.16/28`.** Allocation becomes derivation: the launch daemon holds no
+free list and no lease, and *"the launch daemon allocates `/32`s"*
+(`ARCHITECTURE.md`) is satisfied by a function rather than a table. The `/28`
+alignment gives nft a single prefix for *"every pool peer"* if it ever needs one
+narrower than the segment; `.2`–`.15` remain free for links that are not pool
+slots (a proxy netVM's uplink, a future sysVM edge). A second pool, if one ever
+exists, takes the next `/28`. Relation to ADR-030 §3 is stated in §1: the MAC's
+last octet is `kk` and the address's is `16 + k`, both views of `k`, and the MAC
+contains no octet of the address.
+
+**5. Paths: `/run/katmate/link/<netvm>/<kk>/{netvm,appvm,owner}`.** One
+directory per slot under the netVM instance's directory.
+
+- `netvm` — the socket the netVM's QEMU binds; literal in the netVM template as
+  `/run/katmate/link/%i/kk/netvm`, sixteen times. Zero values cross.
+- `appvm` — the socket the AppVM's QEMU binds; in the AppVM template as
+  `/run/katmate/link/${KM_NETVM}/${KM_SLOT}/appvm`, where `KM_NETVM` is the
+  projection of the T1 `netvm` declaration ADR-032 §3 already defines, and
+  `KM_SLOT` is the two hex digits allocated at launch. **Identity crosses, not a
+  path:** the path's structure stays in T4, and both scalars have a hard type
+  a validator can refuse.
+- `owner` — written by the launch daemon at assignment, removed at release:
+  the AppVM instance name and the `link_id` used for that assignment. **Absence
+  is freedom.** `ls /run/katmate/link/*/*/owner` is the pool's occupancy, and
+  `cat` on one is the answer to *"who holds slot `kk` and under which link"*.
+
+**The directory tree belongs to whoever starts the netVM and is never removed
+by a stop.** The AppVM's socket lives in the netVM's tree because the netVM's
+QEMU must name that path at *its* start, before any AppVM exists — ADR-033's
+measurement that `remote.path` is resolved per send and never stat-ed makes
+that safe. It also means a `RuntimeDirectory=` that removes on stop would
+unlink a live AppVM's socket the moment netVM restarted, and the netVM's
+re-issued sends would hit `ENOENT` while the AppVM's still arrived. So: the tree
+is created before the netVM's QEMU binds, and it persists across that unit's
+stops and restarts. The candidate is `RuntimeDirectory=` naming the sixteen slot
+directories with `RuntimeDirectoryPreserve=yes`; the fallback is a T4 helper in
+`ExecStartPre=`. **Which one is a mechanism claim about systemd and is gated
+(G5)**; the ownership rule is the decision.
+
+`ExecStopPost=` on the netVM unlinks the sixteen `netvm` files — sixteen literal
+paths, no shell, no glob; `ExecStopPost=` on the AppVM unlinks its one `appvm`
+file. **Open problem #23 closes here**, and ADR-032's rule is restated for this
+tree: a socket file's presence is not authority for liveness — systemd is.
+
+Bound: `sun_path` is 108 bytes. With this layout the netVM instance name has
+roughly seventy characters before `bind()` fails at start, silently to the
+guest. The identifier validator either already bounds names tighter than that
+or must; the read pass did not ask, and the write pass will (§ *Questions*).
+
+**6. A released slot is reused immediately. "Free" is a state, not a timer.**
+
+A slot is in exactly one of three states, and each is legible from the tree
+and from inside netVM:
+
+| State | `owner` | netVM interface | `appvm` socket |
+|---|---|---|---|
+| FREE | absent | DOWN, no address, no peer route, no neighbour, no record | absent |
+| ASSIGNED | present | UP, `10.100.1.1/32`, `/32` route to peer `k`, record present | bound by the AppVM's QEMU |
+| RELEASING | present | being returned to FREE by NETCFG REMOVE | being unlinked |
+
+**REMOVE returns the interface to FREE, and FREE is DOWN.** That is the
+quarantine: a down interface receives nothing, so a late or hostile frame into a
+released slot is dropped by the kernel before anything reads it. What REMOVE
+must therefore do — and what ADD's converse must have done — is enumerable:
+delete the peer route, delete the address on that interface (not on others),
+delete the neighbour entry for peer `k`, **flush conntrack entries whose source
+or reply-destination is peer `k`**, clear `IFF_UP`, delete the record. Each item
+has a deletion primitive. The alternative — a time-based quarantine — is a guess
+about how long *unenumerated* state lives, and the one piece of state that would
+justify it, a NAT-tracked TCP flow, has a default established timeout measured
+in days: no quarantine a user would accept covers it, and the flush covers it
+exactly. The conntrack flush is the one new capability the pool asks of the
+agent, and it is gated with its own refusal fixture (G4). Whether today's REMOVE
+clears `IFF_UP` at all is not known from the read pass and is a question, not an
+assumption.
+
+**Convergence, restated for the pool.** An ADD naming a `match_mac` that already
+carries a record under a different `link_id` **supersedes** that record — an
+interface has one link, and the newer assignment is the truth. A REMOVE naming
+an unknown `link_id` is absorbed, as the read pass finds it is today
+(`netcfg.rs:401`). Together these make a late REMOVE from a previous tenant
+harmless to the current one, without encoding generations anywhere: `link_id`
+remains ADR-025's opaque host-allocated counter, and the pool adds no structure
+to it. The `owner` file records which `link_id` the current assignment used, so
+the launch daemon issues the right REMOVE without a lookup table.
+
+**7. `ifindex_by_mac` must count.** Two or more interfaces carrying the requested
+address is a **Rejected**, not a first-match. This is the scheme-independent
+guard against programming the wrong interface, it needs no knowledge of §2's
+layout, it costs one comparison, and it is the correction of the exact code
+path the read pass named. It lands in the pool's agent commit and is gated with
+a refusal fixture (G3): a confirmation with sixteen distinct MACs proves half
+the comparison; the other half is two interfaces with one MAC and a refusal.
+
+**8. Inside netVM, slot `k` is named `kmkk`.** The name is a view of the MAC —
+`52:54:01:00:00:kk` → `kmkk` — produced by udev on the constant, so the rule is
+instance-independent and bakes into the image without per-instance content.
+**The name is never load-bearing.** NETCFG selects by MAC (ADR-025), nft
+references the segment or the `/28` and never an interface name
+(`ARCHITECTURE.md` § *Networking*, unchanged), and the invariant that netVM
+interface names are not normative stands: if the rename does not happen,
+nothing programmatic changes, and an operator reads the last octet instead.
+Whether the rename is a udev rule or sixteen exact-match `.link` files is the
+implementation's; neither is a `.network` match, so ADR-025's corollary is not
+touched. Gated (G1).
+
+**9. ADR-030 §3 is amended, not overturned.** §3 grounds *"network argv is
+thereby static in the template"* in a netns and a tap that ADR-033 abolished;
+the grounding is gone and the conclusion is **restored on the new model**:
+under this pool the netVM template's network argv is sixteen literal
+`-netdev dgram`/`-device virtio-net-pci` pairs with `%i` paths and constant
+MACs, and **no network scalar crosses** — `KM_MAC_INT` retires with `tap-int0`.
+The AppVM template gains two typed scalars, `KM_NETVM` and `KM_SLOT`, beside its
+own derived identity MAC. §3's principle — a fixed, validated key set, each key
+at a fixed position, `${}` so a value can never become an argument — is what
+this ADR builds on, and §3's arithmetic (*"exactly two values"*) was already
+overtaken by the memory, kernel and root-device keys the shipped template
+interpolates; this ADR records that as well rather than leaving §3 to be read
+literally.
+
+**Alternatives rejected:**
+
+- **A local address per slot.** Loosens a constant ADR-025 reserved for the
+  proxy case, and couples every AppVM's gateway to the slot it happened to
+  draw — the one per-instance network fact this design keeps out of AppVMs.
+- **Hash-derived slot MACs** (`sha256(<netvm>/kk)`). Uniqueness across sixteen
+  becomes probabilistic, and under a first-match agent a collision is the
+  silent-wrong-object failure this project has already paid for three times.
+  It would also project sixteen keys nothing needs; no consumer distinguishes
+  two netVMs' slot MACs, since they are never on one wire.
+- **netVM identity in the middle octets.** Same absence of a consumer; the
+  octets are reserved instead.
+- **Time-based quarantine.** A guess about unenumerated state. The state is
+  enumerable (§6) and each item deletes.
+- **Slot index encoded in `link_id`, checked by the agent.** Couples NETCFG's
+  wire validation to a MAC layout, and would have to be conditional for links
+  that are not slots. Duplicate detection (§7) is the guard and is layout-free.
+- **A NETCFG v2 carrying the slot.** A wire change for a value the MAC already
+  carries.
+- **Interface names as selectors.** The invariant, and the read pass: names
+  appear nowhere in the selection and have moved three times.
+- **`RuntimeDirectory=` on the link tree without preservation.** Unlinks the
+  AppVM's socket on netVM restart (§5).
+- **A per-link bridge or shared segment.** Rejected by ADR-033 on the model,
+  not revisited.
+
+**Consequences:**
+
+*Easier*
+
+- The launch daemon's slot work is: pick the lowest `kk` with no `owner`, write
+  `owner`, issue ADD, start the AppVM unit; on stop, issue REMOVE, unlink,
+  remove `owner`. No allocator state beyond the tree, and ADR-025's
+  *"device_add before NETCFG"* ordering disappears because the device exists
+  from netVM's boot. Re-issue after netVM restart is a walk over `owner` files.
+- Slot allocation stays *"CID allocation's mechanism on a second namespace"*
+  (ADR-033), and reconcile (ADR-017) checks `owner` against running units.
+- The netVM template's network section carries no interpolation; the projection
+  drops `KM_MAC_INT`; `katmate-generate-env` emits `KM_NETVM` and `KM_SLOT` for
+  `app-routed`, which is the `REQ_ENV` arm open problem #19 says must land with
+  the guard's removal, in one commit.
+- ADR-015's `web`-without-network warning on `app_web`, and
+  `validate-properties.fish --strict` over the real T1 set, become reachable
+  (ADR-033 § *Easier*, unchanged).
+- Open problems #23 and #27 close in the pool's commits; #27's unit rewrite is
+  where the stale grant goes.
+
+*Harder*
+
+- **The AppVM end has no addressing mechanism today** — see § *Dependencies
+  surfaced*. The pool is measurable without it; the product is not shippable
+  without it.
+- The agent gains two operations (neighbour delete, conntrack flush), one check
+  (§7), and a DOWN on REMOVE if it does not already do that. Each is gated.
+- netVM's root bus carries twenty devices (`virtio-rng`, `vhost-vsock`,
+  `virtio-blk`, `vfio-pci`, sixteen `virtio-net-pci`) under `-nodefaults`.
+  ADR-033 measured refusal at the thirty-first and left the practical ceiling
+  unmeasured; G1 measures it at twenty or reports the refusal.
+- Sixteen literal device pairs make the template long. That is the price of
+  §3's principle applied honestly; a loop would be an argv construction path.
+- IPv6: ADR-033's finding stands as a precondition of every slot — AppVM images
+  `accept_ra=0`, netVM sends no RA on `km*`. Nothing here weakens it.
+- `ARCHITECTURE.md` § *Networking* and the `Link` row in § *Object model* must
+  name the peer block, the path layout and the slot states; `SECURITY-MODEL.md`
+  § *Known gaps* 14 (start ordering) gains the sentence that ADD may precede the
+  AppVM's start because the slot pre-exists.
+
+*Dependencies surfaced — not decided here*
+
+- **How the AppVM end learns `10.100.1.(16+k)/32` and its route to `10.100.1.1`.**
+  `app_web.con:12` declares no network; `katmate-init.c` has no network code;
+  the opcode table in `ARCHITECTURE.md` marks NETCFG **absent** in `vm-agent`,
+  by design, with `vm-agent` at uid 1000 and no `CAP_NET_ADMIN`. ADR-033's
+  *"NETCFG programs the `/32` inside each guest exactly as it does today"* has
+  no mechanism behind it on the AppVM side. The candidates differ in trust
+  placement — a kernel `ip=` from a typed scalar in `-append`; a privileged op
+  in `vm-agent`, revising the opcode table; a config the init reads from a
+  device — and choosing one is an ADR, not a paragraph. Until it exists, an
+  AppVM on the pool configures its address by hand through the console, as a
+  gate fixture and nothing more.
+- **Socket permissions.** `sendto` on an AF_UNIX path requires write on the
+  socket node and search on its directories. Whether the netVM's and the
+  AppVMs' QEMU processes share a uid today is a question for the write pass; the
+  per-slot directory in §5 is where a per-slot ACL goes when per-VM uids arrive.
+
+**Gates — none taken; each has a refusal half:**
+
+- **G1 — the pool exists.** netVM boots from the pool template under
+  `-nodefaults`: `ip -br link` inside shows sixteen interfaces with addresses
+  `52:54:01:00:00:00`…`0f`, all DOWN; `networkctl` shows them unmanaged;
+  `kmkk` names if §8 landed, and the run reports which mechanism produced them
+  or that neither did; RSS against ADR-033's table. *Refusal half:* a
+  seventeenth `virtio-net-pci` added to the same template is refused by QEMU, or
+  is not — either is the measured ceiling.
+- **G2 — one address, many links.** ADD on slots `00` and `01` with host-side
+  datagram fixtures as peers: both interfaces carry `10.100.1.1/32`, each has
+  its `/32` peer route, ARP for `10.100.1.1` from fixture `00` is answered on
+  slot `00` with `…:00` and from fixture `01` on slot `01` with `…:01`
+  (captured at the fixtures). *Refusal half:* a frame from fixture `01` with
+  source `10.100.1.16` (slot `00`'s peer) arriving on slot `01` is not answered
+  and not forwarded — or it is, and the run says so and names `rp_filter`'s
+  value as read, not as assumed.
+- **G3 — duplicates refuse.** Inside netVM, a second interface given a slot MAC
+  (a `dummy` via the dev console): ADD for that MAC returns Rejected and
+  programs nothing; with the duplicate removed, the same ADD succeeds. The
+  refusal is the gate; the success is the control.
+- **G4 — release leaves nothing.** With a fixture peer generating NAT-tracked
+  flows through slot `00`: REMOVE, then `ip -br addr`, `ip route`, `ip neigh`
+  and `conntrack -L` inside netVM show no address on `km00`, no route and no
+  neighbour for `10.100.1.16`, no entry naming `10.100.1.16`, interface DOWN,
+  record gone. *Refusal half:* a REMOVE with the previous `link_id` after a new
+  ADD on the same slot changes nothing the new ADD programmed.
+- **G5 — the tree survives the netVM.** With a fixture bound on
+  `…/00/appvm`: stop and start the netVM unit. The `appvm` node keeps its inode;
+  `netvm` has a new one; no `netvm` file exists between stop and start; the
+  directory exists throughout; a re-issued ADD restores traffic in both
+  directions. *Refusal half:* the same run under `RuntimeDirectory=` **without**
+  `RuntimeDirectoryPreserve=yes`, expected to unlink `appvm` — measured, not
+  argued, because §5's mechanism choice rests on it.
+- **G6 — the boundary holds.** `systemd-analyze verify` on both templates; the
+  netVM projection carries no `KM_MAC_INT`; an AppVM projection with
+  `KM_SLOT=00 -drive` fails the unit at parse and starts no QEMU (ADR-030 §3's
+  property, re-proven on the new keys); `KM_SLOT=1g` is refused by the
+  generator before any unit sees it.
+
+**Questions the write pass carries to the tree, as questions:**
+
+1. Does today's REMOVE clear `IFF_UP`, delete the address, or only the route?
+   Quote `netcfg.rs`.
+2. Does today's ADD tolerate `EEXIST` on the address (second interface, same
+   address) — convergence — or treat it as failure? Quote the netlink error
+   handling.
+3. What bounds an instance name's length in `katmate-generate-env` and
+   `validate-properties.fish`, against `sun_path` = 108 minus this layout?
+4. Under which uid do the netVM's and an AppVM's QEMU run today — is `User=`
+   set in either template?
+5. Is `CONFIG_IP_PNP` (or any in-kernel addressing) set in the microVM kernel's
+   `.config` — relevant to the *dependency* above, recorded so the follow-on
+   ADR starts from a reading.
+
+**Revision notes this ADR requires elsewhere, once appended:**
+
+- ADR-025 § *Replacement* (MAC scheme): *derived, never authored* is scoped to
+  identity MACs; pool slot MACs are T4 constants under `52:54:01`, per ADR-035
+  §2. And § *Table*: `local_addr`'s constant is now shared across every slot of
+  a pool by design, per ADR-035 §3.
+- ADR-030 §3: premise superseded by ADR-033, conclusion restored for network
+  argv by ADR-035 §9; the key-count sentence recorded as overtaken.
+- ADR-033 § *Open in this ADR, deliberately*: naming, paths, reuse and MAC
+  derivation closed by ADR-035; `EAGAIN` behaviour of QEMU-as-sender remains.
