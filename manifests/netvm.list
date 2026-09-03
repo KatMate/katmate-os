@@ -9,6 +9,24 @@ initramfs-tools
 # but --no-install-recommends can drop it — list it explicitly so the kernel
 # postinst's initrd generation cannot fail on a missing tool.
 cpio
+# zstd: initramfs-tools compresses with zstd when the binary is on its PATH and
+# silently falls back to gzip when it is not, logging "No zstd in <PATH>, using
+# gzip" and recording the choice nowhere else. Measured 2026-09-03: zstd was
+# absent from the image (dpkg: "unknown ok not-installed"), so the initrd that
+# shipped was gzip-compressed.
+#
+# The property wanted here is NOT gzip or zstd. It is that the compressor is
+# CHOSEN rather than inherited from whatever happens to be installed. Absence
+# is a fragile way to choose: the first package that ever pulls zstd in flips
+# the initrd's compression with no line in the manifest changing and no field
+# in the meta recording it. Same shape as waypipe's `auto` features resolving
+# to lz4:false against whatever libs the build host had (ADR-008 gotcha 2,
+# ARCHITECTURE.md § Guest waypipe build 2) — which is why those are forced to
+# `enabled` rather than left to resolve.
+#
+# Takes effect at the next netVM rebuild; it changes the artefact, not the
+# build's behaviour.
+zstd
 
 # --- NIC firmware (the last uplink blocker, 2026-07-08: rtl8125b-2.fw) ------
 firmware-realtek

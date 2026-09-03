@@ -172,7 +172,13 @@ the binary is at none of `/usr/bin`, `/bin`, `/usr/sbin`. So the shipped
 failure mode** — the manifest lists `cpio` explicitly so that a tool
 `initramfs-tools` needs *"cannot fail on a missing tool"*, and a missing `cpio`
 **fails the build** while a missing `zstd` **changes the artefact silently**,
-recorded nowhere. Whether this becomes an open problem is the operator's ruling.
+recorded nowhere. **Ruled the same day:** `zstd` is added to
+`manifests/netvm.list` explicitly, in `cpio`'s style and for `cpio`'s reason.
+The property is not gzip or zstd but that the compressor is **chosen rather
+than inherited from whatever happens to be installed** — absence is a fragile
+way to choose, and the first package that ever pulls `zstd` in would flip the
+initrd's compression silently. Own commit, own rebuild: **the tree declares
+`zstd` and the image on MINIS is still gzip**, and stays gzip until a rebuild.
 
 **A harness of this session's printed two confident false verdicts**, and the
 class is already in *Invariants & gotchas*. An intermediate console probe gated
