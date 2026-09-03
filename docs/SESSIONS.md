@@ -46,6 +46,38 @@
 
 ---
 
+## This session (2026-09-01, second of two) — the sidecar travels, and the path it travels from does not resolve as root
+
+Delegated session on the Acer, gating on MINIS. Implements what ADR-034's
+acceptance note left outstanding: *"the sidecar does not travel"* and *"no image
+metadata records provenance"*. Report: `~/adr034-travel-report.md`.
+
+**What landed.** `kernel_provenance_check()` in `build/lib.sh`, called from
+`foundation.sh`'s preflight; `KERNEL_PROVENANCE` in the step-10 metadata block;
+the step-11 sidecar install; and the sidecar riding the `Makefile`'s kernel-copy
+hop. A function rather than an inline block, deliberately: a sourced function can
+be gated without running a build, and `make foundation` is not available as a
+gate — it would drop the frozen foundation and every app layer below it to test a
+preflight.
+
+**What was gated, and what was not.** Eight arms against the real `lib.sh`,
+sourced, with the fixture produced by running the committed tool rather than
+hand-written: absent, matching, hash-mismatch, missing `KERNEL_SHA256`,
+unreadable, `AUTOCONF_MATCH=no`, `IMAGE_MATCH=no`, and a record filed under a
+different name. Plus the Makefile hop twice. **Step 10's field and step 11's
+install are UNVERIFIED** — only a real `make foundation` exercises them.
+
+**The session's most valuable result is a defect it did not go looking for.**
+`KERNEL_SRC_DIR` derives from `$HOME`, and both scripts that read it require
+root, so as root it resolves to a directory that does not exist. That is open
+problem **#25**. It cost this session two rulings: the proposed source-side
+asymmetry check was **deferred entirely** rather than written somewhere it could
+not fire, and ADR-034 § A.3's orchestrator presence check is **blocked, not
+deferred** — the ruling stands and is simply not implementable yet.
+
+**The shape of that mistake is the lesson**, and it is in *Invariants & gotchas*:
+a check that cannot fire reads exactly like a check that found nothing.
+
 ## This session (2026-09-01, first of two) — kernel provenance: the witness held, the tool was gated, and the gate found the defect
 
 Five delegated sessions on the Acer, reaching MINIS over ssh, closing ADR-034
