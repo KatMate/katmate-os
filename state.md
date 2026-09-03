@@ -2187,6 +2187,46 @@ frozen `vm_home_skel` vs qcow2 branch.
   behind it works, and relaxing a refusal can expose untested code without any
   edit to that code. When a refusal is removed or softened, the checks downstream
   of it are new code as far as evidence is concerned.
+- **netVM refuses to start after a host reboot, with `208/STDIN` and no cause
+  named: the dev console drop-in survived and the FIFO it points at did not.**
+  The three parts of the dev console (SECURITY-MODEL gap 15) do **not** persist
+  alike. `/run/katmate-dev/netvm-console.in` is on **tmpfs** and
+  `km-console-holder.service` is **transient**, so both vanish on reboot;
+  `/etc/systemd/system/katmate-sys-driver@.service.d/90-dev-monitor.conf` is in
+  `/etc` and **does not**. The drop-in then points `StandardInput=file:` at a
+  path that no longer exists, and
+
+  ```
+  ... Failed to set up standard input: No such file or directory
+  ... Failed at step STDIN spawning <binary>: No such file or directory
+  ... Main process exited, code=exited, status=208/STDIN
+  ... Failed with result 'exit-code'.
+  ```
+
+  **The failure is ABOVE `ExecStart=`, in execution-environment setup, so not
+  one `ExecStartPre=` runs** — no `katmate-check-image`, no
+  `katmate-activate-lvs`, no `katmate-generate-env` — and none of the T4
+  diagnostics this project put there fires. **The journal names the directive's
+  category and not the artefact:** it says *standard input* and *No such file or
+  directory*, but **not the path, and not the drop-in**, so someone who does not
+  already know the scaffolding exists has no thread to pull, and nothing in
+  `git` will tell them (no part of the console is tracked). The fix is either
+  recreate the FIFO and its holder, or delete the drop-in — which restores the
+  shipped `StandardInput=null`.
+
+  **This is the second time this project has been bitten above `ExecStart=`**,
+  and the shape is the invariant. On 2026-08-17 gate G1 failed because
+  `EnvironmentFile=` without a leading `-` is loaded before every `Exec*`, so an
+  absent projection failed the execution-environment setup **before the
+  `ExecStartPre=` that creates it was spawned** — and nothing in the unit's own
+  transcription was exercised. Same class, different directive: **a unit
+  directive that opens a file opens it before the unit's own preflight can say
+  anything about it, so the preflight's diagnostics are unreachable exactly when
+  the file is the problem.** Measured 2026-09-03 — **on a throwaway
+  `systemd-run` unit with an absent path, not on the netVM unit itself**, so the
+  status code and the message shape are measured and the netVM instance of it is
+  inferred from the same directive.
+
 - **Reading the netVM console: `journalctl -o cat`, never the default format.**
   journald renders any record containing non-printable bytes as
   `[NNNB blob data]`. `login(1)`'s **timeout** path emits `Password: ` glued to
