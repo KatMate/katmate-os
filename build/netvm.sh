@@ -218,15 +218,114 @@ chroot_run "$NETVM_MNT" apt-get clean
 rm -f "$NETVM_MNT/etc/resolv.conf"                        # build-time DNS only
 rm -rf "$NETVM_MNT"/var/lib/apt/lists/* 2>/dev/null || true
 
-# --- 6. root account: locked (release-safe; dev unlocks out-of-band) ----------
-log "Locking root account (dev sets a console password out-of-band)"
+# --- 6. root account: LOCKED by default; the dev unlock is opt-in -------------
+# The image ships with root locked. That is the release state, it is the
+# default, and it costs the build nothing to reach: no variable is consulted to
+# get there. An unlock has to be asked for.
+#
+# A dev build unlocks root for console observation by passing a password HASH
+# in KATMATE_DEV_ROOT_HASH. A hash and never a plaintext: this script runs as
+# root, and a plaintext handed to it would reach the process table, the
+# invoking shell's history and every `ps` on the build host. Produce one with
+#
+#     openssl passwd -6            # prompts, prints $<id>$<salt>$<body>
+#
+# and pass it in the environment for that one build. NOTHING about the value
+# lives in this repository — no default, no fallback, no example that happens
+# to be a working hash.
+#
+# WHY THIS REPLACED A LITERAL: until this commit this step carried a tracked,
+# signed and pushed $6$katmate$... string, applied unconditionally. Two things
+# were wrong with it at once. It unlocked root in the most network-exposed VM
+# in the system on EVERY build, release builds included, because there was no
+# way to ask for a locked one. And it matched no password anyone held (open
+# problem #12), so the unlock bought nothing it cost. The second fact is what
+# let it survive four months of review: a credential that does not work looks
+# harmless. It is not. A credential in git is the defect whether or not it
+# works, and the shared-secret failure would have arrived the day someone
+# made it work.
+#
+# The value is VALIDATED before it is baked. An unusable hash is precisely the
+# defect being removed, arriving by another route, and it fails silently — the
+# account looks unlocked and no password opens it. So a malformed value stops
+# the build instead.
+#
+# usermod, not chpasswd: `usermod -p` takes the hash directly, which is the
+# whole reason for carrying a hash rather than a plaintext.
+#
+# `|| true` on the lock below is retained, and the READ-BACK at 6b is what
+# makes it safe: the exit status of passwd -l is not the evidence that root is
+# locked — /etc/shadow is. (Whether passwd -l returns non-zero on an ALREADY
+# locked account is not measured here: a fresh debootstrap root is not yet
+# locked, so this script never takes that path. With 6b in place it does not
+# need to be.)
+#
+# It is invoked by ABSOLUTE PATH, and that is required rather than tidy:
+# chroot_run (build/lib.sh) sets no PATH of its own — it runs
+# `chroot <mnt> /usr/bin/env DEBIAN_FRONTEND=noninteractive "$@"` — so the
+# chroot inherits the build host's PATH, which does not carry /usr/sbin, where
+# the Debian image keeps usermod. Measured 2026-07-23. A bare `usermod` here
+# fails with "command not found" and the account silently stays locked.
+log "Locking root account (release-safe default)"
 chroot_run "$NETVM_MNT" passwd -l root || true
-# DEV ONLY — remove before release (Open problem #11, sshd class).
-# The ADR-025 NETCFG live gate needs in-guest observation: netvm-agent has
-# no RUN, and NETCFG replies OK/ERR only. Undoes the passwd -l above.
 
-# usermod, not chpasswd: the manifest has passwd(1) but not chpasswd(8).
-chroot_run "$NETVM_MNT" /usr/sbin/usermod -p '$6$katmate$Fs3iXjSNXhSujelKQXR/hpn7bp1DppCJBkzlHKAsSMHf9r0GmiTQKzZWkFWKfW6C3JBTdvSPfyxTKUOu5nQnV0' root
+# Recorded in the host-side netvm.meta at step 11, so the image says what it is
+# rather than being remembered.
+NETVM_ROOT_UNLOCKED=no
+
+if [[ -n "${KATMATE_DEV_ROOT_HASH:-}" ]]; then
+  # crypt(3) shape: $<id>$[params$]<salt>$<body>. Narrow on the parts that
+  # corrupt /etc/shadow or silently produce an unopenable account — an empty
+  # field, whitespace, or the ':' that is shadow's own field separator — and
+  # deliberately not narrow on the scheme, so a yescrypt hash from mkpasswd(1)
+  # is accepted beside the sha512crypt one openssl prints.
+  [[ "$KATMATE_DEV_ROOT_HASH" =~ ^\$(6|5|y|7|gy|2a|2b|2y)\$[^:[:space:]]+\$[^:[:space:]]+$ ]] \
+    || die "KATMATE_DEV_ROOT_HASH is not a well-formed crypt(3) hash: expected \$<id>\$<salt>\$<body> as produced by \`openssl passwd -6\`. Refusing to bake it — an unusable hash leaves root looking unlocked with no password that opens it. (Pass a HASH, never a plaintext password.)"
+  log "DEV: unlocking root from KATMATE_DEV_ROOT_HASH — this image is NOT release-clean"
+  chroot_run "$NETVM_MNT" /usr/sbin/usermod -p "$KATMATE_DEV_ROOT_HASH" root
+  NETVM_ROOT_UNLOCKED=yes
+else
+  log "root stays LOCKED (KATMATE_DEV_ROOT_HASH unset)"
+fi
+
+# --- 6b. read back what step 6 published --------------------------------------
+# The branch above ends with ONE security action on the release path,
+# `passwd -l root || true`, whose `|| true` says its failure does not count. A
+# failed lock would therefore produce a successful build, a log line reading
+# "release-safe default", and NETVM_ROOT_UNLOCKED=no in the meta, with nothing
+# in the image disagreeing — the same silent-wrong-state class the validator
+# above exists to prevent, on the branch that is not validated.
+#
+# So the OUTCOME is verified rather than the command trusted. This is
+# katmate-generate-env's idiom (ADR-030 §8): it reads back what it published
+# before it exits, so that no exit path leaves a claim the artefact does not
+# support. Here the artefact is /etc/shadow and the claim is the meta key.
+#
+# Only the '!' lock marker or the crypt id is ever printed. A hash body never
+# reaches the log, and a failure message carries no field content at all.
+[[ -r "$NETVM_MNT/etc/shadow" ]] \
+  || die "$NETVM_MNT/etc/shadow is missing or unreadable — step 6's outcome cannot be confirmed"
+NETVM_SHADOW_PW="$(awk -F: '$1=="root"{print $2; found=1} END{exit !found}' \
+                   "$NETVM_MNT/etc/shadow")" \
+  || die "no root line in $NETVM_MNT/etc/shadow — step 6's outcome cannot be confirmed"
+
+case "$NETVM_ROOT_UNLOCKED" in
+  no)
+    # passwd -l prepends '!' to whatever was there. Absent marker = not locked,
+    # whatever passwd reported.
+    [[ "$NETVM_SHADOW_PW" == '!'* ]] \
+      || die "step 6 locked root and /etc/shadow disagrees: the root password field does not begin with the '!' lock marker. Refusing to build an image whose netvm.meta would claim NETVM_ROOT_UNLOCKED=no."
+    log "Read-back OK: root LOCKED ('!' marker present in /etc/shadow)"
+    ;;
+  yes)
+    [[ "$NETVM_SHADOW_PW" == "$KATMATE_DEV_ROOT_HASH" ]] \
+      || die "step 6 applied KATMATE_DEV_ROOT_HASH and /etc/shadow does not carry it: the root password field differs from the value supplied. Refusing to build an image whose netvm.meta would claim NETVM_ROOT_UNLOCKED=yes."
+    log "Read-back OK: root UNLOCKED from the supplied hash (crypt id \$$(printf '%s' "$NETVM_SHADOW_PW" | cut -d'$' -f2)\$)"
+    ;;
+  *)
+    die "internal: NETVM_ROOT_UNLOCKED is '$NETVM_ROOT_UNLOCKED', expected yes or no"
+    ;;
+esac
 
 # --- 7. netvm-agent: bake binary + systemd unit -------------------------------
 # The privileged control agent (NETCFG/PING/SHUTDOWN) runs under systemd with
@@ -359,6 +458,22 @@ done
 # only if <image>.meta records it. It is ext4 by mkfs.ext4 in step 1, and the
 # root device has no partition table (debootstrap writes straight to the LV),
 # hence /dev/vda and never /dev/vda1.
+#
+# NETVM_ROOT_UNLOCKED records step 6's outcome, yes|no, in the vocabulary the
+# ADR-034 provenance sidecar already uses for a two-state fact. A dev image and
+# a release image are otherwise indistinguishable without mounting the LV and
+# reading /etc/shadow, which the launch path must never do; with this key the
+# difference is one grep against a file a unit already reads. It is a
+# DESCRIPTION and never an instruction: nothing consults it to decide anything
+# yet, and a reader that ignores it is unaffected.
+#
+# Added at KATMATE_META_VERSION=1, unchanged. km_meta_open() in
+# host/usr/lib/katmate/katmate-lib.sh refuses any version but 1, and readers
+# take keys individually with km_meta_get/km_meta_require, so an added key is
+# invisible to a reader that does not ask for it while a BUMP would break every
+# shipped T4 executable. ADR-034 set the precedent from the other direction:
+# KERNEL_PROVENANCE joined foundation.meta on 2026-09-01 with the version line
+# beside it left at 1 (build/foundation.sh:246).
 NETVM_META="$NETVM_RUNTIME_DIR/netvm.meta"
 META_TMP="$(mktemp "$NETVM_RUNTIME_DIR/.netvm.meta.XXXXXX")"
 cat >"$META_TMP" <<META
@@ -372,6 +487,7 @@ NETVM_ROOT_DEVICE=/dev/vda
 NETVM_ROOTFSTYPE=ext4
 NETVM_KERNEL=$NETVM_RUNTIME_DIR/vmlinuz
 NETVM_INITRD=$NETVM_RUNTIME_DIR/initrd.img
+NETVM_ROOT_UNLOCKED=$NETVM_ROOT_UNLOCKED
 META
 chmod 0644 "$META_TMP"
 mv -f -- "$META_TMP" "$NETVM_META"   # atomic: mktemp created it on the same fs
