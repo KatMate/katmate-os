@@ -11,9 +11,10 @@ with an opt-in `KATMATE_DEV_ROOT_HASH` unlock and a read-back that refuses a
 build whose `/etc/shadow` disagrees with the branch it took; netVM rebuilt on
 MINIS, guest kernel **6.12.101 → 6.12.107+deb13-amd64**; and **in-guest
 observation now exists**, by a dev drop-in putting a FIFO on the VM's stdin.
-**One rotation was performed:** the 2026-09-01 *second of two* entry moved to
-`docs/SESSIONS.md`. The previous entry here described the 2026-09-02 ADR-035
-arc and is now the *Previous session* heading below; nothing in it is retired).
+**Two rotations were performed:** the 2026-09-01 *second of two* entry and
+then the 2026-09-02 entry, both to `docs/SESSIONS.md`, because the day turned
+out to hold **two** sessions — ADR-035 G1, which halted, and the rebuild — and
+the file keeps two).
 
 ## Current focus
 
@@ -48,7 +49,7 @@ restartable — and so updatable — without touching running VMs.
 Direction unchanged: IOMMU-capable platforms only (VT-d/AMD-Vi); VT-x-only
 frozen (ADR-015). MINIS is primary host and merge target.
 
-## This session (2026-09-03) — the netVM root credential leaves the repository, and netVM gets an in-guest observation path
+## This session (2026-09-03, second of two) — the netVM root credential leaves the repository, and netVM gets an in-guest observation path
 
 Delegated session on the Acer; the operator ran the build on MINIS. One commit
 of substance, `23e4268`, plus this entry. Report outside the repository:
@@ -201,100 +202,85 @@ the post-build `Open count: 1` + `[jbd2/dm-9-8]` residue recurred exactly as the
 `lvremove`"* and nothing about the image, and it did not stop QEMU opening the
 device.
 
-## Previous session (2026-09-02) — the ADR-035 arc: a splice removed, five questions answered, and the netVM link pool decided as PROPOSED
+## Previous session (2026-09-03, first of two) — ADR-035 G1: the pool template is refused by QEMU for want of a `remote` parameter, and netVM has no way to be observed from inside
 
-Three delegated sessions on the Acer, one arc, ADR-035 from nothing to PROPOSED.
-**None of the three reached MINIS, measured any behaviour, or took any gate.**
-Reports outside the repository: `~/adr035-readpass-report.md`,
-`~/d1-splice-repair-report.md`, `~/adr035-write-report.md`.
+Delegated session on the Acer, reaching MINIS. **It halted before the first
+change and that was the outcome.** No commit, no tracked file touched, no gate
+taken. Report: `~/Claude.assistent/adr035-g1-report.md`. **Recorded here on
+2026-09-03 by the day's second session**, which is why it appears below an entry
+written after it; it had no heading of its own at the time and the archive's
+rule is that a session without a heading cannot later be rotated.
 
-**Run 1 — the read pass (no commits).** Read the tree against ADR-033's open
-items and produced the divergence list the other two runs worked from. Two of
-its findings shaped everything after. **It found the splice:** a whole copy of
-ADR-025, pasted by `8837e12` (2026-07-20) into the middle of a word in ADR-024's
-consequences list, with its heading at **column 71** — so `grep '^## ADR-'` had
-never shown it, and every section map drawn of that file since July had been
-drawn over a document containing two ADR-025s and had reported one. And it found
-the **first-match rule**: `netlink::ifindex_by_mac`
-(`agent/crates/netvm-agent/src/netlink.rs:473–496`) walks `/sys/class/net`,
-compares each `address`, **returns the first match** (`:493`), rejects on none
-(`:496`), and neither counts nor sorts. With one internal interface that is
-invisible; with sixteen it is a correctness precondition nothing enforces, and it
-is why ADR-035 has a §7 at all.
+**Always write "ADR-035 G1", never bare "G1".** Two gate numbering schemes
+coexist: `katmate-sys-driver@.service:101` says *"Gate G4"* and means
+**ADR-030's**, four lines above the `ExecStart=` a pool template would rewrite.
 
-**Run 2 — the splice repair (`ab50241`, `a4dab42`).** Removed the pasted
-duplicate and restored the sentence it broke — the bullet *"Open problem #10
-closes on the live gate; the QMP-wiring Next-step items drop from `state.md`"*
-had been severed between `i` and `tems` with 229 lines in the gap. Not an edit to
-a decision: the region was a faithful duplicate at birth, and every present-day
-difference was a later canonical-side edit the copy never received.
-**`grep '^## ADR-'` is a complete section map of `docs/DECISIONS.md` again, for
-the first time since 2026-07-20.** `a4dab42` opened #27 and moved #13's citation.
-**Every line number past ADR-024 shifted by −229**, which a later session
-measures rather than carries.
+**Halt 1, the load-bearing one — the brief's `-netdev dgram` spelling is refused
+by the QEMU on MINIS.** The line
+`-netdev dgram,id=link00,local.type=unix,local.path=…` draws, on **QEMU
+11.1.1**:
 
-**Run 3 — the write pass (`1d3f22c`, `cdbf714`, and this entry).** Answered the
-five questions ADR-035's draft carried to the tree, appended the ADR verbatim as
-PROPOSED, and recorded its supersessions in ADR-025, ADR-030 and ADR-033. It
-opened on a halt — the brief named the draft at `~/ADR-035-DRAFT.md` and the file
-is at `~/Claude.assistent/ADR-035-DRAFT.md` — and the operator ruled before any
-read of it went further.
+> `qemu-system-x86_64: … : type=inet or type=unix requires remote parameter`
 
-**The five answers, which exist nowhere else in the repository.** Every one is a
-reading of source or configuration. **None is an observation of a running
-system.**
+`man` is not installed on MINIS and `-netdev dgram,help` answers *"Help is not
+available for this option"*, so the schema was read **out of the parser** —
+seven deliberately-malformed invocations under `-machine none`, each eliciting
+the key it rejected. That bounded the defect to exactly one thing: `local.type`
+and `local.path` are the right keys in the right dotted form (a bogus key is
+named as `zzz`; a dropped `local.path` is named; `local=unix:<path>` is refused
+as *"expected: object"*), and **only `remote` was missing**.
 
-1. **Today's NETCFG REMOVE deletes the payload's routes and the address, and
-   nothing else** (`agent/crates/netvm-agent/src/netcfg.rs:338–346`). `IFF_UP` is
-   **deliberately** not cleared, and the comment at `:331–333` gives the reason —
-   *"a shared netdev would be broken by it"*. There is **no neighbour delete and
-   no conntrack flush anywhere in the binary**: `netlink.rs` defines five `RTM_*`
-   constants (`NEWLINK`, `NEWADDR`, `DELADDR`, `NEWROUTE`, `DELROUTE`) and there
-   is no `link_down`. ADR-035 §6 requires all three.
-2. **ADD converges on `EEXIST`, and distinguishes it from every other errno**
-   (`netlink.rs:407`, `settle(e, &[libc::EEXIST], "addr add")`; one tolerance
-   list per direction, and `link_up` at `:390` tolerates nothing). The request
-   carries `NLM_F_EXCL` (`:400`), so the kernel is asked to refuse and the list
-   converts that refusal into OK. **Bound:** `settle` receives an errno and not
-   an interface, so what the kernel returns when the same address is added on a
-   *second* interface is ADR-035's G2 and is not readable from this tree.
-3. **Nothing bounds an instance name's length.** `km_check_instance`
-   (`host/usr/lib/katmate/katmate-lib.sh:64–69`, the only check
-   `katmate-generate-env:48` applies) is `^[a-z][a-z0-9_]*$` — a character class,
-   unbounded — and `tools/validate-properties.fish` never examines the filename
-   stem at all. **Open problem #28.**
-4. **The netVM's and an AppVM's QEMU do not share a uid.**
-   `katmate-sys-driver@.service` sets no `User=`, `Group=` or `DynamicUser=`, so
-   it is root; **there is no AppVM unit at all**, and `app_web.con:113` invokes
-   QEMU with no `sudo` (its three `sudo` calls are `lvchange`, at `:83,86,90`),
-   so an AppVM's QEMU is the invoking non-root user. ADR-035 §5 has an AppVM's
-   QEMU binding a socket inside a directory the netVM's QEMU owns, which is that
-   ADR's own open *Socket permissions* dependency.
-5. **`CONFIG_IP_PNP=y`**, with `_DHCP`, `_BOOTP` and `_RARP` all `=y`, in
-   `~/katmate-kernels/config-katmate-microvm-amd64-6.12.87` — header line checked
-   first, `Linux/x86 6.12.87`, per the invariant below. `CONFIG_IKCONFIG` is
-   **not set**, so this is a reading of the config file and **not** of the image.
-   Two bounds, neither resolved: the config's mtime is about six weeks *newer*
-   than the vmlinuz beside it, and **no `.provenance` sidecar exists for that
-   image on the Acer** — the unwitnessed pairing ADR-034 was written to close,
-   and it is not closed here.
+**The correction was already published in this repository and the brief did not
+carry it.** ADR-033 § *Costs accepted* (`docs/DECISIONS.md:4023`): *"QEMU 11.1.0
+brackets `remote` as optional and then refuses it as mandatory for `unix` and
+`inet` … KatMate treats the runtime refusal as authoritative and every slot
+names a peer path whether or not the peer exists."* This is a brief that
+contradicted an accepted ADR, not a measurement overturning one.
 
-**No answer contradicted the draft**, so no halt was taken on one. The single
-numeric discrepancy is ADR-035 §5's *"roughly seventy"* characters of headroom
-against a measured **80**; it is named in the write report and in #28, the draft
-was **not** edited to fit the measurement, and whether the sentence changes is
-the operator's ruling.
+**One sentence of the brief splits in two under the measurement.** It said the
+AppVM-side path *"is not created and not used in G1. No peer exists"*. The path
+is indeed never created, never `stat`-ed and never connected to — but it must
+still be **named**, because the option parser demands the parameter before any
+of that. **Not-created and not-named are different claims and only the first is
+true.** The candidate consistent with ADR-035 §5 is
+`remote.type=unix,remote.path=/run/katmate/link/%i/kk/appvm`; **which path
+`remote.path` names is a T4 content question and the session did not decide
+it.**
 
-**Deliberately not done.** No change to `ARCHITECTURE.md` or
-`SECURITY-MODEL.md` — ADR-035 says both must change, and both change at
-acceptance, not at PROPOSED, because writing them now would describe a pool that
-does not exist. No implementation of any kind: no template, no unit, no agent
-code, no generator change. Nothing pushed.
+**Halt 2, independent — there is no in-guest observation path, and this is the
+finding the day's second session existed to fix.** The brief asserted that
+`state.md` records a dev sshd inside netVM. It does not. Open problem #4 is the
+**host's** sshd; `manifests/netvm.list` installs **no `openssh-server`**; the
+only `ssh` string in `build/netvm.sh` was a comment; no
+`katmate-sys-driver@.service.d/` drop-in existed on MINIS; the unit sets
+`StandardInput=null`; `netvm-agent` has **no RUN**; and #12 records that the
+baked console password matched nothing. So ADR-035 G1 items 1–6, G2's in-guest
+half and **G3 entirely** had no mechanism. The second session of the day built
+one.
 
-**One check worth keeping.** The write pass verified its append by comparing
-`grep -c -F '## ADR-'` against `grep -c '^## ADR-'` and requiring them equal —
-34 and 34. That is the check that would have caught the July splice on the day it
-landed, it costs one command, and it is now taken on every ADR append.
+**A document/tree disagreement this session found and did not resolve.**
+`docs/SECURITY-MODEL.md:307` (§ *Known gaps*, row 4) reads *"sshd also runs
+inside netVM (CID 3)"*. That is true of the **retired netinst pet** and false of
+`vm_sys_netvm`, the declarative image the unit boots. **The row's mitigation is
+therefore partly inert** — *"remove both before release"*, where there is one —
+and the gap is smaller than stated. Recorded for a ruling; nothing was edited.
+
+**Free observations, none of them a gate.** QEMU on MINIS is **11.1.1**, not the
+11.1.0 ADR-033 measured against, and `dgram` is in its `-netdev` type list. A
+`dgram` netdev whose `remote.path` **does not exist** starts on 11.1.1 — the
+probe ran to its timeout with the local socket bound and the remote path absent,
+reproducing link-m1 § 11 / link-m2 § A.3 on a newer QEMU. The three installed
+copies of `katmate-sys-driver@.service` hashed identically
+(`813f27c8fd1e5e58…`), so the gate would not have measured an unknown template.
+`/run/katmate/` was absent **because MINIS rebooted 2026-08-28 23:06**, after the
+2026-08-25 stop — it says nothing about surviving a stop, which is G5's question.
+
+**ADR-035 G1 is NOT taken.** netVM has never been started with sixteen
+`virtio-net-pci` devices. Nothing is known about the device count, the
+enumeration order `ifindex_by_mac` walks, the RSS against ADR-033's table, the
+socket modes, or the ceiling — **netVM's own PCI ceiling remains unrun**, exactly
+as ADR-033's acceptance note leaves it. No conclusion is drawn about ADR-035 §3,
+§6 or §7.
 
 ## Session archive
 
@@ -336,6 +322,20 @@ extracted block against the pre-move blob.
 *second of two* entry (3a part 1) rotated out as the 2026-08-17 entry arrived. Two
 rotations in one day is not a defect — it is what keeping two sessions costs when
 two sessions close on the same day.
+
+**Closed 2026-09-03, and this is the second rotation of that day.** The
+2026-09-02 entry (the ADR-035 arc) rotated to the archive as the 2026-09-03
+*first of two* entry was written up, because the file keeps two and that day
+turned out to have two sessions rather than one. Same mechanism, same check: the
+heading changed from *Previous session* to *This session*, the body moved
+verbatim, and the moved copy was verified by re-extracting it from
+`docs/SESSIONS.md` and hashing it against the pre-move body — **identical,
+`932a23a35c910d40…`**. Two rotations on 2026-09-03 is not a defect; it is what
+keeping two sessions costs when a day holds two and the second is written up
+after the first. **The ADR-035 G1 session is recorded retrospectively**, by the
+day's second session, and sits *below* it: newest-first, and it had no heading
+of its own until then — which is precisely the condition this section warns
+destroys an entry rather than archiving it.
 
 **Closed 2026-09-03.** The 2026-09-01 *second of two* entry (the sidecar
 travels, and the path it travels from does not resolve as root) rotated to the

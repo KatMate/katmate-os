@@ -46,6 +46,101 @@
 
 ---
 
+## This session (2026-09-02) — the ADR-035 arc: a splice removed, five questions answered, and the netVM link pool decided as PROPOSED
+
+Three delegated sessions on the Acer, one arc, ADR-035 from nothing to PROPOSED.
+**None of the three reached MINIS, measured any behaviour, or took any gate.**
+Reports outside the repository: `~/adr035-readpass-report.md`,
+`~/d1-splice-repair-report.md`, `~/adr035-write-report.md`.
+
+**Run 1 — the read pass (no commits).** Read the tree against ADR-033's open
+items and produced the divergence list the other two runs worked from. Two of
+its findings shaped everything after. **It found the splice:** a whole copy of
+ADR-025, pasted by `8837e12` (2026-07-20) into the middle of a word in ADR-024's
+consequences list, with its heading at **column 71** — so `grep '^## ADR-'` had
+never shown it, and every section map drawn of that file since July had been
+drawn over a document containing two ADR-025s and had reported one. And it found
+the **first-match rule**: `netlink::ifindex_by_mac`
+(`agent/crates/netvm-agent/src/netlink.rs:473–496`) walks `/sys/class/net`,
+compares each `address`, **returns the first match** (`:493`), rejects on none
+(`:496`), and neither counts nor sorts. With one internal interface that is
+invisible; with sixteen it is a correctness precondition nothing enforces, and it
+is why ADR-035 has a §7 at all.
+
+**Run 2 — the splice repair (`ab50241`, `a4dab42`).** Removed the pasted
+duplicate and restored the sentence it broke — the bullet *"Open problem #10
+closes on the live gate; the QMP-wiring Next-step items drop from `state.md`"*
+had been severed between `i` and `tems` with 229 lines in the gap. Not an edit to
+a decision: the region was a faithful duplicate at birth, and every present-day
+difference was a later canonical-side edit the copy never received.
+**`grep '^## ADR-'` is a complete section map of `docs/DECISIONS.md` again, for
+the first time since 2026-07-20.** `a4dab42` opened #27 and moved #13's citation.
+**Every line number past ADR-024 shifted by −229**, which a later session
+measures rather than carries.
+
+**Run 3 — the write pass (`1d3f22c`, `cdbf714`, and this entry).** Answered the
+five questions ADR-035's draft carried to the tree, appended the ADR verbatim as
+PROPOSED, and recorded its supersessions in ADR-025, ADR-030 and ADR-033. It
+opened on a halt — the brief named the draft at `~/ADR-035-DRAFT.md` and the file
+is at `~/Claude.assistent/ADR-035-DRAFT.md` — and the operator ruled before any
+read of it went further.
+
+**The five answers, which exist nowhere else in the repository.** Every one is a
+reading of source or configuration. **None is an observation of a running
+system.**
+
+1. **Today's NETCFG REMOVE deletes the payload's routes and the address, and
+   nothing else** (`agent/crates/netvm-agent/src/netcfg.rs:338–346`). `IFF_UP` is
+   **deliberately** not cleared, and the comment at `:331–333` gives the reason —
+   *"a shared netdev would be broken by it"*. There is **no neighbour delete and
+   no conntrack flush anywhere in the binary**: `netlink.rs` defines five `RTM_*`
+   constants (`NEWLINK`, `NEWADDR`, `DELADDR`, `NEWROUTE`, `DELROUTE`) and there
+   is no `link_down`. ADR-035 §6 requires all three.
+2. **ADD converges on `EEXIST`, and distinguishes it from every other errno**
+   (`netlink.rs:407`, `settle(e, &[libc::EEXIST], "addr add")`; one tolerance
+   list per direction, and `link_up` at `:390` tolerates nothing). The request
+   carries `NLM_F_EXCL` (`:400`), so the kernel is asked to refuse and the list
+   converts that refusal into OK. **Bound:** `settle` receives an errno and not
+   an interface, so what the kernel returns when the same address is added on a
+   *second* interface is ADR-035's G2 and is not readable from this tree.
+3. **Nothing bounds an instance name's length.** `km_check_instance`
+   (`host/usr/lib/katmate/katmate-lib.sh:64–69`, the only check
+   `katmate-generate-env:48` applies) is `^[a-z][a-z0-9_]*$` — a character class,
+   unbounded — and `tools/validate-properties.fish` never examines the filename
+   stem at all. **Open problem #28.**
+4. **The netVM's and an AppVM's QEMU do not share a uid.**
+   `katmate-sys-driver@.service` sets no `User=`, `Group=` or `DynamicUser=`, so
+   it is root; **there is no AppVM unit at all**, and `app_web.con:113` invokes
+   QEMU with no `sudo` (its three `sudo` calls are `lvchange`, at `:83,86,90`),
+   so an AppVM's QEMU is the invoking non-root user. ADR-035 §5 has an AppVM's
+   QEMU binding a socket inside a directory the netVM's QEMU owns, which is that
+   ADR's own open *Socket permissions* dependency.
+5. **`CONFIG_IP_PNP=y`**, with `_DHCP`, `_BOOTP` and `_RARP` all `=y`, in
+   `~/katmate-kernels/config-katmate-microvm-amd64-6.12.87` — header line checked
+   first, `Linux/x86 6.12.87`, per the invariant below. `CONFIG_IKCONFIG` is
+   **not set**, so this is a reading of the config file and **not** of the image.
+   Two bounds, neither resolved: the config's mtime is about six weeks *newer*
+   than the vmlinuz beside it, and **no `.provenance` sidecar exists for that
+   image on the Acer** — the unwitnessed pairing ADR-034 was written to close,
+   and it is not closed here.
+
+**No answer contradicted the draft**, so no halt was taken on one. The single
+numeric discrepancy is ADR-035 §5's *"roughly seventy"* characters of headroom
+against a measured **80**; it is named in the write report and in #28, the draft
+was **not** edited to fit the measurement, and whether the sentence changes is
+the operator's ruling.
+
+**Deliberately not done.** No change to `ARCHITECTURE.md` or
+`SECURITY-MODEL.md` — ADR-035 says both must change, and both change at
+acceptance, not at PROPOSED, because writing them now would describe a pool that
+does not exist. No implementation of any kind: no template, no unit, no agent
+code, no generator change. Nothing pushed.
+
+**One check worth keeping.** The write pass verified its append by comparing
+`grep -c -F '## ADR-'` against `grep -c '^## ADR-'` and requiring them equal —
+34 and 34. That is the check that would have caught the July splice on the day it
+landed, it costs one command, and it is now taken on every ADR append.
+
 ## This session (2026-09-01, second of two) — the sidecar travels, and the path it travels from does not resolve as root
 
 Delegated session on the Acer, gating on MINIS. Implements what ADR-034's
