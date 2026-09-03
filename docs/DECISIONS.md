@@ -5132,3 +5132,85 @@ literally.
   argv by ADR-035 §9; the key-count sentence recorded as overtaken.
 - ADR-033 § *Open in this ADR, deliberately*: naming, paths, reuse and MAC
   derivation closed by ADR-035; `EAGAIN` behaviour of QEMU-as-sender remains.
+
+**Revision note (2026-09-03, §5 — a slot's netVM device names the AppVM path,
+and QEMU requires it):** §5 above names `remote.path` exactly once, and not as
+something the netVM template carries: it cites ADR-033's measurement that the
+path is *resolved per send and never stat-ed* as the reason a netVM may name a
+socket no AppVM has bound yet. The bullet describing the device itself says only
+*"the socket the netVM's QEMU binds; literal in the netVM template as
+`/run/katmate/link/%i/kk/netvm`, sixteen times."* **So §5 records why naming an
+absent peer is safe, and omits that the option parser demands the parameter at
+start.** Measured on MINIS on 2026-09-03 against **QEMU 11.1.1**, the option that
+bullet describes does not parse:
+
+```
+qemu-system-x86_64: -netdev dgram,id=t0,local.type=unix,local.path=…:
+type=inet or type=unix requires remote parameter
+```
+
+Seven probes under `-machine none` bounded the finding on both sides rather than
+leaving it as one failure. A bogus key added to the same line is rejected by
+name (*"Parameter 'zzz' is unexpected"*), so `local.type` and `local.path` are
+correct keys and the dotted form is the right one; dropping `local.path` names
+it as missing; a non-type value for `local.type` names the enum; the un-dotted
+`local=unix:<path>` is refused as the wrong shape. **The defect is exactly one
+thing: `remote` is absent and this QEMU requires it.** The corrected line — the
+same one plus `remote.type=unix,remote.path=…` — parses, binds and runs to its
+`timeout`, with the peer path **absent throughout**.
+
+**This is not a new discovery. It is a published property of this project that
+§5 did not carry.** ADR-033 § *Costs accepted* records the same refusal on QEMU
+11.1.0, notes that the printed synopsis brackets `remote` as optional while the
+runtime refuses it as mandatory, and rules that **the runtime refusal is
+authoritative and every slot names a peer path whether or not the peer exists.**
+This note reproduces that on 11.1.1 and applies it to §5's own layout.
+
+**The decision it forces, and it is the layout §5 already published:** the
+`remote.path` of slot `k` in the netVM template is
+`/run/katmate/link/%i/kk/appvm` — the same node §5 assigns to the AppVM's QEMU
+to bind. §5 already names that node and already anticipates the naming:
+
+> The AppVM's socket lives in the netVM's tree because the netVM's QEMU must
+> name that path at *its* start, before any AppVM exists — ADR-033's measurement
+> that `remote.path` is resolved per send and never stat-ed makes that safe.
+
+What is new is not the path and not the naming. It is that the naming is **not
+optional**: §5 argues it is safe, and the parser makes it compulsory. The
+distinction matters to whoever writes the template, because a safe-but-optional
+parameter can be omitted and a compulsory one cannot.
+
+**Three consequences, none of which changes a sentence above:**
+
+1. **The netVM template carries thirty-two literal paths, not sixteen.** Each
+   slot names the node it binds and the node it sends to. The `netvm` bullet's
+   *"sixteen times"* describes the bind half only.
+2. **"Zero values cross" is unaffected**, and so is *"Identity crosses, not a
+   path"*. Both paths are literal in T4 and `%i` is systemd's expansion of the
+   instance name. The crossing rule governs the **AppVM** side, where `KM_NETVM`
+   and `KM_SLOT` are the scalars with a type a validator can refuse; the netVM
+   side is literal on both paths, as it already was on one.
+3. **The `sun_path` headroom is unchanged, by arithmetic:** `netvm` and `appvm`
+   are the same length, so the longer of a slot's two paths is no longer than
+   the one §5's *Bound* paragraph estimates at roughly seventy characters of
+   instance name. That figure is an estimate and not a measurement, and whether
+   any identifier validator enforces it is **open problem #28**, which this note
+   neither widens nor closes.
+
+**What this note does not decide.** Socket permissions remain open — §
+*Dependencies surfaced* lists them, and the write pass's question 4 answered
+only the uids: the netVM's QEMU is root and an AppVM's is the invoking non-root
+user. Now that the netVM device names `…/kk/appvm` on its own face, that
+asymmetry is visible in the netVM template, and an AF_UNIX datagram `sendto`
+requires write permission on the target node. **Nothing is claimed here about
+the modes under `/run/katmate/link/`**; the only mode this project has measured
+is a socket QEMU bound as a non-root user in `/tmp`, which is a different
+directory and a different umask. G1 will bind sixteen of them as root and can
+read the modes at no extra cost; that reading is an input to G5, not a result of
+G1.
+
+**Status is unchanged: PROPOSED.** No gate of this ADR has been taken, no pool
+exists, and this note records a mechanism the tree already held rather than a
+measurement that advances the ADR. The G1 session of 2026-09-03 halted before
+writing any unit; its report is `~/Claude.assistent/adr035-g1-report.md`, not in
+the repository.
