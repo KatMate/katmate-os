@@ -46,6 +46,239 @@
 
 ---
 
+## This session (2026-09-03, second of three) — the netVM root credential leaves the repository, and netVM gets an in-guest observation path
+
+Delegated session on the Acer; the operator ran the build on MINIS. One commit
+of substance, `23e4268`, plus this entry. Report outside the repository:
+`~/Claude.assistent/netvm-rebuild-report.md`. **No ADR-035 content was baked and
+no gate was taken.**
+
+**What landed (`23e4268`).** `build/netvm.sh` step 6 carried a literal
+`$6$katmate$…` SHA-512 crypt string and applied it **unconditionally**, so every
+image this pipeline ever produced shipped with root unlocked — release builds
+included, because there was no way to ask for a locked one — and the credential
+was tracked, signed and pushed. It is gone. `passwd -l root` is now the default
+and costs nothing to reach; a dev build asks for the unlock by passing
+`KATMATE_DEV_ROOT_HASH`, a **hash and never a plaintext**, validated as a
+well-formed `crypt(3)` string before it is baked. ADR-021 already required this
+in the general case (*"no per-install secret lives inside it"*).
+
+**The commit gained a read-back before it was made, and the operator is why.**
+As first written, the change validated the *opt-in* branch and trusted the
+branch that *ships*: `passwd -l root || true` was the release path's only
+security action, and `|| true` says its failure does not count — a failed lock
+would have produced a successful build, a log line reading *"release-safe
+default"*, and a meta key claiming the same, with nothing disagreeing. **Step 6b
+now reads root's `/etc/shadow` field back and dies on a mismatch**, in
+`katmate-generate-env`'s idiom (ADR-030 §8: read back what you published before
+you exit). Only the `!` marker or the three-character crypt id is ever logged.
+`|| true` is retained because the read-back — not the exit status — is the
+evidence.
+
+**`netvm.meta` gains `NETVM_ROOT_UNLOCKED=yes|no`, host-side copy only, at
+`KATMATE_META_VERSION=1` unchanged.** The schema question was answered from the
+tree rather than referred up: `km_meta_open()` refuses any version but 1 and
+readers take keys individually, so an *addition* is invisible and a *bump* would
+break every shipped T4 executable — and ADR-034's `KERNEL_PROVENANCE` joined
+`foundation.meta` the same way on 2026-09-01. **Measured, not argued:** all three
+`ExecStartPre=` exited `0/SUCCESS` against the new eleven-key meta.
+
+**THE GUEST KERNEL MOVED: `6.12.101+deb13-amd64` → `6.12.107+deb13-amd64`**
+(Debian `6.12.107-1`, 2026-08-29), confirmed by `uname -a` from inside the
+running guest against the meta's claim from outside. **Any measurement recorded
+against 6.12.101 does not describe this image** — that covers the 2026-08-19
+G1/G4 run, the 2026-08-21 G5/H3 run, the 2026-08-22 stop-path/G6 run and every
+uplink observation taken between 2026-08-11 and today. trixie moving under a
+declarative manifest is the manifest working, as at 6.12.96 → 6.12.101 before
+it; but a kernel version is a premise and the premise changed.
+
+**IN-GUEST OBSERVATION NOW EXISTS.** This is what the rebuild was for: ADR-035's
+gates G1–G4 need a reading from inside netVM and there was no path to one. The
+mechanism is `/etc/systemd/system/katmate-sys-driver@.service.d/90-dev-monitor.conf`
+— the exact file the shipped unit's own comment nominates — adding **one**
+directive, `StandardInput=file:/run/katmate-dev/netvm-console.in`, so stdin
+becomes a FIFO instead of `/dev/null` while output stays in the journal.
+Untracked, per-machine, dev scaffolding, on the removal list beside #4, #11 and
+#12. That systemd delivers FIFO bytes to a service's stdin was proven on a
+throwaway `/bin/cat` unit **before** the drop-in was written.
+
+**Two traps in that console, both measured, both of which cost this session
+real time.**
+
+1. **`journalctl -o cat` is a correctness requirement, not a convenience.**
+   journald renders any record containing non-printable bytes as
+   `[NNNB blob data]`, and `login(1)`'s *timeout* path emits `Password: ` glued
+   to `login: timed out after 60 seconds` and a run of terminal-reset escapes —
+   so the prompt is **stored but invisible** in the default format. Counted over
+   one unit's history: 6 `Password` lines in the default format, all of them
+   systemd unit names from boot; **10** under `-o cat`. The operator read the
+   default format and correctly saw no prompt; the session read `-o cat` and
+   correctly saw one. Both readings were honest and the format explains the gap.
+2. **A single write carrying both fields loses the password.**
+   `printf 'root\n<pw>\n' > <fifo>` delivers the username and the password is
+   gone before `login` prompts; two writes ~3 s apart work. Measured as a gated
+   A/B — PROBE A: `localhost login: root` and nothing else; PROBE B:
+   `localhost login: root` → `Password:` → `Login incorrect` in 5.8 s. **The
+   session had recommended the single-write form**, which is why two of the
+   operator's login attempts timed out and why his password was never actually
+   tested. *Why* the single write loses it — agetty buffering across the `exec`,
+   or `login` flushing terminal input before prompting — is **not measured**.
+
+**The old hash matched no password, and here is the measurement so nobody
+repeats it.** Three candidate passwords were tested against the removed
+`$6$katmate$…` field on 2026-09-03 with **`openssl passwd -6 -salt katmate`**
+(salt `katmate`, sha512crypt) and **none matched**. *That test is the operator's;
+this session did not re-run it and does not hold the candidates.* What this
+session did measure is that the field was **well-formed rather than truncated**:
+97 characters total, four `$`-separated fields, algorithm marker `$6$`, salt
+`katmate`, body **86** characters — the canonical sha512crypt length — matching
+`[./A-Za-z0-9]+` in full. **A credential that does not work is what let it
+survive four months of review. It is still a credential in git.**
+
+**Readings taken from inside the new image**, all read-only, all through the
+FIFO: `uname -a`; `ip -br link` / `ip -br addr` — uplink **`enp0s4`** UP with
+`38:05:25:34:7c:47` and lease **`10.3.1.103/24` metric 100** (the same lease
+recorded 2026-08-19, taken from inside this time instead of by host ARP scan),
+internal segment **`enp0s5`** DOWN with the derived `52:54:00:21:b2:08` and no
+address, which is correct with no AppVM and no NETCFG; `netvm-agent` **active**,
+though no opcode was exercised. **The interface names moved again and the MACs
+did not** — the uplink has now been `enp0s6`, `enp0s4` and `enp0s5` across
+sessions. Read the MACs.
+
+**The root account, read from the LIVE image**: `locked=no`, `cryptid=$6$`,
+field length 106 — **classification only, the body was never printed and is not
+known to this session**. It agrees with `NETVM_ROOT_UNLOCKED=yes` and with 6b's
+in-build read-back. This recovers the brief's *"read `/etc/shadow` before it is
+unmounted"* step, which **was missed** — the build had finished before the
+session resumed — from a better vantage: what actually shipped and booted.
+
+**The two `netvm.meta` copies now differ by one key, BY DESIGN.** Step 9's
+in-guest copy has **four** keys and no `KATMATE_META_VERSION`; step 11's
+host-side copy has **eleven**, including `NETVM_ROOT_UNLOCKED`. Measured from
+the built image, not read off the script. The operator's reason: anyone who can
+read an in-guest meta has already mounted the image and can read `/etc/shadow`,
+which is the original and cannot drift — and a second copy of a fact the
+original carries is how metadata drifts from its payload. **These two files had
+identical key sets from the day they were written until 2026-09-03; anyone who
+learned that before today will be wrong.**
+
+**OBSERVATION, no verdict attached — `initramfs-tools` fell back to gzip.** The
+build logged *"No zstd in /usr/bin:/sbin:/bin, using gzip"* twice, and `zstd` is
+**genuinely not installed**: `dpkg-query` reports `unknown ok not-installed` and
+the binary is at none of `/usr/bin`, `/bin`, `/usr/sbin`. So the shipped
+`initrd.img` is gzip-compressed. **This is the `cpio` shape with a quieter
+failure mode** — the manifest lists `cpio` explicitly so that a tool
+`initramfs-tools` needs *"cannot fail on a missing tool"*, and a missing `cpio`
+**fails the build** while a missing `zstd` **changes the artefact silently**,
+recorded nowhere. **Ruled the same day:** `zstd` is added to
+`manifests/netvm.list` explicitly, in `cpio`'s style and for `cpio`'s reason.
+The property is not gzip or zstd but that the compressor is **chosen rather
+than inherited from whatever happens to be installed** — absence is a fragile
+way to choose, and the first package that ever pulls `zstd` in would flip the
+initrd's compression silently. Own commit, own rebuild: **the tree declares
+`zstd` and the image on MINIS is still gzip**, and stays gzip until a rebuild.
+
+**A harness of this session's printed two confident false verdicts**, and the
+class is already in *Invariants & gotchas*. An intermediate console probe gated
+on the Debian banner appearing in the last three journal records — but the
+banner sits *above* the prompt, so it is present both after a reset **and**
+mid-attempt. Its two probes overlapped and each verdict was computed over a
+window still holding the previous probe's `Login incorrect`. **It reported that
+the single-write form works, which is the exact opposite of the truth**, and
+nothing from it is quoted anywhere in the report. The tell was in the timeline,
+not the verdict: the string appeared as an *echoed* record, and a password
+prompt does not echo.
+
+**Deliberately not done.** `ReadWritePaths=/etc/systemd/network` in the baked
+`netvm-agent` unit is **untouched**, per #27's standing ruling that it falls in
+the slot-pool commit. **So the image built today carries the dead Path A grant
+and this rebuild schedules one more.** Nothing was pushed. No `lvremove` was run
+by this session — the LV removal the rebuild required was the operator's, and
+the post-build `Open count: 1` + `[jbd2/dm-9-8]` residue recurred exactly as the
+*Invariants* entry describes it for a **successful** run: it says *"do not
+`lvremove`"* and nothing about the image, and it did not stop QEMU opening the
+device.
+
+## This session (2026-09-03, first of three) — ADR-035 G1: the pool template is refused by QEMU for want of a `remote` parameter, and netVM has no way to be observed from inside
+
+Delegated session on the Acer, reaching MINIS. **It halted before the first
+change and that was the outcome.** No commit, no tracked file touched, no gate
+taken. Report: `~/Claude.assistent/adr035-g1-report.md`. **Recorded here on
+2026-09-03 by the day's second session**, which is why it appears below an entry
+written after it; it had no heading of its own at the time and the archive's
+rule is that a session without a heading cannot later be rotated.
+
+**Always write "ADR-035 G1", never bare "G1".** Two gate numbering schemes
+coexist: `katmate-sys-driver@.service:101` says *"Gate G4"* and means
+**ADR-030's**, four lines above the `ExecStart=` a pool template would rewrite.
+
+**Halt 1, the load-bearing one — the brief's `-netdev dgram` spelling is refused
+by the QEMU on MINIS.** The line
+`-netdev dgram,id=link00,local.type=unix,local.path=…` draws, on **QEMU
+11.1.1**:
+
+> `qemu-system-x86_64: … : type=inet or type=unix requires remote parameter`
+
+`man` is not installed on MINIS and `-netdev dgram,help` answers *"Help is not
+available for this option"*, so the schema was read **out of the parser** —
+seven deliberately-malformed invocations under `-machine none`, each eliciting
+the key it rejected. That bounded the defect to exactly one thing: `local.type`
+and `local.path` are the right keys in the right dotted form (a bogus key is
+named as `zzz`; a dropped `local.path` is named; `local=unix:<path>` is refused
+as *"expected: object"*), and **only `remote` was missing**.
+
+**The correction was already published in this repository and the brief did not
+carry it.** ADR-033 § *Costs accepted* (`docs/DECISIONS.md:4023`): *"QEMU 11.1.0
+brackets `remote` as optional and then refuses it as mandatory for `unix` and
+`inet` … KatMate treats the runtime refusal as authoritative and every slot
+names a peer path whether or not the peer exists."* This is a brief that
+contradicted an accepted ADR, not a measurement overturning one.
+
+**One sentence of the brief splits in two under the measurement.** It said the
+AppVM-side path *"is not created and not used in G1. No peer exists"*. The path
+is indeed never created, never `stat`-ed and never connected to — but it must
+still be **named**, because the option parser demands the parameter before any
+of that. **Not-created and not-named are different claims and only the first is
+true.** The candidate consistent with ADR-035 §5 is
+`remote.type=unix,remote.path=/run/katmate/link/%i/kk/appvm`; **which path
+`remote.path` names is a T4 content question and the session did not decide
+it.**
+
+**Halt 2, independent — there is no in-guest observation path, and this is the
+finding the day's second session existed to fix.** The brief asserted that
+`state.md` records a dev sshd inside netVM. It does not. Open problem #4 is the
+**host's** sshd; `manifests/netvm.list` installs **no `openssh-server`**; the
+only `ssh` string in `build/netvm.sh` was a comment; no
+`katmate-sys-driver@.service.d/` drop-in existed on MINIS; the unit sets
+`StandardInput=null`; `netvm-agent` has **no RUN**; and #12 records that the
+baked console password matched nothing. So ADR-035 G1 items 1–6, G2's in-guest
+half and **G3 entirely** had no mechanism. The second session of the day built
+one.
+
+**A document/tree disagreement this session found and did not resolve.**
+`docs/SECURITY-MODEL.md:307` (§ *Known gaps*, row 4) reads *"sshd also runs
+inside netVM (CID 3)"*. That is true of the **retired netinst pet** and false of
+`vm_sys_netvm`, the declarative image the unit boots. **The row's mitigation is
+therefore partly inert** — *"remove both before release"*, where there is one —
+and the gap is smaller than stated. Recorded for a ruling; nothing was edited.
+
+**Free observations, none of them a gate.** QEMU on MINIS is **11.1.1**, not the
+11.1.0 ADR-033 measured against, and `dgram` is in its `-netdev` type list. A
+`dgram` netdev whose `remote.path` **does not exist** starts on 11.1.1 — the
+probe ran to its timeout with the local socket bound and the remote path absent,
+reproducing link-m1 § 11 / link-m2 § A.3 on a newer QEMU. The three installed
+copies of `katmate-sys-driver@.service` hashed identically
+(`813f27c8fd1e5e58…`), so the gate would not have measured an unknown template.
+`/run/katmate/` was absent **because MINIS rebooted 2026-08-28 23:06**, after the
+2026-08-25 stop — it says nothing about surviving a stop, which is G5's question.
+
+**ADR-035 G1 is NOT taken.** netVM has never been started with sixteen
+`virtio-net-pci` devices. Nothing is known about the device count, the
+enumeration order `ifindex_by_mac` walks, the RSS against ADR-033's table, the
+socket modes, or the ceiling — **netVM's own PCI ceiling remains unrun**, exactly
+as ADR-033's acceptance note leaves it. No conclusion is drawn about ADR-035 §3,
+§6 or §7.
+
 ## This session (2026-09-02) — the ADR-035 arc: a splice removed, five questions answered, and the netVM link pool decided as PROPOSED
 
 Three delegated sessions on the Acer, one arc, ADR-035 from nothing to PROPOSED.
