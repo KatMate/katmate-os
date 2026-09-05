@@ -5214,3 +5214,103 @@ exists, and this note records a mechanism the tree already held rather than a
 measurement that advances the ADR. The G1 session of 2026-09-03 halted before
 writing any unit; its report is `~/Claude.assistent/adr035-g1-report.md`, not in
 the repository.
+
+**Revision note (2026-09-05, § *Gates* and §5 — what G1 measured, and the four
+places the ADR does not match it):** G1's two halves were taken on MINIS as
+G1a (2026-09-04, the confirmation half) and G1b (2026-09-05, the refusal half),
+against QEMU **11.1.1**. Reports outside the repository:
+`~/Claude.assistent/adr035-g1a-report.md` and `…-g1b-report.md`. **Five
+findings, appended once rather than as five notes.**
+
+**1. The ceiling is 26, and the seventeenth device is not refused.** G1's
+refusal half above reads *"a seventeenth `virtio-net-pci` added to the same
+template is refused by QEMU, or is not — either is the measured ceiling."* The
+wording admits the outcome; the number misdirects. **Two ceilings were measured,
+because only one of them is the one this ADR needs:**
+
+```
+bare q35 root bus, nothing else on it   30 virtio-net-pci
+katmate-pool@netvm, four other PCI devices present   26 slots
+difference                                            4
+```
+
+Both by bisection to adjacency. The bare bus: 16 known-good from G1a, 32
+refused, then 24, 28 and 30 accepted and 31 refused. The unit: 26 accepted, 27
+refused — **`N` = 17 through 25 were never run**, so the unit's ceiling rests on
+the adjacency of an acceptance at 26 and a refusal at 27, not on a scan. Both
+refusals carried the identical message,
+`PCI: no slot/function available for virtio-net-pci, all in use or reserved`.
+
+**The difference of four is a subtraction of two measurements and no cause is
+assigned to it.** This ADR does **not** claim that each of `virtio-rng-pci`,
+`vhost-vsock-pci`, `virtio-blk-pci` and `vfio-pci` costs exactly one slot —
+only that the two ceilings differ by four. (`memory-backend-memfd` is an
+`-object` and occupies no slot.) A prediction of 30 − 4 was stated before the
+unit was run and agreed with it; **an agreeing prediction is still not a
+result.**
+
+**The same misdirection appears a second time, in § *Consequences* §
+*Harder*.** That paragraph reads *"netVM's root bus carries twenty devices …
+ADR-033 measured refusal at the thirty-first and left the practical ceiling
+unmeasured; G1 measures it at twenty or reports the refusal."* **It is not
+twenty**, and this is the more misleading of the two statements, because it does
+not merely name a number — it says what G1 will find. The unit's ceiling is 26
+and the bare bus is 30. The paragraph is otherwise **strengthened** by the
+measurement rather than weakened: a bare ceiling of 30 **is** a refusal at the
+thirty-first, so ADR-033's figure and this one agree exactly, across two ADRs,
+two sessions and two QEMU versions.
+
+**What this means for §2's sixteen.** The pool's sixteen slots sit **ten below
+the unit's measured ceiling** on this hardware and this device set. That is
+headroom, not licence: **every PCI device added to the netVM later spends
+it**, and the number is a property of one machine and one QEMU, not of the
+design.
+
+**2. §8's `kmkk` names are not in the image, and interface names moved three
+times in three boots.** No udev rule exists; the names are the kernel's
+`enp0sN`. G1's own wording admits *"neither did"* as an answer, so this is a
+fact about §8 rather than a failure of G1 — and §8's reasoning is strengthened
+by it: across three boots of the same unit the uplink was `eth25`, `eth26` and
+`eth16`, always renamed to `enp0s4`. **The MAC is the identity and the name
+never is.** Three orderings were also observed to disagree — the kernel's
+rename order, `ip -br link`'s name order and `networkctl`'s ifindex order — with
+no cause assigned, which is the condition §7 exists for, now measured rather
+than argued.
+
+**3. §5's `sun_path` headroom is 80 characters of instance name, not "roughly
+seventy".** The fixed part of a slot path is 27 bytes of the 108-byte
+`sun_path`. This agrees with **open problem #28**, which is that nothing
+enforces the bound, and neither widens nor closes it.
+
+**4. G1's RSS reading is not performable as written.** It asks for *"RSS against
+ADR-033's table"*, and the two subjects are not comparable: ADR-033 measured a
+**paused, guestless** QEMU, while a netVM under this unit runs a booted Debian
+with `-m 1G` through `memory-backend-memfd` and holds a `vfio-pci` device that
+pins the entire guest RAM for DMA. The numbers are in the G1a report; **no
+comparison was computed, and none should be.** This is a finding about the
+gate's design, not about memory.
+
+**5. QEMU does not unlink its `netvm` sockets at exit — on a clean stop or
+after a failed start.** Four exits were observed, leaving 16, 26, 27 and 26
+nodes; the pool unit carries no `ExecStopPost=`, so nothing else could have
+removed them, and nothing did. The 27-node case is the informative one: a start
+refused at its twenty-seventh **device** had already bound all twenty-seven
+**backends**, because QEMU creates netdevs before devices.
+
+**Two consequences, and the second is an input to G5 rather than a finding of
+G1.** A pre-start sweep of the slot nodes is **load-bearing, not
+precautionary** — without it the next start meets `EADDRINUSE`, which names a
+syscall and would be classified as a different failure entirely. And **nothing
+is claimed here about the `ExecStopPost=` this ADR proposes, about
+`RuntimeDirectory=`, or about `RuntimeDirectoryPreserve=yes`**: G5 asks a larger
+question — inode identity across a restart, with a fixture bound on
+`…/00/appvm` — and no fixture was bound, no inode compared and no
+`RuntimeDirectory=` variant run. The observation is also bounded to `SIGTERM`
+and to a QEMU that exited cleanly or refused at start; it says nothing about one
+that is `SIGKILL`ed or crashes.
+
+**Status is unchanged: PROPOSED**, and for a reason independent of G1: **G2
+through G6 are untaken**. What has changed is that § *Gates*' lead-in, *"none
+taken"*, **no longer describes G1** — both its halves are measured, with the
+single exception of the RSS reading of finding 4, which is not performable as
+that half words it.
