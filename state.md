@@ -49,127 +49,124 @@ restartable — and so updatable — without touching running VMs.
 Direction unchanged: IOMMU-capable platforms only (VT-d/AMD-Vi); VT-x-only
 frozen (ADR-015). MINIS is primary host and merge target.
 
-## This session (2026-09-04) — ADR-035 G1a: a netVM boots from a sixteen-slot pool, and the console procedure burns a credential
+## This session (2026-09-05, second of two) — ADR-035 records what G1 measured: two ceilings, and four places the ADR does not match them
 
-Delegated session, Acer authoring and MINIS running. **No commit of substance —
-nothing entered the tree.** Report outside the repository:
-`~/Claude.assistent/adr035-g1a-report.md`. **No gate is claimed passed**; a
-gate's verdict is not a session's to give.
+Delegated session on the Acer, plus an amendment session. One commit,
+`0dd54c4` — `079e72f` was amended and never existed on `main` in its first
+form. Reports outside the repository:
+`~/Claude.assistent/adr035-g1-note-report.md` and `…-amend-report.md`.
 
-**What was measured.** A netVM starts from a sixteen-slot pool template and the
-guest sees sixteen interfaces carrying `52:54:01:00:00:00`…`0f`, **all DOWN and
-all networkd-unmanaged**. The interface count is **18** — `lo`, the vfio uplink
-and the sixteen slots — which is the arithmetic of §5's design measured rather
-than argued: the pool **replaces** the internal segment (two argv lines out,
-thirty-two in), so `KM_MAC_INT`'s device is gone. 19 would have meant a
-different architecture from the one §5 published.
+**One note carrying five findings**, held back across two gate sessions on the
+operator's ruling so the ADR is amended once rather than five times: the two
+ceilings and that their difference of four carries **no assigned cause**; that
+G1's refusal half guesses a seventeenth device and the number is 26; that §8's
+`kmkk` names are not in the image; that §5's `sun_path` headroom is 80
+characters and not *"roughly seventy"*; and that G1's RSS reading against
+ADR-033's table **is not performable as worded**, because the two subjects are a
+paused guestless QEMU and a booted Debian with a `vfio-pci` device pinning its
+RAM.
 
-Read three ways that had to agree: the template diff, the running process's
-`/proc/<pid>/cmdline`, and the guest's own `ip -br link`, cross-checked against
-`/sys/class/net/*/address` — **the file `ifindex_by_mac` reads**, which is why
-that cross-check and not another.
+**A sixth finding arrived from the previous session and was added by amendment.**
+`docs/DECISIONS.md:5039–5042`, § *Consequences* § *Harder*, carries the same
+misdirection a second time and is the more misleading of the two: it does not
+merely name twenty devices, it says *"G1 measures it at twenty or reports the
+refusal."* The delegated session found it, **correctly did not act on it** — a
+session may neither edit an ADR nor propose wording — and it was ruled into the
+same note.
 
-**G1 is NOT taken.** Its refusal half was not run, no seventeenth device was
-added, and **netVM's PCI ceiling remains unmeasured** exactly as it was. That is
-G1b. What this session establishes is the confirmation half only.
+**That paragraph's other half was verified and holds exactly.** It attributes to
+ADR-033 a refusal at the thirty-first device; ADR-033 states the figure three
+times (`:3995–4001`, `:4150–4158`, `:4184–4185`) and every one names the
+**default q35 root bus**, measured on QEMU 11.1.0 under TCG and reproduced under
+KVM. G1b measured 30 accepted and 31 refused on a bare `-machine q35,accel=kvm`.
+**Same configuration, two QEMU versions, two sessions, the same boundary** — an
+independent agreement across two ADRs, and the reason the note may assert it
+rather than paraphrase it.
 
-**Two of the four start-failure classes were eliminated before the running netVM
-was touched**, which is the shape worth keeping. Sixteen `-netdev dgram`
-backends bound under `-machine none` with no sandbox (P1) and again with the
-shipped `-sandbox on,obsolete=deny,elevateprivileges=deny,spawn=deny,resourcecontrol=deny`
-line (P2): **the sandbox changed nothing observable**. Sixteen
-`virtio-net-pci` then built on a q35 root bus with no message at all. Only then
-was anything stopped. A refusal at either probe would have cost nothing; a
-refusal after the swap costs the operator's console session.
+**Nothing was corrected in place.** § *Gates*' lead-in and G1's refusal half are
+unedited, and `:5039–5042` was verified byte-identical against `git show HEAD~1`
+rather than inferred from a hunk header. Append-only means the reader gets both:
+what the ADR expected, and what was measured.
 
-**Seventeen network devices run concurrently today** — sixteen slots plus the
-`r8169` uplink — beside `virtio-blk-pci`, `vhost-vsock-pci` and
-`virtio-rng-pci`. **So the ceiling is above seventeen**, and G1b must ramp from
-well above it or it will report "seventeen works" and measure nothing, which is
-what the original G1 brief's *"a seventeenth is refused"* hypothesis would have
-produced.
+**Status is unchanged: PROPOSED**, for a reason independent of G1 — **G2 through
+G6 are untaken**. What changed is that § *Gates*' lead-in, *"none taken"*, no
+longer describes G1.
 
-**Scaffolding now on MINIS, untracked and never for the tree:**
-`/etc/systemd/system/katmate-pool@.service` (the shipped template plus exactly
-two hunks — `%p` replaced by the literal `katmate-sys-driver`, and the two
-network lines replaced by thirty-two) and
-`/etc/systemd/system/katmate-pool@.service.d/90-dev-monitor.conf`. The pool unit
-carries a profile its **name does not assert**, which ADR-030 §2 forbids in the
-tree; it is a measuring device and dies with the gate.
+**One trap worth carrying.** `grep -F` for the note's insertion anchor returned
+**nothing**, because the phrase wraps across two lines. The anchor was present;
+the check was not able to see it. The session spliced the file to find it rather
+than reporting an absence — the same class as the `$`-in-a-BRE trap in
+`CLAUDE.md`, and the sixth instance in four days of a check that returns a
+well-formed wrong answer.
 
-**The `208/STDIN` trap now applies to two units.** Both point at the same FIFO,
-`/run/katmate-dev/netvm-console.in`. The drop-ins are in `/etc` and survive a
-reboot; the FIFO is on tmpfs and `km-console-holder` is transient, and neither
-does. After a host reboot **neither unit starts at all** until both are
-recreated.
+## Previous session (2026-09-05, first of two) — ADR-035 G1b: the ceiling is 26, and the seventeenth device is not refused
 
-**The two must never run at once** — same instance name, same LV, same CID, same
-VFIO device. `katmate-pool@netvm` is left **running** on the operator's ruling,
-for G1b; `katmate-sys-driver@netvm` is `inactive`.
+Delegated session, Acer authoring and MINIS running. **No commit** — nothing
+entered the tree. Report outside the repository:
+`~/Claude.assistent/adr035-g1b-report.md`; transcripts in
+`~/Claude.assistent/g1b-transcripts/`.
 
-**Three findings the ADR does not hold, all deferred to one revision note after
-G1b rather than two notes now:**
+**Two numbers, because only one of them is the one ADR-035 needs.** The bare q35
+root bus with nothing else on it accepts **30** `virtio-net-pci`;
+`katmate-pool@netvm`, with its four other PCI devices present, accepts **26**
+slots. Both refusals carry the identical message,
+`PCI: no slot/function available for virtio-net-pci, all in use or reserved`.
+QEMU 11.1.1.
 
-1. **§8's `kmkk` names are not in this image.** No udev rule exists; the names
-   are the kernel's `enp0s5`…`enp0s20`. G1's own wording admits *"neither
-   mechanism"* as an answer, so this is a fact about §8 and not a failure of G1.
-2. **`sun_path` headroom is 80 characters of instance name, not §5's "roughly
-   seventy".** The fixed part of the path is 27 bytes. Agrees with open
-   problem #28, which is that nothing enforces it.
-3. **G1's RSS reading against ADR-033's table is not performable as written.**
-   The subjects differ in three recorded ways — ADR-033 measured a paused,
-   guestless QEMU; this one runs a booted Debian with `-m 1G` through
-   `memory-backend-memfd` and holds a vfio device that pins the guest's RAM.
-   Numbers are in the report; no comparison was computed. This is a finding
-   about the gate's design.
+**The difference of four is a subtraction of two measurements and no cause is
+assigned to it.** It is *not* a claim that each of `virtio-rng-pci`,
+`vhost-vsock-pci`, `virtio-blk-pci` and `vfio-pci` costs one slot.
+`memory-backend-memfd` is an `-object` and costs none. A prediction of 30 − 4
+was stated before the unit ran and agreed with it; **an agreeing prediction is
+still not a result.**
 
-**Three orderings appeared and no two agreed** — the kernel's rename order
-(`eth12` before `eth11`), the `ip -br link` name order, and `networkctl`'s
-ifindex order. This is no longer an argument for §7; it is an observed condition
-on a live image at the first pool boot, which makes it the normal case for
-sixteen devices rather than an edge. **No cause was assigned.** The gate's table
-was therefore read line by line and never by position.
+**Both by bisection to adjacency, and `N` = 17 through 25 were never run.** The
+unit's ceiling rests on an acceptance at 26 beside a refusal at 27 — not on a
+scan. Phase 1 ran beside the live pool and stopped nothing; phase 2 needed
+**two** starts to find the ceiling, though the session performed four in total
+counting the hand-back restart and the restore.
 
-**The projection still emits `KM_MAC_INT`** and the pool argv no longer consumes
-it. G6's subject, untouched here.
+**The guest enumerates 26** at `N`=26 — all DOWN, MACs `…:00`…`:19`, 28
+interfaces total, seven readings agreeing. **The 26-slot addressing is a probe
+artefact and proposes nothing**; ADR-035's scheme is sixteen and this session
+did not touch it. Sixteen slots therefore sit **ten below the unit's measured
+ceiling** on this hardware — headroom, not licence, since every PCI device the
+netVM gains later spends it.
 
-## Previous session (2026-09-03, third of three) — ADR-035 §5 records that a slot's netVM device names the AppVM path, and that QEMU requires it
+**QEMU does not unlink its `netvm` sockets at exit — on a clean stop or after a
+failed start.** Four exits, leaving 16 / 26 / 27 / 26 nodes. The 27-node case is
+the informative one: a start refused at its twenty-seventh **device** had
+already bound all twenty-seven **backends**, because netdevs are created before
+devices. **So the pre-start sweep is load-bearing, not precautionary** — without
+it the next start meets `EADDRINUSE`, which names a syscall and would classify
+as an entirely different failure. This is an input to G5 and **not** a claim
+about the `ExecStopPost=` ADR-035 proposes: no fixture was bound, no inode
+compared, no `RuntimeDirectory=` variant run, and the observation is bounded to
+`SIGTERM` and to a QEMU that exited cleanly or refused at start.
 
-Delegated session on the Acer. One commit, `14f96e9`, GPG-signed and since
-pushed. Reports outside the repository:
-`~/Claude.assistent/adr035-remote-path-note-report.md` (a halt) and
-`…-report-v2.md` (the commit).
+**Open problem #29 happened a second time, at 10:16**, into a shell prompt, same
+value as 2026-09-04. Two new locations: this unit's journal on MINIS and the
+operator's terminal scrollback. **Nothing was vacuumed**, on his instruction —
+`--vacuum` is time-granular and would take the gate's own transcript. **The
+guard works and its placement does not**: its first successful use was earlier
+the same morning, when a bare newline into the FIFO came back with a login
+prompt and the credential was safe to send; the failure came from a retry form
+in which the guard was a separate, skippable step. **A guard that can be skipped
+is the defect, not the person who skipped it.**
 
-**The first attempt halted, correctly, on a false sentence in the authored
-payload.** The note's opening claimed §5 *"says nothing about a `remote`
-parameter"*. §5 carries the token once — inside the em-dash clause of the very
-sentence the payload went on to quote, and which the payload's quotation **cut
-off one clause early**. The claim was falsifiable by one `grep` of the section
-the note was about.
+**Interface names moved three times in three boots of the same unit** — the
+uplink was `eth25`, `eth26`, `eth16`, always renamed to `enp0s4`. Three
+orderings disagreed with each other, with no cause assigned. **The MAC is the
+identity and the name never is**, which is §7's premise measured rather than
+argued.
 
-**The rewrite is a sharper finding than the false one.** §5 names `remote.path`
-**only as a property of QEMU's sending behaviour** — ADR-033's measurement that
-it is resolved per send and never `stat`-ed — used as the argument that a netVM
-may safely name a socket no AppVM has bound. It never says the option parser
-**demands** the parameter at start. So §5 recorded why the naming is safe and
-omitted that it is compulsory.
-
-**What the note records:** the `remote.path` of slot `k` in the netVM template is
-`/run/katmate/link/%i/kk/appvm` — the node §5 already assigns to the AppVM to
-bind — and the naming is **forced by the parser, not chosen by the layout**. The
-netVM template therefore carries **thirty-two** literal paths, not sixteen;
-*"zero values cross"* and *"identity crosses, not a path"* are both unaffected,
-since the crossing rule governs the AppVM side where `KM_NETVM` and `KM_SLOT`
-are typed scalars.
-
-**ADR-035's status is unchanged: PROPOSED.** The note carries a property the
-tree already held in ADR-033 § *Costs accepted* into the ADR that needed it. It
-is not a gate result and advances no gate.
-
-**Socket permissions were explicitly left open.** The netVM's QEMU is root and
-an AppVM's is the invoking non-root user; now that the netVM device names
-`…/kk/appvm` on its own face, that asymmetry is visible in the template. G5's,
-and nothing was claimed.
+**Restored and hash-confirmed.** The sixteen-slot unit is back at
+`873c4320…`; `katmate-pool@netvm` runs as MainPID **3952302**, active since
+**2026-09-05 10:22:22 CEST**; `katmate-sys-driver@netvm` is `inactive`.
+The eleven extra slot directories `10`…`1a` under `/run/katmate/link/netvm/`
+were **removed by the operator** after the session closed — his report, not a
+measurement in any session's. The probe tree `/run/katmate-dev/g1bprobe/`
+remains and is scratch.
 
 ## Session archive
 
@@ -211,6 +208,25 @@ extracted block against the pre-move blob.
 *second of two* entry (3a part 1) rotated out as the 2026-08-17 entry arrived. Two
 rotations in one day is not a defect — it is what keeping two sessions costs when
 two sessions close on the same day.
+
+**Closed 2026-09-05, and it is two rotations in one commit.** Both entries left
+this file together — the 2026-09-04 entry (ADR-035 G1a: the sixteen-slot pool
+boots, and the console procedure burns a credential) and the 2026-09-03 *third
+of three* (ADR-035 §5 and the `remote` parameter) — because 2026-09-05 held two
+sessions and the file keeps two. Same mechanism, same check: the bodies moved
+verbatim, verified by hashing each body with its heading line dropped before and
+after — **identical, `da1afd42d0a35fb3…` and `3b6a9bed4ee0992d…`** — and by
+re-extracting each block from `docs/SESSIONS.md` at its new home and diffing it
+against the pre-move block. `docs/SESSIONS.md` gained 122 lines and lost none.
+
+**Only one heading changed, and that is the difference from every rotation
+above.** The 2026-09-03 entry's *Previous session* became *This session*, the
+archive's uniform convention; the 2026-09-04 entry was **already** *This
+session*, so its block diffs clean including its heading rather than in one
+line. The order is newest-first, inserted at the head of the entry list: the
+2026-09-04 entry above the 2026-09-03 *third of three*, both above the *second
+of three* already there — the 2026-09-04 rotation's ruling applied again, not a
+new convention.
 
 **Closed 2026-09-04, and it is two rotations in one commit.** Both 2026-09-03
 entries left this file together — the *second of two* (the netVM rebuild and the
@@ -504,9 +520,11 @@ touched.
   deleted and no AppVM carries a network device yet (ADR-029 C2).
   `memlock` via `LimitMEMLOCK=infinity` (unit) or `ulimit -l
   unlimited` (manual launch). Runs independently of app_web.
-  **WHAT IS RUNNING TODAY IS NOT THIS UNIT (2026-09-04).** netVM is started by
-  `katmate-pool@netvm.service`, the ADR-035 G1a scaffolding template — **MainPID
-  3527845, active since 2026-09-04 14:57:34 CEST** — while
+  **WHAT IS RUNNING TODAY IS NOT THIS UNIT (2026-09-05).** netVM is started by
+  `katmate-pool@netvm.service`, the ADR-035 G1 scaffolding template — restored
+  to **sixteen** slots after G1b and hash-confirmed
+  `873c4320658c74aec4919f0dbd64e0f1883becd8871aa797057c2332720288b5`; **MainPID
+  3952302, active since 2026-09-05 10:22:22 CEST** — while
   `katmate-sys-driver@netvm.service` is **inactive**. The two must never run at
   once: same instance name, same LV, same CID, same VFIO device. The pool unit
   replaces the single `tap-int0` device with sixteen `dgram` slots, so the guest
@@ -515,9 +533,14 @@ touched.
   still exist. Two untracked, per-machine files carry it, both under `/etc` and
   both surviving a host reboot that the FIFO does not:
   `/etc/systemd/system/katmate-pool@.service` and
-  `/etc/systemd/system/katmate-pool@.service.d/90-dev-monitor.conf`. Left
-  running on the operator's ruling for G1b; its first stop carries a one-shot G5
-  observation that has not been spent. See the 2026-09-04 session entry.
+  `/etc/systemd/system/katmate-pool@.service.d/90-dev-monitor.conf`. **The
+  one-shot first-stop observation has been spent** — G1b took it, and it is the
+  finding that QEMU does not unlink its `netvm` sockets at exit. **The MainPID
+  above is the fourth**: the pool was stopped and started four times on
+  2026-09-05, so any earlier MainPID recorded anywhere is dead. Eleven empty
+  slot directories `10`…`1a` that G1b left under `/run/katmate/link/netvm/` were
+  removed by the operator after it closed; `/run/katmate-dev/g1bprobe/` remains
+  and is scratch. See the two 2026-09-05 session entries.
 - **personalVM** — **gone.** Launcher and overlay removed 2026-08-02;
   `vm_personal_home` outlived that claim and was measured present on 2026-08-11,
   absent on 2026-08-17 (see the correction on the housekeeping entry above). It
@@ -1567,6 +1590,16 @@ touched.
    (SECURITY-MODEL gap 4), the netVM dev-root unlock (#11) and the console
    drop-in itself, all of which go before release.
 
+   **Second instance, 2026-09-05 10:16.** Same value, so no new secret — two
+   new locations: `katmate-pool@netvm`'s journal on MINIS and the operator's
+   terminal scrollback. The guard **worked** earlier the same morning (its first
+   successful use) and was **skipped** in a retry form that placed it as a
+   separate optional step. **A guard that can be skipped is not a guard**, which
+   makes the fix a small dev helper that reads the FIFO's answer and refuses to
+   send unless it sees a login prompt — not an instruction. Retirement is
+   unchanged: rotate at the next `build/netvm.sh` run with a fresh
+   `KATMATE_DEV_ROOT_HASH`.
+
 ## Next steps
 
 **ADR numbering.** `ADR-030` = *what the launch daemon reads* (2026-08-06).
@@ -2251,6 +2284,20 @@ frozen `vm_home_skel` vs qcow2 branch.
   once** — same instance name, same LV, same CID, same VFIO device — and both
   point at the same FIFO, so the `208/STDIN` failure after a host reboot now
   applies to both.
+- **Sweep the slot sockets before every pool start; it is load-bearing.** QEMU
+  does not unlink its `netvm` nodes at exit — not on a clean `SIGTERM` stop, not
+  after a start refused at a device (2026-09-05, four exits, 16/26/27/26 nodes
+  surviving). A refused start has already bound **all** its backends, because
+  netdevs are created before devices, so it can leave more nodes than the next
+  start needs. Without a sweep the next `bind()` returns `EADDRINUSE`, which
+  names a syscall and reads as a different failure entirely.
+- **A guard placed as a separate step is not a guard.** The FIFO login guard —
+  a bare newline, and refuse to send unless the answer is a login prompt —
+  worked the first time it was used and was skipped an hour later in a retry
+  form that made it optional. Guards belong inside the thing they guard.
+- **`grep -F` on a phrase that wraps across a line returns a false negative.**
+  Splice the file before concluding a string is absent. Same class as the
+  `$`-in-a-BRE trap: the check does not fail, it answers wrongly.
 
 - **Documentation vocabulary: abstract in ADR prose, machine names where they
   identify a measurement site.** Ruled 2026-09-01. A machine named in design

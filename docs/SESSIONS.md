@@ -46,6 +46,128 @@
 
 ---
 
+## This session (2026-09-04) — ADR-035 G1a: a netVM boots from a sixteen-slot pool, and the console procedure burns a credential
+
+Delegated session, Acer authoring and MINIS running. **No commit of substance —
+nothing entered the tree.** Report outside the repository:
+`~/Claude.assistent/adr035-g1a-report.md`. **No gate is claimed passed**; a
+gate's verdict is not a session's to give.
+
+**What was measured.** A netVM starts from a sixteen-slot pool template and the
+guest sees sixteen interfaces carrying `52:54:01:00:00:00`…`0f`, **all DOWN and
+all networkd-unmanaged**. The interface count is **18** — `lo`, the vfio uplink
+and the sixteen slots — which is the arithmetic of §5's design measured rather
+than argued: the pool **replaces** the internal segment (two argv lines out,
+thirty-two in), so `KM_MAC_INT`'s device is gone. 19 would have meant a
+different architecture from the one §5 published.
+
+Read three ways that had to agree: the template diff, the running process's
+`/proc/<pid>/cmdline`, and the guest's own `ip -br link`, cross-checked against
+`/sys/class/net/*/address` — **the file `ifindex_by_mac` reads**, which is why
+that cross-check and not another.
+
+**G1 is NOT taken.** Its refusal half was not run, no seventeenth device was
+added, and **netVM's PCI ceiling remains unmeasured** exactly as it was. That is
+G1b. What this session establishes is the confirmation half only.
+
+**Two of the four start-failure classes were eliminated before the running netVM
+was touched**, which is the shape worth keeping. Sixteen `-netdev dgram`
+backends bound under `-machine none` with no sandbox (P1) and again with the
+shipped `-sandbox on,obsolete=deny,elevateprivileges=deny,spawn=deny,resourcecontrol=deny`
+line (P2): **the sandbox changed nothing observable**. Sixteen
+`virtio-net-pci` then built on a q35 root bus with no message at all. Only then
+was anything stopped. A refusal at either probe would have cost nothing; a
+refusal after the swap costs the operator's console session.
+
+**Seventeen network devices run concurrently today** — sixteen slots plus the
+`r8169` uplink — beside `virtio-blk-pci`, `vhost-vsock-pci` and
+`virtio-rng-pci`. **So the ceiling is above seventeen**, and G1b must ramp from
+well above it or it will report "seventeen works" and measure nothing, which is
+what the original G1 brief's *"a seventeenth is refused"* hypothesis would have
+produced.
+
+**Scaffolding now on MINIS, untracked and never for the tree:**
+`/etc/systemd/system/katmate-pool@.service` (the shipped template plus exactly
+two hunks — `%p` replaced by the literal `katmate-sys-driver`, and the two
+network lines replaced by thirty-two) and
+`/etc/systemd/system/katmate-pool@.service.d/90-dev-monitor.conf`. The pool unit
+carries a profile its **name does not assert**, which ADR-030 §2 forbids in the
+tree; it is a measuring device and dies with the gate.
+
+**The `208/STDIN` trap now applies to two units.** Both point at the same FIFO,
+`/run/katmate-dev/netvm-console.in`. The drop-ins are in `/etc` and survive a
+reboot; the FIFO is on tmpfs and `km-console-holder` is transient, and neither
+does. After a host reboot **neither unit starts at all** until both are
+recreated.
+
+**The two must never run at once** — same instance name, same LV, same CID, same
+VFIO device. `katmate-pool@netvm` is left **running** on the operator's ruling,
+for G1b; `katmate-sys-driver@netvm` is `inactive`.
+
+**Three findings the ADR does not hold, all deferred to one revision note after
+G1b rather than two notes now:**
+
+1. **§8's `kmkk` names are not in this image.** No udev rule exists; the names
+   are the kernel's `enp0s5`…`enp0s20`. G1's own wording admits *"neither
+   mechanism"* as an answer, so this is a fact about §8 and not a failure of G1.
+2. **`sun_path` headroom is 80 characters of instance name, not §5's "roughly
+   seventy".** The fixed part of the path is 27 bytes. Agrees with open
+   problem #28, which is that nothing enforces it.
+3. **G1's RSS reading against ADR-033's table is not performable as written.**
+   The subjects differ in three recorded ways — ADR-033 measured a paused,
+   guestless QEMU; this one runs a booted Debian with `-m 1G` through
+   `memory-backend-memfd` and holds a vfio device that pins the guest's RAM.
+   Numbers are in the report; no comparison was computed. This is a finding
+   about the gate's design.
+
+**Three orderings appeared and no two agreed** — the kernel's rename order
+(`eth12` before `eth11`), the `ip -br link` name order, and `networkctl`'s
+ifindex order. This is no longer an argument for §7; it is an observed condition
+on a live image at the first pool boot, which makes it the normal case for
+sixteen devices rather than an edge. **No cause was assigned.** The gate's table
+was therefore read line by line and never by position.
+
+**The projection still emits `KM_MAC_INT`** and the pool argv no longer consumes
+it. G6's subject, untouched here.
+
+## This session (2026-09-03, third of three) — ADR-035 §5 records that a slot's netVM device names the AppVM path, and that QEMU requires it
+
+Delegated session on the Acer. One commit, `14f96e9`, GPG-signed and since
+pushed. Reports outside the repository:
+`~/Claude.assistent/adr035-remote-path-note-report.md` (a halt) and
+`…-report-v2.md` (the commit).
+
+**The first attempt halted, correctly, on a false sentence in the authored
+payload.** The note's opening claimed §5 *"says nothing about a `remote`
+parameter"*. §5 carries the token once — inside the em-dash clause of the very
+sentence the payload went on to quote, and which the payload's quotation **cut
+off one clause early**. The claim was falsifiable by one `grep` of the section
+the note was about.
+
+**The rewrite is a sharper finding than the false one.** §5 names `remote.path`
+**only as a property of QEMU's sending behaviour** — ADR-033's measurement that
+it is resolved per send and never `stat`-ed — used as the argument that a netVM
+may safely name a socket no AppVM has bound. It never says the option parser
+**demands** the parameter at start. So §5 recorded why the naming is safe and
+omitted that it is compulsory.
+
+**What the note records:** the `remote.path` of slot `k` in the netVM template is
+`/run/katmate/link/%i/kk/appvm` — the node §5 already assigns to the AppVM to
+bind — and the naming is **forced by the parser, not chosen by the layout**. The
+netVM template therefore carries **thirty-two** literal paths, not sixteen;
+*"zero values cross"* and *"identity crosses, not a path"* are both unaffected,
+since the crossing rule governs the AppVM side where `KM_NETVM` and `KM_SLOT`
+are typed scalars.
+
+**ADR-035's status is unchanged: PROPOSED.** The note carries a property the
+tree already held in ADR-033 § *Costs accepted* into the ADR that needed it. It
+is not a gate result and advances no gate.
+
+**Socket permissions were explicitly left open.** The netVM's QEMU is root and
+an AppVM's is the invoking non-root user; now that the netVM device names
+`…/kk/appvm` on its own face, that asymmetry is visible in the template. G5's,
+and nothing was claimed.
+
 ## This session (2026-09-03, second of three) — the netVM root credential leaves the repository, and netVM gets an in-guest observation path
 
 Delegated session on the Acer; the operator ran the build on MINIS. One commit
