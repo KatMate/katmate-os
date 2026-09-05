@@ -1,0 +1,5 @@
+[Match]
+MACAddress=52:54:01:00:00:07
+
+[Link]
+Name=km07
