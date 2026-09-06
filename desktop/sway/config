@@ -287,7 +287,12 @@
     for_window [app_id="^(galculator|ytdlp-gui|udiskie)$"] \
         floating enable, resize set width 30 ppt height 40 ppt, move position center
 
-    for_window [app_id="^(xfce-polkit|wleave|nwg-look|nm-connection-editor|org\.twosheds\.iwgtk|overskride|branchdialog)$"] \
+    # System settings panels, reached from the waybar icons: volume,
+    # bluetooth, network. Centered and floating rather than tiled.
+    for_window [app_id="^(org\.pulseaudio\.pavucontrol|blueman-manager|nm-connection-editor)$"] \
+        floating enable, resize set width 50 ppt height 60 ppt, move position center
+
+    for_window [app_id="^(xfce-polkit|wleave|nwg-look|org\.twosheds\.iwgtk|overskride|branchdialog)$"] \
         floating enable
     for_window [class="^(Xfce-polkit|Nm-connection-editor)$"] floating enable
 
