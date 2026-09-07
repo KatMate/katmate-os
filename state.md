@@ -49,7 +49,120 @@ restartable — and so updatable — without touching running VMs.
 Direction unchanged: IOMMU-capable platforms only (VT-d/AMD-Vi); VT-x-only
 frozen (ADR-015). MINIS is primary host and merge target.
 
-## This session (2026-09-05, second of two) — ADR-035 records what G1 measured: two ceilings, and four places the ADR does not match them
+## This session (2026-09-07) — the netVM is rebuilt, ADR-035 §8 lands, and G5a settles who creates the slot tree
+
+**One arc, four delegated sessions**, from the evening of 2026-09-05 through
+2026-09-07: the netVM rebuild, the push, ADR-035 G5a, and the consolidation of
+the pool scaffolding. Two commits of substance, `22a1f17` and `5e2d95f`, both
+pushed, plus this entry. Reports outside the repository:
+`netvm-rebuild-3-report.md`, `push-report.md`, `adr035-g5a-report.md`,
+`pool-consolidate-report.md`, `adr035-g5a-note-report.md`.
+
+**The rebuild carried four changes and they were read separately**, which was
+the point of running them in one pass: different carriers, independent
+readings, and neither able to mask the other.
+
+1. **The credential is rotated.** Proved by a login, not by the build — step 6b
+   proves a hash reached `/etc/shadow`, only a login proves it opens. **Open
+   problem #29 closes here**, and nothing was vacuumed: the old value is retired
+   by the rebuild, not by deletion.
+2. **ADR-035 §8 landed**, as **sixteen exact-match `.link` files** in
+   `/usr/lib/systemd/network/` — tracked in `manifests/netvm.conf.d/`, needing
+   no edit to `netvm.sh` because step 5 bakes the config tree with `cp -a`.
+   Sixteen names `km00`…`km0f`, no gap, no duplicate; ordering confirmed in the
+   guest as `70- < 73- < 80- < 99-`, so `99-default.link`'s `NamePolicy=` never
+   gets the chance. The uplink was untouched — exact `MACAddress=` cannot glob
+   onto it, which is the property that made one rebuild safe for two changes.
+3. **The kernel did not move**, `6.12.107+deb13-amd64`, `vmlinuz` identical in
+   size. A result, not a non-event: it was the change nobody asked for.
+4. **The initrd compressor moved gzip → zstd**, and it boots. Attribution is
+   clean: the same early cpio in both, both decompressing to exactly
+   34,780,160 B, only the compressed segment differing.
+
+**Both halves of #29's guard are now measured.** It proceeded on a login prompt
+and **refused on a shell** — the case that leaked the credential twice that
+week — and the refusal direction had never been exercised before. **A guard
+placed as a separate step is not a guard**: the two leaks happened because it
+was skippable, and the fix is that it lives inside the same call.
+
+**And the guard's first act must be a bare newline, for a measured reason.**
+`localhost login:` is written **without a trailing newline**, and journald
+splits on newlines, so the prompt appears in no record at any window size. It
+was ever visible only because a `Link is Up` line landed on the same line and
+completed it. **Checking for a login prompt without writing a newline first is
+unsound in the refusing direction** — a variant that drops the write to save a
+round trip would fail silently and look like caution.
+
+**The blocker G5a was written for.** After the host reboot of 2026-09-05,
+**nothing created `/run/katmate/link/<i>/<kk>/`** and the first pool start
+failed at its first `-netdev`. Measured four ways that no mechanism existed. The
+tree had only ever been hand-made `tmpfs` scaffolding from a brief, and no
+reboot would reproduce it.
+
+**G5a took both halves and the mechanism claim holds.** `RuntimeDirectory=`
+naming the sixteen slot directories created the tree from a confirmed-absent
+`/run/katmate/link` **three times**, including two parent levels the directive
+does not name and systemd creates anyway.
+
+`RuntimeDirectoryPreserve=yes` is load-bearing, and the refusal half says so
+from the other side — with a fixture bound on `…/00/appvm`:
+
+```
+                     preserve=yes            preserve absent
+appvm across stop    4830 → 4830             5000 → absent
+netvm across stop    4771 survived → 4875    removed at stop → 5060
+slot directory       4748 throughout         4955 → 5038, changed
+fixture fd           live throughout         live throughout
+```
+
+Without `Preserve=yes` a netVM restart **unlinks a live AppVM's socket**, and
+the AppVM keeps a live fd on an inode with no path — worse than a clean failure,
+because from inside it still looks like a working socket. The damage is bounded:
+the stop removed **exactly the sixteen slot directories**, while
+`/run/katmate/link` and its instance level survived, and the sibling `nics/` and
+`vm/` trees were never at risk.
+
+**A non-root `bind()` into a slot is refused** — `EACCES`, as the invoking user,
+on `…/01/appvm`. The directory is `0755 root:root`, systemd's default
+`RuntimeDirectoryMode=`, and a datagram `bind()` needs write permission on the
+containing directory. **An AppVM's QEMU runs as that user.**
+
+**The operator ruled it:** `RuntimeDirectory=` creates the directories
+root-owned, and **the launch daemon sets ownership at assignment and returns it
+at release** — the same moment the `owner` file is written and removed, so
+occupancy and permission are one act. Loosening the mode was **rejected**: a
+group-writable tree would let any member bind into an unassigned slot, making
+*"absence is freedom"* unenforceable. **Not decided:** whether the slot
+directory needs the sticky bit, without which an AppVM that may write into its
+own slot may also unlink the netVM's node there. **None of this is implemented**
+— no `chown`, no mode change, and the launch daemon does not exist.
+
+**G5's *"no `netvm` file exists between stop and start"* is untested, not
+false.** It presupposes §5's own `ExecStopPost=`, which the measuring unit
+deliberately lacks; none was added. Read with the three earlier observations
+that QEMU does not unlink its sockets at exit, this **strengthens** §5:
+`ExecStopPost=` is necessary rather than tidy, and it is unimplemented.
+
+**Traffic was not taken** — G5's *"a re-issued ADD restores traffic in both
+directions"* needs a peer speaking Ethernet frames, since a `-netdev dgram`
+backend carries frames and not IP. That is **G5b**, and the operator's ruling is
+that its peer should be a second QEMU rather than hand-built framing.
+
+**The pool scaffolding is consolidated to one unit.**
+`katmate-pool-rd@.service` and `katmate-pool-rd-nopreserve@.service` are gone;
+`katmate-pool@.service` carries the two directives folded in, with its
+`90-dev-monitor.conf` drop-in intact — which was the reason to fold rather than
+delete, since the `-rd` variant had no console and G5b would have found out as a
+`208/STDIN` mid-gate. Creation from nothing was re-proved on the folded unit.
+
+**`katmate-pool@.service` now hashes `1d727b25…`, 13021 bytes.** The value
+`873c4320…` is historical from 2026-09-07 14:49 and is still named in several
+briefs and reports.
+
+**ADR-035 status is unchanged: PROPOSED.** G2, G3, G4, G5b and G6 are untaken,
+and both `ExecStopPost=` and assignment-time ownership are unimplemented.
+
+## Previous session (2026-09-05, second of two) — ADR-035 records what G1 measured: two ceilings, and four places the ADR does not match them
 
 Delegated session on the Acer, plus an amendment session. One commit,
 `0dd54c4` — `079e72f` was amended and never existed on `main` in its first
@@ -99,75 +212,6 @@ than reporting an absence — the same class as the `$`-in-a-BRE trap in
 `CLAUDE.md`, and the sixth instance in four days of a check that returns a
 well-formed wrong answer.
 
-## Previous session (2026-09-05, first of two) — ADR-035 G1b: the ceiling is 26, and the seventeenth device is not refused
-
-Delegated session, Acer authoring and MINIS running. **No commit** — nothing
-entered the tree. Report outside the repository:
-`~/Claude.assistent/adr035-g1b-report.md`; transcripts in
-`~/Claude.assistent/g1b-transcripts/`.
-
-**Two numbers, because only one of them is the one ADR-035 needs.** The bare q35
-root bus with nothing else on it accepts **30** `virtio-net-pci`;
-`katmate-pool@netvm`, with its four other PCI devices present, accepts **26**
-slots. Both refusals carry the identical message,
-`PCI: no slot/function available for virtio-net-pci, all in use or reserved`.
-QEMU 11.1.1.
-
-**The difference of four is a subtraction of two measurements and no cause is
-assigned to it.** It is *not* a claim that each of `virtio-rng-pci`,
-`vhost-vsock-pci`, `virtio-blk-pci` and `vfio-pci` costs one slot.
-`memory-backend-memfd` is an `-object` and costs none. A prediction of 30 − 4
-was stated before the unit ran and agreed with it; **an agreeing prediction is
-still not a result.**
-
-**Both by bisection to adjacency, and `N` = 17 through 25 were never run.** The
-unit's ceiling rests on an acceptance at 26 beside a refusal at 27 — not on a
-scan. Phase 1 ran beside the live pool and stopped nothing; phase 2 needed
-**two** starts to find the ceiling, though the session performed four in total
-counting the hand-back restart and the restore.
-
-**The guest enumerates 26** at `N`=26 — all DOWN, MACs `…:00`…`:19`, 28
-interfaces total, seven readings agreeing. **The 26-slot addressing is a probe
-artefact and proposes nothing**; ADR-035's scheme is sixteen and this session
-did not touch it. Sixteen slots therefore sit **ten below the unit's measured
-ceiling** on this hardware — headroom, not licence, since every PCI device the
-netVM gains later spends it.
-
-**QEMU does not unlink its `netvm` sockets at exit — on a clean stop or after a
-failed start.** Four exits, leaving 16 / 26 / 27 / 26 nodes. The 27-node case is
-the informative one: a start refused at its twenty-seventh **device** had
-already bound all twenty-seven **backends**, because netdevs are created before
-devices. **So the pre-start sweep is load-bearing, not precautionary** — without
-it the next start meets `EADDRINUSE`, which names a syscall and would classify
-as an entirely different failure. This is an input to G5 and **not** a claim
-about the `ExecStopPost=` ADR-035 proposes: no fixture was bound, no inode
-compared, no `RuntimeDirectory=` variant run, and the observation is bounded to
-`SIGTERM` and to a QEMU that exited cleanly or refused at start.
-
-**Open problem #29 happened a second time, at 10:16**, into a shell prompt, same
-value as 2026-09-04. Two new locations: this unit's journal on MINIS and the
-operator's terminal scrollback. **Nothing was vacuumed**, on his instruction —
-`--vacuum` is time-granular and would take the gate's own transcript. **The
-guard works and its placement does not**: its first successful use was earlier
-the same morning, when a bare newline into the FIFO came back with a login
-prompt and the credential was safe to send; the failure came from a retry form
-in which the guard was a separate, skippable step. **A guard that can be skipped
-is the defect, not the person who skipped it.**
-
-**Interface names moved three times in three boots of the same unit** — the
-uplink was `eth25`, `eth26`, `eth16`, always renamed to `enp0s4`. Three
-orderings disagreed with each other, with no cause assigned. **The MAC is the
-identity and the name never is**, which is §7's premise measured rather than
-argued.
-
-**Restored and hash-confirmed.** The sixteen-slot unit is back at
-`873c4320…`; `katmate-pool@netvm` runs as MainPID **3952302**, active since
-**2026-09-05 10:22:22 CEST**; `katmate-sys-driver@netvm` is `inactive`.
-The eleven extra slot directories `10`…`1a` under `/run/katmate/link/netvm/`
-were **removed by the operator** after the session closed — his report, not a
-measurement in any session's. The probe tree `/run/katmate-dev/g1bprobe/`
-remains and is scratch.
-
 ## Session archive
 
 Sessions older than the two above (2026-08-21 — G5 and H3, rotated there
@@ -208,6 +252,30 @@ extracted block against the pre-move blob.
 *second of two* entry (3a part 1) rotated out as the 2026-08-17 entry arrived. Two
 rotations in one day is not a defect — it is what keeping two sessions costs when
 two sessions close on the same day.
+
+**Closed 2026-09-07, and it is one rotation for four sessions.** The 2026-09-05
+*first of two* entry (ADR-035 G1b: the ceiling is 26, and the seventeenth device
+is not refused) rotated to the archive as the 2026-09-07 entry arrived, so the
+file never held three at any point between the two commits — the 2026-08-22
+rotation's condition, applied again. Same mechanism, same check: the heading
+changed from *Previous session* to *This session*, the body moved verbatim,
+verified by hashing it with the heading line dropped before and after —
+**identical, `f397d8e445590fd9…`** — and by re-extracting the block from
+`docs/SESSIONS.md` at its new home and diffing it against the pre-move block,
+the diff being exactly one line, its heading. `docs/SESSIONS.md` gained 69 lines
+and lost none. It was inserted at the head of the entry list, **above** the
+2026-09-04 entry — newest-first, the ruling of the 2026-09-04 rotation applied
+again, not a new convention. **No ordinal changed:** *first of two* counts the
+entries of 2026-09-05, and that day still has exactly two.
+
+**One rotation, and four sessions arrived in the single entry it made room
+for.** The netVM rebuild, the push, ADR-035 G5a and the consolidation of the
+pool scaffolding ran between the evening of 2026-09-05 and 2026-09-07; the
+operator ruled them **one arc with one outcome**, recorded under one dated
+heading rather than four. The archive's own rule — a session without a dated
+heading cannot later be archived — is satisfied by that heading, which is the
+heading a future rotation moves. The five reports stay outside the repository
+and are named in the entry.
 
 **Closed 2026-09-05, and it is two rotations in one commit.** Both entries left
 this file together — the 2026-09-04 entry (ADR-035 G1a: the sixteen-slot pool
@@ -494,9 +562,17 @@ touched.
   principle, superseded. (b) The **declarative build** `vm_sys_netvm` (linear RW
   4G) from `build/netvm.sh`, booted via `~/net-sys.con` (RTL8125 via
   `-device vfio-pci,host=0000:01:00.0`, `-kernel`/`-initrd` direct boot, kernel
-  **6.12.101+deb13-amd64**, rebuilt clean on 2026-08-11 — was
-  `6.12.96+deb13-amd64` from the 2026-07-23 build, and the change is trixie
-  moving under a declarative manifest, not a defect). Boots through full
+  **6.12.107+deb13-amd64**, last rebuilt **2026-09-05 20:40:32Z** — was
+  `6.12.101+deb13-amd64` on 2026-08-11 and `6.12.96+deb13-amd64` from the
+  2026-07-23 build, and the change is trixie moving under a declarative
+  manifest, not a defect; the 2026-09-05 build did **not** move it, `vmlinuz`
+  being 12,142,528 B, identical in size to the 2026-09-03 export). **That build
+  also landed ADR-035 §8**: sixteen exact-match `.link` files at
+  `/usr/lib/systemd/network/70-katmate-slot-<kk>.link`, baked by step 5's
+  `cp -a` from `manifests/netvm.conf.d/` and needing no edit to `netvm.sh`; the
+  slots come up `km00`…`km0f` and the uplink is untouched, an exact
+  `MACAddress=` being unable to glob onto it. The initrd's compressor moved
+  **gzip → zstd** on the same build and it boots. Boots through full
   systemd, root on `/dev/vda`; the uplink comes up MAC-matched
   (`38:05:25:34:7c:47`, `Link is Up 1Gbps/Full`, `firmware-realtek` loaded,
   DHCP lease **`10.3.1.103`** confirmed by host ARP scan on 2026-08-19 — it was
@@ -514,33 +590,53 @@ touched.
   hand-applied.
   **In-guest status:** `netvm-agent` is live-gated on PING / NETCFG / SHUTDOWN
   (ADR-024, ADR-025), so the control path is no longer the gap; root is
-  deliberately unlocked for console observation (open problems #11/#12). Still
+  deliberately unlocked for console observation (open problems #11/#12) — from
+  a **rotated** `KATMATE_DEV_ROOT_HASH` as of the 2026-09-05 build, proved by a
+  login and not by the build's read-back (#29, now closed). Still
   unverified from inside: **WireGuard/ProtonVPN bring-up** and the DNS-leak
   policy. The peer end of the internal segment does not exist — personalVM was
   deleted and no AppVM carries a network device yet (ADR-029 C2).
   `memlock` via `LimitMEMLOCK=infinity` (unit) or `ulimit -l
   unlimited` (manual launch). Runs independently of app_web.
-  **WHAT IS RUNNING TODAY IS NOT THIS UNIT (2026-09-05).** netVM is started by
-  `katmate-pool@netvm.service`, the ADR-035 G1 scaffolding template — restored
-  to **sixteen** slots after G1b and hash-confirmed
-  `873c4320658c74aec4919f0dbd64e0f1883becd8871aa797057c2332720288b5`; **MainPID
-  3952302, active since 2026-09-05 10:22:22 CEST** — while
-  `katmate-sys-driver@netvm.service` is **inactive**. The two must never run at
-  once: same instance name, same LV, same CID, same VFIO device. The pool unit
-  replaces the single `tap-int0` device with sixteen `dgram` slots, so the guest
-  carries **no internal-segment interface and eighteen links, not nineteen**;
-  host-side `tap-int0` and its networkd `.netdev`/`.network` are untouched and
-  still exist. Two untracked, per-machine files carry it, both under `/etc` and
-  both surviving a host reboot that the FIFO does not:
+  **WHAT IS RUNNING TODAY IS NOT THIS UNIT (2026-09-05; unit corrected
+  2026-09-07).** netVM is started by `katmate-pool@netvm.service`, the ADR-035
+  G1 scaffolding template — **consolidated on 2026-09-07 to carry
+  `RuntimeDirectory=` naming the sixteen slot directories and
+  `RuntimeDirectoryPreserve=yes` folded in**, and hash-confirmed
+  `1d727b2542633a5135d5c266c074961df5cf558dc29713a06db82dea12b0201d`, 13021
+  bytes. **The value
+  `873c4320658c74aec4919f0dbd64e0f1883becd8871aa797057c2332720288b5` is
+  historical from 2026-09-07 14:49 and is still named in several briefs and
+  reports.** The two variants the G5a gate ran on, `katmate-pool-rd@.service`
+  and `katmate-pool-rd-nopreserve@.service`, are **gone** — removed from disk
+  and `not-found` to systemd; folding rather than deleting kept the
+  `90-dev-monitor.conf` drop-in, which the `-rd` variants lacked, so G5b will
+  not meet a `208/STDIN` mid-gate. **It is running: MainPID 943031, active
+  since 2026-09-07 14:51:21 CEST** (`pool-consolidate-report.md` § 5; whether
+  it stays up was left to the operator and is not decided there) — while
+  `katmate-sys-driver@netvm.service` is **inactive**. The two must never run
+  at once: same instance name, same LV, same CID, same VFIO device. The pool
+  unit replaces the single `tap-int0` device with sixteen `dgram` slots, so
+  the guest carries **no internal-segment interface and eighteen links, not
+  nineteen**; host-side `tap-int0` and its networkd `.netdev`/`.network` are
+  untouched and still exist. Two untracked, per-machine files carry it, both
+  under `/etc` and both surviving a host reboot that the FIFO does not:
   `/etc/systemd/system/katmate-pool@.service` and
-  `/etc/systemd/system/katmate-pool@.service.d/90-dev-monitor.conf`. **The
-  one-shot first-stop observation has been spent** — G1b took it, and it is the
-  finding that QEMU does not unlink its `netvm` sockets at exit. **The MainPID
-  above is the fourth**: the pool was stopped and started four times on
-  2026-09-05, so any earlier MainPID recorded anywhere is dead. Eleven empty
-  slot directories `10`…`1a` that G1b left under `/run/katmate/link/netvm/` were
-  removed by the operator after it closed; `/run/katmate-dev/g1bprobe/` remains
-  and is scratch. See the two 2026-09-05 session entries.
+  `/etc/systemd/system/katmate-pool@.service.d/90-dev-monitor.conf`
+  (`71b3b5db…`, unchanged). **The one-shot first-stop observation has been
+  spent** — G1b took it, and it is the finding that QEMU does not unlink its
+  `netvm` sockets at exit. **Every MainPID recorded before 943031 is dead**,
+  including all four of 2026-09-05 — the pool was stopped and started four
+  times that day, the last of them 3952302, and the 2026-09-07 consolidation
+  superseded every one of them. Eleven empty slot directories `10`…`1a` that
+  G1b left under `/run/katmate/link/netvm/` were removed by the operator after
+  it closed; `/run/katmate-dev/g1bprobe/` went with the reboot of 2026-09-05
+  20:10:29, which took the whole of `/run/katmate-dev/`. **The slot tree is no
+  longer hand-made**: since 2026-09-07 `/run/katmate/link/netvm/00`…`0f` are
+  created by the unit's own `RuntimeDirectory=`, `0755 root:root`, under two
+  parent levels systemd makes itself. See the 2026-09-07 session entry and the
+  two 2026-09-05 entries — the *first of two* of which moved to
+  `docs/SESSIONS.md` in this commit.
 - **personalVM** — **gone.** Launcher and overlay removed 2026-08-02;
   `vm_personal_home` outlived that claim and was measured present on 2026-08-11,
   absent on 2026-08-17 (see the correction on the housekeeping entry above). It
@@ -1557,15 +1653,31 @@ touched.
    silently-widened rule this project does not take. What this entry records is
    that neither place has one today.
 
-29. **The netVM dev root password is in three places on MINIS, and the console
-   procedure has no guard that would have prevented it.** On 2026-09-04 the
-   operator's two-write console login landed on a console that was **already at
-   a shell prompt**, not a login prompt. `login(1)` never saw either field;
-   `bash` did, and echoed both into the host journal as `command not found`. The
-   value is additionally in the operator's fish history on MINIS (the
-   `printf … | sudo tee` form puts it there) and in that terminal's scrollback
-   (`tee` writes it back to the screen). Extent: three locations, of which the
-   delegated session observed one.
+29. ~~**The netVM dev root password is in three places on MINIS, and the console
+   procedure has no guard that would have prevented it.**~~ —
+   **Closed 2026-09-05 by rotation, and the guard is measured in both
+   directions.** The value was retired by the `build/netvm.sh` run of
+   2026-09-05 20:40:32Z with a fresh `KATMATE_DEV_ROOT_HASH`, and **proved by a
+   login** — step 6b proves a hash reached `/etc/shadow`, only `login(1)`
+   accepting the plaintext proves it opens. **Nothing was vacuumed**, per the
+   ruling below: the value is retired by the rebuild, not by deletion, and every
+   location it was burned into keeps a dead credential. **Both halves of the
+   guard are measured**, on the same evening: it proceeded on a login prompt and
+   **refused on a shell** — `REFUSING: console is not at a login prompt`, sending
+   nothing — which is the case that leaked the value twice and the direction that
+   had never been exercised. **And the guard now lives inside the login call**,
+   not beside it: a guard placed as a separate step is skippable, which is what
+   both leaks were. Source: `~/Claude.assistent/netvm-rebuild-3-report.md`
+   §§ 26.1, 26.2. The text below is left as written, as the record of what the
+   problem was. Kept as a closed marker so the number is not reused.
+
+   On 2026-09-04 the operator's two-write console login landed on a console
+   that was **already at a shell prompt**, not a login prompt. `login(1)` never
+   saw either field; `bash` did, and echoed both into the host journal as
+   `command not found`. The value is additionally in the operator's fish
+   history on MINIS (the `printf … | sudo tee` form puts it there) and in that
+   terminal's scrollback (`tee` writes it back to the screen). Extent: three
+   locations, of which the delegated session observed one.
 
    **Ruled: the credential is burned, not scrubbed.** No journal is vacuumed —
    `--vacuum` is time-granular and would take this gate's own transcript, which
@@ -2363,16 +2475,17 @@ frozen `vm_home_skel` vs qcow2 branch.
   jbd2 (→ reboot). `systemctl mask sleep.target suspend.target hibernate.target
   hybrid-sleep.target` is a hard, reboot-surviving block; UNMASK when done.
   Disabling hypridle alone is NOT enough (it can be re-launched).
-- **netVM `netvm.sh` cleanup — hardened 2026-07-24; the residual rule is
-  `reboot`, not `lvremove`.** The symptom (build finishes, yet `Open count: 1`
-  + live `jbd2/dm-<n>` while `mount`/`lsof`/`fuser` are clean) came from
-  ORDERING: `sync` ran before `umount_root`, and a sync on a still-open mount
-  does not settle jbd2. Now umount → `sync` → `udevadm settle`, via
-  `netvm_umount`, which surfaces umount failure instead of swallowing it the
-  way `lib.sh:umount_root` does. The prescription this entry used to carry
-  (`umount -R`+`sync`+`settle`+`sleep` before return) could not have worked —
-  on failure the script never reached its unmount at all. If a hot jbd2 still
-  appears: reboot, do NOT force `lvremove`.
+- **netVM `netvm.sh` cleanup — hardened 2026-07-24; the rule it left behind is
+  stated once, in the entry below.** The symptom (build finishes, yet
+  `Open count: 1` + live `jbd2/dm-<n>` while `mount`/`lsof`/`fuser` are clean)
+  came from ORDERING: `sync` ran before `umount_root`, and a sync on a
+  still-open mount does not settle jbd2. Now umount → `sync` → `udevadm
+  settle`, via `netvm_umount`, which surfaces umount failure instead of
+  swallowing it the way `lib.sh:umount_root` does. The prescription this entry
+  used to carry (`umount -R`+`sync`+`settle`+`sleep` before return) could not
+  have worked — on failure the script never reached its unmount at all.
+  **What to do about a hot jbd2 is the next entry's, and is not restated
+  here.**
 - **The stuck-`jbd2` test answers "may I `lvremove` now?", not "is the image
   sound?".** The entry above and the one under *Next steps* describe this
   symptom correctly, but both describe a past incident — neither is a test, and
@@ -2399,6 +2512,23 @@ frozen `vm_home_skel` vs qcow2 branch.
   reported `Filesystem state: clean` while `Open count: 1` and `[jbd2/dm-10-8]`
   persisted. The device being held is a fact about `lvremove`, not about the
   filesystem.
+
+  **Twice more since, on two different builds, and both succeeded.** The build
+  of **2026-09-03** left the device held on a host up since 2026-08-28 — the
+  hold that cost the reboot of 2026-09-05 20:10:29 — and the build of
+  **2026-09-05**, run after that reboot, left it held again: `Open count: 1`
+  with `jbd2/dm-9-8` (PID 16127) started 20:38:04, before the build published
+  its image at 20:40:32. **The hold follows *any* `build/netvm.sh` run,
+  successful or failed.** It is not a symptom of failure and never was a test of
+  one.
+
+  **So the operational rule is a reboot BEFORE each `build/netvm.sh`, not a
+  reboot after a failure.** The script's own preflight (`build/netvm.sh:122`)
+  refuses to clobber an existing `$DEV` and names `lvremove -f` as the way past
+  it — which is the one thing a held device makes unsafe. Rebooting first costs
+  a boot; meeting the hold at the preflight costs the boot anyway, plus the
+  build. Source for the 2026-09-05 reading:
+  `~/Claude.assistent/netvm-rebuild-3-report.md` § 13.
 - **netVM root is DELIBERATELY UNLOCKED in dev — this invariant inverted.**
     `netvm.sh` step 6 locks root (`passwd -l`) and unlocks it in the next breath
     (`usermod -p`). Intentional: `netvm-agent` has no `RUN` and `NETCFG` replies
@@ -2678,3 +2808,28 @@ frozen `vm_home_skel` vs qcow2 branch.
   was trusted, and link-m3 § P1.2a caught a `timeout` that fired while `/init`
   was still in its device-poll, so the check ran, printed, looked like a pass and
   never reached the code under test. (link-m3, 2026-08-28.)
+- **`systemd-run --unit` reporting `active` is not proof the process is doing
+  its job.** The console holder read `active` while blocked in `open()` on the
+  FIFO with fd 3 absent — the pre-rendezvous state. `is-active` cannot
+  distinguish it; the main PID's `comm` can (`bash` = unparked, `sleep` = held),
+  and `fd 3` being `l-wx` on the FIFO is the rendezvous itself rather than an
+  inference from a process name.
+- **`ss -xl` is not a path check.** Between a stop and a start it printed
+  `…/00/appvm` while that path did not exist — it reports the path recorded in
+  the bound socket, not presence in the filesystem. Split path from fd: `ls -i`
+  answers the path, `/proc/<pid>/fd` answers the binding.
+- **After a push, reading back `origin/main` is not server confirmation.** The
+  push writes that remote-tracking ref itself as bookkeeping, and a following
+  `fetch` has nothing to fetch. `git ls-remote origin refs/heads/main` asks the
+  server. Same shape as the "grep, not `git log`" rule.
+- **`StandardInput=file:<path>` is not readable from `systemctl show`.** It
+  reports `StandardInput=file` with no path and no `StandardInputPath` beside
+  it, so a check asserting the path fails against a correctly configured unit.
+  Verify the console by the drop-in's presence and by the unit actually
+  starting.
+- **`cp -a` in `netvm.sh` step 5 bakes the builder's ownership into the image.**
+  The build tree on MINIS is `host:host` and `host` is uid 1000, so every file
+  from `netvm.conf.d` lands owned by uid 1000 inside netVM — including
+  `nftables.conf`. Nothing is broken at mode 0644 and udev does not care, but if
+  a uid-1000 user exists inside netVM it owns the firewall ruleset. **Whether
+  one exists has not been read.**

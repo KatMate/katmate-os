@@ -46,6 +46,75 @@
 
 ---
 
+## This session (2026-09-05, first of two) — ADR-035 G1b: the ceiling is 26, and the seventeenth device is not refused
+
+Delegated session, Acer authoring and MINIS running. **No commit** — nothing
+entered the tree. Report outside the repository:
+`~/Claude.assistent/adr035-g1b-report.md`; transcripts in
+`~/Claude.assistent/g1b-transcripts/`.
+
+**Two numbers, because only one of them is the one ADR-035 needs.** The bare q35
+root bus with nothing else on it accepts **30** `virtio-net-pci`;
+`katmate-pool@netvm`, with its four other PCI devices present, accepts **26**
+slots. Both refusals carry the identical message,
+`PCI: no slot/function available for virtio-net-pci, all in use or reserved`.
+QEMU 11.1.1.
+
+**The difference of four is a subtraction of two measurements and no cause is
+assigned to it.** It is *not* a claim that each of `virtio-rng-pci`,
+`vhost-vsock-pci`, `virtio-blk-pci` and `vfio-pci` costs one slot.
+`memory-backend-memfd` is an `-object` and costs none. A prediction of 30 − 4
+was stated before the unit ran and agreed with it; **an agreeing prediction is
+still not a result.**
+
+**Both by bisection to adjacency, and `N` = 17 through 25 were never run.** The
+unit's ceiling rests on an acceptance at 26 beside a refusal at 27 — not on a
+scan. Phase 1 ran beside the live pool and stopped nothing; phase 2 needed
+**two** starts to find the ceiling, though the session performed four in total
+counting the hand-back restart and the restore.
+
+**The guest enumerates 26** at `N`=26 — all DOWN, MACs `…:00`…`:19`, 28
+interfaces total, seven readings agreeing. **The 26-slot addressing is a probe
+artefact and proposes nothing**; ADR-035's scheme is sixteen and this session
+did not touch it. Sixteen slots therefore sit **ten below the unit's measured
+ceiling** on this hardware — headroom, not licence, since every PCI device the
+netVM gains later spends it.
+
+**QEMU does not unlink its `netvm` sockets at exit — on a clean stop or after a
+failed start.** Four exits, leaving 16 / 26 / 27 / 26 nodes. The 27-node case is
+the informative one: a start refused at its twenty-seventh **device** had
+already bound all twenty-seven **backends**, because netdevs are created before
+devices. **So the pre-start sweep is load-bearing, not precautionary** — without
+it the next start meets `EADDRINUSE`, which names a syscall and would classify
+as an entirely different failure. This is an input to G5 and **not** a claim
+about the `ExecStopPost=` ADR-035 proposes: no fixture was bound, no inode
+compared, no `RuntimeDirectory=` variant run, and the observation is bounded to
+`SIGTERM` and to a QEMU that exited cleanly or refused at start.
+
+**Open problem #29 happened a second time, at 10:16**, into a shell prompt, same
+value as 2026-09-04. Two new locations: this unit's journal on MINIS and the
+operator's terminal scrollback. **Nothing was vacuumed**, on his instruction —
+`--vacuum` is time-granular and would take the gate's own transcript. **The
+guard works and its placement does not**: its first successful use was earlier
+the same morning, when a bare newline into the FIFO came back with a login
+prompt and the credential was safe to send; the failure came from a retry form
+in which the guard was a separate, skippable step. **A guard that can be skipped
+is the defect, not the person who skipped it.**
+
+**Interface names moved three times in three boots of the same unit** — the
+uplink was `eth25`, `eth26`, `eth16`, always renamed to `enp0s4`. Three
+orderings disagreed with each other, with no cause assigned. **The MAC is the
+identity and the name never is**, which is §7's premise measured rather than
+argued.
+
+**Restored and hash-confirmed.** The sixteen-slot unit is back at
+`873c4320…`; `katmate-pool@netvm` runs as MainPID **3952302**, active since
+**2026-09-05 10:22:22 CEST**; `katmate-sys-driver@netvm` is `inactive`.
+The eleven extra slot directories `10`…`1a` under `/run/katmate/link/netvm/`
+were **removed by the operator** after the session closed — his report, not a
+measurement in any session's. The probe tree `/run/katmate-dev/g1bprobe/`
+remains and is scratch.
+
 ## This session (2026-09-04) — ADR-035 G1a: a netVM boots from a sixteen-slot pool, and the console procedure burns a credential
 
 Delegated session, Acer authoring and MINIS running. **No commit of substance —
