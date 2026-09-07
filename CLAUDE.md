@@ -189,7 +189,7 @@ of empirics-before-commitment, is the expensive thing.
 |---|---|
 | Editing a tracked file on MINIS | removed at the next `rsync --delete`, silently |
 | Committing on MINIS | divergent history; git exists only on the Acer |
-| A build failing mid-write to an LV | `jbd2` holds the device open; `sync` / `udevadm settle` / `dmsetup` do not clear it — **host reboot**, and `lvremove` fails until then |
+| Running `build/netvm.sh` without a reboot since the last one | `jbd2` holds the LV open after **every** build, successful or failed (measured 2026-09-03 and 2026-09-05, on two different boots); `sync` / `udevadm settle` / `dmsetup` do not clear it — **host reboot**, and `lvremove` fails until then. Reboot **before** each build, not after a failure |
 | Forcing `lvremove` on a hot LV | do not. Reboot first |
 | Killing the QEMU on CID 3 | the machine loses its uplink |
 | Suspend during a netVM build | the jbd2 case above. Mask `sleep.target suspend.target hibernate.target hybrid-sleep.target` first; unmask after |
