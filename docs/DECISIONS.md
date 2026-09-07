@@ -5314,3 +5314,95 @@ through G6 are untaken**. What has changed is that § *Gates*' lead-in, *"none
 taken"*, **no longer describes G1** — both its halves are measured, with the
 single exception of the RSS reading of finding 4, which is not performable as
 that half words it.
+
+**Revision note (2026-09-07, §5 — the tree's mechanism is measured, and uid
+ownership is a question §5 did not have):** G5's confirmation and refusal halves
+were taken on MINIS as **G5a** (2026-09-07), against systemd on Arch and QEMU
+11.1.1. Traffic was **not** taken and is G5b. Report outside the repository:
+`~/Claude.assistent/adr035-g5a-report.md`.
+
+**1. The candidate is confirmed; the fallback is not needed for creation.** §5
+gates the choice — *"Which one is a mechanism claim about systemd and is gated
+(G5)"* — and the mechanism claim holds. `RuntimeDirectory=` naming the sixteen
+slot directories **created the tree from a confirmed-absent
+`/run/katmate/link`**, three times, including the two parent levels the
+directive makes itself. Sixteen directories, `drwxr-xr-x` `0755 root:root`,
+every `ExecStartPre=` exiting 0, QEMU binding sixteen `netvm` nodes, the guest
+up with `km00`…`km0f` and the uplink's link up.
+
+**This closes a failure that was not hypothetical.** Between the host reboot of
+2026-09-05 and this gate, **nothing created the tree**, and the first pool start
+after that reboot failed at its first `-netdev` with `No such file or
+directory`. The tree had existed only as hand-made `tmpfs` state that no reboot
+would reproduce. Under `RuntimeDirectory=` the tree no longer depends on a
+manual step; no reboot has occurred since, so that is a property of the
+mechanism and not yet an observation.
+
+**2. `RuntimeDirectoryPreserve=yes` is load-bearing, and the refusal half says
+so from the other side.** §5 argues it: *"a `RuntimeDirectory=` that removes on
+stop would unlink a live AppVM's socket the moment netVM restarted."* Measured,
+with a fixture bound on `…/00/appvm` across a stop and start:
+
+```
+                     preserve=yes            preserve absent
+appvm across stop    4830 → 4830             5000 → absent
+netvm across stop    4771 survived → 4875    removed at stop → 5060
+slot directory       4748 throughout         4955 → 5038, changed
+fixture fd           live throughout         live throughout
+```
+
+So the argument is now a measurement: **without `Preserve=yes` a netVM restart
+unlinks a live AppVM's socket**, and the AppVM keeps a live fd on an inode with
+no path — which is worse than a clean failure, because it looks like a working
+socket from inside. The refusal half also bounds the damage: the stop removed
+**exactly the sixteen slot directories**; `/run/katmate/link` and
+`/run/katmate/link/<i>` survived every stop, and the sibling `nics/` and `vm/`
+trees were never at risk.
+
+**3. G5's *"no `netvm` file exists between stop and start"* is untested, not
+false.** It presupposes the mechanism §5 itself specifies two paragraphs later —
+*"`ExecStopPost=` on the netVM unlinks the sixteen `netvm` files"* — and the
+measuring unit carries no `ExecStopPost=`, deliberately. **None was added and
+nothing was unlinked to make the clause true.** Under `Preserve=yes` every one
+of the sixteen `netvm` nodes survived the stop, slot `00` at the inode QEMU
+bound it at.
+
+**Read with the three earlier observations that QEMU does not unlink its sockets
+at exit — on a clean `SIGTERM` stop and after a start refused at a device — this
+strengthens §5 rather than qualifying it: `ExecStopPost=` is necessary, not
+tidy.** Nothing else removes those files, and a surviving node makes the next
+`bind()` fail with `EADDRINUSE`, which names a syscall and reads as an entirely
+different failure. **It is not yet implemented.**
+
+**4. A non-root `bind()` into a slot directory is refused, and §5 has no rule
+that answers it.** As the invoking non-root user, `bind()` on `…/01/appvm`
+returned `EACCES` — the directory is `0755 root:root`, systemd's default
+`RuntimeDirectoryMode=`, and a datagram `bind()` needs write permission on the
+containing directory. Re-confirmed against the consolidated unit's own tree
+rather than carried over. **An AppVM's QEMU runs as that user.**
+
+§5 says *"the ownership rule is the decision"*, but the rule it states is about
+**who the tree belongs to across a stop**, not about **which uid may bind into a
+slot**. That second question did not exist until the first was settled.
+
+**The operator ruled it on 2026-09-07:** `RuntimeDirectory=` creates the
+sixteen directories root-owned, and **the launch daemon sets ownership at
+assignment and returns it at release** — the same moment the `owner` file is
+written and removed, so occupancy and permission are one act rather than two
+that can disagree. **Loosening `RuntimeDirectoryMode=` was considered and
+rejected**: a group-writable tree would let any member bind into an unassigned
+slot, which would make *"absence is freedom"* unenforceable and the `owner` file
+a description rather than a record.
+
+**Not decided, and named so it is not lost:** whether the slot directory needs
+the sticky bit. Without it an AppVM that may write into its own slot may also
+unlink the netVM's `netvm` node there. **No mode was changed and no `chown` was
+run** — the launch daemon does not exist, and none of this is implemented.
+
+**5. What G5a did not take.** Traffic. G5's *"a re-issued ADD restores traffic
+in both directions"* needs a peer that speaks Ethernet frames, since a
+`-netdev dgram` backend carries frames and not IP, and that is G2/G4 apparatus.
+It is **G5b**.
+
+**Status is unchanged: PROPOSED.** G2, G3, G4, G5b and G6 are untaken, and
+§5's `ExecStopPost=` and the assignment-time ownership are both unimplemented.
