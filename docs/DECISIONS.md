@@ -5406,3 +5406,338 @@ It is **G5b**.
 
 **Status is unchanged: PROPOSED.** G2, G3, G4, G5b and G6 are untaken, and
 §5's `ExecStopPost=` and the assignment-time ownership are both unimplemented.
+
+**Revision note (2026-09-12, § *Gates*, §6, §7, §9 and § *Questions* — five gate
+sessions of one day, and what they measure about three decisions):** G2, G3, G4,
+G5b and G6 were taken on MINIS on **2026-09-12**, across five delegated
+sessions, against QEMU **11.1.1**, on the netVM run by `katmate-pool@netvm.service`
+since the host boot of 2026-09-05 20:10:29. Reports outside the repository, all
+of 2026-09-12: `~/Claude.assistent/g5b-rxfilter-report.md`,
+`~/Claude.assistent/g5b-restart-report.md`, `~/Claude.assistent/g2-add-report.md`,
+`~/Claude.assistent/g2-refusal-g6-report.md` and
+`~/Claude.assistent/g3-g4-console-report.md`. **Eleven findings, appended once
+rather than as five notes.**
+
+**Three of the eleven are implementation gaps and not design errors**, and are
+written as such: finding 1 (supersession), finding 4 (`ifindex_by_mac`) and
+finding 5 (§9's keys). In each the decision above stands unchanged and what is
+missing is the code that would carry it. **Every code change named below is a
+proposal for the code pass, never a decision taken here.**
+
+**1. Supersession is load-bearing, not convenient, and it is not implemented.**
+§6's convergence paragraph reads: *"An ADD naming a `match_mac` that already
+carries a record under a different `link_id` **supersedes** that record — an
+interface has one link, and the newer assignment is the truth."* **The design
+stands; the implementation does not do it.**
+
+Measured in `g3-g4-console-report.md` § 5.5b/c (2026-09-12). With link **201**
+installed on slot 01, an ADD of link **211** naming the same `match_mac`
+`52:54:01:00:00:01` and the same peer `10.100.1.17` was **accepted** —
+`status=0x00 (OK)` at 18:39:07 CEST — and it superseded nothing: it wrote a
+**second record**, `link-000000d3` beside `link-000000c9`, and added a second
+route at metric 200 beside 201's metric 100, the address itself unchanged
+because `addr_add` met `EEXIST` and tolerated it. `do_add` keys on `link_id`
+alone; that a slot is occupied is not a thing it knows.
+
+The REMOVE of 211, forty-one seconds later, then **deleted the address
+`10.100.1.1 peer 10.100.1.17/32` — which *both* records describe** — and with it
+link 201's metric-100 route, the kernel's implicit `proto kernel` route and the
+`km01` neighbour entry for `10.100.1.17`, **while record `link-000000c9`
+survived byte-identical** (§ 5.5c). `drive_remove` withdraws what its own record
+describes and has no notion of a sibling. Link 201 was left as *a record
+describing a link that is not installed*: from the host side, which holds the
+record and an `OK` reply, slot 01 was configured; inside netVM it carried no
+address, no route and no neighbour.
+
+**What this changes about §6's harmlessness claim.** §6 concludes that an
+absorbed REMOVE and supersession *"together make a late REMOVE from a previous
+tenant harmless to the current one, without encoding generations anywhere."*
+**That conclusion is conditional on supersession, and the condition is the half
+that is missing.** With supersession the previous tenant's `link_id` does not
+survive the new ADD, so a late REMOVE naming it meets the absorbing path §6 also
+describes and is harmless. Without supersession the stale record can outlive its
+mechanism — `netcfg.rs`'s own header names the crash window between
+`drive_remove` and `remove_record` — and § 5.5c is that window's outcome
+measured directly: the late REMOVE is not absorbed, it de-programs the current
+tenant.
+
+**The gap is the absence of supersession, and nothing here argues for encoding
+generations.** The measurement shows the opposite: had `do_add` superseded, the
+sibling case § 5.5c constructed could not have existed at all. `link_id` remains
+ADR-025's opaque counter. **Supersession in `do_add` is a proposal for the code
+pass.**
+
+**2. Question 1 is answered: what today's REMOVE does, and the three things it
+does not do.** § *Questions* asks *"Does today's REMOVE clear `IFF_UP`, delete
+the address, or only the route?"*, and §6 closes by calling this *"a question,
+not an assumption"*. It is now an observation.
+
+Measured in `g3-g4-console-report.md` § 5.3 (2026-09-12), on slot 01, against
+§6's own enumerable list — **three of six items**:
+
+| §6 requires of REMOVE | measured on slot 01, 18:42:36 CEST |
+|---|---|
+| delete the address on that interface | **done** — `km01 UP fe80::5054:1ff:fe00:1/64`, no IPv4 address |
+| delete the peer route | **done** — no route for `10.100.1.17` of any kind, the agent's `metric 100` one and the kernel's implicit `proto kernel` one both gone |
+| delete the record | **done** — `link-000000c9` gone, `c8` and `ca` remain |
+| clear `IFF_UP` | **not done** — `km01` still `<BROADCAST,MULTICAST,UP,LOWER_UP>` |
+| delete the neighbour entry for peer `k` | **done on the slot, not globally** — the `km01` entry went with the address, by the kernel's own cleanup; `10.100.1.17 dev km02 lladdr 52:54:01:00:01:02 STALE` was untouched |
+| flush conntrack entries naming peer `k` | **not done** — the entry survived, read live on both sides of the release |
+
+The conntrack row is the sharpest of the three, because it was read live rather
+than by absence: `/proc/net/nf_conntrack` carried
+`icmp … src=10.100.1.17 dst=10.100.1.1 … id=54484` with **ttl 27** immediately
+before the REMOVE and the same entry with **ttl 23** immediately after
+(§ 5.3). **It aged four seconds; it was not flushed.**
+
+**What it changes.** §6's *"REMOVE returns the interface to FREE, and FREE is
+DOWN — that is the quarantine: a down interface receives nothing"* **describes a
+state today's REMOVE does not produce.** The two missing primitives are
+`link_down` and the conntrack flush, and the flush is the one §6 already names as
+*"the one new capability the pool asks of the agent"*. §6's argument that an
+enumerated teardown beats a time-based quarantine is untouched by this; what is
+measured is that two items of the enumeration have no implementation yet. **Both
+are proposals for the code pass.** The neighbour row carries one design
+consequence §6 does not yet state: *"delete the neighbour entry for peer `k`"*
+has to name an interface, and the entry that most needed deleting sat on a
+different one (finding 6).
+
+**And the discipline that makes the conntrack row readable is recorded, because
+it nearly went the other way.** The session's first conntrack read came back
+**empty 39 s after the last flow** (§ 5.2a) — inside the 30 s default ICMP
+timeout, so the entry had expired on its own, and an expired entry is
+indistinguishable from a flushed one. Every later read was timed inside the
+window, on both sides of the REMOVE. **A negative that coincides with a natural
+expiry is not a measurement**, and a conntrack row read without that timing would
+have reported a flush that does not exist.
+
+**3. Question 2 is answered: today's ADD tolerates `EEXIST`.** § *Questions*
+asks whether ADD treats `EEXIST` on the address as convergence or as failure.
+Measured in `g3-g4-console-report.md` § 5.5b/c (2026-09-12), which quotes
+`netlink.rs:407/437`: it is tolerated on **both** `addr add` and `route add`, and
+the ADD of link 211 onto an interface already carrying `10.100.1.1 peer
+10.100.1.17/32` returned `OK` with the address unchanged and a new route added.
+Convergence works as designed on that axis, and §3's *"one address, many links"*
+is not obstructed by the netlink layer. The same session observed the other
+convergence claim directly: an **identical re-ADD** of link 201, issued against
+an interface whose record had survived but whose kernel state had not, restored
+the link completely and did not rewrite the record (§ 5.5d).
+
+**Questions 1 and 2 move out of § *Questions* by this note. Questions 3 and 5
+remain open**, and nothing in these five sessions bears on either. **Question 4
+was closed by this ADR's revision note of 2026-09-03**, which is where its answer
+is; it is not reopened here.
+
+**4. §7 is unimplemented, and G3 measured the harm it exists to prevent.** §7
+says `ifindex_by_mac` *"must count"*, that two or more interfaces carrying the
+requested address is a **Rejected** and not a first-match, and that this
+*"lands in the pool's agent commit"*. **That commit has not landed. This is an
+implementation gap, not a design error** — §7 argues exactly the outcome that
+was measured, and the measurement is now the evidence for it rather than the
+reasoning.
+
+Measured in `g3-g4-console-report.md` § 4 (2026-09-12). A `dummy` interface
+`g3dup` was created inside netVM carrying `52:54:01:00:00:03`, slot 03's
+constant, and shown to coexist with `km03` before anything was sent — ifindex 19
+and ifindex 5, both DOWN, neither carrying an address (§ 4.1). The ADD for that
+MAC returned **`status=0x00 (OK)`** (§ 4.2) and programmed **the dummy**: address
+`10.100.1.1 peer 10.100.1.19/32`, both routes, `IFF_UP` raised and a well-formed
+record `link-000000cb` — **while `km03`, the actual slot, stayed DOWN with
+nothing** (§ 4.3). The outcome was decided by enumeration order alone: `ls -U
+/sys/class/net` put `g3dup` second and `km03` fourteenth, and the session
+predicted the named interface from that order **before** issuing the ADD
+(§ 4.1).
+
+**What it changes for the gate.** **G3 did not fail; it is not performable until
+§7 lands.** G3 words its subject as a refusal — *"ADD for that MAC returns
+Rejected and programs nothing"* — and what exists to be measured today is the
+pre-correction behaviour, now with a number attached: **a link assigned to slot
+03 was programmed onto an interface that is not slot 03, and nothing on the host
+side distinguishes that from a correct install.** The reply was `OK` and the
+record is well-formed; only reading interface names inside netVM tells the two
+apart, and the host has no such reading. G3's control half — sixteen distinct
+MACs, where first-match cannot pick wrongly — holds and was re-read the same day
+(§ 3.3). **Counting in `ifindex_by_mac` is a proposal for the code pass.**
+
+**5. §9 is unimplemented, and G6 splits into a half that is taken and a half
+that is blocked.** §9 says `KM_MAC_INT` *"retires with `tap-int0`"* and that the
+AppVM template *"gains two typed scalars, `KM_NETVM` and `KM_SLOT`"*. **Neither
+has happened, and this too is an implementation gap rather than a design error**
+— §9 makes both conditional on a change that has not been made.
+
+Measured in `g2-refusal-g6-report.md` § 3.2–3.4 (2026-09-12): the live netVM
+projection `/run/katmate/vm/netvm.env` carries **`KM_MAC_INT=52:54:00:21:b2:08`**
+among its thirteen keys; the installed `katmate-generate-env` has no `KM_SLOT`
+and no `KM_NETVM` key at all (`grep` exit 1 over the installed executable); and
+**no AppVM template is installed** — the installed templates are exactly
+`katmate-pool@.service` and `katmate-sys-driver@.service`.
+
+**What it changes for the gate. G6 describes the post-§9 world and has to be
+split by this note:**
+
+- **G6a — taken** (`g2-refusal-g6-report.md` § 3.1 and § 3.2, 2026-09-12):
+  `systemd-analyze verify` on both existing templates, by path and by instance,
+  **exit 0** on all four invocations, the only diagnostic belonging to a third
+  unit (`vhost-vsock-load.service`'s `ConditionKernelModule`, which systemd notes
+  as ignored); and the netVM projection read in full.
+- **G6b — blocked until §9 lands** (§ 3.3 and § 3.4): the `KM_SLOT=00 -drive`
+  injection has no AppVM projection to inject into and no AppVM unit to start,
+  and `KM_SLOT=1g` has no generator input to be refused by. **Neither was run.**
+  ADR-030 §3's whitespace guard is present in the generator's `emit()` and would
+  catch the injected form, **but only once `KM_SLOT` is an emitted key**, which
+  it is not.
+- **G6's `KM_MAC_INT` clause belongs to G6b**, not to G6a: the projection carries
+  the key today, and §9 says it retires *with* `tap-int0`.
+
+**6. G2's refusal half takes two forms, and they measure different properties.**
+The half is worded around a frame that *"is not answered and not forwarded — or
+it is, and the run says so and names `rp_filter`'s value as read, not as
+assumed."* Both forms were run, in two sessions of the same day, and the value
+is read.
+
+**`rp_filter` is 2 — loose — on every slot interface**, `all` = 0, so the
+effective value by the kernel's `max(all, iface)` rule is **2**
+(`g3-g4-console-report.md` § 3.2, 2026-09-12; read, never set). Loose mode asks
+only whether the source address is reachable via *some* interface, not via the
+one the packet arrived on. `10.100.1.17` is reachable via `km01`, so a packet
+carrying that source and arriving on `km02` **passes ingress** — which is exactly
+the mechanism behind the *accepted* the IPv4 form measured. **Strict mode (1) is
+what would drop it, and strict mode is not what is configured.**
+
+- **The IPv4 form** (`g2-refusal-g6-report.md` § 2.2–2.5, 2026-09-12) measures
+  acceptance and the steering of the response. An ICMP echo request with source
+  `10.100.1.17` — slot 01's peer — delivered onto slot 02 at 13:56:39 CEST was
+  **accepted and acted on in another tenant's name**: within the same second
+  netVM began resolving `10.100.1.17` **on slot 01**, from slot 01's own MAC, and
+  **the spoofer on slot 02 received nothing** across 67 s (RX unchanged at 21).
+  Two controls bound the reading: the same frame with each slot's own source
+  produced an echo reply at that slot's own fixture, in the same millisecond
+  (§ 2.2, § 2.3). Re-runs of the legitimate control after the spoof showed **no
+  durable redirection toward slot 02** (§ 2.5).
+- **The ARP form**, which the half's old wording reaches for and which
+  `g2-add-report.md` § 5.4 (2026-09-12) measured, **planted a durable cross-slot
+  neighbour entry.** An ARP request carrying `spa=10.100.1.17` and
+  `sha=52:54:01:00:01:02` sent onto slot 02 at 12:49:36 CEST was answered by
+  netVM on slot 02 and not forwarded to slot 01 — and it left
+  `10.100.1.17 dev km02 lladdr 52:54:01:00:01:02` in netVM's neighbour table.
+  `g3-g4-console-report.md` § 3.1a dated that entry by `ip -s neigh` ages to
+  **12:49:37**, which lands on the ARP-form frame to the second and is **67
+  minutes before** the ICMP spoof — which therefore neither created nor refreshed
+  it. It was still present at that session's close (§ 5.5c, § 10).
+
+**What it changes.** **The refusal half takes both forms, because they measure
+different properties.** The IPv4 form measures what `rp_filter` governs: ingress
+acceptance of a foreign source, and the steering of the response by the per-slot
+routes. The ARP form measures what `rp_filter` does not govern: contamination of
+the neighbour table across slots, a mapping from one tenant's address to another
+tenant's MAC that outlives the frame that planted it, survives a release on a
+different slot (finding 2), and which the IPv4 form did not show. A run of only
+one form answers half the question. **`rp_filter=1` on the slot interfaces is
+recorded here as a proposal for the code pass and not as a decision taken** — the
+value was read and nothing was set, and what the right value is belongs to the
+tier model rather than to a session.
+
+**7. The `EADDRINUSE` claim of this ADR's 2026-09-05 note, finding 5, was never
+observed, and the motivation for `ExecStopPost=` is rewritten rather than
+withdrawn.** That note publishes, as a measured consequence, that *"A pre-start
+sweep of the slot nodes is **load-bearing, not precautionary** — without it the
+next start meets `EADDRINUSE`."*
+
+Measured in `g5b-restart-report.md` § 0.1.4, § 3.1 and § 9 (2026-09-12): a
+`systemctl restart` of `katmate-pool@netvm.service` was run with **no sweep, no
+`ExecStopPost=` in the unit and sixteen surviving `netvm` nodes**, and it
+**succeeded** — all sixteen rebound at new inodes (5265 → 7592, the set running
+7592–7611), no `EADDRINUSE`, nothing naming a syscall anywhere in the journal
+across the stop and the start. The mechanism is **QEMU's own `unlink()` before
+`bind()`**, identified on this same unit by `~/Claude.assistent/adr035-g5a-report.md`
+§ 5.2 on 2026-09-07; 2026-09-12 is the second independent observation, on a
+different boot of the unit and with a live peer bound in the same directory
+throughout.
+
+**How the claim came to be published matters more than the claim.** Every
+`EADDRINUSE` in `~/Claude.assistent/adr035-g1b-report.md` is **counterfactual** —
+*"had they been left, `bind()` would have failed `EADDRINUSE`"* — because that
+session's sweep always ran first and removed a non-zero count every time. The
+branch was never taken, so the claim was never falsifiable there, and a
+hypothesis about an untaken branch was promoted to a measured invariant. It is
+the shape `state.md` § *Invariants & gotchas* already names: **a check that
+cannot fire is indistinguishable from a check that found nothing.**
+
+**What it changes. §5's `ExecStopPost=` stays, by the operator's ruling of
+2026-09-12, with its motivation rewritten.** It is not motivated by
+`EADDRINUSE`, which does not occur. It is motivated by what stands in the slot
+directory between a stop and a start: the sixteen `netvm` nodes survive the stop
+(`g5b-restart-report.md` § 3.1, and `adr035-g5a-report.md` § 5.2 of 2026-09-07
+under `RuntimeDirectoryPreserve=yes`), and once the netVM's QEMU is gone those
+nodes are **unheld** — which is precisely why the next start can rebind them. An
+unheld node in a slot directory is bindable by anything that may write there, and
+whatever binds it receives the AppVM's frames in the gateway's place. **A
+pre-start sweep runs too late to close that window**; only an unlink at stop
+does. §5's own sentence — *"`ExecStopPost=` on the netVM unlinks the sixteen
+`netvm` files"* — is unchanged and remains **unimplemented**, as the 2026-09-07
+note records.
+
+**8. § *Gates*' lead-in, *"Gates — none taken"*, is now false of every gate but
+one, and this note states each with its report.** The lead-in is corrected by
+this note and not edited.
+
+| gate | status on 2026-09-12 | evidence |
+|---|---|---|
+| **G1** | **taken**, both halves | `adr035-g1a-report.md` (2026-09-04) and `adr035-g1b-report.md` (2026-09-05), as the 2026-09-05 note records; its RSS reading is not performable as worded |
+| **G2**, confirmation | **taken** | fixture-visible half `g2-add-report.md` § 5.3; the interior — the three `/32`s, the flags, the per-slot routes — `g3-g4-console-report.md` § 3.3, both 2026-09-12 |
+| **G2**, refusal | **taken, in two forms** | ARP form `g2-add-report.md` § 5.4; IPv4 form `g2-refusal-g6-report.md` § 2.2–2.5; `rp_filter` read in `g3-g4-console-report.md` § 3.2 — all 2026-09-12 (finding 6) |
+| **G3** | **not performable until §7 lands** | `g3-g4-console-report.md` § 4, 2026-09-12 (finding 4) |
+| **G4**, confirmation | **partly measured — three of six rows** | `g3-g4-console-report.md` § 5.3, 2026-09-12 (finding 2); the `conntrack -L` clause is vacuous as worded (finding 11) |
+| **G4**, refusal | **holds in the literal form, fails in the redesigned one** | `g3-g4-console-report.md` § 5.5a and § 5.5c, 2026-09-12 (findings 1 and 10) |
+| **G5a** | **taken**, both halves | `adr035-g5a-report.md`, 2026-09-07, as the 2026-09-07 note records |
+| **G5b** | **restart clauses observed; the traffic clause not taken** | `g5b-restart-report.md` § 3.1 and § 4 (2026-09-12): `appvm` inode 7528 unchanged across the restart with its socket and the peer's fd agreeing, `netvm` renewed, the slot directory and both parents never recreated; *"no `netvm` file exists between stop and start"* **still untested and still not false**, since it presupposes the `ExecStopPost=` the unit does not have. *"A re-issued ADD restores traffic in both directions"* was **not taken**, and what nothing measured is restoration **after** the restart. **Neither direction is unexercised, and neither was exercised as this clause words it.** Peer → netVM was taken **before** the restart, in `g5b-rxfilter-report.md` § 2.5.1 (2026-09-12): `km00 rx_packets` 0 → 10 and then 12, reconciling exactly with that session's slot peer's `eth0 tx` at both readings. NetVM → the guest on slot 00 was taken **after** the restart and on the restart-survived binding, in `g2-add-report.md` § 5.2 (2026-09-12): the guest's `eth0 rx` rose **0 → 6 → 11** following the slot-00 ADD of 12:47:42 CEST, after **2034** consecutive readings at zero over that peer's whole life — the peer being `g5br-restartpeer.service`, MainPID 3627150, started 09:58:06 CEST and alive across the 09:59:37 CEST restart. Two things the clause asks for are still missing: the **guest on slot 00 → netVM** direction is **not measured** (`g2-add-report.md` § 6), so no ADD has been shown to carry both directions of one slot; and a counter that had never been non-zero rising for the first time is first traffic, not restoration. In the pre-restart window `km00 tx_packets` stood at 100 across three readings and about seven minutes (`g5b-rxfilter-report.md` § 2.5.2, § 2.6), which measures an idle emitter and not a receiver |
+| **G6a** | **taken** | `g2-refusal-g6-report.md` § 3.1, § 3.2, 2026-09-12 (finding 5) |
+| **G6b** | **blocked until §9 lands** | `g2-refusal-g6-report.md` § 3.3, § 3.4, 2026-09-12 (finding 5) |
+
+**9. A citation hazard, and the convention going forward.** This ADR numbers its
+decisions **1–9**, and the existing notes cite them as `§n` with `n` the
+decision's own number. The session reports do not agree with each other:
+`g2-refusal-g6-report.md` § 3 writes **`§7`** for **decision 9** (`KM_MAC_INT`,
+`KM_NETVM`, `KM_SLOT`, the AppVM template), while `g3-g4-console-report.md`
+§ 4.4 writes **`§7`** for **decision 7** (`ifindex_by_mac` must count). Both were
+written on 2026-09-12 and only the second matches this ADR. **Nothing is
+renumbered; the convention is restated:** a decision of this ADR is cited by the
+number this ADR gives it, and a reader meeting `§7` in a report of 2026-09-12
+must check which decision the sentence is about before carrying it.
+
+**10. `OK` does not distinguish a removal from an absence, and for a reader of
+the reply that is a trap.** Measured in `g3-g4-console-report.md` § 5.5a
+(2026-09-12): a REMOVE naming `link_id` 211, which had never been installed,
+returned **`status=0x00 (OK)`, payload_len=0** — byte-identical to the reply to
+the REMOVE that actually withdrew link 203 earlier the same day (§ 4.5), and
+nothing changed. **For convergence this is §6 working as designed** —
+*"A REMOVE naming an unknown `link_id` is absorbed"* — and the note records it as
+the confirmation of that clause. **For anyone reading the reply as evidence that
+a link was installed, it is a trap:** the wire does not distinguish *"I removed
+it"* from *"there was nothing to remove"*, and finding 1 supplies the case where
+that matters.
+
+**11. `conntrack -L` is not in the netVM image, so G4's clause is vacuous as
+worded.** Measured in `g3-g4-console-report.md` § 5.2a (2026-09-12): `command -v
+conntrack` returns nothing and `conntrack -L` is `command not found`. **The
+subsystem is present and in use, and only the tool is missing:** the guest's own
+nft ruleset carries `ct state established,related accept` in both filter chains,
+`/proc/net/nf_conntrack` exists and is readable, and
+`/proc/sys/net/netfilter/nf_conntrack_count` reads a live value. **G4's clause is
+therefore corrected by this note to read `/proc/net/nf_conntrack` and
+`nf_conntrack_count` rather than `conntrack -L`**, with finding 2's timing
+constraint attached: the reading is only evidence if a live entry existed
+immediately before the release. Whether the tool should be added to the image is
+a manifest question and is not decided here.
+
+**Status is unchanged: PROPOSED.** Every gate but G1 and G5a has now been taken
+or attempted, and the ADR is no closer to acceptance for a reason the gates
+themselves report: **three of its decisions have no implementation.** §6's
+supersession, its `link_down` and its conntrack flush; §7's duplicate count; §9's
+retirement of `KM_MAC_INT` and its two new AppVM scalars — each is a decision
+this ADR took and no commit has carried. G3 is not performable until §7 lands and
+G6b is not performable until §9 lands; §5's `ExecStopPost=` and the
+assignment-time ownership of the slot directories remain unimplemented, as the
+2026-09-07 note records. **No code was written, no sysctl was set and no unit was
+changed by any of the five sessions**, and every change named in this note is a
+proposal for the code pass.
