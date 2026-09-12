@@ -611,9 +611,12 @@ touched.
   and `katmate-pool-rd-nopreserve@.service`, are **gone** — removed from disk
   and `not-found` to systemd; folding rather than deleting kept the
   `90-dev-monitor.conf` drop-in, which the `-rd` variants lacked, so G5b will
-  not meet a `208/STDIN` mid-gate. **It is running: MainPID 943031, active
-  since 2026-09-07 14:51:21 CEST** (`pool-consolidate-report.md` § 5; whether
-  it stays up was left to the operator and is not decided there) — while
+  not meet a `208/STDIN` mid-gate. **It is running: MainPID 3628111,
+  invocation ID `795c97e533c54b7a8eb16cf5b95d3c50`, `NRestarts=0`, active
+  since 2026-09-12 09:59:37 CEST.** The prior MainPID 943031 died in a
+  `systemctl restart` deliberately run with no sweep and no `ExecStopPost=`:
+  all sixteen `netvm` nodes rebound at new inodes and no `EADDRINUSE`
+  occurred (source: `g5b-restart-report.md`) — while
   `katmate-sys-driver@netvm.service` is **inactive**. The two must never run
   at once: same instance name, same LV, same CID, same VFIO device. The pool
   unit replaces the single `tap-int0` device with sixteen `dgram` slots, so
@@ -628,7 +631,9 @@ touched.
   `netvm` sockets at exit. **Every MainPID recorded before 943031 is dead**,
   including all four of 2026-09-05 — the pool was stopped and started four
   times that day, the last of them 3952302, and the 2026-09-07 consolidation
-  superseded every one of them. Eleven empty slot directories `10`…`1a` that
+  superseded every one of them. **943031 itself is now dead too**, superseded
+  by 3628111 at the 2026-09-12 09:59:37 CEST restart recorded above. Eleven
+  empty slot directories `10`…`1a` that
   G1b left under `/run/katmate/link/netvm/` were removed by the operator after
   it closed; `/run/katmate-dev/g1bprobe/` went with the reboot of 2026-09-05
   20:10:29, which took the whole of `/run/katmate-dev/`. **The slot tree is no
@@ -637,6 +642,30 @@ touched.
   parent levels systemd makes itself. See the 2026-09-07 session entry and the
   two 2026-09-05 entries — the *first of two* of which moved to
   `docs/SESSIONS.md` in this commit.
+
+  **Slot bindings, as left at the close of the 2026-09-12 gate arc, because
+  the next measuring session inherits them.** Slot **00** — `appvm` inode
+  **7528**, held by `g5br-restartpeer.service` (MainPID **3627150**), started
+  09:58:06 CEST and **alive across the 09:59:37 CEST restart** — the only
+  restart-survived AppVM binding in the tree — with link **200** installed
+  (`g5b-restart-report.md`, `g2-add-report.md`). Slot **01** — `appvm` inode
+  **7855**, `g2fix-01.service` (**3689344**), **left RELEASED**; re-install
+  with `ping-client netcfg-add 3 201 52:54:01:00:00:01 10.100.1.17 100`
+  (`g3-g4-console-report.md`). Slot **02** — `appvm` inode **7857**,
+  `g2fix-02.service` (**3689348**), link **202** installed, untouched control
+  (same source). **The dev console is at a live root shell**; the next
+  session needs no login step (`g3-g4-console-report.md`).
+
+  **Instruments left on MINIS from that arc, so they are not rewritten:**
+  `/tmp/g2fix.py` (ARP request), `/tmp/g2icmp.py` (IPv4 ICMP echo),
+  `/tmp/g34arp.py` (ARP reply — gratuitous and solicited), `/tmp/g34resp.py`
+  (solicited ARP responder), `/tmp/g34-conrun.sh` (console runner). Client:
+  `/home/host/katmate-build/agent/target/release/ping-client`, vsock CID 3
+  port 1025, ops `netcfg-add <cid> <link_id> <mac> <peer> <metric>` and
+  `netcfg-remove <cid> <link_id>`; `local_addr=10.100.1.1`, prefix 32 compiled
+  in. **Addressing convention as measured:** slot `k` carries MAC
+  `52:54:01:00:00:kk`, peer `10.100.1.(16+k)`, gateway `10.100.1.1/32` on
+  every active slot.
 - **personalVM** — **gone.** Launcher and overlay removed 2026-08-02;
   `vm_personal_home` outlived that claim and was measured present on 2026-08-11,
   absent on 2026-08-17 (see the correction on the housekeeping entry above). It
@@ -1841,6 +1870,26 @@ refuse. G4 release leaves nothing. G5 the link tree survives a netVM restart.
 G6 the boundary holds. **Each has a refusal half**, and a gate is passed by
 observation quoted verbatim or it is not passed.
 
+**Further, 2026-09-12 — five of the six gates were taken or attempted in one
+day, across five delegated sessions, and ADR-035 still cannot move PROPOSED →
+ACCEPTED.** Status, matching ADR-035's 2026-09-12 revision note (finding 8)
+and not re-derived here: **G1, G2 (both halves), G5a and G6a taken; G5b not
+taken** — the missing clause is restoration *after* the restart, and the
+guest → netVM direction of slot 00 is unmeasured (`tx` stood at 17
+throughout), so no ADD has yet been shown to carry both directions of one
+slot; **G3 not performable** until decision 7 (`ifindex_by_mac` counting)
+lands; **G4** three of six rows, its refusal half failing in the redesigned
+form; **G6b blocked** on decision 9 (the AppVM template and its two
+scalars). See [ADR-035](docs/DECISIONS.md#adr-035)'s 2026-09-12 revision note
+for the full table and the eleven findings behind it — not duplicated here.
+**Two facts a reader needs before touching the machine:** slot **01** is left
+**RELEASED** (re-install with `ping-client netcfg-add 3 201
+52:54:01:00:00:01 10.100.1.17 100`), and **the dev console is already at a
+live root shell** — no login step is needed. **Outstanding before the next
+measuring session:** the `PEER:` fixture line carries no timestamp and needs
+one (see *Invariants & gotchas*); without it a reading cannot be placed
+against the events around it.
+
 **Three things step 1 inherits that were not visible before it had an ADR.**
 (a) The agent gains a duplicate-MAC check (§7), a neighbour delete, a conntrack
 flush, and a DOWN on REMOVE — **none of which exists today**; the 2026-09-02
@@ -2396,13 +2445,43 @@ frozen `vm_home_skel` vs qcow2 branch.
   once** — same instance name, same LV, same CID, same VFIO device — and both
   point at the same FIFO, so the `208/STDIN` failure after a host reboot now
   applies to both.
-- **Sweep the slot sockets before every pool start; it is load-bearing.** QEMU
-  does not unlink its `netvm` nodes at exit — not on a clean `SIGTERM` stop, not
-  after a start refused at a device (2026-09-05, four exits, 16/26/27/26 nodes
-  surviving). A refused start has already bound **all** its backends, because
-  netdevs are created before devices, so it can leave more nodes than the next
-  start needs. Without a sweep the next `bind()` returns `EADDRINUSE`, which
-  names a syscall and reads as a different failure entirely.
+- **QEMU does not unlink its `netvm` nodes at exit, but it does `unlink()`
+  before `bind()` — the earlier claim that a sweep is load-bearing against
+  `EADDRINUSE` was wrong, and is corrected here.** Measured 2026-09-12: a
+  `katmate-pool@netvm.service` restart ran with no sweep, no `ExecStopPost=`
+  and sixteen surviving `netvm` nodes, and it **succeeded** — all sixteen
+  rebound at new inodes, no `EADDRINUSE`, nothing naming a syscall anywhere in
+  the journal across the stop and the start (source: `g5b-restart-report.md`;
+  carried in ADR-035's 2026-09-12 revision note, finding 7). **Every
+  `EADDRINUSE` in the g1b report was counterfactual**: that session's sweep
+  always ran first, so the branch was never taken and a hypothesis about an
+  untaken branch was published as a measured invariant. What is unchanged:
+  QEMU still does not unlink `netvm` nodes at exit — not on a clean `SIGTERM`
+  stop, not after a start refused at a device (2026-09-05, four exits,
+  16/26/27/26 nodes surviving), a refused start having already bound **all**
+  its backends because netdevs are created before devices. Only the
+  consequence drawn from that observation was wrong.
+- **`ExecStopPost=` stays — operator ruling of 2026-09-12 — with its
+  motivation rewritten: not `EADDRINUSE`, which does not occur, but a hijack
+  window.** Between a `stop` and a `start`, an **unheld** `netvm` node stands
+  in the slot directory, and any process with write access there can bind it
+  and receive AppVM frames in the gateway's place. **A pre-start sweep runs
+  too late to close that window** — only an unlink at stop does. §5's
+  `ExecStopPost=` unlinking the sixteen `netvm` files remains
+  **unimplemented** (ADR-035's 2026-09-12 revision note, finding 7).
+- **`RuntimeDirectoryPreserve=yes` is load-bearing, reconfirmed under a live
+  peer.** A second, independent restart of `katmate-pool@netvm.service`
+  (2026-09-12) left `appvm` inode 7528, its bound `/proc/net/unix` socket
+  7079435 and the peer's fd 11 all unchanged across the restart (source:
+  `g5b-restart-report.md`; the first such observation was
+  `adr035-g5a-report.md`, 2026-09-07).
+- **`pgrep -x qemu-system-x86_64` never matches, and the trap bit twice.**
+  `comm` is capped at 15 characters and the name is 18. After the `-a` form
+  was recorded below, a step-0 probe used `-x` and read **0** against a
+  `pgrep -f` / `/proc/*/comm` reading of **2**, on 2026-09-12
+  (`g2-refusal-g6-report.md` finding 6; `g3-g4-console-report.md`). **Neither
+  form of the bare process name works — use `pgrep -f` or read
+  `/proc/*/comm`.**
 - **A guard placed as a separate step is not a guard.** The FIFO login guard —
   a bare newline, and refuse to send unless the answer is a login prompt —
   worked the first time it was used and was skipped an hour later in a retry
@@ -2833,3 +2912,50 @@ frozen `vm_home_skel` vs qcow2 branch.
   `nftables.conf`. Nothing is broken at mode 0644 and udev does not care, but if
   a uid-1000 user exists inside netVM it owns the firewall ruleset. **Whether
   one exists has not been read.**
+
+- **A negative that coincides with a natural expiry window is not a
+  measurement.** A conntrack read 39 s after the last flow came back empty,
+  inside the default 30 s ICMP expiry — indistinguishable from a successful
+  flush. Every later read was timed inside the window, on both sides of the
+  event that mattered, and the entry was then seen to **age** (ttl 27 → 23)
+  rather than vanish. Source: `g3-g4-console-report.md` § 5.3 (2026-09-12);
+  carried in ADR-035's 2026-09-12 revision note, finding 2.
+- **A console guard's window must require a prompt newer than its own
+  probe.** A 25-record window was satisfied by a `localhost login:` record
+  **five hours old**, so the guard passed on evidence that predated the thing
+  it was checking. Source: `g3-g4-console-report.md` (2026-09-12).
+- **A guard watches the echo, not the prompt.** `Password:` and
+  `localhost login:` carry no trailing newline, so neither ever flushes a
+  journal record on its own and a guard keyed on them can never fire — send a
+  bare newline first and key on the **echoed input** (`localhost login:
+  root`). **A check that cannot fire is indistinguishable from a check that
+  found nothing.** Source: `g3-g4-console-report.md` (2026-09-12).
+- **A quotation that wraps across a line is not a search string.** Two of
+  write pass A's brief quotations returned zero under `grep -F` because the
+  tree wraps at ~76 characters; the text was present in both cases. **Reading
+  the line range is the correct response to a `grep -F` miss on quoted tree
+  text; halting is not.** When a brief quotes the tree's own text, quote a
+  fragment that cannot wrap, or say to search with whitespace normalised.
+  Source: `adr035-writepass-a-report.md`.
+- **The clock is evidence, and an instrument that omits it destroys a
+  reading.** Whether the slot-00 ADD of 12:47:42 CEST fell before or after
+  the 09:59:37 CEST restart decided what its reading measured at all. **The
+  fixtures' `PEER: seq=` line carries no timestamp** (`g2-add-report.md`), so
+  elapsed time is not recoverable from a capture on its own and a reading
+  cannot be placed against the events around it without an external clock.
+  **Required instrument change, not yet made:** add a timestamp to the
+  `PEER:` line before the next measuring session.
+- **A counter that has never been non-zero, rising for the first time,
+  measures first traffic — not restoration.** The positive-control rule
+  inverted, and what kept a slot-00 restoration reading honest: the guest's
+  `eth0 rx` rising 0 → 6 → 11, after 2034 consecutive zero readings over that
+  peer's whole life, is first traffic from a peer that only started after the
+  restart — not evidence of anything surviving it. Source: ADR-035's
+  2026-09-12 revision note, finding 8.
+- **Claude does not assert machine state from memory — a brief says *read
+  this and report*, never *it is X*.** The confirmed instance in this arc is
+  the console guard above, written so that it could not fire at all on the
+  no-trailing-newline case. (The brief transcribed into this section also
+  named two further instances — an interface assumed UP after a restart, and
+  an uploaded file assumed to be pasted content — but no source for either
+  could be located among the named reports, so they are not carried here.)
