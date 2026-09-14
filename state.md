@@ -5,16 +5,18 @@
 > each working session. Detailed proofs and command sequences live in git
 > history and the ADRs — this file references them rather than repeating them.
 
-**Milestone:** v0.2 (in development) · **Last updated:** 2026-09-03
-(the netVM root credential removed from the repository, root locked by default
-with an opt-in `KATMATE_DEV_ROOT_HASH` unlock and a read-back that refuses a
-build whose `/etc/shadow` disagrees with the branch it took; netVM rebuilt on
-MINIS, guest kernel **6.12.101 → 6.12.107+deb13-amd64**; and **in-guest
-observation now exists**, by a dev drop-in putting a FIFO on the VM's stdin.
-**Two rotations were performed:** the 2026-09-01 *second of two* entry and
-then the 2026-09-02 entry, both to `docs/SESSIONS.md`, because the day turned
-out to hold **two** sessions — ADR-035 G1, which halted, and the rebuild — and
-the file keeps two).
+**Milestone:** v0.2 (in development) · **Last updated:** 2026-09-14
+(the ADR-035 measuring arc of **2026-09-12 … 2026-09-14**, recorded under one
+heading because write pass B transcribed the five gate sessions of 2026-09-12
+into the living sections without a dated heading of their own, and one heading
+above both arcs closes that gap rather than burying it deeper. The substantive
+finding is a condition and not a new measurement: **every measured delivery
+across a slot was into a receiver with `IFF_PROMISC` set**, and the same pair
+was measured failing without it — so no frame has yet been shown to cross a
+slot on its own destination address. ADR-035's revision note of 2026-09-14
+carries it, with the six readings as one table. **One rotation was performed:**
+the 2026-09-05 *second of two* entry to `docs/SESSIONS.md`, because the file
+keeps two).
 
 ## Current focus
 
@@ -49,7 +51,60 @@ restartable — and so updatable — without touching running VMs.
 Direction unchanged: IOMMU-capable platforms only (VT-d/AMD-Vi); VT-x-only
 frozen (ADR-015). MINIS is primary host and merge target.
 
-## This session (2026-09-07) — the netVM is rebuilt, ADR-035 §8 lands, and G5a settles who creates the slot tree
+## This session (2026-09-12 … 2026-09-14) — the ADR-035 gate arc and its close: every measured delivery across a slot was into a promiscuous receiver
+
+**One heading covers two arcs, and the body below is the second of them.** The
+five gate sessions of 2026-09-12 were transcribed into § *Live state*,
+§ *Next steps* and § *Invariants & gotchas* by write pass B (`facf437`) and were
+given no dated heading of their own; their material stands in those sections and
+is not repeated here. This heading covers them, which is what closes the
+archive's own gap — a session without a dated heading cannot later be rotated,
+and the trim destroys it instead (§ *Session archive*, where the rotation this
+entry arrived by is recorded).
+
+**The 2026-09-14 arc is four delegated sessions** — the harvest, the promisc
+discriminator, the multicast read pass, and write pass C. **One commit of
+substance, `adecc5f`, and it is not pushed.** Reports outside the repository:
+`harvest-report.md`, `promisc-report.md`, `mcast-read-report.md` and
+`writec-report.md`. **ADR-035's revision note of 2026-09-14 carries the five
+findings, the six-row table and the rewritten G5b clause** — it is not
+duplicated here; what follows is only what belongs to this file.
+
+**The condition every slot measurement has been taken under.** No frame has ever
+been shown to cross a slot on its own destination address. **Every measured
+delivery across a slot was into a receiver with `IFF_PROMISC` set, and the same
+pair was measured failing without it** — both directions, both flag values, the
+flag being the only difference in each pair. **Nothing here says the transport
+does not carry: it carries, under promisc.** What is unshown is *addressed*
+delivery — a frame accepted because it was addressed to the receiving interface
+rather than because that interface was accepting everything. This line is in
+`state.md` and not left to the ADR because `grep -i promisc` over this file
+returned **nothing** until now: a cross-reference would have pointed at nothing,
+and the next session to measure slot traffic without the condition will
+re-derive it.
+
+**The apparatus is still alive, and whoever picks this up next must not assume
+otherwise.** All four sessions ran on one boot and it survived them: host
+`uptime -s` **2026-09-05 20:10:29**, netVM **MainPID 3628111**, `NRestarts=0`,
+unrestarted since 2026-09-12 09:59:37 CEST. **The dev console is at a live root
+shell** — no login step, and no credential need be spent. **Slot 01 is left
+released**, links **200** and **202** are installed, and the fixtures on slots
+**01** and **02** are still bound. Exactly one state change was made across the
+three read sessions — `IFF_PROMISC` on `km00`, set and cleared the same morning,
+both halves confirmed by read-back — and no code, no unit, no sysctl and no ADD
+or REMOVE. **The next netVM rebuild ends all of it**, so any reading that needs
+this apparatus is taken before the code pass or not at all. Slot inodes, fixture
+PIDs and the instruments left on MINIS are in the reports, not here.
+
+**One precondition is recorded as unmeasured, because it governs a change
+someone will want to make.** Whether `systemd-sysctl` runs **before or after**
+udev renames the sixteen virtio devices to `km00`…`km0f` has never been read,
+and the values available cannot settle it: `net.ipv4.conf.default.rp_filter` is
+**2**, so an interface created after `systemd-sysctl` ran inherits 2 either way,
+and the observed 2 on all sixteen slots discriminates neither order. That is a
+reason the question is open, not a reason to treat it as answered.
+
+## Previous session (2026-09-07) — the netVM is rebuilt, ADR-035 §8 lands, and G5a settles who creates the slot tree
 
 **One arc, four delegated sessions**, from the evening of 2026-09-05 through
 2026-09-07: the netVM rebuild, the push, ADR-035 G5a, and the consolidation of
@@ -162,56 +217,6 @@ briefs and reports.
 **ADR-035 status is unchanged: PROPOSED.** G2, G3, G4, G5b and G6 are untaken,
 and both `ExecStopPost=` and assignment-time ownership are unimplemented.
 
-## Previous session (2026-09-05, second of two) — ADR-035 records what G1 measured: two ceilings, and four places the ADR does not match them
-
-Delegated session on the Acer, plus an amendment session. One commit,
-`0dd54c4` — `079e72f` was amended and never existed on `main` in its first
-form. Reports outside the repository:
-`~/Claude.assistent/adr035-g1-note-report.md` and `…-amend-report.md`.
-
-**One note carrying five findings**, held back across two gate sessions on the
-operator's ruling so the ADR is amended once rather than five times: the two
-ceilings and that their difference of four carries **no assigned cause**; that
-G1's refusal half guesses a seventeenth device and the number is 26; that §8's
-`kmkk` names are not in the image; that §5's `sun_path` headroom is 80
-characters and not *"roughly seventy"*; and that G1's RSS reading against
-ADR-033's table **is not performable as worded**, because the two subjects are a
-paused guestless QEMU and a booted Debian with a `vfio-pci` device pinning its
-RAM.
-
-**A sixth finding arrived from the previous session and was added by amendment.**
-`docs/DECISIONS.md:5039–5042`, § *Consequences* § *Harder*, carries the same
-misdirection a second time and is the more misleading of the two: it does not
-merely name twenty devices, it says *"G1 measures it at twenty or reports the
-refusal."* The delegated session found it, **correctly did not act on it** — a
-session may neither edit an ADR nor propose wording — and it was ruled into the
-same note.
-
-**That paragraph's other half was verified and holds exactly.** It attributes to
-ADR-033 a refusal at the thirty-first device; ADR-033 states the figure three
-times (`:3995–4001`, `:4150–4158`, `:4184–4185`) and every one names the
-**default q35 root bus**, measured on QEMU 11.1.0 under TCG and reproduced under
-KVM. G1b measured 30 accepted and 31 refused on a bare `-machine q35,accel=kvm`.
-**Same configuration, two QEMU versions, two sessions, the same boundary** — an
-independent agreement across two ADRs, and the reason the note may assert it
-rather than paraphrase it.
-
-**Nothing was corrected in place.** § *Gates*' lead-in and G1's refusal half are
-unedited, and `:5039–5042` was verified byte-identical against `git show HEAD~1`
-rather than inferred from a hunk header. Append-only means the reader gets both:
-what the ADR expected, and what was measured.
-
-**Status is unchanged: PROPOSED**, for a reason independent of G1 — **G2 through
-G6 are untaken**. What changed is that § *Gates*' lead-in, *"none taken"*, no
-longer describes G1.
-
-**One trap worth carrying.** `grep -F` for the note's insertion anchor returned
-**nothing**, because the phrase wraps across two lines. The anchor was present;
-the check was not able to see it. The session spliced the file to find it rather
-than reporting an absence — the same class as the `$`-in-a-BRE trap in
-`CLAUDE.md`, and the sixth instance in four days of a check that returns a
-well-formed wrong answer.
-
 ## Session archive
 
 Sessions older than the two above (2026-08-21 — G5 and H3, rotated there
@@ -252,6 +257,34 @@ extracted block against the pre-move blob.
 *second of two* entry (3a part 1) rotated out as the 2026-08-17 entry arrived. Two
 rotations in one day is not a defect — it is what keeping two sessions costs when
 two sessions close on the same day.
+
+**Closed 2026-09-14.** The 2026-09-05 *second of two* entry (ADR-035 records what
+G1 measured: two ceilings, and four places the ADR does not match them) rotated to
+the archive as the 2026-09-12 … 2026-09-14 entry arrived, so the file never held
+three at any point between the two commits — the 2026-08-22 rotation's condition,
+applied again. Same mechanism, same check: the heading changed from *Previous
+session* to *This session*, the body moved verbatim, verified by hashing it with
+the heading line dropped before and after — **identical,
+`8fb1d520ecefe2db…`** — and by re-extracting the block from `docs/SESSIONS.md` at
+its new home and diffing it against the pre-move block, the diff being exactly one
+line, its heading. `docs/SESSIONS.md` gained 50 lines and lost none. It was
+inserted at the head of the entry list, **above** the 2026-09-05 *first of two*
+entry — newest-first, and *second of two* above *first of two*, both conventions
+applied again rather than newly taken. **No ordinal changed:** 2026-09-05 still
+holds exactly two entries and they are still counted as two.
+
+**The arriving entry's heading spans two dates, and that is what repairs this
+section's own gap.** Write pass B (`facf437`) transcribed the five gate sessions
+of 2026-09-12 into § *Live state*, § *Next steps* and § *Invariants & gotchas*
+and wrote **no dated heading** — its brief did not ask for one. Under this
+section's own rule that is not a tidy omission but the condition that destroys an
+entry rather than archiving it: *a session without a dated heading cannot be
+archived, and the trim that would otherwise remove it destroys it instead.* **The
+operator ruled one heading above both arcs** rather than a retrospective entry
+beneath the newer one — they are one measuring arc closed by two documentation
+passes, and the 2026-09-12 material is already placed in the living sections.
+**No content was invented for 2026-09-12:** the entry's body is the 2026-09-14
+arc, and the heading is what a future rotation will move.
 
 **Closed 2026-09-07, and it is one rotation for four sessions.** The 2026-09-05
 *first of two* entry (ADR-035 G1b: the ceiling is 26, and the seventeenth device
@@ -2955,7 +2988,35 @@ frozen `vm_home_skel` vs qcow2 branch.
 - **Claude does not assert machine state from memory — a brief says *read
   this and report*, never *it is X*.** The confirmed instance in this arc is
   the console guard above, written so that it could not fire at all on the
-  no-trailing-newline case. (The brief transcribed into this section also
-  named two further instances — an interface assumed UP after a restart, and
-  an uploaded file assumed to be pasted content — but no source for either
-  could be located among the named reports, so they are not carried here.)
+  no-trailing-newline case. (Two further instances — an interface assumed UP after a restart, and an uploaded file assumed to be pasted content — occurred in the 2026-09-12 briefing sessions and have no repository artefact: no agent report can carry them, because they were never on the machine. Briefing-side errors leave no trace in the tree, which is itself the reason this rule is written here.)
+- **A comparison must report its cardinality — how many elements it compared —
+  beside its verdict. A verdict without the count is not a measurement.** An ANSI
+  strip written for `m`-terminated CSI sequences alone met journald's
+  bracketed-paste marker `ESC[?2004l`, which survived it, glued itself to the
+  **first** value line of each block and defeated the anchor — so one key, and
+  only that key, vanished from each of three extractions. The diff then reported
+  **IDENTICAL over 60 keys instead of 61, and would have reported it even if that
+  key had differed.** It was caught only because the key count disagreed with the
+  visible output; had the counts happened to match, the drop would have gone
+  unnoticed. **Same family as this section's first bullet and *"A guard watches
+  the echo, not the prompt"*: a check that cannot fire is indistinguishable from
+  a check that found nothing** — and the cardinality is what separates them,
+  being the one number a silently reduced set cannot fake. Source:
+  `mcast-read-report.md` § 8 (2026-09-14).
+- **A claim about what a repository document says is verified by reading the
+  section the claim is about. A grep for your own phrasing is a null control.**
+  The document may state the same fact in other words, and the empty result then
+  reads as confirmation of the claim. A brief asserted that QEMU-to-QEMU over
+  `-netdev dgram` had never been measured in this project, while ADR-035's own
+  gate row published both deliveries by name and by report section; `grep -F` for
+  *"QEMU-to-QEMU"* returned **nothing**, because the ADR states the fact in other
+  words, and the false sentence was caught only by reading the section the
+  brief's own item was about. **The third face of the family this section already
+  carries twice** — the first a command form (*"a command form written into a
+  brief is untested code, and its wrong answer can be well-formed"*), the second
+  machine state (*"Claude does not assert machine state from memory"*) — and the
+  most deceptive of the three, because a sentence about what an ADR says is
+  checkable in one second and reads exactly like a sentence about what an ADR
+  says. **A check that cannot fire is indistinguishable from a check that found
+  nothing, and a grep for your own wording is such a check.** Source:
+  `writec-report.md` § 5.3 (2026-09-14).

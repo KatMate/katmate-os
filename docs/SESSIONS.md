@@ -46,6 +46,56 @@
 
 ---
 
+## This session (2026-09-05, second of two) — ADR-035 records what G1 measured: two ceilings, and four places the ADR does not match them
+
+Delegated session on the Acer, plus an amendment session. One commit,
+`0dd54c4` — `079e72f` was amended and never existed on `main` in its first
+form. Reports outside the repository:
+`~/Claude.assistent/adr035-g1-note-report.md` and `…-amend-report.md`.
+
+**One note carrying five findings**, held back across two gate sessions on the
+operator's ruling so the ADR is amended once rather than five times: the two
+ceilings and that their difference of four carries **no assigned cause**; that
+G1's refusal half guesses a seventeenth device and the number is 26; that §8's
+`kmkk` names are not in the image; that §5's `sun_path` headroom is 80
+characters and not *"roughly seventy"*; and that G1's RSS reading against
+ADR-033's table **is not performable as worded**, because the two subjects are a
+paused guestless QEMU and a booted Debian with a `vfio-pci` device pinning its
+RAM.
+
+**A sixth finding arrived from the previous session and was added by amendment.**
+`docs/DECISIONS.md:5039–5042`, § *Consequences* § *Harder*, carries the same
+misdirection a second time and is the more misleading of the two: it does not
+merely name twenty devices, it says *"G1 measures it at twenty or reports the
+refusal."* The delegated session found it, **correctly did not act on it** — a
+session may neither edit an ADR nor propose wording — and it was ruled into the
+same note.
+
+**That paragraph's other half was verified and holds exactly.** It attributes to
+ADR-033 a refusal at the thirty-first device; ADR-033 states the figure three
+times (`:3995–4001`, `:4150–4158`, `:4184–4185`) and every one names the
+**default q35 root bus**, measured on QEMU 11.1.0 under TCG and reproduced under
+KVM. G1b measured 30 accepted and 31 refused on a bare `-machine q35,accel=kvm`.
+**Same configuration, two QEMU versions, two sessions, the same boundary** — an
+independent agreement across two ADRs, and the reason the note may assert it
+rather than paraphrase it.
+
+**Nothing was corrected in place.** § *Gates*' lead-in and G1's refusal half are
+unedited, and `:5039–5042` was verified byte-identical against `git show HEAD~1`
+rather than inferred from a hunk header. Append-only means the reader gets both:
+what the ADR expected, and what was measured.
+
+**Status is unchanged: PROPOSED**, for a reason independent of G1 — **G2 through
+G6 are untaken**. What changed is that § *Gates*' lead-in, *"none taken"*, no
+longer describes G1.
+
+**One trap worth carrying.** `grep -F` for the note's insertion anchor returned
+**nothing**, because the phrase wraps across two lines. The anchor was present;
+the check was not able to see it. The session spliced the file to find it rather
+than reporting an absence — the same class as the `$`-in-a-BRE trap in
+`CLAUDE.md`, and the sixth instance in four days of a check that returns a
+well-formed wrong answer.
+
 ## This session (2026-09-05, first of two) — ADR-035 G1b: the ceiling is 26, and the seventeenth device is not refused
 
 Delegated session, Acer authoring and MINIS running. **No commit** — nothing
