@@ -5741,3 +5741,274 @@ assignment-time ownership of the slot directories remain unimplemented, as the
 2026-09-07 note records. **No code was written, no sysctl was set and no unit was
 changed by any of the five sessions**, and every change named in this note is a
 proposal for the code pass.
+
+**Revision note (2026-09-14, § *Gates*, §6 and the gate table of the 2026-09-12
+note — no frame has ever been shown to cross a slot on its own destination
+address, and G5b's traffic clause is rewritten around that):** three read
+sessions were run on MINIS on **2026-09-14**, on the netVM run by
+`katmate-pool@netvm.service` since the host boot of 2026-09-05 20:10:29 and
+unrestarted since 2026-09-12 09:59:37 CEST. Reports outside the repository, all
+of 2026-09-14: `~/Claude.assistent/harvest-report.md`,
+`~/Claude.assistent/promisc-report.md` and
+`~/Claude.assistent/mcast-read-report.md`. **Five findings, appended once rather
+than as five notes.** Exactly one state change was made across the three
+sessions — `IFF_PROMISC` on `km00`, set at 09:58:29 and cleared at 10:18:44,
+both halves confirmed by read-back (`promisc-report.md` § 2, § 6) — and no code,
+no unit, no sysctl and no ADD or REMOVE.
+
+**1. The condition under which every measured delivery across a slot was taken,
+and G5b's traffic clause rewritten around it. This is the substantive finding.**
+
+**No frame has ever been shown to cross a slot on its own destination address.
+Every measured delivery across a slot was into a receiver with `IFF_PROMISC`
+set, and the same pair was measured failing without it.**
+
+The readings, both directions, at both flag values, with the slot-00 guest rows
+beside them. **The table is the whole of the argument.**
+
+| sender → receiver | receiver's flags | result | source |
+|---|---|---|---|
+| peer QEMU → netVM QEMU | `km00` **0x1003** | **nothing arrived** — the peer's guest handed **11** frames to its device and `km00 rx_packets` read **0 → 0** with **RX zero in every column**: not arrived-and-dropped, not arrived-with-errors. Neither socket had anything queued | `adr035-g5b-v3-report.md` § 7.1 (2026-09-09) |
+| peer QEMU → netVM QEMU | `km00` **0x1103** | **delivered** — `km00 rx` 0 → **10**, **796 bytes**, reconciling exactly with the peer guest's own `eth0 tx=10`, error columns 0. *"Two independent instruments, on opposite sides of two QEMUs and a host socket, agree exactly"* | `g5b-rxfilter-report.md` § 2.5.1 (2026-09-12) |
+| netVM QEMU → peer QEMU | peer `eth0` **0x1003** | **nothing arrived** — netVM's guest handed **5** more frames to its device (`km00 tx` 6 → 11) and the peer's `eth0 rx` read **0 at every one of 31 readings**, and 0 at every one of up to **3,475** readings over that peer's 4.8-hour life | `adr035-g5b-v3-report.md` § 7.1; `g5b-matrix-report.md` § 3.1, § 4 (2026-09-09) |
+| netVM QEMU → peer QEMU | peer `eth0` **0x1103**, promiscuous from its own `/init` | **delivered** — `km00 tx_packets` **57** equals the guest's `eth0 rx` **57** absolutely, not merely by delta, and the two were caught rising 56 → 57 together | flag `g5b-restart-report.md` § 1.3; `g2-add-report.md` § 5.2; `harvest-report.md` § 1.3, § 1.6; `promisc-report.md` § 5.4 |
+| guest on slot 00 → netVM | `km00` **0x1003** | **not counted** — one emission at **09:09:59.965 CEST**, `km00 rx` **7 / 490 B** unmoved when read at +29 s and +181 s, `errors`/`dropped`/`missed` all 0 | `harvest-report.md` § 1.4, § 1.5 (2026-09-14) |
+| guest on slot 00 → netVM | `km00` **0x1103** | **counted** — one emission at **10:06:48.513 CEST**, `km00 rx` 7 → 8 and 490 → 560: **+1 packet and +70 bytes**, error columns 0 throughout | `promisc-report.md` § 0, § 5.4 (2026-09-14) |
+
+**The flag is the only difference in each pair.** `IFF_PROMISC` changes nothing
+but the destination-address filter, so in rows 5 and 6 — same emitter, same
+interface, same 70-byte frame size, same run of the same netVM — **the
+destination filter is the whole of the difference**. Rows 1 and 2 are the same
+two processes' successor designs, differing in **one line** of the peer's
+`/init` (`ip link set "$n" promisc on`), confirmed by diff rather than by
+assertion (`g5b-rxfilter-report.md` § 1.1: 59 → 60 lines, same kernel, same
+busybox, same command line).
+
+**What is NOT claimed. Nothing here says the transport does not carry. It
+carries, under promisc.** Rows 2 and 4 are two QEMUs at both ends of a host
+`AF_UNIX` `SOCK_DGRAM` pair, and each reconciles frame for frame. **What is
+unshown is addressed delivery** — a frame accepted because it was addressed to
+the receiving interface, rather than because the receiving interface was
+accepting everything. Two further bounds, so the table is not read as more than
+it is: the 2026-09-09 rows cannot say whether either QEMU wrote a datagram to
+the peer path at all, which that session states as its own limit
+(`adr035-g5b-v3-report.md` § 7.2, against ADR-033's open `EAGAIN` item); and for
+the guest → netVM direction **the 2026-09-14 promisc reading closes exactly that
+gap** — the frames do traverse the socket pair, QEMU and the virtio device and
+arrive at `km00`, so **the loss is at the device's address filter and not
+upstream of it** (`promisc-report.md` § 0, § 9.2).
+
+**This ADR's gate table of 2026-09-12 publishes rows 2 and 4 without the
+condition, and the row is corrected by this note rather than edited.** Its
+**G5b** row records *"Peer → netVM was taken **before** the restart … `km00
+rx_packets` 0 → 10 and then 12, reconciling exactly"* and *"NetVM → the guest on
+slot 00 was taken **after** the restart … the guest's `eth0 rx` rose 0 → 6 →
+11"*, and names no flag in either case. **A published result whose enabling
+condition is unpublished is the expensive kind of wrong:** the next reader takes
+the row as proof that the path carries the frames a slot's tenant would send,
+and it does not. Before this note the word `promisc` appeared nowhere in
+`docs/DECISIONS.md` or in `state.md`, which is why the condition is stated here
+in full rather than by cross-reference.
+
+**The operator's ruling of 2026-09-14 on what the clause measures.** G5b's *"a
+re-issued ADD restores traffic in both directions"* measures whether **the
+guest's netdev carries**, not whether the slot carries. Both ends are a guest's
+`eth0`; the path therefore includes QEMU's `-netdev dgram` on the sending side
+and virtio injection on the receiving side. **Under that reading the clause is
+NOT taken, and the fixture measurements of slots 01 and 02 do not take it** —
+they put a plain socket at one end, as ADR-033's link-m2 did in both of its own
+directions, where the reverse frame was sent *"out of the very socket bound at
+`h.sock`, by the receiver itself"* (`link-m2-report.md` § B1.2, § B2.5).
+
+**The rewritten clause. G5b's traffic clause requires a directed frame —
+addressed to the netVM slot's own MAC `52:54:01:00:00:kk`, emitted when the
+measurer chooses — observed at both ends, in both directions, under one ADD**,
+with the receiving interface's flags read at the moment of each reading. **It is
+now the only gate of this ADR that would show addressed delivery, and that is
+why it is written this way:** rows 1, 3 and 5 above are the destination filter
+refusing frames, and every row that delivered had that filter switched off at
+the receiving end.
+
+**Why the emitter must be the measurer's, recorded because the requirement is
+not fussiness. Three arcs have been measured with an uncontrolled emitter, and
+each cost sessions spent explaining the instrument rather than the phenomenon:**
+
+- **`ip=dhcp` as the emitter — which does not exist on this initrd.** Measured
+  false in **63 consecutive boots**: `init-premount` completes, no networking of
+  any kind occurs, and the kernel reports `ip=dhcp` as an unknown parameter
+  passed to user space (`adr035-g5b-report.md` § 12.3, § 15, 2026-09-08). The
+  peer's device side was never the problem; what was missing was something that
+  executed a link bring-up and stayed alive.
+- **The unprompted MLDv2 report to `ff02::16`, which clusters around link
+  events.** *"Every frame this arc has sent is an unprompted MLDv2 report"*
+  (`g5b-rxfilter-report.md` § 0, carried from `g5b-matrix-report.md`), and the
+  matrix session took its ten frames **within 0.3 s of a link bring-up**. When a
+  later session performed no link event, netVM emitted nothing at all — `km00
+  tx_packets` stood at **100** at both ends of the window — so the netVM → peer
+  direction was **not exercised**, and a receiver reading zero measures nothing
+  about the receiver (`g5b-rxfilter-report.md` § 2.5.2, § 2.6).
+- **The hourly guest emission of 2026-09-14.** The slot-00 peer transmits about
+  **once every 3,670 s**, derived from the step between `tx` transitions
+  (681–786 readings, ~733) and two dated anchors 26,926 readings apart
+  (`harvest-report.md` § 1.2). The first window opened on it was **186 s**, about
+  a twentieth of that period, and a flat counter across it is evidence of
+  nothing (§ 1.1). The finding of § 1.5 exists only because a second window of
+  **3,480 s** was opened afterwards.
+
+**An uncontrolled emitter is not an instrument.** Nothing above is a criticism of
+those sessions' readings — each reported the idleness correctly and refused to
+name a direction failed — and the cost fell on the arcs, not on the reports.
+
+**2. The receive-path finding on slot 00, with its bounds, and the control that
+says where the cause is not.**
+
+**The cause is named: the receive path rejected the frame on its destination
+address** (`promisc-report.md` § 0, rows 5 and 6 of finding 1's table). The
+guest's own kernel announced both transitions — `entered promiscuous mode` and
+`left promiscuous mode` — which is an independent witness to the change from the
+driver rather than from the tool that made it (§ 2, § 6).
+
+**What is NOT known, and is written as not known. The bytes of none of the eight
+frames `km00` has ever counted have been read.** Slot 00 has no fixture and
+cannot have one while its `appvm` node is held by the peer's QEMU — that being
+the point of slot 00 — so nothing has read a destination address, an ethertype
+or a payload (`promisc-report.md` § 8, § 9.4). What is known is the length, and
+the length does not discriminate: **490 / 7 = 70 exactly and 560 / 8 = 70
+exactly**, so the seven accepted without the flag and the eighth that needed it
+are **the same size** (§ 1.1). They therefore differ in destination address and
+in nothing this project has measured. **Which address, and whether the
+difference is two frame types or a change of filter state across the 48 h 07 m
+between `km00`'s counter epoch — netVM's QEMU start of 2026-09-12 09:59:37
+CEST — and the eighth frame of 2026-09-14 10:06:48.513 CEST, is unmeasured and
+undated.**
+
+**One arithmetic bound belongs beside that, so the eight are not read as the
+whole population.** `km00`'s counters begin at 09:59:37, the peer's at 09:58:06,
+and the slot-00 ADD raised `km00` only at 12:47:42: **at most 60 and at least 43
+guest transmissions fall inside `km00`'s interval, and `km00` counted 7**
+(`harvest-report.md` § 1.3). Most of the emitter's frames were not counted
+either; only the eighth is dated against a known flag state. **And the
+non-delivery is not a single instance:** the same direction with `km00` at
+`0x1003` was measured on **2026-09-09** on a different netVM process, where 11
+emitted frames produced `RX` zero in every column
+(`adr035-g5b-v3-report.md` § 7.1).
+
+**The control, and it is the sharp half: the difference is not in
+configuration.** `km00`, `km01` and `km02` carry **identical IPv6 configuration
+across all 61 keys** of `net.ipv6.conf.<iface>.*` and **identical multicast
+group membership apart from their own solicited-node groups**, which differ by
+construction because each derives from that interface's own address
+(`mcast-read-report.md` § 1, § 6, § 7). **`ff02::2` and its link-layer form
+`33:33:00:00:00:02` are joined by none of the three**, and **IPv6 forwarding is
+0 on every interface, on `all` and on `default`, while IPv4 forwarding is 1**
+(§ 1, § 5). **Not one IPv6 value in that reading comes from a file:** no file in
+the sysctl search path names `ipv6` at all, `/etc/sysctl.conf` and
+`/run/sysctl.d/` do not exist, and the sole `/etc` file
+`30-netvm-forward.conf` sets exactly one IPv4 key (§ 4.1, § 6). **So the two
+slots whose counters reconcile exactly and the slot whose counters do not are
+byte-identical in every one of those readings**, and nothing about the
+difference is explained by configuration this project wrote. No further
+conclusion is drawn, and no hypothesis about the seven accepted frames is
+stated, confirmed or ruled out (§ 9).
+
+**3. `rp_filter` — its provenance, and the arithmetic consequence for how any
+change is written.**
+
+**Read, never set:** `net.ipv4.conf.all.rp_filter` = **0**;
+`net.ipv4.conf.default.rp_filter` = **2**; **every one of the sixteen slots,
+`lo` and the uplink `enp0s4`** = **2** (`harvest-report.md` § 4.1). There is no
+interface answering to *"internal"*: the pool replaced the single internal
+device with sixteen `dgram` slots, so `km00`…`km0f` **are** the internal
+segment, and `ip -br link` lists nothing else besides `lo` and the uplink
+(§ 4.2, § 3.1).
+
+**Exactly one file in the sysctl search path names `rp_filter`, and it is a
+vendor default:** `/usr/lib/sysctl.d/50-default.conf`, md5
+`0b8b57132bc965929ded2f24878c7707`, whose own header says *"This file originated
+from systemd"*, carrying three lines —
+`net.ipv4.conf.default.rp_filter = 2`, the glob
+`net.ipv4.conf.*.rp_filter = 2`, and the exclusion
+`-net.ipv4.conf.all.rp_filter` (§ 4.3). **It is neither a kernel default — the
+kernel's own is 0 — nor a decision taken on this project: no KatMate artefact
+mentions `rp_filter` anywhere.** The three lines also explain the shape of the
+reading, which no earlier session had the provenance to explain: the glob is why
+sixteen slots, `lo` and the uplink all read 2 with nothing enumerating them, and
+the exclusion is why `all` alone stands at 0.
+
+**The arithmetic consequence: the effective value is `max(all, iface)`, so
+setting `all = 1` changes nothing** — `max(1, 2)` is still 2. **Any change must
+write the per-device or `default` knobs.** Two properties of the mechanism
+follow from the file rather than from argument (§ 4.4): **a glob has to be
+overridden by a glob or by sixteen assignments**, since an override naming only
+the assigned slots leaves the rest at 2 and slots are assigned dynamically; and
+**`enp0s4` is inside the same glob**, so a glob-shaped override changes the
+filtering of the one interface here that faces a real network. Whether that is
+wanted is a tier-model question and is not answered by a reading.
+
+**Recorded as UNMEASURED, because it is a precondition of the change and no
+session has read it: whether `systemd-sysctl` runs before or after udev renames
+the sixteen virtio devices to `km00`…`km0f`.** Per-device and glob entries take
+effect only on interfaces that exist when they are applied; `default` affects
+interfaces created afterwards. **The reading available cannot settle it**, by
+arithmetic: `default` is 2, so an interface created after `systemd-sysctl` ran
+would inherit 2 regardless, and the observed 2 on all sixteen slots
+discriminates neither order. That is a reason the question is open, not a reason
+to treat it as answered. §8's rename landed as sixteen exact-match `.link` files
+in the netVM build of 2026-09-05, so the ordering is between two systemd
+components and is readable at the next boot.
+
+**4. The cross-slot neighbour entry outlives the release of the slot that caused
+it.**
+
+Planted by the ARP form of G2's refusal half — the frame sent onto slot 02 at
+**12:49:36 CEST** on 2026-09-12, as finding 6 of the 2026-09-12 note records
+from `g2-add-report.md` § 5.4 — the entry
+`10.100.1.17 dev km02 lladdr 52:54:01:00:01:02` was **still present 43 h 29 m
+later**: **STALE**, `lladdr` unchanged, `probes 0`, `updated` equal to `used`,
+**never re-probed once** (`harvest-report.md` § 3). netVM's whole neighbour table
+holds three entries, the third being the uplink's gateway on the home LAN.
+
+**`km01`'s silence is the sharper half.** `10.100.1.17` is slot **01**'s peer
+address, and slot 01 was left released by G4: `km01` carries **no IPv4 address
+and no neighbour entry at all**, while still `UP`, since REMOVE does not clear
+`IFF_UP` — G4's measured end state, standing 43 hours on (§ 3, § 3.1).
+**The only place `10.100.1.17` is resolvable in netVM's neighbour table is on
+the wrong interface, mapped to the wrong tenant's MAC.**
+
+**What it changes.** Finding 6 of the 2026-09-12 note measured that the
+contamination *outlives the frame that planted it*. **What this reading adds is
+that it outlives the release of the slot that caused it, and would still be
+standing when that slot is reinstalled** — 43½ hours so far, with no mechanism
+in evidence that would end it. **`rp_filter` does not address this**: finding 6
+already records that the ARP form measures what `rp_filter` does not govern.
+**It belongs to §6's release semantics**, where §6's *"delete the neighbour entry
+for peer `k`"* has to name an interface and the entry that most needs deleting
+sits on a different one from the slot being released. That remains a proposal
+for the code pass and is not decided here.
+
+*Three readings date the same frame to 12:49:35, 12:49:36 and 12:49:37 — the
+send itself (`g2-add-report.md` § 5.4) and two independent derivations from
+neighbour ages taken 37 hours apart (`g3-g4-console-report.md` § 3.1a;
+`harvest-report.md` § 3). The two-second spread is the arithmetic of the
+derivations and is load-bearing nowhere.*
+
+**5. The gate table, updated for what 2026-09-14 changed and for nothing else.**
+
+| gate | change on 2026-09-14 | evidence |
+|---|---|---|
+| **G5b**, traffic clause | **still not taken**, and **rewritten** as finding 1 words it: a directed frame to the slot's own MAC, emitted by the measurer, both ends, both directions, one ADD. The **guest → netVM** direction has been **ATTEMPTED** and produced a **finding rather than a measurement** — one emission inside a 3,480 s window with `km00`'s receive counters unmoved, the cause then named by the promisc discriminator as the destination filter. **It remains untrue that one ADD has been shown to carry both directions of one slot** | `harvest-report.md` § 1.4–§ 1.6; `promisc-report.md` § 0, § 9.5 |
+| **G2**, refusal half | **status unchanged; gains the slot-02 control** that `g3-g4-console-report.md` § 5.4 named as the one frame that would settle its own confound. One gratuitous ARP at 08:21:22.006 CEST moved `10.100.1.18 dev km02` from **FAILED with no `lladdr`** to **STALE with one**, its `updated` age of 36 s landing on the send to the second; the echo at 08:22:25.998 drew an **ICMP echo reply at fixture 02 one millisecond later, from `52:54:01:00:00:02` — `km02`'s own MAC** — carrying the request's id, sequence and payload. **Slot 02 was never damaged: the missing reply of 2026-09-12 was the passive fixture's own silence**, in the direction § 5.4 predicted | `harvest-report.md` § 2.1, § 2.2 |
+
+**No other gate's status changes**, and the 2026-09-12 note's table stands for
+every other row: G1 and G5a taken, G3 not performable until §7 lands, G6b not
+performable until §9 lands, G4's confirmation at three of six rows.
+
+**Status is unchanged: PROPOSED**, for the reason the 2026-09-12 note already
+records and which nothing on 2026-09-14 touched: **three of this ADR's decisions
+have no implementation** — §6's supersession, its `link_down` and its conntrack
+flush; §7's duplicate count; §9's retirement of `KM_MAC_INT` and its two new
+AppVM scalars — and §5's `ExecStopPost=` and the assignment-time ownership of
+the slot directories are likewise unimplemented. **No code was written, no unit
+was changed, no sysctl was set and no ADD or REMOVE was issued by any of the
+three sessions of 2026-09-14**, and every change named in this note is a
+proposal for the code pass.
