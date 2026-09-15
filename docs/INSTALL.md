@@ -2,8 +2,7 @@
 
 ## Requirements
 
-- x86-64 UEFI machine with VT-d / AMD-Vi (IOMMU required — VT-x-only platforms
-  not supported per ADR-015)
+- x86-64 UEFI machine with VT-d / AMD-Vi (IOMMU required)
 - Disk ≥ 32 GB (enforced by the installer)
 - RAM: 8 GB practical minimum (low-end reference class), more for multiple concurrent VMs
 - Arch Linux live ISO environment, WiFi or wired connectivity
@@ -85,7 +84,7 @@ even on failure.
 | MINISFORUM UM870 | Ryzen 7 8745H | 32 GB DDR5 | main development system (VT-d) |
 | MSI Cubi N6000 | Pentium N6000 | 32 GB DDR4 | bare-metal install test target (VT-d) |
 | Dell Latitude 3120 | Pentium N6000 | 8 GB | live install test target (VT-d) |
-| Acer ES1-633 | Pentium N4200 | 8 GB | dev scratch / VT-x only (frozen per ADR-015) |
+| Acer ES1-633 | Pentium N4200 | 8 GB | dev scratch |
 
 Known hardware limitation: PCI passthrough is problematic on some 2.5 GbE
 adapters; USB-NIC passthrough (r8152) is the working alternative for NetVM.

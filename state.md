@@ -48,8 +48,8 @@ process relationship to any QEMU.** The privilege split is therefore unit
 configuration (C1, C3, C5a) rather than daemon code, and the daemon becomes
 restartable — and so updatable — without touching running VMs.
 
-Direction unchanged: IOMMU-capable platforms only (VT-d/AMD-Vi); VT-x-only
-frozen (ADR-015). MINIS is primary host and merge target.
+Direction unchanged: IOMMU-capable platforms only (VT-d/AMD-Vi).
+MINIS is primary host and merge target.
 
 ## This session (2026-09-12 … 2026-09-14) — the ADR-035 gate arc and its close: every measured delivery across a slot was into a promiscuous receiver
 

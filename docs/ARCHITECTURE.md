@@ -421,9 +421,8 @@ Plymouth.
 
 ## Target hardware class
 
-x86-64 UEFI with **VT-d / AMD-Vi** (IOMMU required — VT-x-only platforms frozen
-per [ADR-015](DECISIONS.md#adr-015)). Because a driver domain requires the NIC to
-sit in a **cleanly isolable IOMMU group**
+x86-64 UEFI with **VT-d / AMD-Vi** (IOMMU required). Because a driver domain
+requires the NIC to sit in a **cleanly isolable IOMMU group**
 ([ADR-022](DECISIONS.md#adr-022)), IOMMU-group quality is a hard hardware
 requirement, not an implementation detail — implying an HCL and an installer
 preflight check. Performance floor: Apollo Lake-class (Pentium N6000, 8 GB RAM).
