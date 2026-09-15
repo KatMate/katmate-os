@@ -51,7 +51,67 @@ restartable — and so updatable — without touching running VMs.
 Direction unchanged: IOMMU-capable platforms only (VT-d/AMD-Vi).
 MINIS is primary host and merge target.
 
-## This session (2026-09-12 … 2026-09-14) — the ADR-035 gate arc and its close: every measured delivery across a slot was into a promiscuous receiver
+## This session (2026-09-15) — the ACL mechanism is measured, and `RuntimeDirectory=` is measured to undo assignment-time ownership
+
+**Documentation only.** No code was written, no unit was changed, no sysctl was
+set, and no ADD or REMOVE was issued. The measurements this entry records were
+taken on MINIS earlier the same day, in two passes, against systemd on Arch, on
+the boot of 2026-09-05. **ADR-035's revision note of 2026-09-15 carries all
+nine numbered items in full** — they are not duplicated here; what follows is
+only what belongs to this file.
+
+**Reports outside the repository:** `~/Claude.assistent/acl-report.md` and
+`~/Claude.assistent/acl-report-b.md`. The second pass re-took three gates that
+the first brief had written defectively.
+
+**The five ACL gates, one line each.** POSIX ACLs are available where the tree
+lives — `CONFIG_TMPFS_POSIX_ACL=y`, `/run` is `tmpfs` — and the same `setfacl`
+is refused `Operation not supported` on `proc`, `sysfs`, `cgroup2` and `vfat`.
+`bind()` applies the umask, and a default ACL does not override it. Removing a
+named ACL entry reaches an already-running sender: the **same** process is
+refused `EACCES` with no signal delivered and no restart of either side, and
+delivers again once the entry is restored. The sticky bit refuses an unlink
+that directory write permission allows, so a slot directory that grants an
+AppVM write and does not carry `+t` lets that AppVM delete its own `owner` and
+make an occupied slot read as FREE. `chmod` on an object carrying an access ACL
+rewrites the ACL mask.
+
+**`RuntimeDirectory=` returns the directory and the node bound inside it to
+`root:root` at every start, restores the directory to `0755`, and leaves no
+named entry, no `mask::` and no `default:` entry on either.** Both inodes
+survive the restart; the ownership and the ACLs do not. The ownership rule of
+the 2026-09-07 revision note — *"the launch daemon sets ownership at assignment
+and returns it at release"* — therefore does not survive a netVM restart under
+this directive, and no ACL placed beside it would either. **§5's creation
+mechanism is consequently reopened, not settled.** The `ExecStartPre=` T4
+helper §5 names as its fallback re-asserts nothing at start if it is written
+idempotent and non-destructive, and a default ACL then survives a netVM
+restart; keeping the directive instead obliges the launch daemon to re-apply
+ownership and ACLs after every netVM start. **Neither was decided**, and the
+choice is the operator's.
+
+**`UMask=0007` is load-bearing on both QEMU templates, and its absence fails
+silently.** Under `umask 0022` the bound node comes up `0755` with `mask::r-x`
+and the named `rw` entry reads `#effective:r--`: `getfacl` shows a
+correct-looking entry while the peer cannot send.
+
+**Mode first, ACL second, `getfacl` read-back third.** Any `chmod` issued after
+a `setfacl` rewrites the mask and can render every named entry ineffective.
+Recorded in § *Invariants & gotchas* as well, because it binds every writer of
+this tree and not only this session.
+
+**The 2026-09-14 apparatus was not entered.** Nothing was read or written under
+`/run/katmate/link/`, and no `katmate*` unit was started, stopped, restarted or
+reloaded. Its figures stand as of the 2026-09-14 entry and were **not re-read
+here**: `MainPID 3628111`, `NRestarts=0`, boot 2026-09-05 20:10:29.
+
+**This file now carries three session sections, and rotation was not
+performed.** § *Session archive* keeps two. The 2026-09-07 section is the one
+due to rotate to [docs/SESSIONS.md](docs/SESSIONS.md); it was left in place,
+with its heading untouched, because the brief for this pass reserved the
+rotation to the operator.
+
+## Previous session (2026-09-12 … 2026-09-14) — the ADR-035 gate arc and its close: every measured delivery across a slot was into a promiscuous receiver
 
 **One heading covers two arcs, and the body below is the second of them.** The
 five gate sessions of 2026-09-12 were transcribed into § *Live state*,
@@ -104,131 +164,10 @@ and the values available cannot settle it: `net.ipv4.conf.default.rp_filter` is
 and the observed 2 on all sixteen slots discriminates neither order. That is a
 reason the question is open, not a reason to treat it as answered.
 
-## Previous session (2026-09-07) — the netVM is rebuilt, ADR-035 §8 lands, and G5a settles who creates the slot tree
-
-**One arc, four delegated sessions**, from the evening of 2026-09-05 through
-2026-09-07: the netVM rebuild, the push, ADR-035 G5a, and the consolidation of
-the pool scaffolding. Two commits of substance, `22a1f17` and `5e2d95f`, both
-pushed, plus this entry. Reports outside the repository:
-`netvm-rebuild-3-report.md`, `push-report.md`, `adr035-g5a-report.md`,
-`pool-consolidate-report.md`, `adr035-g5a-note-report.md`.
-
-**The rebuild carried four changes and they were read separately**, which was
-the point of running them in one pass: different carriers, independent
-readings, and neither able to mask the other.
-
-1. **The credential is rotated.** Proved by a login, not by the build — step 6b
-   proves a hash reached `/etc/shadow`, only a login proves it opens. **Open
-   problem #29 closes here**, and nothing was vacuumed: the old value is retired
-   by the rebuild, not by deletion.
-2. **ADR-035 §8 landed**, as **sixteen exact-match `.link` files** in
-   `/usr/lib/systemd/network/` — tracked in `manifests/netvm.conf.d/`, needing
-   no edit to `netvm.sh` because step 5 bakes the config tree with `cp -a`.
-   Sixteen names `km00`…`km0f`, no gap, no duplicate; ordering confirmed in the
-   guest as `70- < 73- < 80- < 99-`, so `99-default.link`'s `NamePolicy=` never
-   gets the chance. The uplink was untouched — exact `MACAddress=` cannot glob
-   onto it, which is the property that made one rebuild safe for two changes.
-3. **The kernel did not move**, `6.12.107+deb13-amd64`, `vmlinuz` identical in
-   size. A result, not a non-event: it was the change nobody asked for.
-4. **The initrd compressor moved gzip → zstd**, and it boots. Attribution is
-   clean: the same early cpio in both, both decompressing to exactly
-   34,780,160 B, only the compressed segment differing.
-
-**Both halves of #29's guard are now measured.** It proceeded on a login prompt
-and **refused on a shell** — the case that leaked the credential twice that
-week — and the refusal direction had never been exercised before. **A guard
-placed as a separate step is not a guard**: the two leaks happened because it
-was skippable, and the fix is that it lives inside the same call.
-
-**And the guard's first act must be a bare newline, for a measured reason.**
-`localhost login:` is written **without a trailing newline**, and journald
-splits on newlines, so the prompt appears in no record at any window size. It
-was ever visible only because a `Link is Up` line landed on the same line and
-completed it. **Checking for a login prompt without writing a newline first is
-unsound in the refusing direction** — a variant that drops the write to save a
-round trip would fail silently and look like caution.
-
-**The blocker G5a was written for.** After the host reboot of 2026-09-05,
-**nothing created `/run/katmate/link/<i>/<kk>/`** and the first pool start
-failed at its first `-netdev`. Measured four ways that no mechanism existed. The
-tree had only ever been hand-made `tmpfs` scaffolding from a brief, and no
-reboot would reproduce it.
-
-**G5a took both halves and the mechanism claim holds.** `RuntimeDirectory=`
-naming the sixteen slot directories created the tree from a confirmed-absent
-`/run/katmate/link` **three times**, including two parent levels the directive
-does not name and systemd creates anyway.
-
-`RuntimeDirectoryPreserve=yes` is load-bearing, and the refusal half says so
-from the other side — with a fixture bound on `…/00/appvm`:
-
-```
-                     preserve=yes            preserve absent
-appvm across stop    4830 → 4830             5000 → absent
-netvm across stop    4771 survived → 4875    removed at stop → 5060
-slot directory       4748 throughout         4955 → 5038, changed
-fixture fd           live throughout         live throughout
-```
-
-Without `Preserve=yes` a netVM restart **unlinks a live AppVM's socket**, and
-the AppVM keeps a live fd on an inode with no path — worse than a clean failure,
-because from inside it still looks like a working socket. The damage is bounded:
-the stop removed **exactly the sixteen slot directories**, while
-`/run/katmate/link` and its instance level survived, and the sibling `nics/` and
-`vm/` trees were never at risk.
-
-**A non-root `bind()` into a slot is refused** — `EACCES`, as the invoking user,
-on `…/01/appvm`. The directory is `0755 root:root`, systemd's default
-`RuntimeDirectoryMode=`, and a datagram `bind()` needs write permission on the
-containing directory. **An AppVM's QEMU runs as that user.**
-
-**The operator ruled it:** `RuntimeDirectory=` creates the directories
-root-owned, and **the launch daemon sets ownership at assignment and returns it
-at release** — the same moment the `owner` file is written and removed, so
-occupancy and permission are one act. Loosening the mode was **rejected**: a
-group-writable tree would let any member bind into an unassigned slot, making
-*"absence is freedom"* unenforceable. **Not decided:** whether the slot
-directory needs the sticky bit, without which an AppVM that may write into its
-own slot may also unlink the netVM's node there. **None of this is implemented**
-— no `chown`, no mode change, and the launch daemon does not exist.
-
-**G5's *"no `netvm` file exists between stop and start"* is untested, not
-false.** It presupposes §5's own `ExecStopPost=`, which the measuring unit
-deliberately lacks; none was added. Read with the three earlier observations
-that QEMU does not unlink its sockets at exit, this **strengthens** §5:
-`ExecStopPost=` is necessary rather than tidy, and it is unimplemented.
-
-**Traffic was not taken** — G5's *"a re-issued ADD restores traffic in both
-directions"* needs a peer speaking Ethernet frames, since a `-netdev dgram`
-backend carries frames and not IP. That is **G5b**, and the operator's ruling is
-that its peer should be a second QEMU rather than hand-built framing.
-
-**The pool scaffolding is consolidated to one unit.**
-`katmate-pool-rd@.service` and `katmate-pool-rd-nopreserve@.service` are gone;
-`katmate-pool@.service` carries the two directives folded in, with its
-`90-dev-monitor.conf` drop-in intact — which was the reason to fold rather than
-delete, since the `-rd` variant had no console and G5b would have found out as a
-`208/STDIN` mid-gate. Creation from nothing was re-proved on the folded unit.
-
-**`katmate-pool@.service` now hashes `1d727b25…`, 13021 bytes.** The value
-`873c4320…` is historical from 2026-09-07 14:49 and is still named in several
-briefs and reports.
-
-**ADR-035 status is unchanged: PROPOSED.** G2, G3, G4, G5b and G6 are untaken,
-and both `ExecStopPost=` and assignment-time ownership are unimplemented.
-
 ## Session archive
 
-Sessions older than the two above (2026-08-21 — G5 and H3, rotated there
-2026-08-24 — then 2026-08-19 *second of two* — the gate run,
-rotated there 2026-08-22 — then *first of two*, the A′
-correction, rotated there 2026-08-21 — then 2026-08-17, then 2026-08-11, then
-2026-08-09 *second of two*,
-then *first of two*, then the
-2026-08-06 pair, then 2026-08-03, then
-2026-08-02 *second of two*, then *first of two*, then 2026-07-28 back to
-2026-06-27) live in
-[docs/SESSIONS.md](docs/SESSIONS.md), split out on
+Rotated sessions are enumerated in `docs/SESSIONS.md`, newest first; that
+file is the record and this one keeps no copy of it. It was split out on
 2026-07-14. That file is append-only; CIDs in entries dated 2026-07-13 and
 earlier are the pre-ADR-022 numbering and are deliberately not rewritten.
 **This file carries the authoritative CID map** (see *Live state*).
@@ -2349,6 +2288,15 @@ frozen `vm_home_skel` vs qcow2 branch.
   `10.3.1.3` / restrict nft so SSH is not reachable over the VPN tunnel.
 
 ## Invariants & gotchas (quick reminders — detail in git/ADRs)
+- **`chmod` after `setfacl` rewrites the ACL mask, and can leave every named
+  entry ineffective.** Measured 2026-09-15 as an accident: a `chmod 1710`
+  issued after the `setfacl` left `mask::--x` and a named `rwx` entry reading
+  `#effective:--x`, so a gate meant to read the sticky bit was decided by the
+  mask before the sticky bit was reached. **The order is mode first, ACL
+  second, `getfacl` read-back third** — for every writer of this tree, the
+  launch daemon's own reconcile included. And `getfacl` showing a named entry
+  is not evidence that the entry is effective: the `#effective:` comment is,
+  and its absence is what a correct-looking, non-functioning grant looks like.
 - **A code path that only ever runs in its convenient mode is untested in the
   mode that matters — and "convenient" usually means "without root".** A script
   with a `--dry-run`, a `--check`, a `--no-act` or any other unprivileged mode
