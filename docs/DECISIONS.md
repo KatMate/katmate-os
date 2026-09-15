@@ -6012,3 +6012,114 @@ the slot directories are likewise unimplemented. **No code was written, no unit
 was changed, no sysctl was set and no ADD or REMOVE was issued by any of the
 three sessions of 2026-09-14**, and every change named in this note is a
 proposal for the code pass.
+
+**Revision note (2026-09-15, §5 — the ACL mechanism is measured, and
+`RuntimeDirectory=` is measured to undo assignment-time ownership):** Taken on
+MINIS in two passes on 2026-09-15, against systemd on Arch, on the boot of
+2026-09-05. Reports outside the repository: `~/Claude.assistent/acl-report.md`
+and `~/Claude.assistent/acl-report-b.md`; the second pass re-took three gates
+the first brief had written defectively. No code was written, no unit was
+changed, no ADD or REMOVE was issued, and `/run/katmate/link/` was not entered.
+
+**1. POSIX ACLs are available where the tree lives.**
+`CONFIG_TMPFS_POSIX_ACL=y` and `CONFIG_FS_POSIX_ACL=y`; `/run` is `tmpfs`. A
+named user entry and a default entry land on a directory there with
+`mask::rwx`, and the same `setfacl` is refused `Operation not supported` on
+`proc`, `sysfs`, `cgroup2` and `vfat`.
+
+**2. `bind()` applies the umask, and a default ACL does not override it.** Two
+runs, same directory, same default ACL, uid 61001 binding: under `umask 0007`
+the node is `0770` with `mask::rwx` and the named `rw` entry fully effective;
+under `umask 0022` it is `0755` with `mask::r-x` and the same entry reading
+`#effective:r--`. A `UMask=` on both QEMU units is therefore load-bearing, and
+its absence fails silently — `getfacl` shows a correct-looking entry while the
+peer cannot send.
+
+**3. Removing a named ACL entry reaches a running process.** One sender,
+uid 61002, pid 1313424, unchanged across three permission states, against one
+receiver holding a bound node: a datagram is delivered; after `setfacl -x` the
+**same process** is refused `EACCES` and nothing arrives; after the entry is
+restored the same process delivers again. With ADR-033's measurement that
+`remote.path` is resolved per send, removing a named entry is an immediate and
+reversible cut of one slot's traffic, in both directions, with no signal
+delivered to either QEMU and no restart of either.
+
+**4. The sticky bit refuses an unlink that directory write permission allows.**
+With uid 61002 holding an effective `rwx` on the directory at `mask::rwx`, the
+unlink of a root-owned `owner` is refused `EPERM` while the bit is set and
+returns `rc=0` with the file gone once the bit is cleared and the same ACL
+re-applied; the same uid unlinks its own bound node in either case. A slot
+directory that grants an AppVM write and does not carry `+t` therefore lets that
+AppVM delete its own `owner` and make an occupied slot read as FREE — §5's
+*"absence is freedom"* read as a grant.
+
+**5. `chmod` on an object carrying an access ACL rewrites the ACL mask.**
+Measured as an accident: `chmod 1710` applied after `setfacl` left `mask::--x`
+and a named `rwx` entry reading `#effective:--x`, so both halves of that gate
+were decided by the mask before the sticky bit was reached. The rule this puts
+on every writer of this tree: **mode first, ACL second, `getfacl` read-back
+third** — any `chmod` invalidates every ACL applied before it, including one
+issued by the launch daemon's own reconcile.
+
+**6. `RuntimeDirectory=` restores its own ownership and mode at every start, and
+strips ACLs with them.** G5a (2026-09-07) confirmed that the directive creates
+the tree and that `RuntimeDirectoryPreserve=yes` keeps it across a **stop**;
+both hold and neither is disturbed here. What is new is the far side of a
+**start**. With the unit's directory chowned to a non-root uid, `chmod 0770`,
+carrying an access and a default ACL, and with a socket node bound inside it by
+that uid, a `systemctl restart` leaves the directory at its inode and the node
+at its inode — and returns **both** to `root:root`, restores the directory to
+`0755`, and leaves no named entry, no `mask::` and no `default:` entry on
+either. The ownership rule of the 2026-09-07 revision note — *"the launch daemon
+sets ownership at assignment and returns it at release"* — does not survive a
+netVM restart under this directive, and no ACL placed beside it would either.
+
+**The choice §5 gates is therefore reopened rather than settled.** §5's
+fallback — *"a T4 helper in `ExecStartPre=`"* — creates the tree with the same
+reboot-independence G5a bought, and if it is written to be idempotent and
+non-destructive (create when absent; never `chown` or `chmod` an existing
+directory) it re-asserts nothing at start. Under it a directory's default ACL
+survives a netVM restart, and the netVM's QEMU — which `unlink`s before
+`bind`s — receives a correctly permissioned `netvm` node by inheritance, with no
+daemon involvement and no re-apply pass. Keeping the directive instead obliges
+the launch daemon to re-apply ownership and ACLs after every netVM start, under
+the hazard in 7. **Neither is decided here.**
+
+**7. The reset is not ordered against the return of `systemctl restart`.** Two
+readings seconds apart in one script disagree: `ls -ldi` prints the mode already
+at `0755` with the owner still the assigned uid and the ACL marker present,
+while `getfacl` on the next line reports `root:root` and no ACL at all. Nothing
+in the run timestamps either reading and no instrument attributes the change to
+an actor. **Unresolved**, and recorded because it bears on 6: a daemon that
+re-applies attributes on seeing the unit active may be writing into a reset that
+has not finished, so any such re-apply must read back and repeat rather than
+fire once.
+
+**8. What the pool's assignment step looks like under 1–7 — proposals for the
+code pass, not decisions.** The slot directories exist before any assignment,
+whichever mechanism 6 settles on, so **`mkdir` cannot be the claim**; §5's
+*"pick the lowest `kk` with no `owner`, write `owner`"* is check-then-write, and
+`open("owner", O_CREAT|O_EXCL)` is the only atomic claim the layout as written
+offers. Order follows from 5 and from the 2026-09-07 ruling that occupancy and
+permission are one act: **assign** — `owner` by `O_EXCL`, then mode, then ACL,
+then `getfacl` read-back, then start the unit; **release** — NETCFG REMOVE, then
+the ACL removed, then `owner` unlinked. Both orders are chosen so that an
+interruption leaves a slot that reads occupied and is not traversable, never one
+that reads free while still carrying the previous tenant's grant. And because
+the daemon must write the ACL before the AppVM's unit starts, it must know that
+uid in advance, which `DynamicUser=` cannot supply; a uid derived from the
+already-allocated CID would add no third allocator. Whether `User=` accepts a
+bare numeric uid absent from `passwd` is untested.
+
+**9. Not shown.** Nothing was measured under `/run/katmate/link/`; its slot
+directories' modes, owners, masks and default ACLs are unread. The subject
+throughout is a fifty-two-line AF_UNIX `SOCK_DGRAM` fixture, not QEMU, and
+whether QEMU's own `bind()` and `sendto()` meet these permissions identically is
+untested. Uids 61001 and 61002 are absent from `passwd` and every run used
+`setpriv --clear-groups`, so no supplementary group, login session or PAM path
+was in play. Every positive half was taken on `tmpfs`; none on `ext4`. No reboot
+occurred, and nothing was read back on a later boot. No timing, latency,
+ordering or concurrency property was read, and 7 is the one place that shows
+this session cannot read one. GA5b created one node in one directory, not
+sixteen. What produced the reset in 6 is unread: no `strace`, no journal, no
+systemd source was consulted.
