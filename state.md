@@ -1713,6 +1713,147 @@ touched.
    unchanged: rotate at the next `build/netvm.sh` run with a fresh
    `KATMATE_DEV_ROOT_HASH`.
 
+30. **The host kernel's required-symbol set is recorded nowhere, and the host
+   ran outside ADR-004 for an interval no artefact recorded.** Added 2026-09-18,
+   from [ADR-036](docs/DECISIONS.md#adr-036) § 7 and § *Gates* G4. **Read from
+   the tree only** — nothing was run on MINIS and no kernel config was read on
+   either machine.
+
+   The host kernel is load-bearing **by configuration**, and no artefact carries
+   the set of symbols the project depends on. `grep -F` over this file returns
+   nothing for `vsock_diag` and nothing for `config.gz`; `TMPFS_POSIX_ACL`
+   occurs once (`state.md:68`), as a fact about `/run` inside a session entry,
+   not as a recorded dependency. The symbols the accepted ADRs have already made
+   load-bearing, each named by the ADR that needs it:
+
+   - `vsock_diag` — [ADR-026](docs/DECISIONS.md#adr-026) E4/E6, a *stated
+     requirement*. ADR-026 writes its own warning: a future host kernel
+     configuration change that drops it silently disables the indicator's
+     identity path.
+   - the vsock namespace symbols — [ADR-028](docs/DECISIONS.md#adr-028) C6 and
+     ADR-029 G0/G1, which together fix a host kernel floor of Linux ≥ 7.0.
+   - `TMPFS_POSIX_ACL` — the ADR-035 revision note of 2026-09-15.
+   - KVM, VFIO and the IOMMU driver — every netVM boot.
+   - whatever the boot-hardening backlog adds.
+
+   **The consequence has already been measured once, and was noticed by
+   accident.** The reference host reported `7.0.12-arch1-1` — a stock Arch
+   kernel, **not** `linux-hardened` — when ADR-028/029's netns gates were taken
+   on 2026-08-02, and `7.1.9-hardened1-1-hardened` on 2026-08-28. For at least
+   part of that interval the machine [ADR-004](docs/DECISIONS.md#adr-004)
+   governs was not on the decided kernel. No artefact recorded either
+   transition, and the return was seen only because a `uname` was read for
+   another reason.
+
+   **A sub-question is open and decides where any such check can run:** whether
+   the host's kernel config is readable on the running system (`/proc/config.gz`)
+   or only from the package. Unread on both machines. #22 already records
+   `Cannot find kernel config.`, zero bytes out (`state.md:1118`, `:1269`) — that
+   is the **guest** microVM image and does not answer this.
+
+   **Distinct from #22**, which is about tying a guest image to the config it
+   was built from. This entry is the *host* kernel, and it is a dependency set
+   with no artefact rather than an image with no provenance.
+
+31. **The GUI ingress — the host end of the only channel a guest may draw
+   through — cannot be located in version control.** Added 2026-09-18, from
+   [ADR-036](docs/DECISIONS.md#adr-036) § 2 and § *Revisit when* 8, which makes
+   locating it a **precondition** and not a reopening.
+
+   **The tree half was run, on the Acer, over the whole tree.** ADR-036 asks for
+   `git ls-files` across the entire repository rather than the three subtrees the
+   2026-09-18 audit covered (`host/`, `desktop/`, `manifests/`):
+
+   ```
+   $ git ls-files | grep -E '\.(service|socket|target|mount|path|timer)$'
+   host/usr/lib/systemd/system/katmate-publish-nics.service
+   host/usr/lib/systemd/system/katmate-sys-driver@.service
+
+   $ git grep -Fn 'waypipe-client' -- .
+   docs/DECISIONS.md:903:  `waypipe-client` systemd user unit points there. The distro waypipe
+   ```
+
+   Two systemd units are tracked in the entire repository and neither is the
+   waypipe listener. The string `waypipe-client` occurs in exactly one tracked
+   file — [ADR-019](docs/DECISIONS.md#adr-019), the document that *names* the
+   unit as pointing at `/opt/katmate/bin/waypipe`. Widening the search from
+   three subtrees to the whole tree therefore **confirms** the audit's finding
+   rather than correcting it: the unit is tracked nowhere.
+
+   **The MINIS half was not run and is not claimed.** `systemctl --user cat` of
+   the socket and service units on the reference host, compared byte for byte
+   against the tree, is the remaining half. This session did not touch MINIS.
+
+   **Until both halves are read, one of two documents is wrong, and which one is
+   unsettled.** Either the unit is tracked somewhere neither search reached and
+   `SECURITY-MODEL.md` § *GUI forwarding* stands as written, or it exists only on
+   the reference host's disk — in which case `docs/HOST-CONFIG.md` is missing an
+   entry whose failure mode is that **a fresh install has no GUI path at all**.
+
+   **Location is what is open here, not classification.** ADR-036 § 2 rules that
+   the ingress belongs to the system rather than to the desktop user's session,
+   whatever its location turns out to be — but **ADR-036 is PROPOSED**, that
+   ruling is not in force, and nothing in this entry acts on it.
+
+32. **Whether user theming reaches the two domain-indicator carriers has never
+   been measured.** Added 2026-09-18, from
+   [ADR-036](docs/DECISIONS.md#adr-036) § *Open, and named as open rather than
+   decided*. **Nothing was run** — this entry records the absence of a
+   measurement, not its result.
+
+   [ADR-026](docs/DECISIONS.md#adr-026) names two carriers for the domain
+   indicator: the bar module and the focused border colour. Both are values a
+   user theme can set. No measurement on either machine shows that a
+   user-supplied theme cannot reach them, and `grep -F 'theming'` over this file
+   returns nothing.
+
+   The question stands independently of ADR-036's status: ADR-026's carriers are
+   **accepted**, and if a theme can repaint either of them then the identity path
+   is user-modifiable today. What ADR-036 adds is only the rule that the answer
+   be **measured** rather than assumed.
+
+33. **The `systemd-sysctl`/udev ordering inside netVM is unmeasured, and it is a
+   precondition of any per-slot value.** Promoted 2026-09-18 out of the
+   2026-09-12 … 2026-09-14 session entry, which rotates to `docs/SESSIONS.md` and
+   would take the question out of the living document with it. **Nothing was
+   run** — this entry moves a record into the section that keeps it, and adds no
+   reading.
+
+   **What is unmeasured:** whether `systemd-sysctl` runs **before or after** udev
+   renames the sixteen virtio devices to `km00`…`km0f`.
+
+   **Why the readings in hand cannot settle it**, which is why it is open rather
+   than answered: `net.ipv4.conf.default.rp_filter` is **2**, so an interface
+   created after `systemd-sysctl` ran inherits 2 either way, and the observed 2
+   on all sixteen slots discriminates neither order.
+
+   **Why it is load-bearing.** Per-device and glob `sysctl` entries take effect
+   only on interfaces that exist when they are applied, while `default` governs
+   interfaces created afterwards — so the ordering decides whether a per-slot
+   value can be set by the obvious mechanism at all.
+   [ADR-036](docs/DECISIONS.md#adr-036) § 3 rules that the binding of a peer
+   address to its own slot is **T4 and a function of the slot index**, and its
+   § *Open, and named as open rather than decided* names this ordering as a
+   precondition of any per-slot value, citing `state.md` — which, from this
+   session on, is this entry. ADR-036 is **PROPOSED**; the citation is recorded,
+   not acted on.
+
+   **What would settle it.** A reading taken at the next netVM boot.
+   [ADR-035](docs/DECISIONS.md#adr-035) § 8's rename landed as sixteen
+   exact-match `.link` files in the netVM build of 2026-09-05, so the ordering is
+   between two systemd components and is readable without new apparatus — unlike
+   the fixtures of the 2026-09-12 … 2026-09-14 arc, which the next netVM rebuild
+   ends.
+
+   **One copy of the measurement, one pointer to it.** ADR-035's revision note of
+   2026-09-14 § 3 is the full record — provenance of `rp_filter` as a systemd
+   vendor default, the `max(all, iface)` arithmetic, the glob-override property
+   and `enp0s4` inside the same glob — and it is **not restated here**. The
+   session entry that carried this file's own register of it is **left exactly as
+   written**, per § *Session archive*: *rotation is the only way material leaves
+   this file*, and a session body moves verbatim. This entry cites both rather
+   than duplicating either.
+
 ## Next steps
 
 **ADR numbering.** `ADR-030` = *what the launch daemon reads* (2026-08-06).
