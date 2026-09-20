@@ -53,9 +53,9 @@ restartable — and so updatable — without touching running VMs.
 Direction unchanged: IOMMU-capable platforms only (VT-d/AMD-Vi).
 MINIS is primary host and merge target.
 
-## This session (2026-09-20, second and third of three) — `auditfix-liveread`: the apparatus is destroyed, and open problem #33 is answered from the host journal; and `b1-docwrite`, the documentation pass that closed the day
+## This session (2026-09-20, second of two) — the rest of the day under one heading: `auditfix-liveread`, which found the apparatus destroyed and answered open problem #33 from the host journal; `b1-docwrite` and `b1b-rulings`, the two passes that wrote the day into this file and committed it; and `c1-adr035-note`, the ADR-035 §8 ruling
 
-**One heading covers two sessions, and the body below is the first of them** —
+**One heading covers four sessions, and the body below is the first of them** —
 the project's own device, as the 2026-09-12 … 2026-09-14 entry uses it. The
 second is **`b1-docwrite`**, the pass that wrote this file and performed the
 rotation to `docs/SESSIONS.md`: it ran **on the Acer**, **MINIS was not
@@ -68,6 +68,46 @@ outside the repository: `~/Claude.assistent/b1-docwrite-report.md`. It gets no
 heading of its own because § *Session archive*'s arithmetic stays at two, and a
 covering heading is what keeps a session from being destroyed by a later trim
 rather than archived.
+
+**The third is `b1b-rulings`, and it is the pass that committed the day.** It
+ran **on the Acer**, **MINIS was not contacted**, and **nothing was measured**:
+it took `b1-docwrite`'s uncommitted working tree as it stood and applied the
+operator's rulings to it — the reading note in `docs/SESSIONS.md` that a
+`This session` prefix is not a claim about recency, the covering heading above
+in the form it carried until this pass reworded it, and its paragraph, open
+problem #33's close, the ruling that the liveread
+continuation stands, and one new dated instance under § *Invariants &
+gotchas*' memory-assertion bullet. **Three signed commits**, all `%G?` = `G` and
+none pushed: `a6e3fba` (the rotation and the reading note), `2c665e0` (#33
+closes), `70c03f8` (the day's entries and the continuation ruling). One edit it
+made was outside its brief and is named in its own report: the dateline's *"the
+two sessions of 2026-09-20"* became *"the first two"*, because its § 1.2 had
+made that count false in the same file. Report outside the repository:
+`~/Claude.assistent/b1b-rulings-report.md`.
+
+**The fourth is this pass, `c1-adr035-note`, and it writes a ruling rather than
+taking a reading.** It ran **on the Acer**, **MINIS was not contacted**,
+**nothing was measured**, and **no manifest and no code changed**. It appended
+the operator's ruling on [ADR-035](docs/DECISIONS.md#adr-035) §8 to that ADR
+verbatim, as a revision note: §8 may no longer be read as forbidding a
+per-slot binding in nft, because `km00`…`km0f` are pool constants in T4 and **a
+per-slot rule is not a per-AppVM rule**; §8's citation of
+`docs/ARCHITECTURE.md` § *Networking* is corrected, that document being
+unchanged and uncontradicted; and the cost is stated rather than absorbed —
+**the interface name is now load-bearing**, and §8's sentence that it is not no
+longer holds. It opened **open problem #34** for the half the ruling does not
+cover, the pool's ARP surface, and wrote this entry. **The candidate ruleset
+stays outside the repository** at `~/Claude.assistent/nftables-f12-candidate.conf`
+and is **ungated**: its two gates — `nft -c -f` as root on the host **and**
+inside netVM, and a live refusal measurement against the loaded ruleset — are
+untaken, and netVM is down. **Its first attempt halted** on two divergences, the
+fixture the ruling names being absent from the machine and the day's session
+count being falsified by `b1b-rulings`; the operator placed the fixture and ruled
+the arithmetic, which is why both headings of 2026-09-20 read *of two* — the
+ordinal counts entries, not sessions, per the 2026-09-04 precedent § *Session
+archive* already carries. Reports outside the repository:
+`~/Claude.assistent/c1-adr035-note-report.md`, and the halt it replaces at
+`~/Claude.assistent/c1-adr035-note-report.halted.md`.
 
 **It halted on its first remote probe, and the halt is the finding.** Four of
 the brief's five halt conditions fired at once: MINIS had rebooted on
@@ -145,7 +185,8 @@ a `table netdev` ingress chain on an absent device **and accepted the `lo`
 control too**, so it does not discriminate — `-c` never reaches the kernel and
 cannot observe a load-time binding of any kind. **What is recorded is the defect
 in the probe, not a result about nftables**; settling it needs a real `nft -f`
-load, which is a state change. (`auditfix-liveread-report.md` §§ 2.5, 5.4.)
+load, which is a state change. (`auditfix-liveread-report.md` §§ 2.5, 5.4.) **All
+of this is finding 12's IPv4 half; its ARP half is open problem #34.**
 
 **The rename to `km00`…`km0f` fires — 16 of 16 — and this is the first
 measurement of it.** Every name present exactly once, no gaps and no duplicates,
@@ -156,7 +197,7 @@ worker concurrency and is load-bearing nowhere. The ordering half of the same
 reading is what answers open problem #33, and it is written there rather than
 here. (`auditfix-liveread-report.md` § 2.6.)
 
-## Previous session (2026-09-20, first of three) — `auditfix-readpass`: finding 10's absence measured with its control, and both accept loops read as serial
+## Previous session (2026-09-20, first of two) — `auditfix-readpass`: finding 10's absence measured with its control, and both accept loops read as serial
 
 **It halted before its first remote command**, on a fixture its brief names and
 the tree does not contain — the § 4 candidate ruleset — so **MINIS was never
@@ -2037,6 +2078,27 @@ touched.
    written**, per § *Session archive*: *rotation is the only way material leaves
    this file*, and a session body moves verbatim. This entry cites both rather
    than duplicating either.
+
+34. **The pool's ARP surface is uncovered, and the finding-12 candidate does not
+   reach it.** Added 2026-09-20, **named as open at the moment the IPv4 half of
+   finding 12 was ruled, deliberately, so the ruling is not read as closing
+   finding 12**. **Nothing was run** — this entry names an absence and rests on
+   readings taken by earlier sessions.
+
+   **`table inet filter` does not see ARP**, so the guard chain that refuses a
+   forged IPv4 source cannot refuse a forged ARP. An AppVM can still plant a
+   neighbour entry in netVM for another slot's peer address — **measured, not
+   hypothetical**: `10.100.1.17 dev km02`,
+   [ADR-035](docs/DECISIONS.md#adr-035)'s revision note of 2026-09-14, finding 4.
+   After the candidate is installed a forged **packet** is dropped while a
+   poisoned **neighbour entry** survives, and with it the black-holing or
+   interception of the true peer's return traffic.
+
+   **Coverage needs `table netdev` ingress or `table arp`, and P2 is
+   unresolved.** `nft -c` accepted a netdev ingress chain on an absent device
+   **and accepted the control too**, so `-c` cannot settle load-time device
+   binding at all (`auditfix-liveread-report.md` §§ 2.5, 5.4). Settling it needs
+   a real `nft -f` load, which is a state change.
 
 ## Next steps
 
