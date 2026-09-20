@@ -1812,12 +1812,74 @@ touched.
    is user-modifiable today. What ADR-036 adds is only the rule that the answer
    be **measured** rather than assumed.
 
-33. **The `systemd-sysctl`/udev ordering inside netVM is unmeasured, and it is a
-   precondition of any per-slot value.** Promoted 2026-09-18 out of the
+33. **RESOLVED 2026-09-20 — the `systemd-sysctl`/udev ordering inside netVM.**
+   Kept as a closed marker so the number is not reused. The published title
+   sentence is left exactly as written: **The `systemd-sysctl`/udev ordering
+   inside netVM is unmeasured, and it is a precondition of any per-slot value.**
+   **[THE ORDERING IS ANSWERED as of 2026-09-20 — `systemd-sysctl` runs BEFORE
+   the rename.]** Promoted 2026-09-18 out of the
    2026-09-12 … 2026-09-14 session entry, which rotates to `docs/SESSIONS.md` and
    would take the question out of the living document with it. **Nothing was
    run** — this entry moves a record into the section that keeps it, and adds no
    reading.
+
+   **ANSWERED 2026-09-20. `systemd-sysctl` runs BEFORE the rename.**
+   `systemd-sysctl.service` **finished between guest monotonic 3.135120 and
+   3.392187**, and **all 16 of 16** renames to `km00`…`km0f` fall after it
+   (3.392187 … 3.989274). Measured on the **netVM boot of 2026-09-12** and read
+   from the **host** journal on 2026-09-20, with netVM down and MINIS never
+   entered by the session that wrote this line: the guest's serial console lands
+   in the host journal, which is the observation path that made the reading
+   possible at all (§ *Invariants & gotchas*, the entry on console durability).
+   Source: `auditfix-liveread-report.md` § 2.6.
+
+   **The controls, because the load-bearing half of this is a negative.**
+   *Positive control:* the same cut applied to the **first-stage** renames puts
+   **17 of 17** on the *other* side (`eth`→`enp0sN`, monotonic 1.517076 …
+   1.607757, all before) — the cut point can demonstrably place a rename on
+   either side, so the 0/16 is the phenomenon and not the instrument.
+   *Cardinality:* sixteen rename records, every name `km00`…`km0f` exactly once,
+   no gaps and no duplicates — **which is also the first measurement that the
+   rename fires at all**. *Negative control with its own positive:* **0** lines
+   of the guest boot console name `rp_filter` against **3** naming `sysctl`, so
+   the grep fires and the zero is a real absence.
+
+   **The rename happens in two stages, and no document recorded that.** Stage
+   one at ~1.5 s renames all seventeen NICs `ethN`→`enp0sN` — kernel/udev
+   default policy, the uplink included (`eth16`→`enp0s4`). Stage two at
+   ~3.4–4.0 s renames the sixteen virtio slots `enp0sN`→`kmNN`, after
+   `systemd-udev-trigger.service` coldplugs them against the real root's rules.
+   **`systemd-sysctl` runs between the two stages.**
+
+   **The consequence, which is the half that binds: a per-`kmkk` sysctl cannot
+   take effect at boot**, because no interface carries that name when
+   `systemd-sysctl` runs — the sixteen exist at that moment under their
+   stage-one names. The reasoning below supplied the conditional; this
+   measurement supplies the ordering, and the ordering is the unfavourable one.
+   [ADR-036](docs/DECISIONS.md#adr-036) § 3's named precondition now has an
+   answer rather than a gap. **A revision note is proposed in
+   `~/Claude.assistent/b1-docwrite-report.md` and is deliberately not written
+   into the ADR.**
+
+   **Two mechanism sentences reconcile this ordering with the 2026-09-14
+   `rp_filter` values, and NEITHER WAS MEASURED.** They are written here as
+   unmeasured so that no later reading of this entry promotes them: (a) that the
+   vendor glob `net.ipv4.conf.*.rp_filter = 2` fires at `systemd-sysctl` time
+   against the **stage-one** names and therefore still reaches all sixteen,
+   because a glob matches whatever exists; and (b) that a netdev's sysctl values
+   **survive** the second rename, the directory being renamed with the device
+   rather than reset. Both are consistent with the observed 2 on every `kmkk`,
+   and neither was observed. Both are readable at the next netVM boot, when both
+   names are visible in one guest.
+
+   **What remains is not an open question but an undecided one** — how a
+   per-slot value is to be set given this ordering — and it belongs to
+   [ADR-036](docs/DECISIONS.md#adr-036) § 3 and the tier model rather than to
+   this list, the second confirmation of the ordering at the next netVM boot
+   being worth taking but not a condition of this close.
+
+   **Everything below this point is the record of the question while it was
+   open, and is left exactly as written.**
 
    **What is unmeasured:** whether `systemd-sysctl` runs **before or after** udev
    renames the sixteen virtio devices to `km00`…`km0f`.
