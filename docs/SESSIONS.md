@@ -21,6 +21,11 @@
 > sense in `state.md`'s flat preamble. The 2026-08-02 entry is explicitly
 > reconstructed and says so in its own header.
 >
+> **Reading note — heading prefixes.** The `This session` / `Previous session`
+> prefix is **not normative** in this file: the date in the heading is the
+> identifier, a rotated entry keeps the heading it was published with, and a
+> `This session (2026-09-15)` here is therefore not a claim about recency.
+>
 > **Reading note — CIDs.** [ADR-022](DECISIONS.md#adr-022) was written in the
 > 2026-07-14 session. Entries dated **2026-07-13 and earlier** use the old
 > single-sysVM map (`3` = netVM, `4` = personalVM, `5` = app_web). The current
@@ -45,6 +50,119 @@
 > every pre-08-06 entry.
 
 ---
+
+## This session (2026-09-15) — the ACL mechanism is measured, and `RuntimeDirectory=` is measured to undo assignment-time ownership
+
+**Documentation only.** No code was written, no unit was changed, no sysctl was
+set, and no ADD or REMOVE was issued. The measurements this entry records were
+taken on MINIS earlier the same day, in two passes, against systemd on Arch, on
+the boot of 2026-09-05. **ADR-035's revision note of 2026-09-15 carries all
+nine numbered items in full** — they are not duplicated here; what follows is
+only what belongs to this file.
+
+**Reports outside the repository:** `~/Claude.assistent/acl-report.md` and
+`~/Claude.assistent/acl-report-b.md`. The second pass re-took three gates that
+the first brief had written defectively.
+
+**The five ACL gates, one line each.** POSIX ACLs are available where the tree
+lives — `CONFIG_TMPFS_POSIX_ACL=y`, `/run` is `tmpfs` — and the same `setfacl`
+is refused `Operation not supported` on `proc`, `sysfs`, `cgroup2` and `vfat`.
+`bind()` applies the umask, and a default ACL does not override it. Removing a
+named ACL entry reaches an already-running sender: the **same** process is
+refused `EACCES` with no signal delivered and no restart of either side, and
+delivers again once the entry is restored. The sticky bit refuses an unlink
+that directory write permission allows, so a slot directory that grants an
+AppVM write and does not carry `+t` lets that AppVM delete its own `owner` and
+make an occupied slot read as FREE. `chmod` on an object carrying an access ACL
+rewrites the ACL mask.
+
+**`RuntimeDirectory=` returns the directory and the node bound inside it to
+`root:root` at every start, restores the directory to `0755`, and leaves no
+named entry, no `mask::` and no `default:` entry on either.** Both inodes
+survive the restart; the ownership and the ACLs do not. The ownership rule of
+the 2026-09-07 revision note — *"the launch daemon sets ownership at assignment
+and returns it at release"* — therefore does not survive a netVM restart under
+this directive, and no ACL placed beside it would either. **§5's creation
+mechanism is consequently reopened, not settled.** The `ExecStartPre=` T4
+helper §5 names as its fallback re-asserts nothing at start if it is written
+idempotent and non-destructive, and a default ACL then survives a netVM
+restart; keeping the directive instead obliges the launch daemon to re-apply
+ownership and ACLs after every netVM start. **Neither was decided**, and the
+choice is the operator's.
+
+**`UMask=0007` is load-bearing on both QEMU templates, and its absence fails
+silently.** Under `umask 0022` the bound node comes up `0755` with `mask::r-x`
+and the named `rw` entry reads `#effective:r--`: `getfacl` shows a
+correct-looking entry while the peer cannot send.
+
+**Mode first, ACL second, `getfacl` read-back third.** Any `chmod` issued after
+a `setfacl` rewrites the mask and can render every named entry ineffective.
+Recorded in § *Invariants & gotchas* as well, because it binds every writer of
+this tree and not only this session.
+
+**The 2026-09-14 apparatus was not entered.** Nothing was read or written under
+`/run/katmate/link/`, and no `katmate*` unit was started, stopped, restarted or
+reloaded. Its figures stand as of the 2026-09-14 entry and were **not re-read
+here**: `MainPID 3628111`, `NRestarts=0`, boot 2026-09-05 20:10:29.
+
+**This file now carries three session sections, and rotation was not
+performed.** § *Session archive* keeps two. The 2026-09-07 section is the one
+due to rotate to [docs/SESSIONS.md](docs/SESSIONS.md); it was left in place,
+with its heading untouched, because the brief for this pass reserved the
+rotation to the operator.
+
+## Previous session (2026-09-12 … 2026-09-14) — the ADR-035 gate arc and its close: every measured delivery across a slot was into a promiscuous receiver
+
+**One heading covers two arcs, and the body below is the second of them.** The
+five gate sessions of 2026-09-12 were transcribed into § *Live state*,
+§ *Next steps* and § *Invariants & gotchas* by write pass B (`facf437`) and were
+given no dated heading of their own; their material stands in those sections and
+is not repeated here. This heading covers them, which is what closes the
+archive's own gap — a session without a dated heading cannot later be rotated,
+and the trim destroys it instead (§ *Session archive*, where the rotation this
+entry arrived by is recorded).
+
+**The 2026-09-14 arc is four delegated sessions** — the harvest, the promisc
+discriminator, the multicast read pass, and write pass C. **One commit of
+substance, `adecc5f`, and it is not pushed.** Reports outside the repository:
+`harvest-report.md`, `promisc-report.md`, `mcast-read-report.md` and
+`writec-report.md`. **ADR-035's revision note of 2026-09-14 carries the five
+findings, the six-row table and the rewritten G5b clause** — it is not
+duplicated here; what follows is only what belongs to this file.
+
+**The condition every slot measurement has been taken under.** No frame has ever
+been shown to cross a slot on its own destination address. **Every measured
+delivery across a slot was into a receiver with `IFF_PROMISC` set, and the same
+pair was measured failing without it** — both directions, both flag values, the
+flag being the only difference in each pair. **Nothing here says the transport
+does not carry: it carries, under promisc.** What is unshown is *addressed*
+delivery — a frame accepted because it was addressed to the receiving interface
+rather than because that interface was accepting everything. This line is in
+`state.md` and not left to the ADR because `grep -i promisc` over this file
+returned **nothing** until now: a cross-reference would have pointed at nothing,
+and the next session to measure slot traffic without the condition will
+re-derive it.
+
+**The apparatus is still alive, and whoever picks this up next must not assume
+otherwise.** All four sessions ran on one boot and it survived them: host
+`uptime -s` **2026-09-05 20:10:29**, netVM **MainPID 3628111**, `NRestarts=0`,
+unrestarted since 2026-09-12 09:59:37 CEST. **The dev console is at a live root
+shell** — no login step, and no credential need be spent. **Slot 01 is left
+released**, links **200** and **202** are installed, and the fixtures on slots
+**01** and **02** are still bound. Exactly one state change was made across the
+three read sessions — `IFF_PROMISC` on `km00`, set and cleared the same morning,
+both halves confirmed by read-back — and no code, no unit, no sysctl and no ADD
+or REMOVE. **The next netVM rebuild ends all of it**, so any reading that needs
+this apparatus is taken before the code pass or not at all. Slot inodes, fixture
+PIDs and the instruments left on MINIS are in the reports, not here.
+
+**One precondition is recorded as unmeasured, because it governs a change
+someone will want to make.** Whether `systemd-sysctl` runs **before or after**
+udev renames the sixteen virtio devices to `km00`…`km0f` has never been read,
+and the values available cannot settle it: `net.ipv4.conf.default.rp_filter` is
+**2**, so an interface created after `systemd-sysctl` ran inherits 2 either way,
+and the observed 2 on all sixteen slots discriminates neither order. That is a
+reason the question is open, not a reason to treat it as answered.
 
 ## Previous session (2026-09-07) — the netVM is rebuilt, ADR-035 §8 lands, and G5a settles who creates the slot tree
 
