@@ -5,18 +5,20 @@
 > each working session. Detailed proofs and command sequences live in git
 > history and the ADRs — this file references them rather than repeating them.
 
-**Milestone:** v0.2 (in development) · **Last updated:** 2026-09-14
-(the ADR-035 measuring arc of **2026-09-12 … 2026-09-14**, recorded under one
-heading because write pass B transcribed the five gate sessions of 2026-09-12
-into the living sections without a dated heading of their own, and one heading
-above both arcs closes that gap rather than burying it deeper. The substantive
-finding is a condition and not a new measurement: **every measured delivery
-across a slot was into a receiver with `IFF_PROMISC` set**, and the same pair
-was measured failing without it — so no frame has yet been shown to cross a
-slot on its own destination address. ADR-035's revision note of 2026-09-14
-carries it, with the six readings as one table. **One rotation was performed:**
-the 2026-09-05 *second of two* entry to `docs/SESSIONS.md`, because the file
-keeps two).
+**Milestone:** v0.2 (in development) · **Last updated:** 2026-09-20
+(a documentation write pass on the Acer, after **MINIS rebooted on 2026-09-19**
+and destroyed the apparatus that every ADR-035 gate reading of the 2026-09-12 …
+2026-09-14 arc was taken against. **Nothing was measured by the pass that wrote
+this**: MINIS was not contacted, and every fact written is cited to
+`~/Claude.assistent/auditfix-liveread-report.md` or
+`~/Claude.assistent/auditfix-readpass-report.md` — the first two sessions of
+2026-09-20, both of which halted. The substantive additions are that **open
+problem #33 is answered** — `systemd-sysctl` runs *before* udev renames the
+sixteen slots, so a per-`kmkk` sysctl cannot take effect at boot — and that
+**the netVM uplink is capped at 100 Mbit/s by a UTP-5 cable**, a condition of
+the environment rather than a defect. **Two rotations were performed:** the
+2026-09-15 entry and the 2026-09-12 … 2026-09-14 entry to
+`docs/SESSIONS.md`, because the file keeps two).
 
 ## Current focus
 
@@ -51,118 +53,149 @@ restartable — and so updatable — without touching running VMs.
 Direction unchanged: IOMMU-capable platforms only (VT-d/AMD-Vi).
 MINIS is primary host and merge target.
 
-## This session (2026-09-15) — the ACL mechanism is measured, and `RuntimeDirectory=` is measured to undo assignment-time ownership
+## This session (2026-09-20, second and third of three) — `auditfix-liveread`: the apparatus is destroyed, and open problem #33 is answered from the host journal; and `b1-docwrite`, the documentation pass that closed the day
 
-**Documentation only.** No code was written, no unit was changed, no sysctl was
-set, and no ADD or REMOVE was issued. The measurements this entry records were
-taken on MINIS earlier the same day, in two passes, against systemd on Arch, on
-the boot of 2026-09-05. **ADR-035's revision note of 2026-09-15 carries all
-nine numbered items in full** — they are not duplicated here; what follows is
-only what belongs to this file.
+**One heading covers two sessions, and the body below is the first of them** —
+the project's own device, as the 2026-09-12 … 2026-09-14 entry uses it. The
+second is **`b1-docwrite`**, the pass that wrote this file and performed the
+rotation to `docs/SESSIONS.md`: it ran **on the Acer**, **MINIS was not
+contacted**, and **nothing was measured** — every fact it wrote is cited to one
+of the two reports of the sessions that took the readings. What it wrote is the
+dateline, the reboot record in § *Live state*, open problem #33's answer block,
+the two entries here and the two rotated entries there; what it deliberately did
+not write are three revision notes, which stay proposed in its report. Report
+outside the repository: `~/Claude.assistent/b1-docwrite-report.md`. It gets no
+heading of its own because § *Session archive*'s arithmetic stays at two, and a
+covering heading is what keeps a session from being destroyed by a later trim
+rather than archived.
 
-**Reports outside the repository:** `~/Claude.assistent/acl-report.md` and
-`~/Claude.assistent/acl-report-b.md`. The second pass re-took three gates that
-the first brief had written defectively.
+**It halted on its first remote probe, and the halt is the finding.** Four of
+the brief's five halt conditions fired at once: MINIS had rebooted on
+**2026-09-19**, and the netVM that brief was written around — with every fixture
+§ *Live state* rested on — no longer exists. **Nothing was started, stopped,
+restarted, reloaded, repaired or written:** no `nft -f`, no `sysctl -w`, no `ip`
+state command, no unit operation, no rsync, no write under any tier directory,
+and the console FIFO was **not** recreated. Report outside the repository:
+`~/Claude.assistent/auditfix-liveread-report.md`. **What the reboot destroyed,
+what survived it and what it costs are written into § *Live state*, and the
+ordering it recovered into open problem #33**; what follows is what belongs to
+this entry.
 
-**The five ACL gates, one line each.** POSIX ACLs are available where the tree
-lives — `CONFIG_TMPFS_POSIX_ACL=y`, `/run` is `tmpfs` — and the same `setfacl`
-is refused `Operation not supported` on `proc`, `sysfs`, `cgroup2` and `vfat`.
-`bind()` applies the umask, and a default ACL does not override it. Removing a
-named ACL entry reaches an already-running sender: the **same** process is
-refused `EACCES` with no signal delivered and no restart of either side, and
-delivers again once the entry is restored. The sticky bit refuses an unlink
-that directory write permission allows, so a slot directory that grants an
-AppVM write and does not carry `+t` lets that AppVM delete its own `owner` and
-make an occupied slot read as FREE. `chmod` on an object carrying an access ACL
-rewrites the ACL mask.
+**It continued past the halt for four items, and that was its own decision.**
+The brief's § 4.7 host half, § 4.8's unit-file half, § 5's two `nft -c` probes
+and § 4.2 read installed unit files, a persistent host journal and syntax checks
+that load nothing — none of them depends on anything that halted, and all four
+would read the same if netVM had never existed. The alternative it rejected was
+taking the in-guest readings by **starting** netVM, which is the workaround the
+brief forbids and is host-reboot-class. **The continuation stands — ruled by the
+operator on 2026-09-20.** The four items depended on nothing that had halted and
+changed nothing, and one of them answered open problem #33 out of a host journal
+that a `vacuum` would eventually have taken
+(`auditfix-liveread-report.md` § 4.1).
 
-**`RuntimeDirectory=` returns the directory and the node bound inside it to
-`root:root` at every start, restores the directory to `0755`, and leaves no
-named entry, no `mask::` and no `default:` entry on either.** Both inodes
-survive the restart; the ownership and the ACLs do not. The ownership rule of
-the 2026-09-07 revision note — *"the launch daemon sets ownership at assignment
-and returns it at release"* — therefore does not survive a netVM restart under
-this directive, and no ACL placed beside it would either. **§5's creation
-mechanism is consequently reopened, not settled.** The `ExecStartPre=` T4
-helper §5 names as its fallback re-asserts nothing at start if it is written
-idempotent and non-destructive, and a default ACL then survives a netVM
-restart; keeping the directive instead obliges the launch daemon to re-apply
-ownership and ACLs after every netVM start. **Neither was decided**, and the
-choice is the operator's.
+**Finding 8 changed shape: the audit's netVM half describes a path that does not
+run.** The live launch path is `katmate-pool@netvm.service`, whose `ExecStart`
+carries **`-monitor none`** — no QEMU monitor at all, HMP or QMP — and
+**`-chardev stdio,id=console0,signal=off -serial chardev:console0`**, the guest
+serial line bound to a plain stdio chardev and **not** multiplexed with a
+monitor. **`-serial mon:stdio` is nowhere on it.** It exists only in the `.con`
+launchers, and **no `.con` launcher has started netVM since the pool unit took
+over**, so `net-sys.con` is superseded **as the starter, not as a file** — it is
+still present, still carries `-serial mon:stdio` at `:16`, and would still work
+if run by hand. **No AppVM unit is installed and nothing on MINIS can start an
+AppVM today**; the AppVM peers of the 2026-09-12 arc were ad-hoc `systemd-run`
+transients and they are gone. What actually crosses the boundary is therefore
+the **input** half — the console drop-in — plus the guest's unrestricted,
+unrated write into the **host** journal through `StandardOutput=journal`, in raw
+form, ANSI escapes included. A `docs/SECURITY-MODEL.md` gap-15 wording and the
+shape of a containment (a `SyslogIdentifier=`, a rate limit, a separate journal
+namespace) are **proposed in `~/Claude.assistent/b1-docwrite-report.md` and
+deliberately not written**: that path is load-bearing for observation
+(§ *Invariants & gotchas*) and must be constrained rather than removed.
+(`auditfix-liveread-report.md` § 2.3.)
 
-**`UMask=0007` is load-bearing on both QEMU templates, and its absence fails
-silently.** Under `umask 0022` the bound node comes up `0755` with `mask::r-x`
-and the named `rw` entry reads `#effective:r--`: `getfacl` shows a
-correct-looking entry while the peer cannot send.
+**Finding 10 now has its bound, and there is no memory ceiling at any of four
+cgroup levels.** The unit, its per-template slice, `system.slice` and `-.slice`
+all report `MemoryMax=infinity` and `MemoryHigh=infinity`; `LimitAS=infinity` on
+both units; `system.slice/memory.max` reads `max` in cgroup v2 directly. **The
+only resource directive in either unit file is `LimitMEMLOCK=infinity`** —
+`katmate-pool@.service:190` and `katmate-sys-driver@.service:157` — which is the
+one directive that *lifts* a limit, for VFIO's full-RAM pinning, and neither
+drop-in carries any. **Verified twice and deliberately:** by `systemctl show`,
+and by a `grep` over both unit files and both drop-ins as a control against
+`show` reporting a default that the file does not set. **An unbounded allocation
+in either process is bounded only by MemTotal ≈ 30.1 GiB and by swap**, with no
+cgroup ceiling between it and the machine; for calibration, the last full
+six-day netVM run peaked at **1G**, roughly 3 % of what the absence of a ceiling
+permits. (`auditfix-liveread-report.md` § 2.2.)
 
-**Mode first, ACL second, `getfacl` read-back third.** Any `chmod` issued after
-a `setfacl` rewrites the mask and can render every named entry ineffective.
-Recorded in § *Invariants & gotchas* as well, because it binds every writer of
-this tree and not only this session.
+**Finding 12 — P1 settles the mechanism the fix rests on; P2 did not settle its
+question, and its probe was defective.** `iifname "nosuchdev0"` → `nft -c` exit
+**0**; `iif nosuchdev0` → exit **1**, *"Interface does not exist"*, naming the
+token and its column span; **both `lo` controls → exit 0**, which is what makes
+the rejection mean **resolution** rather than unsupported syntax — 4 of 4 runs
+behaving as the hypothesis predicts. So an `iifname`-shaped per-slot binding
+**loads against an absent or unrenamed interface and is independent of open
+problem #33**, degrading to an inert rule on a slot whose rename never fired,
+while an `iif`-shaped one **fails the entire load** if a single slot is missing.
+**Version caveat, and it binds:** measured under `nftables v1.1.7` on the MINIS
+**host**, and **the guest's version is unread** because netVM is down — so the
+result **does not carry into netVM until it is read**. **P2:** `nft -c` accepted
+a `table netdev` ingress chain on an absent device **and accepted the `lo`
+control too**, so it does not discriminate — `-c` never reaches the kernel and
+cannot observe a load-time binding of any kind. **What is recorded is the defect
+in the probe, not a result about nftables**; settling it needs a real `nft -f`
+load, which is a state change. (`auditfix-liveread-report.md` §§ 2.5, 5.4.)
 
-**The 2026-09-14 apparatus was not entered.** Nothing was read or written under
-`/run/katmate/link/`, and no `katmate*` unit was started, stopped, restarted or
-reloaded. Its figures stand as of the 2026-09-14 entry and were **not re-read
-here**: `MainPID 3628111`, `NRestarts=0`, boot 2026-09-05 20:10:29.
+**The rename to `km00`…`km0f` fires — 16 of 16 — and this is the first
+measurement of it.** Every name present exactly once, no gaps and no duplicates,
+on the boot of 2026-09-12. **The name↔MAC pairing is NOT measured and is not
+claimed:** the rename records carry the virtio device index, not the address,
+and the guest is gone. The renames complete out of index order, which is udev
+worker concurrency and is load-bearing nowhere. The ordering half of the same
+reading is what answers open problem #33, and it is written there rather than
+here. (`auditfix-liveread-report.md` § 2.6.)
 
-**This file now carries three session sections, and rotation was not
-performed.** § *Session archive* keeps two. The 2026-09-07 section is the one
-due to rotate to [docs/SESSIONS.md](docs/SESSIONS.md); it was left in place,
-with its heading untouched, because the brief for this pass reserved the
-rotation to the operator.
+## Previous session (2026-09-20, first of three) — `auditfix-readpass`: finding 10's absence measured with its control, and both accept loops read as serial
 
-## Previous session (2026-09-12 … 2026-09-14) — the ADR-035 gate arc and its close: every measured delivery across a slot was into a promiscuous receiver
+**It halted before its first remote command**, on a fixture its brief names and
+the tree does not contain — the § 4 candidate ruleset — so **MINIS was never
+contacted and nothing live was read**. Report outside the repository:
+`~/Claude.assistent/auditfix-readpass-report.md`. Every reading below is a tree
+read at `e736528`, and the entry above is the same day's second session.
 
-**One heading covers two arcs, and the body below is the second of them.** The
-five gate sessions of 2026-09-12 were transcribed into § *Live state*,
-§ *Next steps* and § *Invariants & gotchas* by write pass B (`facf437`) and were
-given no dated heading of their own; their material stands in those sections and
-is not repeated here. This heading covers them, which is what closes the
-archive's own gap — a session without a dated heading cannot later be rotated,
-and the trim destroys it instead (§ *Session archive*, where the rotation this
-entry arrived by is recorded).
+**Finding 10's load-bearing half is an explicit and complete absence.**
+**Fifteen patterns over eighteen tracked files, zero hits:** no timeout, no
+deadline, no non-blocking mode and no readiness multiplexing anywhere in the
+agent workspace — not in the codec, not in either agent, not in the client, and
+no dependency supplies one, the crates being `std` + `libc` only. **The control
+fires on 18 of 18 files and returns 120 hits**, run in the same command form
+over the same file set, which is what separates this absence from a search that
+could not fire. Every socket in the workspace is blocking with no `SO_RCVTIMEO`,
+and every read is a `read_exact` loop that exits only on data, EOF, or an error
+that is not `EINTR`. (`auditfix-readpass-report.md` § 2.8.)
 
-**The 2026-09-14 arc is four delegated sessions** — the harvest, the promisc
-discriminator, the multicast read pass, and write pass C. **One commit of
-substance, `adecc5f`, and it is not pushed.** Reports outside the repository:
-`harvest-report.md`, `promisc-report.md`, `mcast-read-report.md` and
-`writec-report.md`. **ADR-035's revision note of 2026-09-14 carries the five
-findings, the six-row table and the rewritten G5b clause** — it is not
-duplicated here; what follows is only what belongs to this file.
+**Both accept loops are serial.** `handle_connection` is called directly on the
+accepting thread in `netvm-agent` and in `vm-agent` — no `fork`, no thread, no
+`spawn` and no runtime in either dispatch path, `vm-agent`'s `posix_spawn` being
+waypipe for a `RUN` opcode and not dispatch. **One stalled connection therefore
+blocks every subsequent one**, because the next `accept()` is not reached until
+`handle_connection` returns; combined with the absence above, a peer that
+declares a large `payload_len` and then sends nothing holds the agent in
+`read_exact` **indefinitely**, and during that time no other client is served.
+**`read_request`, which runs inside every agent, has the identical shape** as
+the `read_response` the audit names: read a declared `u64`, bound it against
+`MAX_FILE_SIZE`, allocate `vec![0u8; payload_len]` **before a byte of content
+arrives**, then `read_exact`. The shape of a fix differs by answer — a read
+deadline fixes the stall, concurrency fixes the blocking, neither alone fixes
+both — and **that session chose nothing**, the choice being the operator's.
+(`auditfix-readpass-report.md` §§ 2.7, 2.9.)
 
-**The condition every slot measurement has been taken under.** No frame has ever
-been shown to cross a slot on its own destination address. **Every measured
-delivery across a slot was into a receiver with `IFF_PROMISC` set, and the same
-pair was measured failing without it** — both directions, both flag values, the
-flag being the only difference in each pair. **Nothing here says the transport
-does not carry: it carries, under promisc.** What is unshown is *addressed*
-delivery — a frame accepted because it was addressed to the receiving interface
-rather than because that interface was accepting everything. This line is in
-`state.md` and not left to the ADR because `grep -i promisc` over this file
-returned **nothing** until now: a cross-reference would have pointed at nothing,
-and the next session to measure slot traffic without the condition will
-re-derive it.
-
-**The apparatus is still alive, and whoever picks this up next must not assume
-otherwise.** All four sessions ran on one boot and it survived them: host
-`uptime -s` **2026-09-05 20:10:29**, netVM **MainPID 3628111**, `NRestarts=0`,
-unrestarted since 2026-09-12 09:59:37 CEST. **The dev console is at a live root
-shell** — no login step, and no credential need be spent. **Slot 01 is left
-released**, links **200** and **202** are installed, and the fixtures on slots
-**01** and **02** are still bound. Exactly one state change was made across the
-three read sessions — `IFF_PROMISC` on `km00`, set and cleared the same morning,
-both halves confirmed by read-back — and no code, no unit, no sysctl and no ADD
-or REMOVE. **The next netVM rebuild ends all of it**, so any reading that needs
-this apparatus is taken before the code pass or not at all. Slot inodes, fixture
-PIDs and the instruments left on MINIS are in the reports, not here.
-
-**One precondition is recorded as unmeasured, because it governs a change
-someone will want to make.** Whether `systemd-sysctl` runs **before or after**
-udev renames the sixteen virtio devices to `km00`…`km0f` has never been read,
-and the values available cannot settle it: `net.ipv4.conf.default.rp_filter` is
-**2**, so an interface created after `systemd-sysctl` ran inherits 2 either way,
-and the observed 2 on all sixteen slots discriminates neither order. That is a
-reason the question is open, not a reason to treat it as answered.
+**One divergence that session raised is still open and unruled, and this
+documentation pass did not touch it:** ADR-035 § 8 cites
+`docs/ARCHITECTURE.md` § *Networking* for a sentence that document does not
+contain. **Neither document was changed, by that session or by this one**
+(`auditfix-readpass-report.md` § 5, divergence 2). It is the operator's.
 
 ## Session archive
 
@@ -585,7 +618,9 @@ touched.
   `90-dev-monitor.conf` drop-in, which the `-rd` variants lacked, so G5b will
   not meet a `208/STDIN` mid-gate. **It is running: MainPID 3628111,
   invocation ID `795c97e533c54b7a8eb16cf5b95d3c50`, `NRestarts=0`, active
-  since 2026-09-12 09:59:37 CEST.** The prior MainPID 943031 died in a
+  since 2026-09-12 09:59:37 CEST.** **THAT SENTENCE STOPPED BEING TRUE ON
+  2026-09-19 02:26:54 CEST** — it is left as published, and what ended it is
+  the block *The apparatus described above and below is destroyed* below. The prior MainPID 943031 died in a
   `systemctl restart` deliberately run with no sweep and no `ExecStopPost=`:
   all sixteen `netvm` nodes rebound at new inodes and no `EADDRINUSE`
   occurred (source: `g5b-restart-report.md`) — while
@@ -615,8 +650,93 @@ touched.
   two 2026-09-05 entries — the *first of two* of which moved to
   `docs/SESSIONS.md` in this commit.
 
+  **THE APPARATUS DESCRIBED ABOVE AND BELOW IS DESTROYED (read 2026-09-20,
+  from the Acer; MINIS was not contacted by the session that wrote this).**
+  MINIS rebooted on **2026-09-19 07:20:46 CEST** — the journal's boot list opens
+  boot 0 there, while `uptime -s` reports **07:19:55**, and both figures are in
+  the evidence. The previous boot ended **02:26:54** that day, when netVM's QEMU
+  took **SIGTERM from pid 1** and `katmate-pool@netvm.service` deactivated
+  cleanly after **6 d 16 h 27 min 16.821 s** of wall clock. That closes on the
+  2026-09-12 09:59:37 start **to the second**, so **MainPID 3628111 held
+  `NRestarts=0` for its entire life and died with the host — not killed, not
+  crashed**. The same line carries two numbers nothing else records: 1 h 10 min
+  6.551 s of CPU and a **1G memory peak** over the full six-day run. **Cause:
+  the operator ran `pacman -Syu` on MINIS and rebooted** — ordinary maintenance,
+  not a fault (`auditfix-liveread-report.md` §§ 2.0, 2.1, 6.1). Both *"has any
+  katmate unit run since this boot?"* queries returned **empty with `journalctl`
+  exit 0**, so the absence is a real absence and not a failed query: **no
+  KatMate unit has run at all since 07:20:46**, and both templates are `static`,
+  so nothing starts netVM at boot (liveread §§ 2.1, 2.3).
+
+  **Gone:** the netVM process; `/run/katmate/link/netvm/` and the entire slot
+  tree; `/run/katmate-dev/` and its console FIFO; the transient holder; slot
+  **00**'s restart-survived binding; slot **01**'s release; slot **02**'s link
+  **202**; all three fixtures; and all five `/tmp` instruments (`g2fix.py`,
+  `g2icmp.py`, `g34arp.py`, `g34resp.py`, `g34-conrun.sh`), each confirmed
+  absent by name (liveread §§ 2.0, 6.1).
+
+  **Survived, and what survived is the configuration rather than the state:**
+  `/etc/systemd/system/katmate-pool@.service` at `1d727b25…`, **13021 B**, and
+  its drop-in at `71b3b5db…` — **both bit-identical to the values this section
+  already publishes**, which is what makes them a check and not a note; the
+  RTL8125 `0000:01:00.0` still bound to `vfio-pci`, so the host has not taken
+  the uplink NIC back; `vm_sys_netvm` present, **`Open count: 0`**, no `jbd2`
+  thread; `tap-int0` present and DOWN (liveread §§ 2.1, 2.4).
+
+  **The consequence, and it is what the next session inherits: every ADR-035
+  gate reading taken against a live fixture is historical and cannot be
+  extended, only re-taken.** That covers **G2, G3, G4 and G5b** of the
+  2026-09-12 … 2026-09-14 arc and **G5a**'s `RuntimeDirectoryPreserve=`
+  readings — every one of which named a bound fixture, a slot inode or a peer
+  PID. **Nothing in ADR-035's substantive findings is contradicted; what is gone
+  is the apparatus, not the measurements.** Starting netVM now would restore a
+  guest, sixteen slots and — only after the FIFO is dealt with — a console; it
+  would restore no fixture, no binding and no counter epoch (liveread §§ 6.1,
+  6.4).
+
+  **The cross-slot neighbour entry is neither present nor gone, and recording it
+  as either would be false.** `10.100.1.17 dev km02` lived in the guest kernel's
+  neighbour table and died with the process on 2026-09-19 02:26:54. It was last
+  read on **2026-09-14 at 43 h 29 m of age**. **Only a bound can be stated:** it
+  existed at most **6 d 13 h 37 m 18 s** after the planting frame of 2026-09-12
+  12:49:36 CEST, and the **4 d 16 h 8 m** between the last reading and the
+  shutdown is **unwitnessed and now unwitnessable** — no instrument was watching
+  and the table went with the process. It is **not expired** and it **did not
+  persist**; both readings are unavailable. Re-opening the durability question
+  needs the frame replanted on a fresh netVM (liveread § 2.7).
+
+  **The `208/STDIN` trap is armed on both units.** Both `90-dev-monitor.conf`
+  drop-ins survived in `/etc` — pool at `:31`, sys-driver at `:28`, both setting
+  `StandardInput=file:/run/katmate-dev/netvm-console.in`, which `systemctl show`
+  resolves to a bare `StandardInput=file` with **no path visible** — while the
+  tmpfs FIFO and the transient holder did not. **The next `systemctl start` of
+  *either* unit fails above `ExecStart=`, no `ExecStartPre=` runs, and the
+  journal names the directive's category but neither the path nor the drop-in.**
+  § *Invariants & gotchas* predicted this exactly and now carries it as a live,
+  confirmed precondition; the repair is the operator's and is unmade (liveread
+  §§ 2.0, 2.3, 6.2).
+
+  **The uplink is capped by the cable, and that is a condition of the
+  environment rather than a defect.** On the boot of 2026-09-12 the link came up
+  1 Gbps, went down, and settled at **100 Mbps/Full (downshifted)**, the driver
+  printing *"Downshift occurred from negotiated speed 1Gbps to actual speed
+  100Mbps, check cabling!"* (liveread § 2.6). **The LAN run to MINIS is UTP-5,
+  not 5e** — operator's statement, 2026-09-20 — so **100 Mbit/s is the cable's
+  ceiling**, the downshift warning is expected behaviour, and **every throughput
+  measurement taken on this uplink is under a 100 Mbit/s ceiling**. Gigabit
+  needs the cable replaced; nothing in configuration reaches it. This entry
+  publishes `Link is Up 1Gbps/Full` from the 2026-08-19 reading above; that
+  value is left as written, because it is what that link negotiated before the
+  downshift, and the 100 Mbps figure is what it settles at. The same records
+  carry **the one place in that session where a name and a MAC were read
+  together and agreed**: `enp0s4` carries **38:05:25:34:7c:47**, and the sixteen
+  `.link` files correctly do not glob onto it — the uplink keeps its stage-one
+  name.
+
   **Slot bindings, as left at the close of the 2026-09-12 gate arc, because
-  the next measuring session inherits them.** Slot **00** — `appvm` inode
+  the next measuring session inherits them.** **[HISTORICAL — every binding
+  below was destroyed with the process on 2026-09-19 02:26:54; see the block
+  above. Nothing in this paragraph can be inherited, only re-taken.]** Slot **00** — `appvm` inode
   **7528**, held by `g5br-restartpeer.service` (MainPID **3627150**), started
   09:58:06 CEST and **alive across the 09:59:37 CEST restart** — the only
   restart-survived AppVM binding in the tree — with link **200** installed
@@ -629,6 +749,8 @@ touched.
   session needs no login step (`g3-g4-console-report.md`).
 
   **Instruments left on MINIS from that arc, so they are not rewritten:**
+  **[ALL FIVE ABSENT as of 2026-09-20 — `/tmp` did not survive the reboot; they
+  must be rewritten after all. See the block above.]**
   `/tmp/g2fix.py` (ARP request), `/tmp/g2icmp.py` (IPv4 ICMP echo),
   `/tmp/g34arp.py` (ARP reply — gratuitous and solicited), `/tmp/g34resp.py`
   (solicited ARP responder), `/tmp/g34-conrun.sh` (console runner). Client:
@@ -2060,7 +2182,13 @@ for the full table and the eleven findings behind it — not duplicated here.
 **Two facts a reader needs before touching the machine:** slot **01** is left
 **RELEASED** (re-install with `ping-client netcfg-add 3 201
 52:54:01:00:00:01 10.100.1.17 100`), and **the dev console is already at a
-live root shell** — no login step is needed. **Outstanding before the next
+live root shell** — no login step is needed. **[BOTH FALSE as of 2026-09-20,
+and this sentence is the one addressed to a reader about to touch the machine:
+the host rebooted on 2026-09-19, the slot tree and the console are gone, and
+the next `systemctl start` of either template hits `208/STDIN` before
+`ExecStart=`. See § *Live state*, the block *The apparatus described above and
+below is destroyed*, and § *Invariants & gotchas*. The `ping-client` line above
+remains the correct re-install form; there is nothing to issue it to.]** **Outstanding before the next
 measuring session:** the `PEER:` fixture line carries no timestamp and needs
 one (see *Invariants & gotchas*); without it a reading cannot be placed
 against the events around it.
@@ -2491,6 +2619,42 @@ frozen `vm_home_skel` vs qcow2 branch.
   `10.3.1.3` / restrict nft so SSH is not reachable over the VPN tunnel.
 
 ## Invariants & gotchas (quick reminders — detail in git/ADRs)
+- **The guest's serial console is durable in the HOST journal, and that is an
+  observation path no document recorded.** `katmate-pool@.service` binds the
+  guest serial line to a stdio chardev (`-chardev stdio,id=console0,signal=off
+  -serial chardev:console0`) and carries `StandardOutput=journal`, so **the
+  guest's whole boot console lands in the host journal** — which is persistent
+  back to 2026-07-28 and **outlived the guest by a reboot**. This is how open
+  problem #33 was answered on 2026-09-20 with netVM destroyed: the guest boot of
+  2026-09-12 was read out of the host journal of the *previous* host boot. **A
+  reading that needs the guest's boot messages does not need the guest.** Two
+  consequences, and both matter: the path is load-bearing for observation, and
+  it is also an unrated, unlabelled write from guest to host (SECURITY-MODEL
+  gap 15 territory — a containment is **proposed** in
+  `~/Claude.assistent/b1-docwrite-report.md`, not written).
+
+  **The trap it carries: `journalctl` records embed ANSI escapes between
+  words.** `grep 'Finished systemd-sysctl'` matched **nothing** on a record that
+  reads `Finished \x1b[0;1;39msystemd-sysctl.service\x1b[0m` — the phrase is
+  present and the search cannot see it. The probe that hit it failed loudly only
+  because a later command depended on its empty result; the silent version of
+  the same mistake produces a confident wrong bracket. **Anchor on text that
+  carries no embedded escape** — the re-take anchored on `Apply Kernel
+  Variables` and worked. **Same class as *"a quotation that wraps across a line
+  is not a search string"*** below, and as every other case in this section
+  where a check that cannot fire is indistinguishable from a check that found
+  nothing. Source: `auditfix-liveread-report.md` §§ 2.3, 2.6, 4.3.
+- **`nft -c` run unprivileged is a check that cannot fire — any `nft -c`
+  preflight must run as root.** Unprivileged it returns **exit 1 with
+  *"netlink: Error: cache initialization failed: Operation not permitted"* on
+  every input**, valid and invalid alike, because it cannot open the netlink
+  cache before it reaches the ruleset. A preflight written that way **reports
+  every candidate as broken while measuring nothing**, and its output is
+  indistinguishable from a real syntax rejection. Measured 2026-09-20 on the
+  MINIS host under `nftables v1.1.7`, and found only because both privilege
+  levels were run as a control: as root the same two files return exit 0 and
+  exit 1 respectively, which is precisely the discrimination the unprivileged
+  run destroys. Source: `auditfix-liveread-report.md` § 2.5.
 - **`chmod` after `setfacl` rewrites the ACL mask, and can leave every named
   entry ineffective.** Measured 2026-09-15 as an accident: a `chmod 1710`
   issued after the `setfacl` left `mask::--x` and a named `rwx` entry reading
@@ -2571,6 +2735,22 @@ frozen `vm_home_skel` vs qcow2 branch.
   `systemd-run` unit with an absent path, not on the netVM unit itself**, so the
   status code and the message shape are measured and the netVM instance of it is
   inferred from the same directive.
+
+  **The precondition is LIVE and CONFIRMED as of 2026-09-20, and it is armed on
+  BOTH units, not only the one this entry names.** After the reboot of
+  2026-09-19, `/etc/systemd/system/katmate-pool@.service.d/90-dev-monitor.conf`
+  (`:31`) **and**
+  `/etc/systemd/system/katmate-sys-driver@.service.d/90-dev-monitor.conf`
+  (`:28`) both survived in `/etc`, both setting
+  `StandardInput=file:/run/katmate-dev/netvm-console.in`, while
+  `/run/katmate-dev/` and the transient holder did not survive — the exact
+  asymmetry this entry predicts. `systemctl show` resolves it to a bare
+  `StandardInput=file` with **no path and no `StandardInputPath` beside it**,
+  confirmed live rather than carried over. **The next `systemctl start` of
+  either unit fails above `ExecStart=`.** **Not repaired:** the choice between
+  recreating the FIFO and its holder and deleting the drop-in — which restores
+  the shipped `StandardInput=null` — is the operator's, and it is unmade.
+  Source: `auditfix-liveread-report.md` §§ 2.0, 2.3, 6.2.
 
 - **Reading the netVM console: `journalctl -o cat`, never the default format.**
   journald renders any record containing non-printable bytes as
@@ -2926,7 +3106,7 @@ frozen `vm_home_skel` vs qcow2 branch.
   than we thought — the real bug was the udev rule — but the topology note holds.)
 
 - **The running kernel on MINIS is a hardened Arch kernel,
-  `7.1.9-hardened1-1-hardened`, NOT a 6.12.y microvm kernel.**
+  `7.2.5-hardened1-1-hardened`, NOT a 6.12.y microvm kernel.**
   `~/src/kernel/linux-6.12.y/` (and any 6.12.94 tree) is the GUEST microvm
   kernel source, unrelated to the host. Do not build host modules against it
   (vermagic mismatch) and do not reason about host USB/driver behaviour from
@@ -2936,6 +3116,17 @@ frozen `vm_home_skel` vs qcow2 branch.
   read on MINIS 2026-08-28, no report file)*. The machine has moved to a
   **hardened** kernel, which the entry did not anticipate, so a host-side
   measurement taken before that date may not reproduce.
+
+  **Corrected again 2026-09-20:** this entry read `7.1.9-hardened1-1-hardened`
+  from 2026-08-28 until then; `uname -r` on MINIS reports
+  **`7.2.5-hardened1-1-hardened`** (`auditfix-liveread-report.md` §§ 2.0, 5.2),
+  the kernel having moved with the `pacman -Syu` that preceded the reboot of
+  **2026-09-19**. The previous two values are left visible deliberately: this
+  entry exists to stop a host-side measurement being reasoned about under the
+  wrong kernel, and **the warning above now covers every host-side measurement
+  taken between 2026-08-28 and 2026-09-19** — the whole of the ADR-035 gate arc.
+  **No rollback is proposed and none is wanted**; the update is ordinary
+  maintenance on a rolling distribution.
 
 - **Check a config's header line before reading symbols out of it.** Line 3 of a
   Kconfig-generated file names the version it was generated for
@@ -3140,6 +3331,39 @@ frozen `vm_home_skel` vs qcow2 branch.
   this and report*, never *it is X*.** The confirmed instance in this arc is
   the console guard above, written so that it could not fire at all on the
   no-trailing-newline case. (Two further instances — an interface assumed UP after a restart, and an uploaded file assumed to be pasted content — occurred in the 2026-09-12 briefing sessions and have no repository artefact: no agent report can carry them, because they were never on the machine. Briefing-side errors leave no trace in the tree, which is itself the reason this rule is written here.)
+
+  **Instance, 2026-09-20 — and this one did leave a trace, because the machine
+  disagreed on the first probe.** The `auditfix-liveread` brief asserted
+  *"`MainPID 3628111`, `NRestarts=0` since 2026-09-12 09:59:37 CEST"* as fact in
+  its § 3, and carried it again as a premise in §§ 4.1, 4.2 and 4.8 — four
+  sections resting on one unchecked sentence. **That process had died six days
+  earlier**, at 2026-09-19 02:26:54, when the host rebooted; nobody had
+  contacted MINIS since 2026-09-14, so the assertion was stale and had never
+  been checked against the machine. **Every *"is"* sentence in that brief should
+  have been a *"read and report"* sentence** — had they been, the session would
+  have produced the same halt with no wasted premise. Source:
+  `auditfix-liveread-report.md` § 5.1.
+
+  **The cheapest guard against this whole class is one command.** A brief's halt
+  list is better led by **"the host has rebooted since the last recorded
+  session"** — `uptime -s` on MINIS against the boot date recorded in § *Live
+  state* — because that single fact implies every apparatus condition beneath
+  it: no process, no slot tree, no console, no `/tmp` instrument, no neighbour
+  table. The five-condition halt list the liveread brief carried was written as
+  five ways a *reading* can be blocked, and what occurred was categorically
+  larger than any of them. Source: `auditfix-liveread-report.md` § 5.5.
+
+  **Instance, 2026-09-20, turned outward — the same rule with a document in
+  place of the machine.** The `auditfix-liveread` report's § 2.6 wrote, in
+  quotation marks, that `state.md` records *"whether the rename fires in the
+  running guest has never been measured"*. **`grep -F` finds that sentence in
+  neither `state.md` nor `docs/DECISIONS.md`.** The **substance was right** —
+  nothing in the tree had claimed the rename was observed firing — **but the
+  quotation marks were the report's own paraphrase**, and a later session
+  searching for the sentence would have concluded the document was wrong rather
+  than the report. A claim about what a document says is measured by reading the
+  document; the bullet below on claims about repository documents is the same
+  rule stated from the other end. Source: `b1-docwrite-report.md` § 5.4.
 - **A comparison must report its cardinality — how many elements it compared —
   beside its verdict. A verdict without the count is not a measurement.** An ANSI
   strip written for `m`-terminated CSI sequences alone met journald's
