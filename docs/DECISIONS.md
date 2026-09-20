@@ -6124,6 +6124,99 @@ this session cannot read one. GA5b created one node in one directory, not
 sixteen. What produced the reset in 6 is unread: no `strace`, no journal, no
 systemd source was consulted.
 
+**Revision note, 2026-09-20 — §8's prohibition on interface names is
+narrowed, and the name becomes load-bearing. Ruled by the operator.**
+
+**§8 may no longer be read as forbidding a per-slot binding in nft.** Its
+sentence *"nft references the segment or the `/28` and never an interface
+name"* was written to stop an interface name standing in for topology or
+carrying an instance's identity. A per-slot rule does neither: `km00`…`km0f`
+are **pool constants in T4, functions of the index alone**, identical in
+every installation, and a ruleset built on them **still does not change as
+AppVMs come and go** — which is what `docs/ARCHITECTURE.md` § *Networking*
+actually requires when it says *"never a per-AppVM rule"*. **A per-slot rule
+is not a per-AppVM rule.**
+
+**The citation is corrected.** §8 cited `ARCHITECTURE.md` § *Networking* for
+the wording *"never an interface name"*; that document does not contain it,
+and its own sentence — *"forward limited to segment ↔ `proton`"* — describes
+a rule that names an interface. `ARCHITECTURE.md` is **unchanged and
+uncontradicted**; what was wrong was §8's account of it. This closes the
+divergence raised on 2026-09-20 by the `auditfix-readpass` session.
+
+**What this costs, and it is stated rather than absorbed: the name is now
+load-bearing, and §8's sentence that it is not no longer holds.** §8 says
+*"if the rename does not happen, nothing programmatic changes, and an
+operator reads the last octet instead."* Under the finding-12 guard a failed
+rename stops **all** pool traffic at once, by design: the sixteen pairing
+rules match nothing and every pool-sourced packet falls to a counted drop. A
+security control that goes inert when its precondition fails is worse than
+one that stops the traffic, so the failure is deliberate and loud. **NETCFG
+still selects by MAC (ADR-025, untouched), and the invariant that netVM's
+*uplink* interface name is not normative is untouched** — that name is
+bus-derived and has moved across sessions; `kmkk` is a function of a literal
+T4 constant through sixteen exact-match `.link` files, and the two are not
+the same mechanism.
+
+**Why a name at all, when this project prefers MACs.** The pool has no MAC to
+match on at ingress: `52:54:01:00:00:kk` is netVM's **own** side of the link,
+while the frame's `ether saddr` is the AppVM's instance-derived identity MAC,
+which is not a pool constant. §3 puts the same `10.100.1.1/32` on every link,
+so the **interface is the only discriminator the pool has** on a per-packet
+basis. That is the whole of the argument for the ruling.
+
+**Measurements this rests on**, both 2026-09-20
+(`auditfix-liveread-report.md` §§ 2.5, 2.6): `iifname` is a **per-packet
+string comparison** — `nft -c` accepts `iifname "nosuchdev0"` (exit 0) while
+`iif nosuchdev0` is rejected with *"Interface does not exist"* (exit 1), both
+`lo` controls passing — so a per-slot ruleset **loads whether or not the
+sixteen interfaces exist or have been renamed, and the fix is therefore
+independent of open problem #33**; and the rename **fires**, 16 of 16, each
+name exactly once, no gaps and no duplicates, on the boot of 2026-09-12. The
+`iifname` form is required and the `iif` form is refused: `iif` resolves an
+ifindex at load time and would fail the entire load if a single slot were
+absent. Both were measured under `nftables v1.1.7` **on the host**; netVM's
+version is unread.
+
+**A consequence for the build, which follows from the name being
+load-bearing:** the rename becomes a **build gate** on the netVM image —
+sixteen names, counted — so that a lost or mismatched `.link` file is caught
+before the image is used, rather than presenting later as *"nothing works"*
+three steps from its cause. The in-guest counter that would name the cause is
+unreadable without the console while `netvm-agent` has no `RUN`.
+
+**What this note does NOT cover, named here so the ruling is not read as
+closing audit finding 12: the ARP half.** `table inet filter` does not see
+ARP, so a forged **neighbour entry** survives a ruleset that refuses a forged
+**packet** — and that is measured, not hypothetical (this ADR's note of
+2026-09-14, finding 4: `10.100.1.17 dev km02`). Coverage needs `table netdev`
+ingress or `table arp`, and the probe that would establish how such a chain
+binds its device is **unresolved**: `nft -c` accepts a netdev ingress chain on
+an absent device and accepts the control too, so `-c` cannot settle it.
+Carried as an open problem in `state.md`.
+
+**Status: the candidate ruleset is written and ungated.** It is at
+`~/Claude.assistent/nftables-f12-candidate.conf`, outside the repository, and
+it changes one thing — a `slot_guard` chain of sixteen `(iifname, ip saddr)`
+pairs plus two counted drops, jumped from `input` and `forward` **above**
+their `ct state established,related` rules, because a conntrack lookup that
+runs before the admission test *is* the poisoning the audit found. No policy
+rule is altered, `30-netvm-forward.conf` is untouched, no reverse-path check
+is added — a per-`kmkk` sysctl is unavailable in any case, `systemd-sysctl`
+running before the rename — and nothing logs, nft logging inside netVM being
+a guest-driven write into the host journal.
+
+**Two gates, before anything is installed.** (a) `nft -c -f` on the candidate,
+**as root** — unprivileged `nft -c` fails on every input, valid or not — on
+the MINIS host **and** inside netVM, with `nft --version` read on both sides;
+the guest's version is currently unknown and the host result does not carry
+until it is. (b) A live refusal measurement: with the candidate loaded, a
+frame sent from slot *b* claiming slot *a*'s peer as its source is **dropped
+and counted**, while the same traffic on its own slot is delivered — the same
+pairing ADR-035 §3's G2 names, taken here against the ruleset rather than
+against the kernel. Numbering is left to the § *Gates* block, which this note
+does not edit.
+
 ---
 
 ## ADR-036 — The distributable unit is the enforcing set of the trust model; the host base is a pinned composition, neither a mutable install nor a distribution
