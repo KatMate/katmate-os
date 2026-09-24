@@ -188,3 +188,35 @@ remove dev sshd (#4); remove the `usermod -p` dev-root line from `netvm.sh`
 - [ ] Installer integrates the desktop layer (greetd / Sway / Plymouth)
 - [ ] Documented, reviewed security model
 - [ ] Daily-driver usability for non-expert users
+
+## Direction — managed deployment profile (not committed, no ADR yet)
+
+The isolation boundary is a parameter, not a constant: every I/O device is
+placed either behind the IOMMU (in a sysVM) or with the host, per profile.
+
+- **standalone** (default, current target) — the host owns no NIC and no
+  external I/O; TCB = the box.
+- **managed** — the host keeps one physical NIC on a physically separate
+  management LAN; all other I/O stays behind the IOMMU. The organisation
+  declares TCB = host + management NIC + management LAN + its management
+  actor. KatMate supplies the boundary and the interfaces; the actor is the
+  organisation's choice — administrators, a model running on the management
+  LAN, or an orchestrator station driving an external model.
+
+Requirements of the managed profile:
+
+- [ ] Actor placement — a station that bridges the management LAN and an
+      external network voids the premise; inference runs on the management
+      LAN, or the orchestrator's only external link is the model endpoint
+      (organisation)
+- [ ] Management LAN isolation — hosts reach the management station only,
+      never each other (organisation)
+- [ ] Input provenance — guest-origin text (serial console, guest logs) kept
+      apart from host-origin records, so a model-based actor never reads
+      guest-controlled content as host state (framework)
+- [ ] Audit trail — every actuation recorded off-box, append-only, not
+      writable by the actor (framework hook, organisation sink)
+
+Prerequisites: VM description as data (ADR-030); v0.4 management layer
+(ADR-012, ADR-013). The TCB change requires an ADR and a SECURITY-MODEL
+entry before any implementation.
