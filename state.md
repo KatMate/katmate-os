@@ -6,11 +6,13 @@
 > history and the ADRs — this file references them rather than repeating them.
 
 **Milestone:** v0.2 (in development) · **Last updated:** 2026-09-26
-(a documentation write pass on the Acer, MINIS not contacted, that wrote the
-2026-09-24 … 2026-09-26 arc — the foundation reduced to the shared GUI runtime,
-rebuilt, and the first web AppVM booted on it — into this file from its six
-reports and the operator's statements of 2026-09-26, and rotated the 2026-09-20
-*first of two* entry to `docs/SESSIONS.md`).
+(a second documentation write pass that day, on the Acer, MINIS not contacted,
+that wrote the day's two netVM sessions — `net-up`, which removed both `/etc`
+console drop-ins and started netVM again, and `net-m1`, which read what the
+network rulings needed — into this file from their two reports and the
+operator's rulings of 2026-09-26, proposed [ADR-037](docs/DECISIONS.md#adr-037)
+on those rulings, and rotated the 2026-09-20 *second of two* entry to
+`docs/SESSIONS.md`).
 
 ## Current focus
 
@@ -47,6 +49,89 @@ restartable — and so updatable — without touching running VMs.
 
 Direction unchanged: IOMMU-capable platforms only (VT-d/AMD-Vi).
 MINIS is primary host and merge target.
+
+## This session (2026-09-26, net-up and net-m1) — netVM running again on a per-session console, its network baseline read, and the vanilla network stack ruled
+
+**The heading names sessions, not an ordinal:** the day already has a range
+entry below, so *first of two* would miscount. Two sessions ran on MINIS, and a
+third wrote them up. Reports outside the repository:
+`~/Claude.assistent/net-up-report.md`, `~/Claude.assistent/net-m1-report.md`;
+the write pass is `~/Claude.assistent/wp-0926b-report.md`, on the Acer, MINIS
+not contacted, nothing measured.
+
+**R1 applied — the `208/STDIN` trap is removed, not worked around.** Both
+`/etc` `90-dev-monitor.conf` drop-ins, the pool unit's and the sys-driver's,
+were saved to `~/katmate-dev/removed-0926/` on MINIS, `cmp`-identical to their
+originals, and removed with their empty `.d/` directories. After
+`daemon-reload` both units read `StandardInput=null` and an empty
+`DropInPaths=` (net-up § 14). Console input is now installed **per session
+only**: a `/run` drop-in carrying the saved pool content, the FIFO and the
+transient holder, all on tmpfs, the holder in the six-line form of
+`netvm-rebuild-3-report.md:267–272` run verbatim (net-up §§ 11, 15).
+
+**netVM was started through the pool unit** — `katmate-pool@netvm.service`,
+exit 0 in 0.65 s, MainPID **605841**, `NRestarts=0`, all three `ExecStartPre=`
+successful; the sys-driver unit was never started. Holder and QEMU rendezvoused
+on the FIFO at the start, observed on both ends; the slot tree is 16 of 16 by
+path and by binding; `ping-client ping 3` answered `status=0x00 (OK)`
+(net-up §§ 16.1–16.4). Details in § *Live state*, netVM.
+
+**The baseline, read in-guest after the operator's login** (net-up § 19.3),
+stated as readings: netVM's `nft` is **1.1.3**; every egress rule names
+`oifname "proton"` and no `proton` interface exists, so by the ruleset text a
+pool-sourced packet to the uplink meets policy drop; `rp_filter` is unchanged
+from 2026-09-14; IPv6 `accept_ra=1` on `all` and `default`; the slots are DOWN
+without `IFF_UP`; lease `10.3.1.103`; **no resolver** (`/etc/resolv.conf`
+absent, `resolved` inactive); `ip neigh` empty; `/etc/nftables.conf` is
+`1000:1000`, mode **0755**, and no uid-1000 user exists; `netvm-agent` active.
+
+**Open problem #33 confirmed a second time**, on a different boot: all 17
+stage-one renames before `systemd-sysctl` finished, all 16 stage-two renames
+after it (net-up § 16.5).
+
+**net-m1 answered what the rulings needed** (net-m1 § 9): `addr=` is pinned
+nowhere, and the uplink sits at guest `0000:00:04.0` with `vfio-pci` 4th in the
+argv — consistent with placement by argv order, not shown to be caused by it;
+`ID_PATH=pci-0000:00:04.0`, the uplink falling through to `99-default.link`;
+without `resolved`, networkd writes the DHCP DNS only to
+`/run/systemd/netif/leases/<n>`, headed *"Do not parse"*, and the value is
+`DNS=1.1.1.1`; `networkctl status` fails without a bus; `dnsmasq` is absent.
+
+**A permission-mode incident, and it is now a rule.** In Claude Code's auto
+mode the classifier denied `scp` + `sudo -n bash` ("Production Reads") and,
+with the operator's allow rules for ssh/scp in place, the console FIFO write
+("Remote Shell Writes"); both calls were refused before execution, so nothing
+reached MINIS. The session resumed in **Manual** mode (net-m1 §§ 3, 4, 6, 7).
+The rule is in § *Live state*, *Dev access to MINIS*.
+
+**The operator's rulings of 2026-09-26**, recorded as rulings:
+
+- **R1 — `208/STDIN`.** Both `/etc` dev drop-ins are removed, and the shipped
+  `StandardInput=null` is restored. Console input is installed per session
+  only. Applied by net-up § 14.
+- **R2 — Vanilla egress.** netVM egress in a vanilla KatMate is direct through
+  the uplink, with no VPN. VPN is a post-install option that the user enables
+  by supplying a WireGuard config file.
+- **R3 — Uplink name.** `uplink0`, through a `.link` matched on `Path=` (the
+  PCI path inside the guest), not on the MAC. The ruleset targets
+  `oifname "uplink0"`.
+- **R4 — Pinned address.** The `vfio-pci` device carries `addr=` in the unit,
+  so `Path=` is stable by construction.
+- **R5 — AppVM DNS.** `dnsmasq` in netVM, listening on `10.100.1.1`,
+  forwarding to the DNS server the uplink receives.
+- **R6 — Uplink DHCP client.** `dhcpcd` replaces systemd-networkd on the
+  uplink.
+- **R7 — Static addressing.** The uplink may be configured statically. That is
+  per-installation configuration (T1), never baked into the image.
+- **R8 — Config channel.** Per-installation netVM configuration (static IP,
+  the WireGuard config, and anything later) reaches netVM through a read-only
+  config disk. The host assembles it from `/etc/katmate/netvm/`, and netVM
+  attaches it as an extra `virtio-blk`.
+- **R9 — the `/run` placement of the per-session console drop-in** (net-up
+  § 18 item 1). **Applied, awaiting the operator's ruling.** Not decided.
+
+R2–R8 are written as [ADR-037](docs/DECISIONS.md#adr-037), **PROPOSED**:
+the decisions are ruled, and acceptance waits on its six gates.
 
 ## Previous session (2026-09-24 … 2026-09-26) — the first web AppVM: foundation reduced to the shared GUI runtime, rebuilt, and booted
 
@@ -500,6 +585,13 @@ touched.
   documentation. rsync stays Acer→MINIS into `~/katmate-build/`. `10.3.1.3` is
   stable on the home LAN; that it is not a persistent networkd profile is the
   Host entry above, and the two are not in conflict.
+  **Permission mode (2026-09-26): delegated sessions that reach MINIS must run
+  in Claude Code's Manual permission mode.** In auto mode the classifier denied
+  the delivery form above — `scp` + `sudo -n bash` ("Production Reads") — and,
+  with the operator's allow rules for ssh/scp in place, the console FIFO write
+  ("Remote Shell Writes"). Both calls were refused before execution, so nothing
+  reached MINIS and nothing needed undoing; the same calls ran in Manual mode
+  (`net-m1-report.md` §§ 3, 4, 6, 7).
 - **Installed vs tree, 2026-08-22 — one file, deliberately.** The installed
   `/usr/lib/katmate/katmate-generate-env` on MINIS now **differs from the
   repository**, and only in the stale-label refusal's wording (*"it was created
@@ -680,6 +772,30 @@ touched.
   present, same sizes and dates, `/run/katmate-dev/` absent, both units
   `inactive` (`appweb-m1-rerun-report.md` § RA, item 7). **The repair choice is
   still open** (operator, 2026-09-26).
+  **Ruled and applied 2026-09-26 (R1):** both `/etc` drop-ins removed,
+  `StandardInput=null` restored on both units (`net-up-report.md` § 14).
+
+  **NETVM IS RUNNING AGAIN (2026-09-26).** The blocks above are left as
+  published. `katmate-pool@netvm.service` was started at **15:40:36 CEST**:
+  MainPID **605841**, invocation **`0fccdf5e59d04b03b977ed2373957e8f`**,
+  `NRestarts=0`; `katmate-sys-driver@netvm` inactive throughout
+  (`net-up-report.md` §§ 16.1, 20). **The console is per-session and lives
+  entirely on tmpfs:** the drop-in is
+  `/run/systemd/system/katmate-pool@.service.d/90-dev-monitor.conf` only —
+  the saved pool content, `71b3b5db…`, installed unedited, so its own comment
+  still speaks of `/etc` — with the FIFO `/run/katmate-dev/netvm-console.in`
+  and the transient holder `km-console-holder`, MainPID **605265**, `comm=sleep`
+  with fd 3 on the FIFO since the rendezvous (§§ 15, 16.2). **Both `/etc`
+  drop-ins are removed**; copies are at `~/katmate-dev/removed-0926/` on MINIS,
+  `host:host 0644` (§ 14). The guest holds lease **`10.3.1.103`**; the uplink
+  is `enp0s4` ↔ **`38:05:25:34:7c:47`** at guest `00:04.0`, settled at
+  **100 Mbps/Full (downshifted)** after two 1 Gbps up/down cycles (§§ 16.5,
+  17.1, 19.2). The console was left at the login prompt (§ 20). **That a reboot
+  now leaves no `208/STDIN` trap is UNVERIFIED** until the next host boot; it is
+  settled by `systemctl show -p StandardInput,DropInPaths` on both units after
+  that boot (`null`, empty) and a successful start with no `/run/katmate-dev/`
+  (§ 23). A stop or a reboot removes the console entirely, and the `/run`
+  placement awaits the operator's ruling (R9; § 24).
 
   **The uplink is capped by the cable, and that is a condition of the
   environment rather than a defect.** On the boot of 2026-09-12 the link came up
@@ -773,6 +889,10 @@ touched.
   Leftovers in the same directory: `personal-vm.service`, `work-vm.service`,
   `netVM.service.d/` (operator, 2026-09-26). Requirement:
   `docs/HOST-CONFIG.md` § 11.
+  **Later on 2026-09-26 (operator):** HOST-CONFIG § 11's `ExecStart` arguments
+  are verified — the operator showed the unit file. The distro `waypipe` was
+  removed (`pacman -Rs waypipe`), `waypipe-client` stayed `active`, and
+  `waypipe` is no longer on the host `PATH`.
 - **Disk chain**: three-level LVM-thin chain proven live through a full
   boot/render/shutdown cycle.
 
@@ -1617,6 +1737,12 @@ touched.
    has measured what netVM currently does when an RS arrives on an internal link;
    **no AppVM has ever had a network device**, so the case has never occurred.
 
+   **Read 2026-09-26, in netVM:** `accept_ra=1` on `all` and `default`, and
+   `forwarding=0` on both (`net-up-report.md` § 19.3 item 5). netVM would
+   therefore process RAs on interfaces that inherit `default`, and is not
+   itself a router. Whether anything in netVM *sends* RAs was not read. Carried
+   by [ADR-037](docs/DECISIONS.md#adr-037), not decided there.
+
 25. **`KERNEL_SRC_DIR` derives from `$HOME`, and both scripts that read it
    require root — so as root it resolves to a directory that does not exist.**
    Added 2026-09-01 (second of two), measured on MINIS while establishing
@@ -2051,6 +2177,13 @@ touched.
    this file*, and a session body moves verbatim. This entry cites both rather
    than duplicating either.
 
+   **Confirmed a second time, 2026-09-26, on a different boot:** all 17
+   stage-one renames (latest 1.580054) before `systemd-sysctl` finished, and
+   all 16 stage-two renames (earliest 3.300430) after it, with the same
+   0-of-16 / 17-of-17 split as 2026-09-20; the lower bound of the bracket is a
+   journald record, not a rename, so it is looser than 2026-09-20's
+   (`net-up-report.md` § 16.5).
+
 34. **The pool's ARP surface is uncovered, and the finding-12 candidate does not
    reach it.** Added 2026-09-20, **named as open at the moment the IPv4 half of
    finding 12 was ruled, deliberately, so the ruling is not read as closing
@@ -2101,6 +2234,29 @@ touched.
    `lvchange -an … 2>/dev/null || true`, which swallows any failure
    (`appweb-rebuild-report.md` § 8 item 2). **Why they stay active is
    unmeasured.** Open count was 0 throughout, so this is not a hold.
+
+38. **The netVM build bakes uid-1000 ownership into the ruleset and the network
+   files.** Added 2026-09-26. `cp -a` in `netvm.sh` step 5 carries the build
+   tree's `host:host` (uid 1000) into the image: in the guest,
+   `/etc/nftables.conf` is `1000:1000` with mode **0755**, and
+   `20-uplink.network` and all sixteen `70-katmate-slot-*.link` are
+   `1000:1000` too. **No uid-1000 user exists in netVM** (`getent passwd 1000`
+   rc 2) (`net-up-report.md` § 19.3 item 10, `net-m1-report.md` § 10.7). The
+   fix belongs to the netVM rebuild that implements ADR-037 (§ *Next steps*,
+   *Networking arc*).
+
+39. **`katmate-pool@.service`, the live netVM launcher, is untracked.** Added
+   2026-09-26. It exists only at `/etc/systemd/system/katmate-pool@.service` on
+   MINIS (`1d727b25…`, 13021 B); `git ls-files` has no pool unit. R4 changes it
+   (`addr=` on `vfio-pci`), so **it must enter the repository first**, or the
+   change is made to a file no commit can show.
+
+40. **The netVM config disk is decided and not implemented.** Added
+   2026-09-26. R8 ([ADR-037](docs/DECISIONS.md#adr-037)): per-installation
+   netVM configuration reaches netVM as a read-only `virtio-blk` the host
+   assembles from `/etc/katmate/netvm/`. Nothing of it exists; gate G6 of
+   ADR-037 is its acceptance test, and `docs/HOST-CONFIG.md` § 12 carries the
+   host side as `[OPEN]`.
 
 ## Next steps
 
@@ -2252,7 +2408,9 @@ the host rebooted on 2026-09-19, the slot tree and the console are gone, and
 the next `systemctl start` of either template hits `208/STDIN` before
 `ExecStart=`. See § *Live state*, the block *The apparatus described above and
 below is destroyed*, and § *Invariants & gotchas*. The `ping-client` line above
-remains the correct re-install form; there is nothing to issue it to.]** **Outstanding before the next
+remains the correct re-install form; there is nothing to issue it to.]**
+**[`208/STDIN`: ruled and applied 2026-09-26 (R1) — both `/etc` drop-ins
+removed; see § *Live state*, netVM.]** **Outstanding before the next
 measuring session:** the `PEER:` fixture line carries no timestamp and needs
 one (see *Invariants & gotchas*); without it a reading cannot be placed
 against the events around it.
@@ -2677,8 +2835,24 @@ frozen `vm_home_skel` vs qcow2 branch.
   2026-09-26 (katmate-init sets it at boot, and vm-agent may also set address,
   DNS and gateway at runtime; the mechanism is not chosen); then `NETCFG`; then
   forward, NAT and DNS in netVM.
+  **[SUPERSEDED later on 2026-09-26 by the *Networking arc (2026-09-26)* block
+  below: netVM is up, `208/STDIN` is ruled (R1), and forward, NAT and DNS are
+  decided by ADR-037. Left as written.]**
+- **Networking arc (2026-09-26)**, in this order
+  ([ADR-037](docs/DECISIONS.md#adr-037), PROPOSED):
+  1. **The pool unit into the repository** (open problem #39) — R4 changes it,
+     so it is tracked before it is edited.
+  2. **ADR-037 implemented in one netVM rebuild:** `addr=` on `vfio-pci`,
+     `uplink0.link` on `Path=`, the ruleset on `oifname "uplink0"`, `dhcpcd`,
+     `dnsmasq`, and the ownership fix (open problem #38), with #27 alongside.
+     Its gates G1–G4 are read on that build.
+  3. **The config disk** (R8, open problem #40; ADR-037 G6).
+  4. **The AppVM side:** the slot, the guest IP, `NETCFG`, and `accept_ra=0`
+     (open problem #24); ADR-037 G5 needs this step.
 - **waypipe on the host** (added 2026-09-26):
-  - Remove the distro `waypipe` package from MINIS.
+  - ~~Remove the distro `waypipe` package from MINIS.~~ — **done 2026-09-26**
+    by the operator (`pacman -Rs waypipe`); see § *Live state*, *Host GUI
+    ingress*.
   - Bring the `waypipe-client` unit into the repository. HOST-CONFIG § 11 now
     records it as a requirement; the unit file itself is still untracked (#31).
   - Do the single static waypipe build (direction ruled 2026-09-14) and any
@@ -2832,6 +3006,10 @@ frozen `vm_home_skel` vs qcow2 branch.
   recreating the FIFO and its holder and deleting the drop-in — which restores
   the shipped `StandardInput=null` — is the operator's, and it is unmade.
   Source: `auditfix-liveread-report.md` §§ 2.0, 2.3, 6.2.
+  **Ruled and applied 2026-09-26 (R1):** both `/etc` drop-ins removed and
+  `StandardInput=null` restored; console input is installed per session, all
+  on tmpfs (`net-up-report.md` §§ 14, 15). Absence after a reboot is
+  UNVERIFIED until the next boot (§ *Live state*, netVM).
 
 - **Reading the netVM console: `journalctl -o cat`, never the default format.**
   journald renders any record containing non-printable bytes as
@@ -2886,10 +3064,31 @@ frozen `vm_home_skel` vs qcow2 branch.
   A logged-in session lasts as long as the VM; close it with `exit` through the
   FIFO — killing the holder gives QEMU EOF on stdin, killing the unit stops the
   VM.
+  **The holder, in the form of record** (`netvm-rebuild-3-report.md:267–272`,
+  added 2026-09-26; run verbatim as root by net-up § 15):
+
+  ```
+  mkdir -m 0755 -p /run/katmate-dev
+  chown root:root /run/katmate-dev
+  mkfifo -m 0600 /run/katmate-dev/netvm-console.in
+  chown root:root /run/katmate-dev/netvm-console.in
+  systemd-run --unit=km-console-holder --description='KatMate dev console FIFO writer-holder (dev scaffolding, transient)' \
+    /usr/bin/bash -c 'exec 3>/run/katmate-dev/netvm-console.in; sleep infinity'
+  ```
+
+  **Before the unit starts, the holder is `comm=bash` with no fd 3** — blocked
+  in `wait_for_partner` on the FIFO's open — and that is correct, not a fault:
+  the rendezvous completes when the VM unit opens the read end, and only then
+  is it `comm=sleep` with fd 3 `l-wx` on the FIFO (`net-up-report.md` §§ 15,
+  16.2). A procedure that expects fd 3 before the start misreads a healthy
+  holder. **The absence of any recorded form of this holder is what halted
+  net-up (its H6); it must not recur.**
 - **`katmate-sys-driver@netvm` and `katmate-pool@netvm` must never run at
   once** — same instance name, same LV, same CID, same VFIO device — and both
   point at the same FIFO, so the `208/STDIN` failure after a host reboot now
   applies to both.
+  **Ruled and applied 2026-09-26 (R1):** neither unit carries an `/etc`
+  drop-in now (`net-up-report.md` § 14).
 - **QEMU does not unlink its `netvm` nodes at exit, but it does `unlink()`
   before `bind()` — the earlier claim that a sweep is load-bearing against
   `EADDRINUSE` was wrong, and is corrected here.** Measured 2026-09-12: a
@@ -2977,6 +3176,11 @@ frozen `vm_home_skel` vs qcow2 branch.
   mechanism is a systemd component that talks over the system bus must gate the
   mechanism empirically BEFORE acceptance.** The design layer may be decided
   first only where it is mechanism-independent (the ADR-023 → ADR-025 split).
+  **Extended 2026-09-26:** `networkctl status` is inert too (*"Failed to
+  connect to system bus"*, `rc=1`), and **networkd without `resolved` puts the
+  DHCP DNS only in its private lease file**, `/run/systemd/netif/leases/<n>`,
+  headed *"Do not parse"* (`net-m1-report.md` § 9.3). ADR-037's gate G3
+  applies this rule to dhcpcd.
 - **netVM initrd needs `MODULES=most`, NOT `dep`.** `netvm.sh` builds in a chroot
   on a mounted LV (root = ext4-on-dm), but the guest BOOTS as a virtio device
   (root = `/dev/vda` on virtio-blk). `MODULES=dep` resolves modules against the
@@ -3394,6 +3598,11 @@ frozen `vm_home_skel` vs qcow2 branch.
   `nftables.conf`. Nothing is broken at mode 0644 and udev does not care, but if
   a uid-1000 user exists inside netVM it owns the firewall ruleset. **Whether
   one exists has not been read.**
+  **Answered 2026-09-26:** no uid-1000 user exists in netVM (`getent passwd
+  1000` rc 2), and **the mode is `0755`, not `0644`** — *"mode 0644"* above is
+  wrong for `nftables.conf` (`1000:1000 755`). The ownership also covers
+  `20-uplink.network` and all sixteen slot `.link` files (`net-up-report.md`
+  § 19.3 item 10, `net-m1-report.md` § 10.7). Open problem #38.
 
 - **A negative that coincides with a natural expiry window is not a
   measurement.** A conntrack read 39 s after the last flow came back empty,
@@ -3412,6 +3621,15 @@ frozen `vm_home_skel` vs qcow2 branch.
   bare newline first and key on the **echoed input** (`localhost login:
   root`). **A check that cannot fire is indistinguishable from a check that
   found nothing.** Source: `g3-g4-console-report.md` (2026-09-12).
+- **After a bare newline, the answer to newline *n* is read after newline
+  *n+1*.** A bare newline flushes only the line *before* the prompt it
+  provokes; the prompt itself carries no trailing newline and stays unflushed
+  until the next write. On 2026-09-26 newline #1 returned only `^M^M`, and the
+  `localhost login:` it caused appeared after newline #2 (`net-up-report.md`
+  § 17.2). **Once a shell is expected, the reliable check is an evaluated
+  probe:** `echo KM-SHELL-$((6*7))` → `KM-SHELL-42`. The echoed input carries
+  `$((6*7))`, not `42`, so only a shell that evaluated it produces the line;
+  a login prompt and a shell echo the same bytes (net-up §§ 19.1, 22 item 6).
 - **A quotation that wraps across a line is not a search string.** Two of
   write pass A's brief quotations returned zero under `grep -F` because the
   tree wraps at ~76 characters; the text was present in both cases. **Reading
