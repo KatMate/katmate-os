@@ -208,6 +208,12 @@ lives in `~/.config/systemd/user/`, untracked. It was edited by hand on
 2026-09-26 and runs as described: its exe is the `/opt` binary, vsock `*:1024`
 is listening, and TCP 1024 is closed.
 
+**`ExecStart` verified against the unit file, 2026-09-26.** The operator showed
+the unit file on MINIS, and its `ExecStart` arguments are the ones above. The
+distro `waypipe` was removed from MINIS the same day (`pacman -Rs waypipe`);
+`waypipe-client` stayed `active`, and `waypipe` is no longer on the host
+`PATH`.
+
 **Failure modes.**
 - **Absent:** there is no GUI path at all. This is **silent until an app is
   run**. A guest boots and its agent answers, and nothing draws.
@@ -266,6 +272,25 @@ has no defined rofi source, and the licence position of the CYBRland-derived
 ---
 
 # VM description
+
+## 12. `/etc/katmate/netvm/` — per-installation netVM configuration
+
+**Scope:** all · **[OPEN]** — decided, not implemented; no confidence marker,
+because nothing exists yet to verify
+
+**Requirement:** a directory `/etc/katmate/netvm/` holding the per-installation
+configuration of netVM — T1, the user's and never the image's
+([ADR-032](DECISIONS.md#adr-032)). It carries the **static uplink**
+configuration, where the uplink is not configured by DHCP, and the **WireGuard
+config** the user supplies to enable a VPN. The host assembles a read-only
+config disk from it, which netVM attaches as an extra `virtio-blk`
+([ADR-037](DECISIONS.md#adr-037), R7 and R8; PROPOSED).
+
+**Failure mode: none yet, because the mechanism is not implemented.** No
+config disk is built, attached or read today, so nothing can fail for the
+directory's absence and nothing reads it if it is present. What breaks without
+it is to be stated here when the mechanism exists; ADR-037's gate G6 specifies
+the fallback it must show — netVM starting without the disk, on DHCP.
 
 ## 10. `/etc/katmate/vm/` — T1 instance properties
 
