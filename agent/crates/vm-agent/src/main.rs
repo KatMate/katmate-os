@@ -72,7 +72,7 @@ pub const DEFAULT_WAYPIPE_PORT: u32 = 1024;
 pub const DEFAULT_HOST_CID: u32 = 2;
 
 /// Apps that RUN may launch via waypipe.
-pub const WHITELIST: &[&str] = &["firefox-esr", "foot", "nautilus"];
+pub const WHITELIST: &[&str] = &["firefox-esr", "foot", "pcmanfm"];
 
 /// Path prefix that FILEGET / FILEPUT are confined to. Note: a prefix
 /// test alone is not traversal-safe; the handler additionally rejects

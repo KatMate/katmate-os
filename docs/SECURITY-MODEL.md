@@ -138,7 +138,7 @@ Two binaries from one workspace, split by **absent-not-disabled**
 **`vm-agent` (AppVM, uid 1000, unprivileged):**
 
 - VSOCK connections accepted from the host only
-- `RUN` restricted to an application whitelist (`firefox-esr`, `foot`, `nautilus`)
+- `RUN` restricted to an application whitelist (`firefox-esr`, `foot`, `pcmanfm`)
 - `FILEGET`/`FILEPUT` restricted by path whitelist and transfer size limits
 - No arbitrary command execution path
 - **Contains no network-configuration code** — the least-trusted guest cannot

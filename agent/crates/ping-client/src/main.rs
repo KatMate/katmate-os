@@ -34,7 +34,7 @@
 //!   ping-client netcfg-remove <cid> <link_id> [port]
 //!
 //! `port` defaults to the shared control port (1025). `app` must be on
-//! the agent's launch whitelist (firefox-esr / foot / nautilus); a
+//! the agent's launch whitelist (firefox-esr / foot / pcmanfm); a
 //! rejected app comes back as a clean ERR response, not a hang.
 //!
 //! SHUTDOWN acks with OK, and the agent then asks its own PID 1 to power

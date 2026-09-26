@@ -1,7 +1,7 @@
 # vault domain (ADR-014)
 # Offline (no network), persistent secret store. NOTE: keepassxc is not yet on
-# the vm-agent RUN whitelist (firefox-esr/foot/nautilus) — whitelist must become
+# the vm-agent RUN whitelist (firefox-esr/foot/pcmanfm) — whitelist must become
 # per-manifest before this domain is wired up (Faza 4).
 keepassxc
 foot
-nautilus
+pcmanfm
