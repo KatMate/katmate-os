@@ -15,9 +15,11 @@
 # Two things that bit before, both encoded here:
 #  * BARE ext4 on the whole device — debootstrap writes directly to the LV, so
 #    the launcher uses root=/dev/vda (NOT vda1). No partition table, no ESP.
-#  * katmate-init OVERWRITES /sbin/init (per init/katmate-init.c header:
-#    "bake to /sbin/init; no init= cmdline needed"). systemd is NOT installed —
-#    this guest has no systemd at all; katmate-init is the only root process.
+#  * katmate-init replaces /sbin/init (per init/katmate-init.c header:
+#    "bake to /sbin/init; no init= cmdline needed"); it is PID 1 and the only
+#    root process. systemd, systemd-sysv, dbus and dbus-daemon ARE installed —
+#    dependency debt of the GUI runtime (step 3), accepted for the alpha — and
+#    nothing starts them. dpkg's claim on /usr/sbin/init is diverted in step 6.
 #
 # Migrated from the pre-revision qcow2/nbd mechanism (old foundation.sh) to the
 # LVM-thin mechanism, matching app-layer.sh (commit cff4880). The waypipe
@@ -116,21 +118,24 @@ EOF
 cp /etc/resolv.conf "$MNT/etc/resolv.conf"   # build-time DNS only; removed before freeze
 
 # ---- 3. base userspace ------------------------------------------------------
-# NO systemd / systemd-sysv / udev: katmate-init is PID 1 (per init header).
-# We need: dbus (GUI session bus), TLS roots, fonts (guest renders into buffers
-# locally), and the waypipe RUNTIME libs (the source build links against these;
-# build deps are added+purged in step 5). foot + nautilus are the shared GUI
-# apps both app-domains use (web/vault); domain-specific apps stay in their
-# manifests (firefox-esr / keepassxc).
-log "Base userspace (no systemd)"
+# The minimal GUI runtime every GUI domain shares, and no applications (ADR-014,
+# revision note 2026-09-26): TLS roots, fonts (guest renders into buffers
+# locally), GTK3, GBM, the Wayland client, and the waypipe RUNTIME libs (the
+# source build links against these; build deps are added+purged in step 5).
+# Every application — foot, pcmanfm, firefox-esr, keepassxc — is in manifests/.
+# libgtk-3-0t64 is trixie's name; the old libgtk-3-0 resolves only as a virtual.
+#
+# katmate-init is PID 1, yet systemd, systemd-sysv, dbus and dbus-daemon end up
+# installed, as dependency debt accepted for the alpha; nothing starts them:
+#   GTK3 -> dconf-service -> dbus-user-session -> libpam-systemd -> systemd-sysv
+# Removing them is state.md's Next-steps item "systemd purge from foundation".
+log "Base userspace (shared GUI runtime; systemd installed as debt, never PID 1)"
 chroot_run "$MNT" apt-get update
 chroot_run "$MNT" apt-get install -y \
-  dbus \
   ca-certificates \
   fontconfig fonts-dejavu-core \
   libgbm1 libwayland-client0 liblz4-1 libzstd1 \
-  libgtk-3-0 \
-  foot nautilus
+  libgtk-3-0t64
 
 # ---- 4. custom MicroVM kernel — NOT installed into the image ----------------
 # The host boots the kernel via -kernel $KERNEL (see app_web.con): monolithic,
@@ -167,12 +172,21 @@ rm -rf "$MNT/tmp/waypipe" "$MNT/root/.cargo" "$MNT/root/.cache" 2>/dev/null || t
 
 # ---- 6. bake vm-agent + katmate-init ----------------------------------------
 # Paths from the live code: vm-agent at /usr/local/bin/vm-agent (katmate-init.c
-# line 65). katmate-init OVERWRITES /sbin/init — kernel default search path, so
+# line 65). katmate-init replaces /sbin/init — kernel default search path, so
 # no init= cmdline is needed (init header line 24). vm-agent is launched by init
-# dropped to uid 1000; there is NO systemd unit (the old vm-agent.service is
-# gone together with systemd).
+# dropped to uid 1000; there is NO systemd unit (the old vm-agent.service left
+# with the move to katmate-init; the systemd package itself remains, step 3).
 log "Bake vm-agent -> /usr/local/bin/vm-agent"
 install -Dm0755 "$VM_AGENT_BIN" "$MNT/usr/local/bin/vm-agent"
+
+# /sbin/init is /usr/sbin/init through the merged /usr, and dpkg records that
+# path as systemd-sysv's. Divert it BEFORE katmate-init lands there, so dpkg no
+# longer owns the file katmate-init becomes: otherwise a later purge, reinstall
+# or upgrade of systemd-sysv acts on katmate-init. --rename moves systemd's
+# binary aside to /usr/sbin/init.systemd, where systemd-sysv's unpacks now go.
+log "Divert /usr/sbin/init (systemd-sysv) -> /usr/sbin/init.systemd"
+chroot_run "$MNT" dpkg-divert --local --rename \
+  --divert /usr/sbin/init.systemd --add /usr/sbin/init
 
 log "Bake katmate-init -> /sbin/init (PID 1)"
 rm -f "$MNT/sbin/init"
