@@ -161,11 +161,20 @@ QEMU start, so no VM has a control path or a GUI path
 
 ## 6. Hugepages backing for `/dev/hugepages`
 
-**Scope:** all · **[?]** — not verified as a configured requirement
+**Scope:** all · **[LIVE]** on MINIS · **[V]** 2026-09-26 (was `[?]` — not
+verified as a configured requirement)
 
 **Requirement (believed):** `app_web.con` uses
 `memory-backend-file,mem-path=/dev/hugepages,share=on`, which requires
 hugepages to be reserved and the mount to exist.
+
+**Measured on MINIS, 2026-09-26** (operator, before the first boot of the
+rebuilt `app_web`): **4096 × 2 MB hugepages reserved** (`HugePages_Total`
+4096, `Free` 4096, `Hugepagesize` 2048 kB); `/dev/hugepages` is
+`root:hugepages`, mode `1770`; the `host` account is in `hugepages` (and in
+`kvm`, `disk`, `vfio`). `app_web` then booted on it. How the reservation is
+configured (sysctl, kernel command line or unit) was **not** read, and it is
+what the installer would have to reproduce.
 
 **Failure mode.** QEMU fails to allocate the memory backend at start. Whether
 MINIS carries an explicit reservation or relies on a default is **unchecked** —
@@ -184,6 +193,36 @@ ADR-030 launcher inventory; deferred to its own session, together with C3.
 ---
 
 # Desktop and session
+
+## 11. `waypipe-client` user unit — the host end of the GUI path
+
+**Scope:** MINIS · **[LIVE]** · **[V]** 2026-09-26
+
+**Requirement:** a systemd user unit for the desktop user whose `ExecStart` is
+`/opt/katmate/bin/waypipe --vsock --socket 2:1024 client`. That is the
+version-locked binary of [ADR-019](DECISIONS.md#adr-019), not the distro's
+`/usr/bin/waypipe`. There is **no socket unit**. The service's
+`WAYLAND_DISPLAY` must name the compositor's actual socket (on MINIS,
+`wayland-1`, matching `/run/user/1000/wayland-1`). On MINIS today the unit
+lives in `~/.config/systemd/user/`, untracked. It was edited by hand on
+2026-09-26 and runs as described: its exe is the `/opt` binary, vsock `*:1024`
+is listening, and TCP 1024 is closed.
+
+**Failure modes.**
+- **Absent:** there is no GUI path at all. This is **silent until an app is
+  run**. A guest boots and its agent answers, and nothing draws.
+- **Pointing at `/usr/bin/waypipe`:** host and guest run different waypipe
+  versions, and `katmate-check-waypipe` does **not** see it, because it checks
+  the `/opt` binary. On MINIS this was the state from the distro upgrade of
+  2026-09-18 (0.11.2 against the guest's 0.11.0) until 2026-09-26.
+- **With a socket unit as shipped here:** the host opens **TCP port 1024** on
+  `[::]`, not a vsock listener. That is a network-reachable listener on the
+  host, where the design has only vsock.
+
+See `../state.md` open problem #31 (location; tracking still open),
+[ADR-019](DECISIONS.md#adr-019), and [ADR-036](DECISIONS.md#adr-036)
+(PROPOSED), which would place the ingress in the system rather than the user
+session.
 
 ## 7. greetd session entries
 
