@@ -51,6 +51,47 @@
 
 ---
 
+## Previous session (2026-09-20, first of two) — `auditfix-readpass`: finding 10's absence measured with its control, and both accept loops read as serial
+
+**It halted before its first remote command**, on a fixture its brief names and
+the tree does not contain — the § 4 candidate ruleset — so **MINIS was never
+contacted and nothing live was read**. Report outside the repository:
+`~/Claude.assistent/auditfix-readpass-report.md`. Every reading below is a tree
+read at `e736528`, and the entry above is the same day's second session.
+
+**Finding 10's load-bearing half is an explicit and complete absence.**
+**Fifteen patterns over eighteen tracked files, zero hits:** no timeout, no
+deadline, no non-blocking mode and no readiness multiplexing anywhere in the
+agent workspace — not in the codec, not in either agent, not in the client, and
+no dependency supplies one, the crates being `std` + `libc` only. **The control
+fires on 18 of 18 files and returns 120 hits**, run in the same command form
+over the same file set, which is what separates this absence from a search that
+could not fire. Every socket in the workspace is blocking with no `SO_RCVTIMEO`,
+and every read is a `read_exact` loop that exits only on data, EOF, or an error
+that is not `EINTR`. (`auditfix-readpass-report.md` § 2.8.)
+
+**Both accept loops are serial.** `handle_connection` is called directly on the
+accepting thread in `netvm-agent` and in `vm-agent` — no `fork`, no thread, no
+`spawn` and no runtime in either dispatch path, `vm-agent`'s `posix_spawn` being
+waypipe for a `RUN` opcode and not dispatch. **One stalled connection therefore
+blocks every subsequent one**, because the next `accept()` is not reached until
+`handle_connection` returns; combined with the absence above, a peer that
+declares a large `payload_len` and then sends nothing holds the agent in
+`read_exact` **indefinitely**, and during that time no other client is served.
+**`read_request`, which runs inside every agent, has the identical shape** as
+the `read_response` the audit names: read a declared `u64`, bound it against
+`MAX_FILE_SIZE`, allocate `vec![0u8; payload_len]` **before a byte of content
+arrives**, then `read_exact`. The shape of a fix differs by answer — a read
+deadline fixes the stall, concurrency fixes the blocking, neither alone fixes
+both — and **that session chose nothing**, the choice being the operator's.
+(`auditfix-readpass-report.md` §§ 2.7, 2.9.)
+
+**One divergence that session raised is still open and unruled, and this
+documentation pass did not touch it:** ADR-035 § 8 cites
+`docs/ARCHITECTURE.md` § *Networking* for a sentence that document does not
+contain. **Neither document was changed, by that session or by this one**
+(`auditfix-readpass-report.md` § 5, divergence 2). It is the operator's.
+
 ## This session (2026-09-15) — the ACL mechanism is measured, and `RuntimeDirectory=` is measured to undo assignment-time ownership
 
 **Documentation only.** No code was written, no unit was changed, no sysctl was

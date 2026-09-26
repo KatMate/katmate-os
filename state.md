@@ -197,47 +197,6 @@ worker concurrency and is load-bearing nowhere. The ordering half of the same
 reading is what answers open problem #33, and it is written there rather than
 here. (`auditfix-liveread-report.md` § 2.6.)
 
-## Previous session (2026-09-20, first of two) — `auditfix-readpass`: finding 10's absence measured with its control, and both accept loops read as serial
-
-**It halted before its first remote command**, on a fixture its brief names and
-the tree does not contain — the § 4 candidate ruleset — so **MINIS was never
-contacted and nothing live was read**. Report outside the repository:
-`~/Claude.assistent/auditfix-readpass-report.md`. Every reading below is a tree
-read at `e736528`, and the entry above is the same day's second session.
-
-**Finding 10's load-bearing half is an explicit and complete absence.**
-**Fifteen patterns over eighteen tracked files, zero hits:** no timeout, no
-deadline, no non-blocking mode and no readiness multiplexing anywhere in the
-agent workspace — not in the codec, not in either agent, not in the client, and
-no dependency supplies one, the crates being `std` + `libc` only. **The control
-fires on 18 of 18 files and returns 120 hits**, run in the same command form
-over the same file set, which is what separates this absence from a search that
-could not fire. Every socket in the workspace is blocking with no `SO_RCVTIMEO`,
-and every read is a `read_exact` loop that exits only on data, EOF, or an error
-that is not `EINTR`. (`auditfix-readpass-report.md` § 2.8.)
-
-**Both accept loops are serial.** `handle_connection` is called directly on the
-accepting thread in `netvm-agent` and in `vm-agent` — no `fork`, no thread, no
-`spawn` and no runtime in either dispatch path, `vm-agent`'s `posix_spawn` being
-waypipe for a `RUN` opcode and not dispatch. **One stalled connection therefore
-blocks every subsequent one**, because the next `accept()` is not reached until
-`handle_connection` returns; combined with the absence above, a peer that
-declares a large `payload_len` and then sends nothing holds the agent in
-`read_exact` **indefinitely**, and during that time no other client is served.
-**`read_request`, which runs inside every agent, has the identical shape** as
-the `read_response` the audit names: read a declared `u64`, bound it against
-`MAX_FILE_SIZE`, allocate `vec![0u8; payload_len]` **before a byte of content
-arrives**, then `read_exact`. The shape of a fix differs by answer — a read
-deadline fixes the stall, concurrency fixes the blocking, neither alone fixes
-both — and **that session chose nothing**, the choice being the operator's.
-(`auditfix-readpass-report.md` §§ 2.7, 2.9.)
-
-**One divergence that session raised is still open and unruled, and this
-documentation pass did not touch it:** ADR-035 § 8 cites
-`docs/ARCHITECTURE.md` § *Networking* for a sentence that document does not
-contain. **Neither document was changed, by that session or by this one**
-(`auditfix-readpass-report.md` § 5, divergence 2). It is the operator's.
-
 ## Session archive
 
 Rotated sessions are enumerated in `docs/SESSIONS.md`, newest first; that
@@ -270,6 +229,25 @@ extracted block against the pre-move blob.
 *second of two* entry (3a part 1) rotated out as the 2026-08-17 entry arrived. Two
 rotations in one day is not a defect — it is what keeping two sessions costs when
 two sessions close on the same day.
+
+**Closed 2026-09-26.** The 2026-09-20 *first of two* entry (`auditfix-readpass`:
+finding 10's absence measured with its control, and both accept loops read as
+serial) rotated to the archive as the 2026-09-24 … 2026-09-26 entry arrived, so
+the file never held three at any point between the two commits. **The block
+moved verbatim, heading included** — *Previous session* stays *Previous
+session* — because `docs/SESSIONS.md`'s reading note on heading prefixes, since
+`a6e3fba`, makes the date the identifier and has a rotated entry keep the
+heading it was published with; the *Previous* → *This* change recorded by the
+paragraphs below is the convention before that note, not this one. Verified by
+hashing the whole block, heading line included, before and after —
+**identical, `0560ecff4bfa2ce7…`** — by diffing the pre-move block against the
+`HEAD` blob (clean), and by re-extracting it from `docs/SESSIONS.md` at its new
+home and diffing it against the pre-move block (clean). `docs/SESSIONS.md`
+gained 41 lines and lost none; it was inserted at the head of the entry list,
+above the 2026-09-15 entry, newest-first. No ordinal changed. **The 2026-09-15
+and 2026-09-20 rotations have no *Closed* paragraph here**; they are recorded in
+`009c353`, `a6e3fba` and the `docs/SESSIONS.md` reading note, and are not
+written up retroactively.
 
 **Closed 2026-09-14.** The 2026-09-05 *second of two* entry (ADR-035 records what
 G1 measured: two ceilings, and four places the ADR does not match them) rotated to
