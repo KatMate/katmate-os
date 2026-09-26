@@ -48,7 +48,7 @@ restartable — and so updatable — without touching running VMs.
 Direction unchanged: IOMMU-capable platforms only (VT-d/AMD-Vi).
 MINIS is primary host and merge target.
 
-## This session (2026-09-24 … 2026-09-26) — the first web AppVM: foundation reduced to the shared GUI runtime, rebuilt, and booted
+## Previous session (2026-09-24 … 2026-09-26) — the first web AppVM: foundation reduced to the shared GUI runtime, rebuilt, and booted
 
 **One heading covers the arc**, as the 2026-09-12 … 2026-09-14 entry did: a read
 pass, three measuring sessions on MINIS, an implementation pass, a rebuild, and
@@ -108,150 +108,6 @@ boot, and vm-agent may also set IP configuration at runtime — a direction, the
 mechanism not chosen; the `208/STDIN` repair choice stays open; the foundation's
 dependency debt (#35) is deferred past the alpha.
 
-## Previous session (2026-09-20, second of two) — the rest of the day under one heading: `auditfix-liveread`, which found the apparatus destroyed and answered open problem #33 from the host journal; `b1-docwrite` and `b1b-rulings`, the two passes that wrote the day into this file and committed it; and `c1-adr035-note`, the ADR-035 §8 ruling
-
-**One heading covers four sessions, and the body below is the first of them** —
-the project's own device, as the 2026-09-12 … 2026-09-14 entry uses it. The
-second is **`b1-docwrite`**, the pass that wrote this file and performed the
-rotation to `docs/SESSIONS.md`: it ran **on the Acer**, **MINIS was not
-contacted**, and **nothing was measured** — every fact it wrote is cited to one
-of the two reports of the sessions that took the readings. What it wrote is the
-dateline, the reboot record in § *Live state*, open problem #33's answer block,
-the two entries here and the two rotated entries there; what it deliberately did
-not write are three revision notes, which stay proposed in its report. Report
-outside the repository: `~/Claude.assistent/b1-docwrite-report.md`. It gets no
-heading of its own because § *Session archive*'s arithmetic stays at two, and a
-covering heading is what keeps a session from being destroyed by a later trim
-rather than archived.
-
-**The third is `b1b-rulings`, and it is the pass that committed the day.** It
-ran **on the Acer**, **MINIS was not contacted**, and **nothing was measured**:
-it took `b1-docwrite`'s uncommitted working tree as it stood and applied the
-operator's rulings to it — the reading note in `docs/SESSIONS.md` that a
-`This session` prefix is not a claim about recency, the covering heading above
-in the form it carried until this pass reworded it, and its paragraph, open
-problem #33's close, the ruling that the liveread
-continuation stands, and one new dated instance under § *Invariants &
-gotchas*' memory-assertion bullet. **Three signed commits**, all `%G?` = `G` and
-none pushed: `a6e3fba` (the rotation and the reading note), `2c665e0` (#33
-closes), `70c03f8` (the day's entries and the continuation ruling). One edit it
-made was outside its brief and is named in its own report: the dateline's *"the
-two sessions of 2026-09-20"* became *"the first two"*, because its § 1.2 had
-made that count false in the same file. Report outside the repository:
-`~/Claude.assistent/b1b-rulings-report.md`.
-
-**The fourth is this pass, `c1-adr035-note`, and it writes a ruling rather than
-taking a reading.** It ran **on the Acer**, **MINIS was not contacted**,
-**nothing was measured**, and **no manifest and no code changed**. It appended
-the operator's ruling on [ADR-035](docs/DECISIONS.md#adr-035) §8 to that ADR
-verbatim, as a revision note: §8 may no longer be read as forbidding a
-per-slot binding in nft, because `km00`…`km0f` are pool constants in T4 and **a
-per-slot rule is not a per-AppVM rule**; §8's citation of
-`docs/ARCHITECTURE.md` § *Networking* is corrected, that document being
-unchanged and uncontradicted; and the cost is stated rather than absorbed —
-**the interface name is now load-bearing**, and §8's sentence that it is not no
-longer holds. It opened **open problem #34** for the half the ruling does not
-cover, the pool's ARP surface, and wrote this entry. **The candidate ruleset
-stays outside the repository** at `~/Claude.assistent/nftables-f12-candidate.conf`
-and is **ungated**: its two gates — `nft -c -f` as root on the host **and**
-inside netVM, and a live refusal measurement against the loaded ruleset — are
-untaken, and netVM is down. **Its first attempt halted** on two divergences, the
-fixture the ruling names being absent from the machine and the day's session
-count being falsified by `b1b-rulings`; the operator placed the fixture and ruled
-the arithmetic, which is why both headings of 2026-09-20 read *of two* — the
-ordinal counts entries, not sessions, per the 2026-09-04 precedent § *Session
-archive* already carries. Reports outside the repository:
-`~/Claude.assistent/c1-adr035-note-report.md`, and the halt it replaces at
-`~/Claude.assistent/c1-adr035-note-report.halted.md`.
-
-**It halted on its first remote probe, and the halt is the finding.** Four of
-the brief's five halt conditions fired at once: MINIS had rebooted on
-**2026-09-19**, and the netVM that brief was written around — with every fixture
-§ *Live state* rested on — no longer exists. **Nothing was started, stopped,
-restarted, reloaded, repaired or written:** no `nft -f`, no `sysctl -w`, no `ip`
-state command, no unit operation, no rsync, no write under any tier directory,
-and the console FIFO was **not** recreated. Report outside the repository:
-`~/Claude.assistent/auditfix-liveread-report.md`. **What the reboot destroyed,
-what survived it and what it costs are written into § *Live state*, and the
-ordering it recovered into open problem #33**; what follows is what belongs to
-this entry.
-
-**It continued past the halt for four items, and that was its own decision.**
-The brief's § 4.7 host half, § 4.8's unit-file half, § 5's two `nft -c` probes
-and § 4.2 read installed unit files, a persistent host journal and syntax checks
-that load nothing — none of them depends on anything that halted, and all four
-would read the same if netVM had never existed. The alternative it rejected was
-taking the in-guest readings by **starting** netVM, which is the workaround the
-brief forbids and is host-reboot-class. **The continuation stands — ruled by the
-operator on 2026-09-20.** The four items depended on nothing that had halted and
-changed nothing, and one of them answered open problem #33 out of a host journal
-that a `vacuum` would eventually have taken
-(`auditfix-liveread-report.md` § 4.1).
-
-**Finding 8 changed shape: the audit's netVM half describes a path that does not
-run.** The live launch path is `katmate-pool@netvm.service`, whose `ExecStart`
-carries **`-monitor none`** — no QEMU monitor at all, HMP or QMP — and
-**`-chardev stdio,id=console0,signal=off -serial chardev:console0`**, the guest
-serial line bound to a plain stdio chardev and **not** multiplexed with a
-monitor. **`-serial mon:stdio` is nowhere on it.** It exists only in the `.con`
-launchers, and **no `.con` launcher has started netVM since the pool unit took
-over**, so `net-sys.con` is superseded **as the starter, not as a file** — it is
-still present, still carries `-serial mon:stdio` at `:16`, and would still work
-if run by hand. **No AppVM unit is installed and nothing on MINIS can start an
-AppVM today**; the AppVM peers of the 2026-09-12 arc were ad-hoc `systemd-run`
-transients and they are gone. What actually crosses the boundary is therefore
-the **input** half — the console drop-in — plus the guest's unrestricted,
-unrated write into the **host** journal through `StandardOutput=journal`, in raw
-form, ANSI escapes included. A `docs/SECURITY-MODEL.md` gap-15 wording and the
-shape of a containment (a `SyslogIdentifier=`, a rate limit, a separate journal
-namespace) are **proposed in `~/Claude.assistent/b1-docwrite-report.md` and
-deliberately not written**: that path is load-bearing for observation
-(§ *Invariants & gotchas*) and must be constrained rather than removed.
-(`auditfix-liveread-report.md` § 2.3.)
-
-**Finding 10 now has its bound, and there is no memory ceiling at any of four
-cgroup levels.** The unit, its per-template slice, `system.slice` and `-.slice`
-all report `MemoryMax=infinity` and `MemoryHigh=infinity`; `LimitAS=infinity` on
-both units; `system.slice/memory.max` reads `max` in cgroup v2 directly. **The
-only resource directive in either unit file is `LimitMEMLOCK=infinity`** —
-`katmate-pool@.service:190` and `katmate-sys-driver@.service:157` — which is the
-one directive that *lifts* a limit, for VFIO's full-RAM pinning, and neither
-drop-in carries any. **Verified twice and deliberately:** by `systemctl show`,
-and by a `grep` over both unit files and both drop-ins as a control against
-`show` reporting a default that the file does not set. **An unbounded allocation
-in either process is bounded only by MemTotal ≈ 30.1 GiB and by swap**, with no
-cgroup ceiling between it and the machine; for calibration, the last full
-six-day netVM run peaked at **1G**, roughly 3 % of what the absence of a ceiling
-permits. (`auditfix-liveread-report.md` § 2.2.)
-
-**Finding 12 — P1 settles the mechanism the fix rests on; P2 did not settle its
-question, and its probe was defective.** `iifname "nosuchdev0"` → `nft -c` exit
-**0**; `iif nosuchdev0` → exit **1**, *"Interface does not exist"*, naming the
-token and its column span; **both `lo` controls → exit 0**, which is what makes
-the rejection mean **resolution** rather than unsupported syntax — 4 of 4 runs
-behaving as the hypothesis predicts. So an `iifname`-shaped per-slot binding
-**loads against an absent or unrenamed interface and is independent of open
-problem #33**, degrading to an inert rule on a slot whose rename never fired,
-while an `iif`-shaped one **fails the entire load** if a single slot is missing.
-**Version caveat, and it binds:** measured under `nftables v1.1.7` on the MINIS
-**host**, and **the guest's version is unread** because netVM is down — so the
-result **does not carry into netVM until it is read**. **P2:** `nft -c` accepted
-a `table netdev` ingress chain on an absent device **and accepted the `lo`
-control too**, so it does not discriminate — `-c` never reaches the kernel and
-cannot observe a load-time binding of any kind. **What is recorded is the defect
-in the probe, not a result about nftables**; settling it needs a real `nft -f`
-load, which is a state change. (`auditfix-liveread-report.md` §§ 2.5, 5.4.) **All
-of this is finding 12's IPv4 half; its ARP half is open problem #34.**
-
-**The rename to `km00`…`km0f` fires — 16 of 16 — and this is the first
-measurement of it.** Every name present exactly once, no gaps and no duplicates,
-on the boot of 2026-09-12. **The name↔MAC pairing is NOT measured and is not
-claimed:** the rename records carry the virtio device index, not the address,
-and the guest is gone. The renames complete out of index order, which is udev
-worker concurrency and is load-bearing nowhere. The ordering half of the same
-reading is what answers open problem #33, and it is written there rather than
-here. (`auditfix-liveread-report.md` § 2.6.)
-
 ## Session archive
 
 Rotated sessions are enumerated in `docs/SESSIONS.md`, newest first; that
@@ -284,6 +140,23 @@ extracted block against the pre-move blob.
 *second of two* entry (3a part 1) rotated out as the 2026-08-17 entry arrived. Two
 rotations in one day is not a defect — it is what keeping two sessions costs when
 two sessions close on the same day.
+
+**Closed 2026-09-26 (second rotation of that day).** The 2026-09-20 *second of
+two* entry (`auditfix-liveread`, `b1-docwrite`, `b1b-rulings` and
+`c1-adr035-note` under one heading) rotated to the archive as the 2026-09-26
+*net-up and net-m1* entry arrived. **The block moved verbatim, heading
+included** — *Previous session* stays *Previous session* — under the same
+reading note as the rotation below. Verified by hashing the whole block,
+heading line included, before and after — **identical, `41a15bea36570e26…`**
+— by diffing the pre-move block against the `HEAD` blob (clean), and by
+re-extracting it from `docs/SESSIONS.md` at its new home and diffing it against
+the pre-move block (clean). `docs/SESSIONS.md` gained 144 lines — the 143-line
+block and one blank separator — and lost none; it was inserted at the head of
+the entry list, above the 2026-09-20 *first of two* entry: newest-first, and
+*second of two* above *first of two*. The 2026-09-24 … 2026-09-26 entry's
+prefix changed from *This session* to *Previous session*, its body untouched.
+**No ordinal changed.** The rotation and the new entry are separate commits, so
+between them this file held one session, never three.
 
 **Closed 2026-09-26.** The 2026-09-20 *first of two* entry (`auditfix-readpass`:
 finding 10's absence measured with its control, and both accept loops read as
