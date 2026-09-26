@@ -963,6 +963,19 @@ and the "defined sources" reproducibility of
 distro dependency that [ADR-012](DECISIONS.md#adr-012) cannot tolerate;
 mirrors the backport practice of [ADR-005](DECISIONS.md#adr-005).
 
+**Revision note (2026-09-26, § *Decision*, *Both binaries from the same tree*
+— the unit did not point where this ADR says, for at least eight days):** the
+sentence *"the `waypipe-client` systemd user unit points there"* was **not
+true on MINIS from at least 2026-09-18 until 2026-09-26**. The unit's
+`ExecStart` pointed at `/usr/bin/waypipe`, the distro package at **0.11.2**,
+not at `/opt/katmate/bin/waypipe`, so host and guest ran different waypipe
+versions, undetected because `katmate-check-waypipe` checks the `/opt` binary.
+The operator repointed the unit on 2026-09-26, and removed the distro package
+the same day (`pacman -Rs waypipe`); `waypipe` is no longer on the host
+`PATH`. The decision is unchanged; what was wrong was the state this ADR
+described. Sources: the operator's statements of 2026-09-26, recorded in
+`state.md` § *Live state*, *Host GUI ingress*; `docs/HOST-CONFIG.md` § 11.
+
 ---
 
 ## ADR-020 — Release is a pre-baked signed ISO; install-time carries no build-time dependencies
@@ -1350,6 +1363,17 @@ into `ROADMAP.md`'s build order move from *step 3* to *step 4*. ADR-030
 inserted a step (VM description as data → launch daemon) and renumbered the
 tail; the target — NetVM installer integration — is unchanged, as is every
 decision in this ADR.
+
+**Revision note (2026-09-26, [ADR-037](DECISIONS.md#adr-037)):** this ADR's
+premise that netVM egress is ProtonVPN, and its open **DNS-leak policy**
+decision, are **superseded by ADR-037** (PROPOSED), on the operator's rulings of
+2026-09-26: vanilla egress is direct through the uplink, with VPN a
+post-install option enabled by a user-supplied WireGuard config (R2); AppVM DNS
+is `dnsmasq` in netVM on `10.100.1.1`, forwarding to the DNS server the uplink
+receives (R5); and `dhcpcd` replaces systemd-networkd on the uplink (R6). The
+rest of this ADR — the sysVM class, the declarative build, the agent and the
+update track — is unchanged. Sources: ADR-037 § *Context* (`net-up-report.md`
+§ 19.3, `net-m1-report.md` § 9).
 
 ## ADR-022 — Network topology is a graph; the physical NIC is an assignable object
 
@@ -6231,6 +6255,14 @@ and counted**, while the same traffic on its own slot is delivered — the same
 pairing ADR-035 §3's G2 names, taken here against the ruleset rather than
 against the kernel. Numbering is left to the § *Gates* block, which this note
 does not edit.
+
+**Revision note (2026-09-26, the 2026-09-20 note — netVM's `nftables` version is
+read, and it differs):** the 2026-09-20 note says *"netVM's version is
+unread"*. It is **`nftables v1.1.3`**, not the host's 1.1.7
+(`net-up-report.md` § 19.2 row 1, § 19.3 item 1). So that note's P1 result —
+`iifname` accepted and `iif` refused on an absent interface, measured on the
+host — **does not carry into netVM by version identity**. Gate (a) of that
+note, `nft -c -f` on the candidate as root **inside netVM**, is still untaken.
 
 ---
 
