@@ -439,6 +439,21 @@ hand-curated.
 machine-readable, typed format (one `properties.toml` per instance) in ADR-015;
 the manifest format (package set) is specified in ADR-011.
 
+**Revision note 2026-09-26 — the foundation carries the shared GUI runtime, and has
+since 2026-06-29.** § *Context* and the layer table describe the foundation as
+"OS + kernel + waypipe + vm-agent" carrying "no applications". From `9fddf9d`
+(2026-06-29) `build/foundation.sh` also installed `dbus`, `libgtk-3-0`, `foot` and
+`nautilus`. Measured 2026-09-25 on the live foundation: 415 packages, 88 manual.
+Ruled 2026-09-26: the foundation carries the minimal GUI runtime every GUI domain
+shares (GTK3, fonts, GBM, Wayland client, the waypipe compression libraries) and no
+applications; `foot` and the file manager (`pcmanfm`, replacing `nautilus`) move to
+the domain manifests. Measured result in a trial of the new list: 204 packages.
+Accepted as debt, not as design: `systemd`, `systemd-sysv`, `dbus` and `dbus-daemon`
+remain installed and never run, pulled by GTK3 → dconf-service → dbus-user-session →
+libpam-systemd. Their removal is deferred past the alpha. The domain table's `web`
+row (firefox-esr, foot, nautilus) is superseded by `manifests/web.list`:
+firefox-esr, foot, pcmanfm.
+
 ---
 
 ## ADR-015 — VM properties: machine-readable schema (TOML, per-instance)
