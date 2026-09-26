@@ -187,6 +187,10 @@ install -Dm0755 "$VM_AGENT_BIN" "$MNT/usr/local/bin/vm-agent"
 log "Divert /usr/sbin/init (systemd-sysv) -> /usr/sbin/init.systemd"
 chroot_run "$MNT" dpkg-divert --local --rename \
   --divert /usr/sbin/init.systemd --add /usr/sbin/init
+# Read the diversion back from dpkg's own record: a divert that did not land
+# would leave katmate-init at a path dpkg still attributes to systemd-sysv.
+[[ "$(chroot_run "$MNT" dpkg-divert --truename /usr/sbin/init)" == /usr/sbin/init.systemd ]] \
+  || die "divert of /usr/sbin/init did not land"
 
 log "Bake katmate-init -> /sbin/init (PID 1)"
 rm -f "$MNT/sbin/init"
