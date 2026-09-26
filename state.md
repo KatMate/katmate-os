@@ -5,20 +5,12 @@
 > each working session. Detailed proofs and command sequences live in git
 > history and the ADRs — this file references them rather than repeating them.
 
-**Milestone:** v0.2 (in development) · **Last updated:** 2026-09-20
-(a documentation write pass on the Acer, after **MINIS rebooted on 2026-09-19**
-and destroyed the apparatus that every ADR-035 gate reading of the 2026-09-12 …
-2026-09-14 arc was taken against. **Nothing was measured by the pass that wrote
-this**: MINIS was not contacted, and every fact written is cited to
-`~/Claude.assistent/auditfix-liveread-report.md` or
-`~/Claude.assistent/auditfix-readpass-report.md` — the first two sessions of
-2026-09-20, both of which halted. The substantive additions are that **open
-problem #33 is answered** — `systemd-sysctl` runs *before* udev renames the
-sixteen slots, so a per-`kmkk` sysctl cannot take effect at boot — and that
-**the netVM uplink is capped at 100 Mbit/s by a UTP-5 cable**, a condition of
-the environment rather than a defect. **Two rotations were performed:** the
-2026-09-15 entry and the 2026-09-12 … 2026-09-14 entry to
-`docs/SESSIONS.md`, because the file keeps two).
+**Milestone:** v0.2 (in development) · **Last updated:** 2026-09-26
+(a documentation write pass on the Acer, MINIS not contacted, that wrote the
+2026-09-24 … 2026-09-26 arc — the foundation reduced to the shared GUI runtime,
+rebuilt, and the first web AppVM booted on it — into this file from its six
+reports and the operator's statements of 2026-09-26, and rotated the 2026-09-20
+*first of two* entry to `docs/SESSIONS.md`).
 
 ## Current focus
 
@@ -32,6 +24,9 @@ open for most of July, is closed (ADR-024, ADR-025).
 The **entire build chain remains scripted and proven from nothing**:
 `make foundation` builds the shared systemd-free base
 (debootstrap → base → waypipe-from-source → bake init/agent/user → freeze),
+**[corrected 2026-09-26: not systemd-free — `systemd`, `systemd-sysv`, `dbus`
+and `dbus-daemon` are installed as dependency debt, and katmate-init, not
+systemd, is PID 1; see *Live state*, foundation, and open problem #35]**
 `make app-web`/`make app-vault` snapshot it, and an instance boots end-to-end.
 The release model is fixed (ADR-020): the build chain is developer-side; its
 output is a signed ISO; the user installs by verify → bake → boot → provision,
@@ -53,7 +48,67 @@ restartable — and so updatable — without touching running VMs.
 Direction unchanged: IOMMU-capable platforms only (VT-d/AMD-Vi).
 MINIS is primary host and merge target.
 
-## This session (2026-09-20, second of two) — the rest of the day under one heading: `auditfix-liveread`, which found the apparatus destroyed and answered open problem #33 from the host journal; `b1-docwrite` and `b1b-rulings`, the two passes that wrote the day into this file and committed it; and `c1-adr035-note`, the ADR-035 §8 ruling
+## This session (2026-09-24 … 2026-09-26) — the first web AppVM: foundation reduced to the shared GUI runtime, rebuilt, and booted
+
+**One heading covers the arc**, as the 2026-09-12 … 2026-09-14 entry did: a read
+pass, three measuring sessions on MINIS, an implementation pass, a rebuild, and
+the operator's first boot. Reports are outside the repository under
+`~/Claude.assistent/`, named below, and carry everything this entry leaves out.
+
+**The read pass found the foundation carrying applications.**
+`build/foundation.sh` installed `dbus`, `libgtk-3-0`, `foot` and `nautilus`
+into the foundation, against ADR-007 and ADR-014's "deliberately carries no
+applications" — so a `web.list` swap of nautilus for pcmanfm could not remove
+either, because both arrived one layer down (`appweb-readpass-report.md` § 2.5,
+D1).
+
+**The first measurement halted on the host, not the guest.** `linux-hardened`
+had been upgraded 7.2.5 → 7.2.6 at 2026-09-19 20:49 without a reboot, which
+removed the running kernel's module tree: `overlay` is `=m`, so no module that
+was not already loaded could load until a reboot (`appweb-m1-report.md` § 3.1).
+The operator rebooted on 2026-09-25 (14:00:27, kernel
+`7.2.7-hardened1-1-hardened`). The re-run then halted again at the same guard
+for a different cause — the module was present but not yet loaded, and the
+guard could not tell the two apart — and passed once the guard was rewritten
+to `modinfo -n` and one `modprobe overlay` was authorised
+(`appweb-m1-rerun-report.md` §§ RB.1, R5.4 W1, S2–S4). Its A13 reading found
+the host's PATH `waypipe` at distro `0.11.2` against the lock's `0.11.0`.
+
+**The new foundation set was measured in a tmpfs overlay: 204 packages, 85
+manual**, down from 415 and 88; the web layer then adds 21. udev, udisks2 and
+gvfs leave. **systemd and systemd-sysv stay, with two independent keepers:**
+`systemd-sysv` is `Protected: yes`, and GTK3 pulls
+dconf → `dbus-user-session` → `libpam-systemd` → `systemd-sysv`
+(`appweb-m2-report.md` §§ 6.1, 7.3, 11 W1).
+
+**Implementation** (`appweb-impl-report.md` § 1): `13a509d` reduces the
+foundation to the shared GUI runtime, diverts `/usr/sbin/init` to
+`init.systemd` before katmate-init lands there, and makes the comments stop
+claiming systemd is absent; `adc217f` replaces nautilus with pcmanfm in the
+manifests and the vm-agent RUN whitelist. **The rebuild**
+(`appweb-rebuild-report.md`) added `1d53c77` (the ADR-014 revision note,
+amended from `dd3df01`) and `5d32dd0` (a read-back of the diversion before
+katmate-init is baked), then ran `make foundation` and `make app-web`:
+**foundation 209 packages / 85 manual, `vm_app_web` 230, and the 21 it adds
+are exactly m2's T4 list**; the divert landed; `KERNEL_PROVENANCE=recorded` is
+in `foundation.meta` for the first time; no hold was left (§§ 5.1–5.3). The
+old LVs, delta, meta, kernels and agent were set aside as `_pre0926` (see
+*Live state*).
+
+**First boot, by the operator, 2026-09-26:** pcmanfm, foot and firefox-esr
+render through waypipe; `run nautilus` is refused; firefox has no internet,
+which is expected — `app_web` has no network device and derives
+`app-offline`. Before it, the operator repointed the host's waypipe listener at
+`/opt/katmate/bin/waypipe` and disabled a socket unit that turned out to be a
+TCP `[::]:1024` listener; see *Live state*, *Host GUI ingress* (operator,
+2026-09-26).
+
+**Rulings of 2026-09-26 (operator):** the guest's IP is set by katmate-init at
+boot, and vm-agent may also set IP configuration at runtime — a direction, the
+mechanism not chosen; the `208/STDIN` repair choice stays open; the foundation's
+dependency debt (#35) is deferred past the alpha.
+
+## Previous session (2026-09-20, second of two) — the rest of the day under one heading: `auditfix-liveread`, which found the apparatus destroyed and answered open problem #33 from the host journal; `b1-docwrite` and `b1b-rulings`, the two passes that wrote the day into this file and committed it; and `c1-adr035-note`, the ADR-035 §8 ruling
 
 **One heading covers four sessions, and the body below is the first of them** —
 the project's own device, as the 2026-09-12 … 2026-09-14 entry uses it. The
@@ -537,6 +592,13 @@ touched.
   (`enp195s0f3u1u1`, MAC `00:e0:4c:39:61:b8`, IP `10.3.1.3` — #7 resolved
   2026-07-06); MINIS is on ProtonVPN with DNS `10.2.0.1`. The uplink config is
   volatile (`ip addr`), not yet a persistent profile.
+  **Kernel and boot, 2026-09-26:** running `7.2.7-hardened1-1-hardened`, booted
+  **2026-09-25 14:00:27**; the stock `linux 7.2.6.arch2-1` is installed beside
+  `linux-hardened` (`appweb-m1-rerun-report.md` § RA, items 6 and A12).
+  **Hugepages, read 2026-09-26:** `HugePages_Total` 4096, `Free` 4096 at 2048 kB;
+  `/dev/hugepages` is `root:hugepages` mode `1770`; `host` is in `kvm`, `disk`,
+  `hugepages` and `vfio`; `/dev/dm-7` (`vm_app_web_home`) is `host:host`
+  (operator, 2026-09-26).
 - **Dev access to MINIS (dev-only; goes out with Open problem #4).** The account
   is **`host`**, not `winterbox`: `ssh host@10.3.1.3`. Publickey only; the Acer
   (`winterbox`, `10.3.1.100`) holds the key. `sudo -n` is passwordless on MINIS
@@ -579,6 +641,13 @@ touched.
   the executable printed that morning.
 - **foundation** (`vm_tpl_foundation`, thin RO): clean, systemd-free,
   init/agent/waypipe/user baked in.
+  **[corrected 2026-09-26: not systemd-free.]** **Rebuilt 2026-09-26** from
+  `5d32dd0`: **209 packages, 85 manual**, the shared GUI runtime only (no
+  applications). `systemd`, `systemd-sysv`, `dbus` and `dbus-daemon` are
+  installed as **dependency debt, not PID 1** (#35); `/usr/sbin/init` is
+  katmate-init, with systemd's binary **diverted to `/usr/sbin/init.systemd`**
+  (#36); `foundation.meta` carries **`KERNEL_PROVENANCE=recorded`**
+  (`appweb-rebuild-report.md` §§ 5.1, 5.2).
 - **netVM** (CID 3 — unchanged by the new map; Debian trixie, q35, **sysVM class
   — ADR-021; driver domain — ADR-022**): two
   artefacts now exist. (a) The old hand-installed **netinst pet**
@@ -734,6 +803,10 @@ touched.
   § *Invariants & gotchas* predicted this exactly and now carries it as a live,
   confirmed precondition; the repair is the operator's and is unmade (liveread
   §§ 2.0, 2.3, 6.2).
+  **Re-armed again by the boot of 2026-09-25 (14:00:27):** both drop-ins
+  present, same sizes and dates, `/run/katmate-dev/` absent, both units
+  `inactive` (`appweb-m1-rerun-report.md` § RA, item 7). **The repair choice is
+  still open** (operator, 2026-09-26).
 
   **The uplink is capped by the cable, and that is a condition of the
   environment rather than a defect.** On the boot of 2026-09-12 the link came up
@@ -788,11 +861,45 @@ touched.
   RO) ← `/var/lib/katmate/instances/test_web.qcow2`. `/home` =
   `vm_app_web_home` (10G ext4 raw LV, `/home/user` owned 1000:1000). init +
   Rust vm-agent + user 1000 baked in.
+  **2026-09-26: a new `vm_app_web`**, built by `make app-web` on the rebuilt
+  foundation — **230 packages**, the foundation's 209 plus `firefox-esr`,
+  `foot`, `pcmanfm` and their 18 dependencies; nautilus absent
+  (`appweb-rebuild-report.md` § 5.3). The delta `test_web.qcow2` was
+  **recreated 2026-09-26** on it (§ 5.4). **First boot by the operator,
+  2026-09-26:** pcmanfm, foot and firefox-esr render via waypipe; `run nautilus`
+  is refused; firefox has no internet, as expected — no network device,
+  `app-offline` (operator, 2026-09-26).
 - **app_vault** (build-only): `vm_app_vault` thin snap RO of `vm_tpl_foundation`,
   built via `make app-vault` (2026-06-29; keepassxc/foot/nautilus). NOT yet
   instantiated — no qcow2 delta, no home LV, no CID (will be allocated from 20+),
   never booted. keepassxc
   still off the vm-agent RUN whitelist (Faza 4 blocker).
+  **2026-09-26: `vm_app_vault` no longer exists under that name** — only as
+  `vm_app_vault_pre0926`, on the old foundation. `manifests/vault.list` now
+  names pcmanfm instead of nautilus (`adc217f`). **Not rebuilt**
+  (`appweb-rebuild-report.md` § 6).
+- **Set aside 2026-09-26 (`_pre0926`).** The rebuild renamed rather than
+  removed what it replaced: `vm_tpl_foundation_pre0926`, `vm_app_web_pre0926`,
+  `vm_app_vault_pre0926`; `instances/test_web.qcow2.pre0926`, **rebased with
+  `qemu-img rebase -u` onto `/dev/vg0/vm_app_web_pre0926`** (operator,
+  2026-09-26 — before that, its backing name resolved to the *new* layer);
+  `/var/lib/katmate/foundation.meta.pre0926`; `/var/lib/katmate/kernels.pre0926/`;
+  `~/katmate-build/out/vm-agent.pre0926` (`appweb-rebuild-report.md` §§ 3, 6,
+  10). **Removal is the operator's decision.**
+- **Host GUI ingress (`waypipe-client`, user unit) — 2026-09-26.** The unit
+  files live **only on MINIS**, in `~/.config/systemd/user/`, untracked (#31).
+  Edited by the operator 10:47–10:49: `ExecStart` →
+  `/opt/katmate/bin/waypipe`; `waypipe-client.socket` **disabled** — it was a
+  TCP `[::]:1024` listener, not vsock — and the service's `Requires=`/`After=`
+  on it removed; the service is enabled and running, PID stable, its exe the
+  `/opt` binary, vsock `*:1024` listening, TCP 1024 closed;
+  `WAYLAND_DISPLAY=wayland-1` matches `/run/user/1000/wayland-1`. **Before:**
+  `ExecStart` was `/usr/bin/waypipe`, the distro `waypipe 0.11.2-1` (upgraded
+  2026-09-18), so host and guest ran **0.11.2 against 0.11.0 from that date**,
+  undetected because `katmate-check-waypipe` checks the `/opt` binary.
+  Leftovers in the same directory: `personal-vm.service`, `work-vm.service`,
+  `netVM.service.d/` (operator, 2026-09-26). Requirement:
+  `docs/HOST-CONFIG.md` § 11.
 - **Disk chain**: three-level LVM-thin chain proven live through a full
   boot/render/shutdown cycle.
 
@@ -1583,6 +1690,13 @@ touched.
    presence check (ADR-034 § A.3) is **blocked by #25**. #22 closes when the
    pipeline both carries and checks the record.
 
+   **Note 2026-09-26 — steps 10 and 11 have now executed.** The foundation
+   rebuild of 2026-09-26 ran them for the first time: the sidecar was installed
+   into `/var/lib/katmate/kernels/` at step 11 and `foundation.meta` carries
+   `KERNEL_PROVENANCE=recorded` (`appweb-rebuild-report.md` § 5.1). **The
+   closing condition is unchanged** — nothing yet checks the record — and #22
+   stays open.
+
 23. **A link's socket outlives its process, including on a failed start.**
    Added 2026-08-24, from link-m1 § 13.1, § 20.1 and § 23, and link-m2 § A.3.
    QEMU creates its `local.path` at start and **does not unlink it at exit** —
@@ -1936,6 +2050,13 @@ touched.
    whatever its location turns out to be — but **ADR-036 is PROPOSED**, that
    ruling is not in force, and nothing in this entry acts on it.
 
+   **Note 2026-09-26 — the location is answered.** The unit files exist
+   **only on MINIS**, in `~/.config/systemd/user/`, untracked; the socket unit
+   there was a TCP listener and is now disabled (operator, 2026-09-26; *Live
+   state*, *Host GUI ingress*). So `docs/HOST-CONFIG.md` was the document
+   missing an entry, and now has one (§ 11). **Still open:** tracking the unit
+   in the repository, and ADR-036's placement of it, which is PROPOSED.
+
 32. **Whether user theming reaches the two domain-indicator carriers has never
    been measured.** Added 2026-09-18, from
    [ADR-036](docs/DECISIONS.md#adr-036) § *Open, and named as open rather than
@@ -2077,6 +2198,36 @@ touched.
    **and accepted the control too**, so `-c` cannot settle load-time device
    binding at all (`auditfix-liveread-report.md` §§ 2.5, 5.4). Settling it needs
    a real `nft -f` load, which is a state change.
+
+35. **Foundation dependency debt.** Added 2026-09-26. The rebuilt foundation
+   carries `systemd`, `systemd-sysv`, `dbus` and `dbus-daemon`, none of them
+   PID 1 and none requested. They are kept by `systemd-sysv`'s `Protected: yes` and by
+   the chain GTK3 → dconf → `dbus-user-session` → `libpam-systemd` →
+   `systemd-sysv` (`appweb-m2-report.md` § 7.3). It also carries the perl stack,
+   `netbase` and `libgdbm*`, left after the waypipe build-dependency purge. That
+   is the candidate cause, not measured (`appweb-rebuild-report.md` §§ 5.2, 8
+   item 5). **Candidate fixes, unmeasured:** `dbus-x11` as the session-bus
+   provider, or an equivs no-content package providing
+   `default-dbus-session-bus`. The measurement is the shelved
+   `appweb-m3-brief.md` (a fresh debootstrap in tmpfs). **Deferred past the
+   alpha** (operator, 2026-09-26).
+
+36. **The divert's claim and its test.** Added 2026-09-26. After the divert,
+   `dpkg -S /usr/sbin/init` still lists `systemd-sysv: /usr/sbin/init` beside
+   the two diversion lines (`appweb-rebuild-report.md` § 8 item 4). So the
+   comment at `build/foundation.sh:183` — the divert means dpkg *"no longer
+   owns"* the file — is imprecise: dpkg keeps the path listed and diverted. **The
+   settling test is unrun.** It is: reinstall `systemd-sysv` in a throwaway
+   overlay, and `/usr/sbin/init` must remain katmate-init. **The read-back
+   guard (`5d32dd0`) has been observed only in its passing arm**, and its
+   firing arm is unexercised (§ 5.1).
+
+37. **Built LVs remain active after `make foundation` / `make app-web`.** Added
+   2026-09-26. Both new LVs read `a` in `lvs` and `ACTIVE (READ-ONLY)` in
+   `dmsetup` after their builds. `lv_deactivate` (`build/lib.sh`) runs
+   `lvchange -an … 2>/dev/null || true`, which swallows any failure
+   (`appweb-rebuild-report.md` § 8 item 2). **Why they stay active is
+   unmeasured.** Open count was 0 throughout, so this is not a hold.
 
 ## Next steps
 
@@ -2640,8 +2791,25 @@ frozen `vm_home_skel` vs qcow2 branch.
   deleted, not migrated. No pre-foundation AppVM remains. (netVM was never in
   scope — it is a sysVM and stays systemd.)
 - **systemd purge from foundation** (minimal-TCB): the binary still ships unused.
-- **udisks2 check:** confirm nautilus works with udisks2 disabled, then bake
-  `systemctl disable udisks2` into the app-layer build.
+  **2026-09-26: see open problem #35.** Two keepers were measured, and the fix
+  is deferred past the alpha.
+- ~~**udisks2 check:** confirm nautilus works with udisks2 disabled, then bake
+  `systemctl disable udisks2` into the app-layer build.~~ — **retired
+  2026-09-26: the subject is void.** nautilus is gone, and `udisks2` is absent
+  from the built foundation and from `vm_app_web` (`appweb-rebuild-report.md`
+  §§ 5.2, 5.3).
+- **Networking arc for `app_web`** (added 2026-09-26). The order is: bring
+  netVM up, which needs the `208/STDIN` decision first; then the slot on the
+  AppVM side; then the guest's IP, following the operator's direction of
+  2026-09-26 (katmate-init sets it at boot, and vm-agent may also set address,
+  DNS and gateway at runtime; the mechanism is not chosen); then `NETCFG`; then
+  forward, NAT and DNS in netVM.
+- **waypipe on the host** (added 2026-09-26):
+  - Remove the distro `waypipe` package from MINIS.
+  - Bring the `waypipe-client` unit into the repository. HOST-CONFIG § 11 now
+    records it as a requirement; the unit file itself is still untracked (#31).
+  - Do the single static waypipe build (direction ruled 2026-09-14) and any
+    version bump together, through `katmate-update`.
 - **FILEPUT streaming** — still buffers the whole payload in memory
   (`read_request` fills `RawRequest::payload`); the streaming helpers
   (`write_response_header`/`write_raw`/`read_raw`) exist in `frame.rs` but
@@ -3075,6 +3243,12 @@ frozen `vm_home_skel` vs qcow2 branch.
   flag permanently; `lvchange -K -ay <lv>` is mandatory before every instance
   boot, on both the app-layer AND the foundation, or QEMU fails with "Could not
   open backing image". The `app_web.con` launcher does this in pre-flight.
+  **Note 2026-09-26:** `vm_tpl_foundation` was observed **active without the
+  `k` flag** on two boots (`Vri-a-tz--`; `appweb-m1-report.md` § 2 item 8,
+  `appweb-m1-rerun-report.md` § RA item 8). Neither session read what had
+  activated it. Newly built LVs also stay active after their build (#37). So
+  "inactive with `k`" is not a state that can be assumed on MINIS. Read
+  `lv_attr` first.
 
 - **vfio passthrough — memlock (RTL8125):** VFIO pins the ENTIRE guest RAM
   regardless of `-overcommit mem-lock=off` or hugepages. A manual
@@ -3167,6 +3341,26 @@ frozen `vm_home_skel` vs qcow2 branch.
   taken between 2026-08-28 and 2026-09-19** — the whole of the ADR-035 gate arc.
   **No rollback is proposed and none is wanted**; the update is ordinary
   maintenance on a rolling distribution.
+
+  **Corrected again 2026-09-26:** this entry read `7.2.5-hardened1-1-hardened`
+  from 2026-09-20 until then. The running kernel on MINIS is now
+  **`7.2.7-hardened1-1-hardened`**, booted 2026-09-25 14:00:27
+  (`appweb-m1-rerun-report.md` §§ RA, RB.1). In between, `linux-hardened`
+  7.2.6 was installed on 2026-09-19 20:49 and never ran; see the next entry for
+  what that did to the running 7.2.5. The stock `linux 7.2.6.arch2-1` is also
+  installed (§ RA, A12). The previous values are left visible for the reason
+  given above.
+
+- **An Arch kernel upgrade without a reboot removes the running kernel's
+  `/usr/lib/modules` tree** (measured 2026-09-25). Until the next reboot, no
+  module that is not already loaded can load: `modinfo` answers *"Module …
+  not found"* and `modprobe` fails, whatever is authorised
+  (`appweb-m1-report.md` § 3.1). **Related: `overlay` is `=m` and nothing
+  autoloads it on MINIS.** A guard for overlayfs must test **availability** —
+  `modinfo -n overlay` resolving under `/usr/lib/modules/$(uname -r)` — and not
+  loaded state (`lsmod`, `/proc/filesystems`). The loaded-state form cannot
+  tell "absent" from "not yet loaded", and on a fresh boot it halts every time
+  (`appweb-m1-rerun-report.md` § R5.4 W1).
 
 - **Check a config's header line before reading symbols out of it.** Line 3 of a
   Kconfig-generated file names the version it was generated for
@@ -3435,3 +3629,12 @@ frozen `vm_home_skel` vs qcow2 branch.
   says. **A check that cannot fire is indistinguishable from a check that found
   nothing, and a grep for your own wording is such a check.** Source:
   `writec-report.md` § 5.3 (2026-09-14).
+
+- **`apt-cache rdepends` does not label relation types.** In its unlabelled
+  form it lists Breaks, Replaces and Conflicts together with Depends. The
+  unlabelled `dbus` rdepends looks like 8 reverse dependencies, and all 8 are
+  Breaks/Replaces. Use `-o APT::Cache::ShowDependencyType=true`.
+  `--installed` on a **virtual** package prints only `<name>`, which is a
+  well-formed empty answer and measures nothing (`appweb-m2-report.md` § 11 W3,
+  W4; the same shape as `libgtk-3-0` → `libgtk-3-0t64` in
+  `appweb-m1-rerun-report.md` § S5.4 W2). Source: 2026-09-25.
