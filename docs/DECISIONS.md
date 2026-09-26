@@ -6943,3 +6943,122 @@ reader may legitimately reopen it.*
    insufficient and the base-layer composition must be narrowed — fewer packages
    in the TCB path, of which the `qemu-full` → `qemu-base` reduction already
    tracked is the first — before the cadence is met by shipping untested sets.
+
+---
+
+## ADR-037 — netVM's vanilla network stack: direct uplink egress, dnsmasq, dhcpcd, and a read-only config disk
+
+**Status:** PROPOSED (2026-09-26). The decisions are the operator's rulings of
+2026-09-26 (R2–R8, recorded in `state.md`); acceptance waits on the gates
+below. Taken on two in-guest reading sessions of 2026-09-26 (`net-up`,
+`net-m1`, reports outside the repository). **Proposed is a decision and not an
+implementation:** no `addr=`, no `uplink0.link`, no dhcpcd, no dnsmasq and no
+config disk exist in the tree or on MINIS.
+
+**Depends on:** [ADR-021](DECISIONS.md#adr-021) (netVM as a sysVM class, its
+declarative build and its manifest), [ADR-032](DECISIONS.md#adr-032) (the path
+is the tier; T1 is `/etc/katmate/`), [ADR-035](DECISIONS.md#adr-035) (the slot
+pool and its `km00`…`km0f` names).
+**Supersedes, in part:** ADR-021's premise that netVM egress is ProtonVPN, and
+its open DNS-leak decision.
+
+**Numbering:** `ADR-037` is the next free number; `ADR-031` stays reserved.
+
+**Context, measured:**
+
+- **The loaded ruleset only lets traffic out through `oifname "proton"`, and
+  netVM has no such interface.** `forward` accepts only `ip saddr
+  10.100.1.0/24 oifname "proton"` and its reverse, `nat` masquerades only
+  `oifname "proton"`, and no WireGuard link exists (`ip -d link show type
+  wireguard` and `wg show` both empty). Read from the ruleset text, not tested
+  with traffic. (`net-up-report.md` § 19.3 items 2–3.)
+- **netVM has no resolver:** `/etc/resolv.conf` is absent and
+  `systemd-resolved` is inactive, while `systemd-networkd` is active.
+  (`net-up-report.md` § 19.3 item 8.)
+- **Without `resolved`, networkd writes the DHCP DNS only into
+  `/run/systemd/netif/leases/<n>`**, a `KEY=VALUE` file whose first line is
+  *"# This is private data. Do not parse."* (`net-m1-report.md` § 9.3.)
+- **`networkctl status` fails without a bus:** *"Failed to connect to system
+  bus: No such file or directory"*, `rc=1`. (`net-m1-report.md` § 9.3.)
+- **`dnsmasq` is absent:** `command -v dnsmasq` `rc=1`, and `dpkg-query` finds
+  neither `dnsmasq` nor `dnsmasq-base`. (`net-m1-report.md` § 9.4.)
+- **The uplink sits at guest `0000:00:04.0`.** `vfio-pci` is the 4th
+  `-device` of QEMU's argv, with no `addr=`; every device read sits at slot =
+  its argv position. That is consistent with placement by argv order, and not
+  shown to be caused by it: no second argv was run. (`net-m1-report.md` § 9.1.)
+- **`ID_PATH=pci-0000:00:04.0`** on the uplink, which today falls through to
+  `99-default.link`. A `.link` matching on `Path=` has not been observed
+  selecting an interface in this guest. (`net-m1-report.md` § 9.2.)
+- **The LAN hands out `DNS=1.1.1.1`**, a public resolver, not the router
+  (`ROUTER=10.3.1.1`). (`net-m1-report.md` § 9.3.)
+
+**Decision:**
+
+1. **Vanilla egress (R2).** netVM egress in a vanilla KatMate is direct
+   through the uplink, with no VPN. VPN is a post-install option that the user
+   enables by supplying a WireGuard config file.
+2. **Uplink name (R3).** The uplink is named `uplink0`, through a `.link`
+   matched on `Path=` (the PCI path inside the guest), not on the MAC. The
+   ruleset targets `oifname "uplink0"`.
+   *Cross-reference, not a further decision:* on implementation this retires,
+   for the uplink, the rule that its interface name is not normative and that
+   its netconf is MAC-matched (`state.md` § *Invariants & gotchas*,
+   `docs/ARCHITECTURE.md` § *Networking*, and ADR-035's revision note of
+   2026-09-20). Until the implementation lands, those statements describe the
+   tree correctly.
+3. **Pinned address (R4).** The `vfio-pci` device carries `addr=` in the unit,
+   so `Path=` is stable by construction.
+4. **AppVM DNS (R5).** `dnsmasq` runs in netVM, listening on `10.100.1.1`, and
+   forwards to the DNS server the uplink receives.
+5. **Uplink DHCP client (R6).** `dhcpcd` replaces systemd-networkd on the
+   uplink. dhcpcd writes `resolv.conf` itself, for DHCP and static
+   configuration alike, and dnsmasq reads that natively.
+   *Rejected:*
+   - **A `.path` unit with a generator parsing the lease file** — it reads a
+     format systemd marks *"Do not parse"*.
+   - **A recursive resolver (unbound)** — it contradicts R5, which forwards to
+     the DNS server the uplink receives.
+6. **Static addressing (R7).** The uplink may be configured statically. That
+   is per-installation configuration (T1), never baked into the image.
+7. **Config channel (R8).** Per-installation netVM configuration — the static
+   IP, the WireGuard config, and anything later — reaches netVM through a
+   **read-only config disk**. The host assembles it from `/etc/katmate/netvm/`,
+   and netVM attaches it as an extra `virtio-blk`.
+   *Rejected:*
+   - **An agent `CONFIG-PUT` operation** — it adds surface to the most exposed
+     VM.
+   - **Writing into netVM's LV at install time** — a declarative rebuild loses
+     it.
+
+   *Cost:* a configuration change needs a netVM restart.
+
+**Gates for acceptance — none taken:**
+
+- **G1 — the pinned address holds.** With `addr=` pinned, the guest sees the
+  uplink at the pinned address. *Refusal half:* none named.
+- **G2 — the `Path=` `.link` is selected.** `ID_NET_LINK_FILE` names it, and
+  the name is `uplink0`. *Refusal half:* none named.
+- **G3 — dhcpcd runs without a bus.** A mechanism is gated before acceptance:
+  resolved, `networkctl reload` and `networkctl status` are already measured
+  inert in this dbus-free guest, so dhcpcd's independence from a bus is
+  observed, not assumed. dhcpcd takes a lease on `uplink0` and writes
+  `resolv.conf`, and the static configuration reaches the same state.
+  *Refusal half:* none named.
+- **G4 — dnsmasq answers.** dnsmasq on `10.100.1.1` answers through that
+  upstream. *Refusal half:* none named.
+- **G5 — pool egress.** A pool-sourced packet leaves through `uplink0`, NATed.
+  This needs an AppVM on a slot. *Refusal half:* none named.
+- **G6 — the config disk.** A file placed under `/etc/katmate/netvm/` on the
+  host is visible read-only in the guest. *Refusal half:* netVM starts with the
+  config disk absent, and falls back to DHCP.
+
+**Carried, not decided here:**
+
+- the pool unit, `katmate-pool@.service`, is untracked (`state.md` § *Open
+  problems*); R4 changes it;
+- the ownership bake defect: `cp -a` in `netvm.sh` leaves the ruleset and the
+  network files owned `1000:1000` (`state.md` § *Open problems*);
+- `accept_ra` (open problem #24);
+- open problem #27;
+- `20-uplink.network` and its ProtonVPN comment, which are retired by the
+  implementation, not by this ADR's write pass.
