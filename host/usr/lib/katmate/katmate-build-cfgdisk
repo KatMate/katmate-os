@@ -1,0 +1,295 @@
+#!/usr/bin/env bash
+# katmate-build-cfgdisk — netVM's read-only config disk (ADR-037 R32–R37, R42–R44)
+#
+# T4 (ADR-032 §2): reads T1, writes only under /run/katmate/, decides binarily.
+#
+# Usage: katmate-build-cfgdisk <instance>   (from the unit: %i)
+#
+# Reads /etc/katmate/vm/<instance>.d/ — T1, one file per concern (ADR-032's
+# note of 2026-09-27; ADR-037 R31) — and writes
+# /run/katmate/cfgdisk/<instance>.img, a raw `ustar` archive that the unit
+# attaches to the guest read-only (R33, R34). The image is a runtime
+# PROJECTION (R32): rebuilt at every start, in /run, never a source, and like
+# the env file not removed at stop.
+#
+# Parse and re-emit (R35). The T1 file is parsed by the library's flat reader,
+# validated, and written into the image in a canonical form this file defines.
+# The user's bytes never reach netVM: the image is a function of what T1 means,
+# not of how it is spelled, and every byte the guest parses is one written here.
+#
+# Absent versus malformed (R36). No <instance>.d/, or no `uplink` in it, is the
+# ABSENT path: the image carries VERSION only, the disk is still attached, and
+# netVM leases by DHCP. Anything present and wrong — an unknown file, an owner
+# or mode R42 forbids, an unknown or missing key, an invalid value — refuses the
+# start here, before QEMU. A typo in the static uplink therefore takes the
+# uplink down, which is the cost ruled: a DHCP fallback would broadcast the
+# hostname on a LAN the user may have configured statically precisely to avoid
+# that (r8 Q-R8f).
+#
+# Runs as uid 0 (`ExecStartPre=+`), after katmate-generate-env (R32).
+
+set -euo pipefail
+
+# KM_PROG is the diagnostic prefix; it is read by katmate-lib.sh after the
+# source below, which shellcheck cannot see across an absolute path.
+# shellcheck disable=SC2034
+KM_PROG="katmate-build-cfgdisk"
+# shellcheck source=host/usr/lib/katmate/katmate-lib.sh
+source /usr/lib/katmate/katmate-lib.sh
+
+(( $# == 1 )) || km_usage "katmate-build-cfgdisk <instance>"
+INSTANCE="$1"
+
+(( EUID == 0 )) \
+    || km_die "must run as uid 0 — the image is root:root 0600 in a 0700 directory (ADR-037 R32), and its T1 input is refused unless root owns it (R42). In a unit this is ExecStartPre=+."
+
+# Checked before it is concatenated into any path, and before the removal
+# below, which runs as uid 0.
+km_check_instance "$INSTANCE"
+
+for tool in tar cmp sha256sum stat mktemp; do
+    command -v "$tool" >/dev/null \
+        || km_die "$tool not found in PATH ($PATH)"
+done
+
+# --- the previous image goes first -------------------------------------------
+# Before anything else can fail, so that no refusal below leaves the last
+# start's image standing for the unit to attach — the rule katmate-generate-env
+# follows for the projection, for the same reason. Leftovers of an interrupted
+# earlier run (a staging directory, a temporary image) go with it.
+CFG_DIR="$(km_run_subdir cfgdisk 0700)"
+IMG="$CFG_DIR/$INSTANCE.img"
+rm -rf -- "$IMG" "$CFG_DIR/.$INSTANCE.stage."* "$CFG_DIR/.$INSTANCE.img."*
+
+dir_state="$(stat -c '%u:%g %a' -- "$CFG_DIR")"
+[[ "$dir_state" == "0:0 700" ]] \
+    || km_die "$CFG_DIR is '$dir_state' after it was created, expected '0:0 700' (ADR-037 R32)"
+
+# --- T1: /etc/katmate/vm/<instance>.d/ ---------------------------------------
+T1_DIR="$KM_ETC_VM/$INSTANCE.d"
+UPLINK_FILE="$T1_DIR/uplink"
+
+# R42: a directory or file here is refused unless root owns it and neither its
+# group nor others can write it. Whoever can write `uplink` sets the address,
+# the gateway and the resolvers of the VM every AppVM egresses through.
+check_t1_owner_mode() {
+    local path="$1" what="$2" uid mode
+    uid="$(stat -c '%u' -- "$path")"
+    mode="$(stat -c '%a' -- "$path")"
+    [[ "$uid" == 0 ]] \
+        || km_die "$path: $what is owned by uid $uid; everything in $T1_DIR must be owned by root (ADR-037 R42)"
+    (( (8#$mode & 8#022) == 0 )) \
+        || km_die "$path: $what has mode $mode, which is group- or world-writable; refused (ADR-037 R42)"
+}
+
+# A symbolic link is refused outright, wherever it stands: the owner and mode
+# checked would be the link's, and the content another path's.
+refuse_symlink() {
+    [[ ! -L "$1" ]] \
+        || km_die "$1 is a symbolic link; refused — its owner and mode would be the link's and its content another file's (ADR-037 R42)"
+}
+
+declare -A UPLINK=()
+HAVE_UPLINK=no
+
+if [[ -e "$T1_DIR" || -L "$T1_DIR" ]]; then
+    refuse_symlink "$T1_DIR"
+    [[ -d "$T1_DIR" ]] \
+        || km_die "$T1_DIR exists and is not a directory"
+    check_t1_owner_mode "$T1_DIR" "the directory"
+
+    # R31: one file per concern, and an unknown file is refused, not ignored.
+    # Networking arc step 3 knows one concern. A file placed early for a later
+    # step fails here loudly instead of being half-applied (r8 Q-R8h).
+    shopt -s nullglob dotglob
+    entries=("$T1_DIR"/*)
+    shopt -u nullglob dotglob
+    for entry in "${entries[@]}"; do
+        if [[ "${entry##*/}" != uplink ]]; then
+            printf -v shown '%q' "${entry##*/}"
+            km_die "$T1_DIR: unknown file $shown. The only concern networking arc step 3 knows is 'uplink'; an unknown file is refused, not ignored (ADR-037 R31)"
+        fi
+    done
+
+    if [[ -e "$UPLINK_FILE" || -L "$UPLINK_FILE" ]]; then
+        refuse_symlink "$UPLINK_FILE"
+        [[ -f "$UPLINK_FILE" ]] \
+            || km_die "$UPLINK_FILE is not a regular file"
+        check_t1_owner_mode "$UPLINK_FILE" "the file"
+        km_flat_read "$UPLINK_FILE" UPLINK
+        HAVE_UPLINK=yes
+    fi
+fi
+
+# --- uplink: schema and validation (R37, R43) --------------------------------
+# IPv4 only, as 32-bit integers, so every comparison below is arithmetic and not
+# a string compare. An octet with a leading zero is refused: `010` is 10 to this
+# parser and 8 to inet_aton(3), and a canonical form that silently picks one
+# reading would re-emit a different address from the one some other tool sees.
+IP4=0
+ip4_parse() {
+    local text="$1" key="$2" i o re
+    re='^(0|[1-9][0-9]{0,2})\.(0|[1-9][0-9]{0,2})\.(0|[1-9][0-9]{0,2})\.(0|[1-9][0-9]{0,2})$'
+    [[ "$text" =~ $re ]] \
+        || km_die "$UPLINK_FILE: key '$key': '$text' is not an IPv4 address in dotted-quad form (four decimal octets, no leading zeros)"
+    IP4=0
+    for i in 1 2 3 4; do
+        o="${BASH_REMATCH[$i]}"
+        (( o <= 255 )) \
+            || km_die "$UPLINK_FILE: key '$key': octet $o in '$text' is greater than 255"
+        IP4=$(( (IP4 << 8) | o ))
+    done
+}
+
+ip4_text() {
+    printf '%d.%d.%d.%d' $(( ($1 >> 24) & 255 )) $(( ($1 >> 16) & 255 )) $(( ($1 >> 8) & 255 )) $(( $1 & 255 ))
+}
+
+UPLINK_KEYS=(address gateway nameservers)
+CANON_UPLINK=""
+SUMMARY_UPLINK=""
+
+if [[ "$HAVE_UPLINK" == yes ]]; then
+    for key in "${!UPLINK[@]}"; do
+        case "$key" in
+        address|gateway|nameservers) ;;
+        *) km_die "$UPLINK_FILE: unknown key '$key'; the keys are ${UPLINK_KEYS[*]} (ADR-037 R37)" ;;
+        esac
+    done
+    for key in "${UPLINK_KEYS[@]}"; do
+        [[ -v UPLINK[$key] ]] \
+            || km_die "$UPLINK_FILE: missing required key '$key' (ADR-037 R37)"
+    done
+
+    # address = "a.b.c.d/nn": the prefix is 8–30 (R43).
+    [[ "${UPLINK[address]}" =~ ^([^/]*)/(0|[1-9][0-9]?)$ ]] \
+        || km_die "$UPLINK_FILE: key 'address': '${UPLINK[address]}' is not a.b.c.d/nn (ADR-037 R37)"
+    ADDR_TEXT="${BASH_REMATCH[1]}"
+    PREFIX="${BASH_REMATCH[2]}"
+    (( PREFIX >= 8 && PREFIX <= 30 )) \
+        || km_die "$UPLINK_FILE: key 'address': prefix /$PREFIX is outside 8–30 (ADR-037 R43)"
+    ip4_parse "$ADDR_TEXT" address
+    ADDR=$IP4
+    MASK=$(( (0xFFFFFFFF << (32 - PREFIX)) & 0xFFFFFFFF ))
+    NET=$(( ADDR & MASK ))
+    BCAST=$(( NET | (~MASK & 0xFFFFFFFF) ))
+
+    (( (ADDR >> 24) != 127 && ADDR != 0 )) \
+        || km_die "$UPLINK_FILE: key 'address': $(ip4_text "$ADDR") is loopback or 0.0.0.0; refused (ADR-037 R37)"
+    (( ADDR != NET )) \
+        || km_die "$UPLINK_FILE: key 'address': $(ip4_text "$ADDR") is the network address of /$PREFIX (ADR-037 R43)"
+    (( ADDR != BCAST )) \
+        || km_die "$UPLINK_FILE: key 'address': $(ip4_text "$ADDR") is the broadcast address of /$PREFIX (ADR-037 R43)"
+
+    # gateway: inside the prefix, and not the address, the network or the
+    # broadcast (R43). Inside a prefix of 8 or longer, and not its network, it
+    # cannot be loopback or 0.0.0.0 unless the address is, which is refused.
+    ip4_parse "${UPLINK[gateway]}" gateway
+    GW=$IP4
+    (( (GW & MASK) == NET )) \
+        || km_die "$UPLINK_FILE: key 'gateway': $(ip4_text "$GW") is outside $(ip4_text "$NET")/$PREFIX (ADR-037 R43)"
+    (( GW != ADDR )) \
+        || km_die "$UPLINK_FILE: key 'gateway': $(ip4_text "$GW") is the address itself (ADR-037 R43)"
+    (( GW != NET )) \
+        || km_die "$UPLINK_FILE: key 'gateway': $(ip4_text "$GW") is the network address of /$PREFIX (ADR-037 R43)"
+    (( GW != BCAST )) \
+        || km_die "$UPLINK_FILE: key 'gateway': $(ip4_text "$GW") is the broadcast address of /$PREFIX (ADR-037 R43)"
+
+    # nameservers = "x,y": 1–3 unicast IPv4 addresses, comma-separated, no
+    # spaces, no duplicates, none in 127.0.0.0/8, 0.0.0.0/8, 224.0.0.0/4 or
+    # 255.255.255.255 (R37, R43). Order is kept: it is the resolver order.
+    [[ "${UPLINK[nameservers]}" =~ ^[^,[:space:]]+(,[^,[:space:]]+)*$ ]] \
+        || km_die "$UPLINK_FILE: key 'nameservers': '${UPLINK[nameservers]}' is not a comma-separated list with no spaces and no empty entries (ADR-037 R43)"
+    IFS=, read -r -a NS_TEXT <<< "${UPLINK[nameservers]}"
+    (( ${#NS_TEXT[@]} >= 1 && ${#NS_TEXT[@]} <= 3 )) \
+        || km_die "$UPLINK_FILE: key 'nameservers': ${#NS_TEXT[@]} entries; between 1 and 3 are allowed (ADR-037 R37, R43)"
+    NS_CANON=()
+    declare -A NS_SEEN=()
+    for ns in "${NS_TEXT[@]}"; do
+        ip4_parse "$ns" nameservers
+        (( (IP4 >> 24) != 127 )) \
+            || km_die "$UPLINK_FILE: key 'nameservers': $ns is in 127.0.0.0/8 (ADR-037 R37, R43)"
+        (( (IP4 >> 24) != 0 )) \
+            || km_die "$UPLINK_FILE: key 'nameservers': $ns is in 0.0.0.0/8 (ADR-037 R37, R43)"
+        (( (IP4 >> 28) != 14 )) \
+            || km_die "$UPLINK_FILE: key 'nameservers': $ns is multicast, in 224.0.0.0/4 (ADR-037 R43)"
+        (( IP4 != 0xFFFFFFFF )) \
+            || km_die "$UPLINK_FILE: key 'nameservers': $ns is the limited broadcast address (ADR-037 R43)"
+        [[ ! -v NS_SEEN[$IP4] ]] \
+            || km_die "$UPLINK_FILE: key 'nameservers': $ns is listed twice (ADR-037 R43)"
+        NS_SEEN[$IP4]=1
+        NS_CANON+=("$(ip4_text "$IP4")")
+    done
+
+    # Re-emission (R35): fixed key order, key=value, one per line.
+    printf -v NS_JOINED '%s,' "${NS_CANON[@]}"
+    NS_JOINED="${NS_JOINED%,}"
+    printf -v CANON_UPLINK 'address=%s/%s\ngateway=%s\nnameservers=%s\n' \
+        "$(ip4_text "$ADDR")" "$PREFIX" "$(ip4_text "$GW")" "$NS_JOINED"
+    SUMMARY_UPLINK="address=$(ip4_text "$ADDR")/$PREFIX gateway=$(ip4_text "$GW") nameservers=$NS_JOINED"
+fi
+
+# --- the image (R33, R44) ----------------------------------------------------
+# A raw ustar archive: no filesystem on either side and no mount. VERSION is the
+# first member and says which layout this is; the guest refuses one it does not
+# know. Members are named explicitly and in a fixed order, with every header
+# field that varies by builder pinned, so the image is a function of the
+# members' bytes. Its size is whatever tar produces from them (R44).
+declare -A CANON=([VERSION]=$'1\n')
+MEMBERS=(VERSION)
+if [[ "$HAVE_UPLINK" == yes ]]; then
+    CANON[uplink]="$CANON_UPLINK"
+    MEMBERS+=(uplink)
+fi
+
+STAGE="$(mktemp -d "$CFG_DIR/.$INSTANCE.stage.XXXXXX")"
+TMP_IMG="$(mktemp "$CFG_DIR/.$INSTANCE.img.XXXXXX")"
+trap 'rm -rf -- "$STAGE" "$TMP_IMG"' EXIT
+
+for m in "${MEMBERS[@]}"; do
+    printf '%s' "${CANON[$m]}" > "$STAGE/$m"
+done
+
+tar --format=ustar --mtime=@0 --owner=0 --group=0 --numeric-owner --mode=0644 \
+    -C "$STAGE" -cf "$TMP_IMG" "${MEMBERS[@]}" \
+    || km_die "tar failed to build $TMP_IMG"
+
+# --- the read-back -----------------------------------------------------------
+# Of the archive as written, against what this run meant to write — never a
+# round-trip of the staging files: the member list must be exactly MEMBERS, in
+# order; each member must be root-owned 0644; and each member's bytes must be
+# equal to the canonical bytes held in CANON. Taken before the rename, so a
+# failed read-back leaves no image at the path the unit attaches.
+mapfile -t listed < <(tar -tf "$TMP_IMG")
+[[ ${#listed[@]} -eq ${#MEMBERS[@]} && "${listed[*]}" == "${MEMBERS[*]}" ]] \
+    || km_die "$TMP_IMG lists members '${listed[*]}' (${#listed[@]}), expected '${MEMBERS[*]}' (${#MEMBERS[@]})"
+
+mapfile -t verbose < <(tar --numeric-owner -tvf "$TMP_IMG")
+(( ${#verbose[@]} == ${#MEMBERS[@]} )) \
+    || km_die "$TMP_IMG: the verbose listing has ${#verbose[@]} lines, expected ${#MEMBERS[@]}"
+for line in "${verbose[@]}"; do
+    [[ "$line" == "-rw-r--r-- 0/0 "* ]] \
+        || km_die "$TMP_IMG: member header is '$line', expected mode -rw-r--r-- and owner 0/0"
+done
+
+for m in "${MEMBERS[@]}"; do
+    cmp -s <(tar -xOf "$TMP_IMG" "$m") <(printf '%s' "${CANON[$m]}") \
+        || km_die "$TMP_IMG: member '$m' read back differs from the canonical bytes this run wrote"
+done
+
+chmod 0600 -- "$TMP_IMG"
+mv -f -- "$TMP_IMG" "$IMG"
+
+img_state="$(stat -c '%u:%g %a' -- "$IMG")"
+[[ "$img_state" == "0:0 600" ]] \
+    || km_die "$IMG is '$img_state' after it was published, expected '0:0 600' (ADR-037 R32)"
+[[ -s "$IMG" ]] \
+    || km_die "$IMG is absent or empty immediately after it was published"
+
+IMG_SHA="$(sha256sum -- "$IMG")"
+IMG_SHA="${IMG_SHA%% *}"
+if [[ "$HAVE_UPLINK" == yes ]]; then
+    km_log "config disk built: $IMG sha256=$IMG_SHA $(stat -c '%s' -- "$IMG") B, entries: VERSION uplink ($SUMMARY_UPLINK)"
+else
+    km_log "config disk built: $IMG sha256=$IMG_SHA $(stat -c '%s' -- "$IMG") B, entries: VERSION only — no $UPLINK_FILE, the absent path: netVM leases by DHCP (ADR-037 R36)"
+fi
