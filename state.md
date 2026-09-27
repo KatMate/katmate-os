@@ -49,7 +49,7 @@ restartable — and so updatable — without touching running VMs.
 Direction unchanged: IOMMU-capable platforms only (VT-d/AMD-Vi).
 MINIS is primary host and merge target.
 
-## This session (2026-09-27, pool-fold) — the slot pool folded into the shipped sys-driver unit, netVM started under it with no console, and host-side `tap-int0` retired
+## Previous session (2026-09-27, pool-fold) — the slot pool folded into the shipped sys-driver unit, netVM started under it with no console, and host-side `tap-int0` retired
 
 Two sessions. `pool-fold` ran on the Acer and MINIS, and `wp-0927` retired
 `tap-int0` on MINIS and wrote this up on the Acer. Reports outside the
@@ -163,89 +163,6 @@ projection still carries `KM_MAC_INT` is inferred from the generator source.
 `net-sys.con` still names `tap-int0` (`:26`), which is a finding and was not
 changed.
 
-## Previous session (2026-09-26, net-up and net-m1) — netVM running again on a per-session console, its network baseline read, and the vanilla network stack ruled
-
-**The heading names sessions, not an ordinal:** the day already has a range
-entry below, so *first of two* would miscount. Two sessions ran on MINIS, and a
-third wrote them up. Reports outside the repository:
-`~/Claude.assistent/net-up-report.md`, `~/Claude.assistent/net-m1-report.md`;
-the write pass is `~/Claude.assistent/wp-0926b-report.md`, on the Acer, MINIS
-not contacted, nothing measured.
-
-**R1 applied — the `208/STDIN` trap is removed, not worked around.** Both
-`/etc` `90-dev-monitor.conf` drop-ins, the pool unit's and the sys-driver's,
-were saved to `~/katmate-dev/removed-0926/` on MINIS, `cmp`-identical to their
-originals, and removed with their empty `.d/` directories. After
-`daemon-reload` both units read `StandardInput=null` and an empty
-`DropInPaths=` (net-up § 14). Console input is now installed **per session
-only**: a `/run` drop-in carrying the saved pool content, the FIFO and the
-transient holder, all on tmpfs, the holder in the six-line form of
-`netvm-rebuild-3-report.md:267–272` run verbatim (net-up §§ 11, 15).
-
-**netVM was started through the pool unit** — `katmate-pool@netvm.service`,
-exit 0 in 0.65 s, MainPID **605841**, `NRestarts=0`, all three `ExecStartPre=`
-successful; the sys-driver unit was never started. Holder and QEMU rendezvoused
-on the FIFO at the start, observed on both ends; the slot tree is 16 of 16 by
-path and by binding; `ping-client ping 3` answered `status=0x00 (OK)`
-(net-up §§ 16.1–16.4). Details in § *Live state*, netVM.
-
-**The baseline, read in-guest after the operator's login** (net-up § 19.3),
-stated as readings: netVM's `nft` is **1.1.3**; every egress rule names
-`oifname "proton"` and no `proton` interface exists, so by the ruleset text a
-pool-sourced packet to the uplink meets policy drop; `rp_filter` is unchanged
-from 2026-09-14; IPv6 `accept_ra=1` on `all` and `default`; the slots are DOWN
-without `IFF_UP`; lease `10.3.1.103`; **no resolver** (`/etc/resolv.conf`
-absent, `resolved` inactive); `ip neigh` empty; `/etc/nftables.conf` is
-`1000:1000`, mode **0755**, and no uid-1000 user exists; `netvm-agent` active.
-
-**Open problem #33 confirmed a second time**, on a different boot: all 17
-stage-one renames before `systemd-sysctl` finished, all 16 stage-two renames
-after it (net-up § 16.5).
-
-**net-m1 answered what the rulings needed** (net-m1 § 9): `addr=` is pinned
-nowhere, and the uplink sits at guest `0000:00:04.0` with `vfio-pci` 4th in the
-argv — consistent with placement by argv order, not shown to be caused by it;
-`ID_PATH=pci-0000:00:04.0`, the uplink falling through to `99-default.link`;
-without `resolved`, networkd writes the DHCP DNS only to
-`/run/systemd/netif/leases/<n>`, headed *"Do not parse"*, and the value is
-`DNS=1.1.1.1`; `networkctl status` fails without a bus; `dnsmasq` is absent.
-
-**A permission-mode incident, and it is now a rule.** In Claude Code's auto
-mode the classifier denied `scp` + `sudo -n bash` ("Production Reads") and,
-with the operator's allow rules for ssh/scp in place, the console FIFO write
-("Remote Shell Writes"); both calls were refused before execution, so nothing
-reached MINIS. The session resumed in **Manual** mode (net-m1 §§ 3, 4, 6, 7).
-The rule is in § *Live state*, *Dev access to MINIS*.
-
-**The operator's rulings of 2026-09-26**, recorded as rulings:
-
-- **R1 — `208/STDIN`.** Both `/etc` dev drop-ins are removed, and the shipped
-  `StandardInput=null` is restored. Console input is installed per session
-  only. Applied by net-up § 14.
-- **R2 — Vanilla egress.** netVM egress in a vanilla KatMate is direct through
-  the uplink, with no VPN. VPN is a post-install option that the user enables
-  by supplying a WireGuard config file.
-- **R3 — Uplink name.** `uplink0`, through a `.link` matched on `Path=` (the
-  PCI path inside the guest), not on the MAC. The ruleset targets
-  `oifname "uplink0"`.
-- **R4 — Pinned address.** The `vfio-pci` device carries `addr=` in the unit,
-  so `Path=` is stable by construction.
-- **R5 — AppVM DNS.** `dnsmasq` in netVM, listening on `10.100.1.1`,
-  forwarding to the DNS server the uplink receives.
-- **R6 — Uplink DHCP client.** `dhcpcd` replaces systemd-networkd on the
-  uplink.
-- **R7 — Static addressing.** The uplink may be configured statically. That is
-  per-installation configuration (T1), never baked into the image.
-- **R8 — Config channel.** Per-installation netVM configuration (static IP,
-  the WireGuard config, and anything later) reaches netVM through a read-only
-  config disk. The host assembles it from `/etc/katmate/netvm/`, and netVM
-  attaches it as an extra `virtio-blk`.
-- **R9 — the `/run` placement of the per-session console drop-in** (net-up
-  § 18 item 1). **Applied, awaiting the operator's ruling.** Not decided.
-
-R2–R8 are written as [ADR-037](docs/DECISIONS.md#adr-037), **PROPOSED**:
-the decisions are ruled, and acceptance waits on its six gates.
-
 ## Session archive
 
 Rotated sessions are enumerated in `docs/SESSIONS.md`, newest first; that
@@ -278,6 +195,22 @@ extracted block against the pre-move blob.
 *second of two* entry (3a part 1) rotated out as the 2026-08-17 entry arrived. Two
 rotations in one day is not a defect — it is what keeping two sessions costs when
 two sessions close on the same day.
+
+**Closed 2026-09-27 (second rotation of that day).** The 2026-09-26 *net-up
+and net-m1* entry (netVM running again on a per-session console, its network
+baseline read, and the vanilla network stack ruled) rotated to the archive as
+the 2026-09-27 *host-cleanup* entry arrived. **The block moved verbatim,
+heading included** — *Previous session* stays *Previous session*. Verified by
+hashing the whole block, heading line included, before and after —
+**identical, `9e60d8bbca49693c…`** — by diffing the pre-move block against the
+`HEAD` blob (clean), and by re-extracting it from `docs/SESSIONS.md` at its new
+home and diffing it against the pre-move block (clean). `docs/SESSIONS.md`
+gained 83 lines — the 82-line block and one blank separator — and lost none;
+it was inserted at the head of the entry list, above the 2026-09-24 …
+2026-09-26 entry, newest-first. The 2026-09-27 *pool-fold* entry's prefix
+changed from *This session* to *Previous session*, its body untouched. **No
+ordinal changed.** The rotation and the new entry are separate commits, so
+between them this file held one session, never three.
 
 **Closed 2026-09-27.** The 2026-09-24 … 2026-09-26 entry (the first web AppVM:
 foundation reduced to the shared GUI runtime, rebuilt, and booted) rotated to
