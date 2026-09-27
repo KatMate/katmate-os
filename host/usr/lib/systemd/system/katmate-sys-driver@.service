@@ -9,8 +9,8 @@
 # reason T3 may be derived from T1 without T1 becoming an attack surface: a user
 # cannot select weaker containment.
 #
-# Transcribed from ~/net-sys.con, which was the de facto specification. Four
-# changes, each required by a decision already taken; they are marked (1)-(4)
+# Transcribed from ~/net-sys.con, which was the de facto specification. Five
+# changes, each required by a decision already taken; they are marked (1)-(5)
 # below where they occur.
 Description=KatMate sysVM (driver domain): %i
 # No Documentation= : no man page ships. See the comment in
@@ -31,6 +31,10 @@ After=local-fs.target
 
 [Service]
 Type=simple
+
+# (5) The ADR-035 slot tree, /run/katmate/link/%i/00 ... 0f; see (5) at ExecStart=.
+RuntimeDirectory=katmate/link/%i/00 katmate/link/%i/01 katmate/link/%i/02 katmate/link/%i/03 katmate/link/%i/04 katmate/link/%i/05 katmate/link/%i/06 katmate/link/%i/07 katmate/link/%i/08 katmate/link/%i/09 katmate/link/%i/0a katmate/link/%i/0b katmate/link/%i/0c katmate/link/%i/0d katmate/link/%i/0e katmate/link/%i/0f
+RuntimeDirectoryPreserve=yes
 
 # --- the ExecStartPre= chain, cheapest gate first ----------------------------
 # One executable per check, never one binary taking a mode argument: systemd
@@ -106,6 +110,20 @@ EnvironmentFile=-/run/katmate/vm/%i.env
 #     written into this template. A BDF is assigned by firmware enumeration and
 #     moves; the failure mode of a stale one is some OTHER device handed to this
 #     VM, silently (ADR-030 §5).
+# (5) The internal segment is REPLACED by the ADR-035 slot pool. The tap device
+#     on tap-int0 and its virtio-net-pci with mac=${KM_MAC_INT} are gone; in
+#     their place are sixteen dgram netdevs, slot kk binding
+#     /run/katmate/link/%i/kk/netvm and naming .../kk/appvm as its peer (§5, and
+#     its 2026-09-03 revision note: QEMU refuses a dgram netdev without a
+#     remote), each device on the §2 MAC 52:54:01:00:00:kk. The sixteen slot
+#     directories are the RuntimeDirectory= above, kept across a stop by
+#     RuntimeDirectoryPreserve=yes (§5, revision note 2026-09-07). This
+#     transcribes katmate-pool@.service, the scaffolding unit that ran under
+#     gates G1-G5 (sha256 1d727b2542633a5135d5c266c074961df5cf558dc29713a06db82dea12b0201d),
+#     and that unit carried no comment of its own on the slots: every comment it
+#     had was this file's, unchanged. Its generator argument was the literal
+#     katmate-sys-driver only because %p expands to katmate-pool there; this
+#     unit keeps %p.
 #
 # Carried UNCHANGED and deliberately not decided here (brief §7): the
 # memory-backend-memfd/hugepages division between this VM and app_web, and
@@ -134,8 +152,38 @@ ExecStart=/usr/bin/qemu-system-x86_64 \
     -drive file=${KM_ROOTFS_DEV},if=none,id=disk0,format=raw,cache=none,aio=threads,discard=ignore,detect-zeroes=off \
     -device virtio-blk-pci,drive=disk0,iothread=iothread0 \
     -device vfio-pci,host=${KM_VFIO_BDF} \
-    -netdev tap,id=int0,ifname=tap-int0,script=no,downscript=no \
-    -device virtio-net-pci,netdev=int0,mac=${KM_MAC_INT} \
+    -netdev dgram,id=link00,local.type=unix,local.path=/run/katmate/link/%i/00/netvm,remote.type=unix,remote.path=/run/katmate/link/%i/00/appvm \
+    -device virtio-net-pci,netdev=link00,mac=52:54:01:00:00:00 \
+    -netdev dgram,id=link01,local.type=unix,local.path=/run/katmate/link/%i/01/netvm,remote.type=unix,remote.path=/run/katmate/link/%i/01/appvm \
+    -device virtio-net-pci,netdev=link01,mac=52:54:01:00:00:01 \
+    -netdev dgram,id=link02,local.type=unix,local.path=/run/katmate/link/%i/02/netvm,remote.type=unix,remote.path=/run/katmate/link/%i/02/appvm \
+    -device virtio-net-pci,netdev=link02,mac=52:54:01:00:00:02 \
+    -netdev dgram,id=link03,local.type=unix,local.path=/run/katmate/link/%i/03/netvm,remote.type=unix,remote.path=/run/katmate/link/%i/03/appvm \
+    -device virtio-net-pci,netdev=link03,mac=52:54:01:00:00:03 \
+    -netdev dgram,id=link04,local.type=unix,local.path=/run/katmate/link/%i/04/netvm,remote.type=unix,remote.path=/run/katmate/link/%i/04/appvm \
+    -device virtio-net-pci,netdev=link04,mac=52:54:01:00:00:04 \
+    -netdev dgram,id=link05,local.type=unix,local.path=/run/katmate/link/%i/05/netvm,remote.type=unix,remote.path=/run/katmate/link/%i/05/appvm \
+    -device virtio-net-pci,netdev=link05,mac=52:54:01:00:00:05 \
+    -netdev dgram,id=link06,local.type=unix,local.path=/run/katmate/link/%i/06/netvm,remote.type=unix,remote.path=/run/katmate/link/%i/06/appvm \
+    -device virtio-net-pci,netdev=link06,mac=52:54:01:00:00:06 \
+    -netdev dgram,id=link07,local.type=unix,local.path=/run/katmate/link/%i/07/netvm,remote.type=unix,remote.path=/run/katmate/link/%i/07/appvm \
+    -device virtio-net-pci,netdev=link07,mac=52:54:01:00:00:07 \
+    -netdev dgram,id=link08,local.type=unix,local.path=/run/katmate/link/%i/08/netvm,remote.type=unix,remote.path=/run/katmate/link/%i/08/appvm \
+    -device virtio-net-pci,netdev=link08,mac=52:54:01:00:00:08 \
+    -netdev dgram,id=link09,local.type=unix,local.path=/run/katmate/link/%i/09/netvm,remote.type=unix,remote.path=/run/katmate/link/%i/09/appvm \
+    -device virtio-net-pci,netdev=link09,mac=52:54:01:00:00:09 \
+    -netdev dgram,id=link0a,local.type=unix,local.path=/run/katmate/link/%i/0a/netvm,remote.type=unix,remote.path=/run/katmate/link/%i/0a/appvm \
+    -device virtio-net-pci,netdev=link0a,mac=52:54:01:00:00:0a \
+    -netdev dgram,id=link0b,local.type=unix,local.path=/run/katmate/link/%i/0b/netvm,remote.type=unix,remote.path=/run/katmate/link/%i/0b/appvm \
+    -device virtio-net-pci,netdev=link0b,mac=52:54:01:00:00:0b \
+    -netdev dgram,id=link0c,local.type=unix,local.path=/run/katmate/link/%i/0c/netvm,remote.type=unix,remote.path=/run/katmate/link/%i/0c/appvm \
+    -device virtio-net-pci,netdev=link0c,mac=52:54:01:00:00:0c \
+    -netdev dgram,id=link0d,local.type=unix,local.path=/run/katmate/link/%i/0d/netvm,remote.type=unix,remote.path=/run/katmate/link/%i/0d/appvm \
+    -device virtio-net-pci,netdev=link0d,mac=52:54:01:00:00:0d \
+    -netdev dgram,id=link0e,local.type=unix,local.path=/run/katmate/link/%i/0e/netvm,remote.type=unix,remote.path=/run/katmate/link/%i/0e/appvm \
+    -device virtio-net-pci,netdev=link0e,mac=52:54:01:00:00:0e \
+    -netdev dgram,id=link0f,local.type=unix,local.path=/run/katmate/link/%i/0f/netvm,remote.type=unix,remote.path=/run/katmate/link/%i/0f/appvm \
+    -device virtio-net-pci,netdev=link0f,mac=52:54:01:00:00:0f \
     -sandbox on,obsolete=deny,elevateprivileges=deny,spawn=deny,resourcecontrol=deny
 
 # The serial console goes to the journal, one way. That is the correct end state
