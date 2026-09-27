@@ -21,6 +21,11 @@ across reboot cycles, `build/netvm.sh` reproduces the uplink declaratively
 (proven 2026-07-09, netinst pet retired in principle), and `netvm-agent` is
 live-gated through PING, NETCFG and SHUTDOWN — the control path into the guest,
 open for most of July, is closed (ADR-024, ADR-025).
+**[Note 2026-09-27: the focus is now the networking arc** (§ *Next steps*,
+*Networking arc (2026-09-26)*; ADR-037). Step 2 is done. Next are step 3
+(R8, G6 and G3's static half), 3a (the finding-12 guard) and 4 (the AppVM
+side). The launch daemon follows the arc. The text of this section is left
+as written.**]**
 
 The **entire build chain remains scripted and proven from nothing**:
 `make foundation` builds the shared systemd-free base
@@ -807,8 +812,13 @@ touched.
   a **rotated** `KATMATE_DEV_ROOT_HASH` as of the 2026-09-05 build, proved by a
   login and not by the build's read-back (#29, now closed). Still
   unverified from inside: **WireGuard/ProtonVPN bring-up** and the DNS-leak
-  policy. The peer end of the internal segment does not exist — personalVM was
-  deleted and no AppVM carries a network device yet (ADR-029 C2).
+  policy. **[Note 2026-09-27: the ADR-037 image carries no WireGuard config**
+  (R20, `proton.conf.template` removed), so there is no bring-up to verify.
+  A VPN is a post-install option through the config disk (R8), not
+  implemented. **The DNS policy is ADR-037's** (R5, with R17 and R18), and G4
+  measured it on 2026-09-27: a fixture peer on slot 05 was answered by
+  `10.100.1.1`, and the uplink lease gave no answer.**]** The peer end of the
+  internal segment does not exist — personalVM was deleted and no AppVM carries a network device yet (ADR-029 C2).
   `memlock` via `LimitMEMLOCK=infinity` (unit) or `ulimit -l
   unlimited` (manual launch). Runs independently of app_web.
   **WHAT IS RUNNING TODAY IS NOT THIS UNIT (2026-09-05; unit corrected
@@ -3172,6 +3182,11 @@ frozen `vm_home_skel` vs qcow2 branch.
 - **WireGuard key provisioning automation** (ADR-021 open item) — keys are
   deploy-time (placeholders in the image, per image/state separation). Needs a
   provisioning step; do NOT bake keys.
+  **[Note 2026-09-27: vanilla netVM carries no VPN** and no placeholder
+  (ADR-037 R20; `proton.conf.template` is removed). A VPN is a post-install
+  option: the user supplies a WireGuard config through the config disk (R8),
+  which is **not implemented** (networking arc step 3). The text above is
+  left as written.**]**
 
 - **`netvm.sh` cleanup — RESOLVED 2026-07-24.** The trap already existed
   (`netvm_cleanup` + `trap … EXIT`, its own linear-LV model, deliberately not
@@ -3384,6 +3399,11 @@ frozen `vm_home_skel` vs qcow2 branch.
   USB-path name.
 - **sshd exposure with ProtonVPN active** (ties into #4): bind sshd to
   `10.3.1.3` / restrict nft so SSH is not reachable over the VPN tunnel.
+  **[Note 2026-09-27: vanilla netVM carries no VPN** (ADR-037 R20). A VPN is
+  a post-install option through the config disk (R8), **not implemented**.
+  The tunnel this item guards against is the host's `proton` link, which is
+  dev scaffolding (the operator's gap-3 ruling of 2026-09-27; SECURITY-MODEL
+  gap 3). The text above is left as written.**]**
 
 ## Invariants & gotchas (quick reminders — detail in git/ADRs)
 - **The guest's serial console is durable in the HOST journal, and that is an
