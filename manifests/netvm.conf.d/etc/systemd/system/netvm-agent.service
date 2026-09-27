@@ -1,0 +1,28 @@
+# netVM control agent unit (ADR-021, ADR-024, ADR-025). Baked by
+# build/netvm.sh step 5 with the rest of this tree; step 7 installs the binary
+# and enables this unit. This file is the unit's ONLY author (open problem #27,
+# ruling R24): step 7 no longer writes one.
+#
+# No ordering on systemd-networkd: NETCFG programs the slots itself over
+# rtnetlink (ADR-025 Path B) and needs nothing from networkd, which is disabled
+# in netVM (ruling R15).
+[Unit]
+Description=KatMate netVM control agent (NETCFG/PING/SHUTDOWN over vsock)
+
+[Service]
+RuntimeDirectory=netvm-agent
+RuntimeDirectoryMode=0700
+ExecStart=/usr/local/bin/netvm-agent
+# CAP_NET_ADMIN: NETCFG programs address, /32 route and IFF_UP on the slot links
+# directly over AF_NETLINK/NETLINK_ROUTE (ADR-025 Path B). It writes no networkd
+# fragment and calls no networkctl.
+# CAP_KILL: signal PID 1 (systemd) with SIGRTMIN+4 for graceful poweroff (SHUTDOWN, ADR-024).
+AmbientCapabilities=CAP_NET_ADMIN CAP_KILL
+CapabilityBoundingSet=CAP_NET_ADMIN CAP_KILL
+NoNewPrivileges=yes
+ProtectSystem=strict
+ReadWritePaths=/run
+Restart=on-failure
+
+[Install]
+WantedBy=multi-user.target

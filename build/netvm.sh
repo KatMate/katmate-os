@@ -352,40 +352,22 @@ case "$NETVM_ROOT_UNLOCKED" in
     ;;
 esac
 
-# --- 7. netvm-agent: bake binary + systemd unit -------------------------------
+# --- 7. netvm-agent: bake binary, enable the unit ------------------------------
 # The privileged control agent (NETCFG/PING/SHUTDOWN) runs under systemd with
 # CAP_NET_ADMIN. The binary comes from the agent Cargo workspace (separate
 # step). If it is not yet built, warn and continue — the image is otherwise
 # complete and bootable; it just lacks host control until the binary lands.
+# (The unit file is then present, baked in step 5, but not enabled.)
 if [[ -f "$NETVM_AGENT_BIN" ]]; then
   log "Baking netvm-agent + systemd unit"
   install -D -m 0755 "$NETVM_AGENT_BIN" "$NETVM_MNT/usr/local/bin/netvm-agent"
-  # Unit is baked from the conf tree if present, else written here as the
-  # canonical minimal unit. CAP_NET_ADMIN only; no full root.
-  if [[ ! -f "$NETVM_MNT/etc/systemd/system/netvm-agent.service" ]]; then
-    cat > "$NETVM_MNT/etc/systemd/system/netvm-agent.service" <<'UNIT'
-[Unit]
-Description=KatMate netVM control agent (NETCFG/PING/SHUTDOWN over vsock)
-After=systemd-networkd.service
-Wants=systemd-networkd.service
-
-[Service]
-RuntimeDirectory=netvm-agent
-RuntimeDirectoryMode=0700
-ExecStart=/usr/local/bin/netvm-agent
-# CAP_NET_ADMIN: /etc/systemd/network/ writes + networkctl reload + nft (NETCFG).
-# CAP_KILL: signal PID 1 (systemd) with SIGRTMIN+4 for graceful poweroff (SHUTDOWN, ADR-024).
-AmbientCapabilities=CAP_NET_ADMIN CAP_KILL
-CapabilityBoundingSet=CAP_NET_ADMIN CAP_KILL
-NoNewPrivileges=yes
-ProtectSystem=strict
-ReadWritePaths=/etc/systemd/network /run
-Restart=on-failure
-
-[Install]
-WantedBy=multi-user.target
-UNIT
-  fi
+  # The unit has one author: manifests/netvm.conf.d/etc/systemd/system/
+  # netvm-agent.service, baked in step 5 (open problem #27, ruling R24). This
+  # step used to carry a second copy as a heredoc, written only when the conf
+  # tree supplied none. Missing here means the conf tree is wrong, not that a
+  # fallback is due.
+  [[ -f "$NETVM_MNT/etc/systemd/system/netvm-agent.service" ]] \
+    || die "netvm-agent.service missing from the image: step 5 should have baked it from $NETVM_CONFD"
   chroot_run "$NETVM_MNT" systemctl enable netvm-agent
 else
   log "NOTICE: netvm-agent binary not found at $NETVM_AGENT_BIN"
