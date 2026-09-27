@@ -1403,6 +1403,21 @@ D13) and the operator's rulings of 2026-09-27 (ADR-037's note of that date).
   `MODULES=most` before the kernel is installed. The initramfs is still
   retained, not eliminated, as the bullet says.
 
+**Revision note (2026-09-27, follow-up to the note above — both retirements
+landed):** the note above states two retirements prospectively. Both have
+landed in the ADR-037 implementation, and the image built from it
+([ADR-037](DECISIONS.md#adr-037)'s implementation note of 2026-09-27).
+
+- **The bake-list bullet.** `0f304c9` names the uplink `uplink0` by
+  `60-katmate-uplink.link` on `Path=` (R3), and `bb1481a` replaces
+  systemd-networkd with `dhcpcd` on the uplink and removes `20-uplink.network`
+  (R6). Gate G2 passed on the rebuilt image, and so did G3's DHCP half.
+- **The `/etc/systemd/network/` grant.** `098e868` makes the agent unit a
+  tracked file in `manifests/netvm.conf.d/` (R24), with
+  `ReadWritePaths=/run` only. Open problem #27 closed on 2026-09-27 on that
+  image: NETCFG ADD and REMOVE returned OK with `/etc/systemd/network`
+  read-only.
+
 ## ADR-022 — Network topology is a graph; the physical NIC is an assignable object
 
 **Status:** Accepted (2026-07-14)
@@ -2164,6 +2179,32 @@ that the constant is load-bearing in a way it was not when it was written as
 *"v1 has exactly one legal local"*. That one address can be held on many
 interfaces at once is a claim about the kernel, and ADR-035 gates it (G2) —
 including the half a confirmation cannot show — rather than assuming it.
+
+**This note records a supersession and changes no sentence above it.**
+
+**Revision note (2026-09-27, Path B's load-bearing fact and the 2026-08-09
+note — the uplink is no longer MAC-matched):** two sentences above describe
+the uplink as it was before [ADR-037](DECISIONS.md#adr-037). Path B's
+load-bearing fact reads *"the image bakes only the MAC-matched
+`20-uplink.network`"*. The 2026-08-09 note reads *"`manifests/netvm.conf.d/`
+carries the MAC-matched **uplink** only"*. Both are stale on the ADR-037
+image. The source is ADR-037's read pass (`adr037-readpass-report.md`,
+outside the repository, divergence D2).
+
+- **For the uplink, MAC matching is replaced by `Path=`.** Under ADR-037 R3
+  the guest names it `uplink0` by `60-katmate-uplink.link`, matched on
+  `Path=pci-0000:00:04.0`, and `20-uplink.network` is gone from the image.
+  Gate G2 passed on 2026-09-27.
+- **The internal-segment half is unchanged.** The sixteen slot `.link` files
+  still match by MAC, and G2 read 16 slots on 16 distinct files. The image
+  still bakes no internal-segment `.network` unit.
+- **NETCFG's own mechanism is not affected.** Path B programs the internal
+  links by rtnetlink, as decided above.
+- **The corollary that internal NICs are unmanaged** no longer rests on
+  networkd, which ADR-037 R15 disables in netVM. Its `dhcpcd` form is
+  ADR-037 R14, `allowinterfaces uplink0`. G3's refusal half passed as ruled
+  on 2026-09-27, scoped to dhcpcd-originated state on the slots (ADR-037's
+  implementation note).
 
 **This note records a supersession and changes no sentence above it.**
 
