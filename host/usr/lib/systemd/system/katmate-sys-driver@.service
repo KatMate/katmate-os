@@ -9,8 +9,8 @@
 # reason T3 may be derived from T1 without T1 becoming an attack surface: a user
 # cannot select weaker containment.
 #
-# Transcribed from ~/net-sys.con, which was the de facto specification. Five
-# changes, each required by a decision already taken; they are marked (1)-(5)
+# Transcribed from ~/net-sys.con, which was the de facto specification. Six
+# changes, each required by a decision already taken; they are marked (1)-(6)
 # below where they occur.
 Description=KatMate sysVM (driver domain): %i
 # No Documentation= : no man page ships. See the comment in
@@ -124,6 +124,18 @@ EnvironmentFile=-/run/katmate/vm/%i.env
 #     had was this file's, unchanged. Its generator argument was the literal
 #     katmate-sys-driver only because %p expands to katmate-pool there; this
 #     unit keeps %p.
+# (6) vfio-pci carries addr=0x4 (ADR-037 R4, R10). This is not the host BDF
+#     that (4) keeps out of the template: a guest PCI address is assigned by
+#     this argv, not by firmware enumeration, so ADR-030 §5's ban on a BDF
+#     does not apply to it. It is a T4 constant, and the image depends on it:
+#     60-katmate-uplink.link matches Path=pci-0000:00:04.0 and names the uplink
+#     uplink0, and build/config.sh NETVM_UPLINK_PCI_ADDR carries the same
+#     value into netvm.meta as UPLINK_PCI_ADDR. Nothing yet compares the two
+#     sides (open problem #44); a mismatch leaves the uplink unrenamed, so
+#     dhcpcd and the ruleset never see it, and fails closed.
+#     EVERY NEW DEVICE IN THIS UNIT CARRIES AN EXPLICIT addr= (R11). A device
+#     without one is placed by argv order, and one inserted ahead of vfio-pci
+#     would claim slot 4 first.
 #
 # Carried UNCHANGED and deliberately not decided here (brief §7): the
 # memory-backend-memfd/hugepages division between this VM and app_web, and
@@ -151,7 +163,7 @@ ExecStart=/usr/bin/qemu-system-x86_64 \
     -append "root=${KM_ROOT_DEVICE} rw console=ttyS0" \
     -drive file=${KM_ROOTFS_DEV},if=none,id=disk0,format=raw,cache=none,aio=threads,discard=ignore,detect-zeroes=off \
     -device virtio-blk-pci,drive=disk0,iothread=iothread0 \
-    -device vfio-pci,host=${KM_VFIO_BDF} \
+    -device vfio-pci,host=${KM_VFIO_BDF},addr=0x4 \
     -netdev dgram,id=link00,local.type=unix,local.path=/run/katmate/link/%i/00/netvm,remote.type=unix,remote.path=/run/katmate/link/%i/00/appvm \
     -device virtio-net-pci,netdev=link00,mac=52:54:01:00:00:00 \
     -netdev dgram,id=link01,local.type=unix,local.path=/run/katmate/link/%i/01/netvm,remote.type=unix,remote.path=/run/katmate/link/%i/01/appvm \
