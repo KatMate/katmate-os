@@ -1375,6 +1375,34 @@ rest of this ADR — the sysVM class, the declarative build, the agent and the
 update track — is unchanged. Sources: ADR-037 § *Context* (`net-up-report.md`
 § 19.3, `net-m1-report.md` § 9).
 
+**Revision note (2026-09-27, § *Decision* — the uplink bake-list bullet, the
+agent's write grant, and the initramfs `MODULES=` value):** three sentences of
+this ADR no longer describe the target, or no longer describe the tree. They
+are recorded here and left as written. The source is ADR-037's read pass
+(`adr037-readpass-report.md`, outside the repository, divergences D2, D10 and
+D13) and the operator's rulings of 2026-09-27 (ADR-037's note of that date).
+
+- **The bake-list bullet *"`/etc/systemd/network/20-uplink.network` —
+  MAC-matched DHCP on the vfio uplink NIC"* retires (D2).** Under
+  [ADR-037](DECISIONS.md#adr-037) R3 the uplink is named `uplink0` by a `.link`
+  matched on `Path=`, and under R6 `dhcpcd`, not systemd-networkd, takes its
+  lease. The 2026-09-26 note above names R2, R5 and R6 but not R3. The bullet
+  describes the tree until the implementation lands.
+- **§ *Privilege*'s *"plus write access to `/etc/systemd/network/`"*, and its
+  *"writing `.network` fragments, reloading networkd"*, retire with the fix
+  of open problem #27 (D10).** [ADR-025](DECISIONS.md#adr-025) Path B programs
+  the internal links by rtnetlink, and needs no file write and no reload.
+  ADR-037 R24 moves the agent unit into `manifests/netvm.conf.d/` with one
+  author, and the grant goes with it. Until then, the baked unit still carries
+  `ReadWritePaths=/etc/systemd/network /run` (`build/netvm.sh` step 7).
+- **The initramfs is `MODULES=most`, not *"`MODULES=dep`"* (D13).** `dep`
+  resolves modules against the chroot's build root and omits `virtio_blk`, so
+  the guest cannot find `/dev/vda`. The change was made and proven on
+  2026-07-09. It is recorded in `state.md` § *Invariants & gotchas* (*"netVM
+  initrd needs `MODULES=most`, NOT `dep`"*), and `build/netvm.sh` pre-seeds
+  `MODULES=most` before the kernel is installed. The initramfs is still
+  retained, not eliminated, as the bullet says.
+
 ## ADR-022 — Network topology is a graph; the physical NIC is an assignable object
 
 **Status:** Accepted (2026-07-14)
