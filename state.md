@@ -50,7 +50,7 @@ restartable — and so updatable — without touching running VMs.
 Direction unchanged: IOMMU-capable platforms only (VT-d/AMD-Vi).
 MINIS is primary host and merge target.
 
-## This session (2026-09-26, net-up and net-m1) — netVM running again on a per-session console, its network baseline read, and the vanilla network stack ruled
+## Previous session (2026-09-26, net-up and net-m1) — netVM running again on a per-session console, its network baseline read, and the vanilla network stack ruled
 
 **The heading names sessions, not an ordinal:** the day already has a range
 entry below, so *first of two* would miscount. Two sessions ran on MINIS, and a
@@ -133,66 +133,6 @@ The rule is in § *Live state*, *Dev access to MINIS*.
 R2–R8 are written as [ADR-037](docs/DECISIONS.md#adr-037), **PROPOSED**:
 the decisions are ruled, and acceptance waits on its six gates.
 
-## Previous session (2026-09-24 … 2026-09-26) — the first web AppVM: foundation reduced to the shared GUI runtime, rebuilt, and booted
-
-**One heading covers the arc**, as the 2026-09-12 … 2026-09-14 entry did: a read
-pass, three measuring sessions on MINIS, an implementation pass, a rebuild, and
-the operator's first boot. Reports are outside the repository under
-`~/Claude.assistent/`, named below, and carry everything this entry leaves out.
-
-**The read pass found the foundation carrying applications.**
-`build/foundation.sh` installed `dbus`, `libgtk-3-0`, `foot` and `nautilus`
-into the foundation, against ADR-007 and ADR-014's "deliberately carries no
-applications" — so a `web.list` swap of nautilus for pcmanfm could not remove
-either, because both arrived one layer down (`appweb-readpass-report.md` § 2.5,
-D1).
-
-**The first measurement halted on the host, not the guest.** `linux-hardened`
-had been upgraded 7.2.5 → 7.2.6 at 2026-09-19 20:49 without a reboot, which
-removed the running kernel's module tree: `overlay` is `=m`, so no module that
-was not already loaded could load until a reboot (`appweb-m1-report.md` § 3.1).
-The operator rebooted on 2026-09-25 (14:00:27, kernel
-`7.2.7-hardened1-1-hardened`). The re-run then halted again at the same guard
-for a different cause — the module was present but not yet loaded, and the
-guard could not tell the two apart — and passed once the guard was rewritten
-to `modinfo -n` and one `modprobe overlay` was authorised
-(`appweb-m1-rerun-report.md` §§ RB.1, R5.4 W1, S2–S4). Its A13 reading found
-the host's PATH `waypipe` at distro `0.11.2` against the lock's `0.11.0`.
-
-**The new foundation set was measured in a tmpfs overlay: 204 packages, 85
-manual**, down from 415 and 88; the web layer then adds 21. udev, udisks2 and
-gvfs leave. **systemd and systemd-sysv stay, with two independent keepers:**
-`systemd-sysv` is `Protected: yes`, and GTK3 pulls
-dconf → `dbus-user-session` → `libpam-systemd` → `systemd-sysv`
-(`appweb-m2-report.md` §§ 6.1, 7.3, 11 W1).
-
-**Implementation** (`appweb-impl-report.md` § 1): `13a509d` reduces the
-foundation to the shared GUI runtime, diverts `/usr/sbin/init` to
-`init.systemd` before katmate-init lands there, and makes the comments stop
-claiming systemd is absent; `adc217f` replaces nautilus with pcmanfm in the
-manifests and the vm-agent RUN whitelist. **The rebuild**
-(`appweb-rebuild-report.md`) added `1d53c77` (the ADR-014 revision note,
-amended from `dd3df01`) and `5d32dd0` (a read-back of the diversion before
-katmate-init is baked), then ran `make foundation` and `make app-web`:
-**foundation 209 packages / 85 manual, `vm_app_web` 230, and the 21 it adds
-are exactly m2's T4 list**; the divert landed; `KERNEL_PROVENANCE=recorded` is
-in `foundation.meta` for the first time; no hold was left (§§ 5.1–5.3). The
-old LVs, delta, meta, kernels and agent were set aside as `_pre0926` (see
-*Live state*).
-
-**First boot, by the operator, 2026-09-26:** pcmanfm, foot and firefox-esr
-render through waypipe; `run nautilus` is refused; firefox has no internet,
-which is expected — `app_web` has no network device and derives
-`app-offline`. Before it, the operator repointed the host's waypipe listener at
-`/opt/katmate/bin/waypipe` and disabled a socket unit that turned out to be a
-TCP `[::]:1024` listener; see *Live state*, *Host GUI ingress* (operator,
-2026-09-26).
-
-**Rulings of 2026-09-26 (operator):** the guest's IP is set by katmate-init at
-boot, and vm-agent may also set IP configuration at runtime — a direction, the
-mechanism not chosen; the `208/STDIN` repair choice stays open; the foundation's
-dependency debt (#35) is deferred past the alpha.
-
 ## Session archive
 
 Rotated sessions are enumerated in `docs/SESSIONS.md`, newest first; that
@@ -225,6 +165,22 @@ extracted block against the pre-move blob.
 *second of two* entry (3a part 1) rotated out as the 2026-08-17 entry arrived. Two
 rotations in one day is not a defect — it is what keeping two sessions costs when
 two sessions close on the same day.
+
+**Closed 2026-09-27.** The 2026-09-24 … 2026-09-26 entry (the first web AppVM:
+foundation reduced to the shared GUI runtime, rebuilt, and booted) rotated to
+the archive as the 2026-09-27 *pool-fold* entry arrived. **The block moved
+verbatim, heading included** — *Previous session* stays *Previous session* —
+under the `a6e3fba` reading note. Verified by hashing the whole block, heading
+line included, before and after — **identical, `06fb083fdc918f87…`** — by
+diffing the pre-move block against the `HEAD` blob (clean), and by
+re-extracting it from `docs/SESSIONS.md` at its new home and diffing it against
+the pre-move block (clean). `docs/SESSIONS.md` gained 60 lines — the 59-line
+block and one blank separator — and lost none; it was inserted at the head of
+the entry list, above the 2026-09-20 *second of two* entry, newest-first. The
+2026-09-26 *net-up and net-m1* entry's prefix changed from *This session* to
+*Previous session*, its body untouched. **No ordinal changed.** The rotation
+and the new entry are separate commits, so between them this file held one
+session, never three.
 
 **Closed 2026-09-26 (second rotation of that day).** The 2026-09-20 *second of
 two* entry (`auditfix-liveread`, `b1-docwrite`, `b1b-rulings` and
