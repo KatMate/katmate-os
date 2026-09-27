@@ -3985,6 +3985,35 @@ what the artefact means, not to make its absence mean something too.
 Nothing in §1 is withdrawn. The table row is unchanged; its lifetime and its
 authority are supplied.
 
+**Revision note (2026-09-27, §1 — a second T1 form, per concern, for
+configuration that is not a property):** the operator ruled on 2026-09-27
+(ADR-037's R31, in its note of that date; `r8-readpass-report.md` D1, D2 and
+D12, outside the repository) that §1's T1 row has **two forms**. The table
+itself is left as written, and this note amends it:
+
+| Tier | Author | Directory | Wins on upgrade |
+|---|---|---|---|
+| **T1** instance properties | the user | `/etc/katmate/vm/<name>.toml` | the **user** |
+| **T1** per-instance configuration that is not a property | the user | `/etc/katmate/vm/<instance>.d/`, one file per concern | the **user** |
+
+- **Keyed by instance**, like `<name>.toml`, and never by manifest or class.
+  Each file holds one concern. The first is ADR-037's `uplink` (arc step 3).
+- **No overlap.** No key may appear both in `<instance>.d/` and in
+  `<instance>.toml`. The directory holds only concerns that are not properties.
+- **An unknown file in `<instance>.d/` is refused.**
+- **Why §1's rejection does not apply.** §1 rejects a per-VM directory because
+  it *"admits two sources for one VM"*. This directory is not a second source
+  for any key: every key has exactly one home, a property in `<name>.toml` or
+  a concern in `<instance>.d/`, and the no-overlap rule and the refusal of
+  unknown files hold that.
+- **`<name>.toml.d/` stays reserved** for property drop-ins, the later
+  extension §1 names. `<instance>.d/` is not that extension, and neither name
+  may be used for the other's purpose.
+- **Modes.** §1's `root:root` `0644` is stated for `<name>.toml`, and a
+  world-readable mode is wrong for a key (r8 D12). The modes for a secret in
+  `<instance>.d/` are decided at ADR-037's arc step 5 (VPN mode). This note
+  sets no mode.
+
 ---
 
 ## ADR-033 — AppVM link topology: p2p over AF_UNIX datagrams, from a static slot pool
