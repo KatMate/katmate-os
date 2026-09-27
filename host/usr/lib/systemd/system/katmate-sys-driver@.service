@@ -9,8 +9,8 @@
 # reason T3 may be derived from T1 without T1 becoming an attack surface: a user
 # cannot select weaker containment.
 #
-# Transcribed from ~/net-sys.con, which was the de facto specification. Six
-# changes, each required by a decision already taken; they are marked (1)-(6)
+# Transcribed from ~/net-sys.con, which was the de facto specification. Seven
+# changes, each required by a decision already taken; they are marked (1)-(7)
 # below where they occur.
 Description=KatMate sysVM (driver domain): %i
 # No Documentation= : no man page ships. See the comment in
@@ -59,16 +59,23 @@ RuntimeDirectoryPreserve=yes
 #                             and refuses if the profile it derives from
 #                             (class, netvm, nic) is not the one this unit's name
 #                             asserts (ADR-032 §6).
+#  4. katmate-build-cfgdisk — `+`, uid 0 (ADR-037 R32). Builds the read-only
+#                             config disk (7) from /etc/katmate/vm/%i.d/: no
+#                             uplink file is the absent path, and anything
+#                             present and malformed refuses the start (R36).
+#                             After the generator, so an instance the generator
+#                             refuses never reaches it.
 #
 # The `+` on the generator is not optional: the projection is root-owned so that
 # the uid QEMU runs as cannot rewrite the environment it is about to be started
-# with.
+# with. The same holds for the config disk.
 #
 # katmate-check-waypipe is deliberately absent: a sysVM runs no waypipe. It
 # belongs to the two AppVM profiles.
 ExecStartPre=/usr/lib/katmate/katmate-check-image %i
 ExecStartPre=+/usr/lib/katmate/katmate-activate-lvs %i
 ExecStartPre=+/usr/lib/katmate/katmate-generate-env %p %i
+ExecStartPre=+/usr/lib/katmate/katmate-build-cfgdisk %i
 
 # The leading `-` is load-bearing, not defensive. E1 (2026-08-06) measured that
 # EnvironmentFile= is read late enough to see a file created by ExecStartPre= in
@@ -136,6 +143,29 @@ EnvironmentFile=-/run/katmate/vm/%i.env
 #     EVERY NEW DEVICE IN THIS UNIT CARRIES AN EXPLICIT addr= (R11). A device
 #     without one is placed by argv order, and one inserted ahead of vfio-pci
 #     would claim slot 4 first.
+# (7) The config disk (ADR-037 R32-R34): cfg0, built by katmate-build-cfgdisk
+#     above, listed immediately after the root drive's pair.
+#     - The path is STATIC, built from %i, and not a projected value: nothing
+#       new crosses in the environment, so katmate-generate-env and its fixed
+#       key set do not change. The disk is always attached. "No static uplink"
+#       is an image with no uplink entry, never an absent device, because the
+#       fixed argv cannot express an absent one (R36).
+#     - addr=0x15 is explicit under (6)'s rule (R11), not by habit. It is
+#       listed before the sixteen auto-placed NICs, so it should claim its slot
+#       before any of them is placed (QEMU's placement order, expected and not
+#       yet observed; the first start on this unit shows it).
+#       0x15 was read free before this line was written: the guest's PCI
+#       enumeration in the host journal of 2026-09-27 shows 01-03 (rng, vsock,
+#       root), 04 (the RTL8125), 05-14 (the sixteen NICs) and the 1f functions,
+#       and nothing at 15-1e (ADR-037's note on R41-R44 and the two readings).
+#     - serial=kmcfg gives the guest a stable name,
+#       /dev/disk/by-id/virtio-kmcfg, which its consumer orders on. vdX
+#       letters are enumeration order and are not a name.
+#     - readonly=on, and NO cache=none (R34), unlike the root drive: cache=none
+#       opens the file O_DIRECT, the image is on tmpfs, and whether tmpfs
+#       accepts O_DIRECT depends on the kernel version (unmeasured here). A
+#       small read-only disk gains nothing from it, so omitting it removes the
+#       question instead of answering it (r8 Q-R8b).
 #
 # Carried UNCHANGED and deliberately not decided here (brief §7): the
 # memory-backend-memfd/hugepages division between this VM and app_web, and
@@ -163,6 +193,8 @@ ExecStart=/usr/bin/qemu-system-x86_64 \
     -append "root=${KM_ROOT_DEVICE} rw console=ttyS0" \
     -drive file=${KM_ROOTFS_DEV},if=none,id=disk0,format=raw,cache=none,aio=threads,discard=ignore,detect-zeroes=off \
     -device virtio-blk-pci,drive=disk0,iothread=iothread0 \
+    -drive file=/run/katmate/cfgdisk/%i.img,if=none,id=cfg0,format=raw,readonly=on \
+    -device virtio-blk-pci,drive=cfg0,addr=0x15,serial=kmcfg \
     -device vfio-pci,host=${KM_VFIO_BDF},addr=0x4 \
     -netdev dgram,id=link00,local.type=unix,local.path=/run/katmate/link/%i/00/netvm,remote.type=unix,remote.path=/run/katmate/link/%i/00/appvm \
     -device virtio-net-pci,netdev=link00,mac=52:54:01:00:00:00 \
