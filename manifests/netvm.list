@@ -32,8 +32,14 @@ zstd
 firmware-realtek
 
 # --- networking core --------------------------------------------------------
-# systemd-networkd ships with systemd (pulled by the debootstrap variant), and
-# does DHCP itself — no separate DHCP client package is needed.
+# dhcpcd holds the uplink's lease and writes /etc/resolv.conf (ADR-037 R6).
+# systemd-networkd still ships with systemd but is disabled in netVM (R15).
+# `dhcpcd`, not `dhcpcd-base` alone: dhcpcd-base carries the daemon and hooks
+# but no unit; dhcpcd adds dhcpcd.service and depends only on dhcpcd-base and
+# sysvinit-utils (Essential). Neither pulls dbus or libdbus by Depends: (trixie,
+# 1:10.1.0-11+deb13u4; R16). Its sandbox cannot CREATE /etc/resolv.conf, only
+# rewrite it, so build/netvm.sh bakes an empty one (R29).
+dhcpcd
 nftables
 iproute2
 

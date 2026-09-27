@@ -2,10 +2,10 @@
 # Katmate OS — netVM sysVM build (ADR-021)
 #
 # netVM is a DISTINCT COMPONENT CLASS (sysVM), not the foundation and not an
-# app-layer. It does NOT share the foundation, carries full systemd (networkd,
-# wg, DHCP), boots q35 with a passed-through NIC (vfio), holds its own PRIVILEGED
-# control agent (netvm-agent), and updates on its own track (netvm-update),
-# never via katmate-update. See ADR-021.
+# app-layer. It does NOT share the foundation, carries full systemd (with
+# dhcpcd, not networkd, on the uplink; wg), boots q35 with a passed-through NIC
+# (vfio), holds its own PRIVILEGED control agent (netvm-agent), and updates on
+# its own track (netvm-update), never via katmate-update. See ADR-021.
 #
 # Divergences from foundation.sh (deliberate, per ADR-021 / ADR-018):
 #   - STANDALONE LINEAR RW LV, not thin and not in a snapshot chain (netVM is
@@ -145,8 +145,9 @@ mount "$DEV" "$NETVM_MNT"
 MOUNTED="$NETVM_MNT"    # register with lib.sh state so umount_root works
 
 # --- 2. debootstrap (systemd variant — NOT minbase) --------------------------
-# Default variant pulls systemd/init: netVM needs networkd, the opposite of
-# foundation.sh --variant=minbase.
+# Default variant pulls systemd/init: netVM runs systemd as PID 1 (its units,
+# udev's .link renames, nftables.service), the opposite of foundation.sh
+# --variant=minbase.
 log "debootstrap $DEBIAN_SUITE (systemd variant) into $NETVM_MNT"
 debootstrap \
   --arch="$ARCH" \
@@ -201,7 +202,8 @@ chroot_run "$NETVM_MNT" apt-get install -y --no-install-recommends "${PKGS[@]}"
 # --- 5. bake config tree (declarative; closes the netinst drift class) --------
 # Everything under conf.d/ is copied verbatim into the image. This is the ONLY
 # author of netVM configuration — no installer, no drift. The tree is
-# appVM-AGNOSTIC: it bakes the uplink, firewall policy, wg template, sysctl —
+# appVM-AGNOSTIC: it bakes the uplink's name and DHCP client config, firewall
+# policy, wg template, sysctl —
 # and NO internal /32 route (not even personalVM). All internal routes arrive
 # at launch via the agent's NETCFG (ADR-021).
 #
@@ -232,12 +234,32 @@ done < <(cd "$NETVM_CONFD" && find . -mindepth 1 -printf '%P\0')
 [[ $NETVM_CONFD_PATHS -gt 0 ]] || die "step 5 read-back: the conf tree $NETVM_CONFD yielded no paths"
 log "Read-back OK: $NETVM_CONFD_PATHS conf-tree paths in the image, all owned 0:0"
 
-log "Enabling systemd services (networkd, nftables)"
-chroot_run "$NETVM_MNT" systemctl enable systemd-networkd
+# dhcpcd, not systemd-networkd, holds the uplink (ADR-037 R6), and networkd is
+# DISABLED (R15): after R6 it has no job, and left enabled it is a second
+# DHCP-capable daemon in the most exposed VM. Disabled explicitly, not merely
+# left unenabled, so the state is a statement the read-back below can check.
+# wait-online is named too: enabling networkd enables it (Also=), and left
+# enabled it would hold network-online.target for its timeout, waiting on a
+# networkd that is not running. systemd-resolved is not installed (ADR-037
+# R18: netVM resolves directly upstream through /etc/resolv.conf, written by
+# dhcpcd).
+log "Enabling systemd services (dhcpcd, nftables); disabling systemd-networkd"
+chroot_run "$NETVM_MNT" systemctl enable dhcpcd
 chroot_run "$NETVM_MNT" systemctl enable nftables
-# systemd-resolved deliberately NOT enabled — DNS-leak policy is an OPEN
-# decision (ADR-021); resolve it in the conf tree, not by silently enabling
-# resolved here.
+NETVM_NETWORKD_UNITS=(systemd-networkd.service systemd-networkd.socket systemd-networkd-wait-online.service)
+chroot_run "$NETVM_MNT" systemctl disable "${NETVM_NETWORKD_UNITS[@]}"
+
+# Read back the enablement state, not the commands' exit codes.
+netvm_unit_state() { chroot_run "$NETVM_MNT" systemctl is-enabled "$1" 2>/dev/null || true; }
+for u in dhcpcd.service nftables.service; do
+  st="$(netvm_unit_state "$u")"
+  [[ "$st" == enabled ]] || die "step 5 read-back: $u is '$st' in the image, expected enabled"
+done
+for u in "${NETVM_NETWORKD_UNITS[@]}"; do
+  st="$(netvm_unit_state "$u")"
+  [[ "$st" == disabled ]] || die "step 5 read-back: $u is '$st' in the image, expected disabled (ADR-037 R15)"
+done
+log "Read-back OK: dhcpcd, nftables enabled; ${#NETVM_NETWORKD_UNITS[@]} networkd units disabled"
 # networking.service (ifupdown) stays present but inert: interfaces is reduced
 # to lo+source in the conf tree, so it does nothing on the uplink. Not disabled.
 
@@ -282,6 +304,13 @@ log "Build gate OK: 17 katmate .link files — 16 slots, and the uplink on pci-$
 log "Cleaning apt state inside image"
 chroot_run "$NETVM_MNT" apt-get clean
 rm -f "$NETVM_MNT/etc/resolv.conf"                        # build-time DNS only
+# ...and in its place an EMPTY root:root 0644 file (ruling R29). dhcpcd.service
+# runs ProtectSystem=strict with ReadWritePaths=/etc/resolv.conf: /etc is
+# read-only to it, so its hook can rewrite this file in place but cannot create
+# it. Empty, not absent; and never a nameserver line baked at build time.
+install -m 0644 -o 0 -g 0 /dev/null "$NETVM_MNT/etc/resolv.conf"
+[[ "$(stat -c '%u:%g %a %s' "$NETVM_MNT/etc/resolv.conf")" == "0:0 644 0" ]] \
+  || die "resolv.conf read-back: expected an empty root:root 0644 file, found: $(stat -c '%u:%g %a %s' "$NETVM_MNT/etc/resolv.conf")"
 rm -rf "$NETVM_MNT"/var/lib/apt/lists/* 2>/dev/null || true
 
 # --- 6. root account: LOCKED by default; the dev unlock is opt-in -------------
