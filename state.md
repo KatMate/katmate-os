@@ -135,6 +135,124 @@ network-online.target systemd-networkd-wait-online.service` and `journalctl -b
 listed `out/` by name only. Nothing in `removed-0927b/` has been used for a
 restore.
 
+**Continuation, the same day — the #42 queue deleted, as ruled
+(`hostclean-0927b`).** The report is outside the repository:
+`~/Claude.assistent/hostclean-0927b-report.md` (cited as hcb). **It halted twice
+on H1.** The first halt was before any MINIS contact, because the mode was
+unconfirmed. The second came between the read-only Phase P and the deletion,
+when a system notice said auto mode was active. The operator re-confirmed
+Manual both times.
+
+**Operator rulings of 2026-09-27**, recorded as rulings:
+
+- **The #42 queue was reviewed by the operator, and the listed items go.
+  They are deleted, not archived.** The record of what was deleted is hcb
+  Appendix D: path, size and sha256 for each file, and `du -sb` and file count
+  for each directory.
+- **`/etc/udev/rules.d/99-vm-lvm.rules` stays for now.** It is a security
+  finding and not a leftover: SECURITY-MODEL gap 16 and open problem #43.
+- **`~/.katmate-netvm-pass` holds a credential that was already rotated.** It
+  is deleted.
+- **`~/code_auth_token.txt` is unknown to the operator.** It is deleted, after
+  its issuer was identified (below). Deleting the file does not revoke the
+  token.
+- **`host_lan_up.sh` and `proton-wg-up.sh` are KEPT.** They bring up the host
+  uplink and the `proton` link, and may be the operator's manual post-boot step
+  that HOST-CONFIG §2 (`[OPEN]`) implies. They retire when §2 lands, not before.
+- **Pins:** a hash wherever a record had one: hc Appendix A;
+  `adr034-pregate-report.md` § 5 for the `.bak`; the Acer copies of
+  `hc-r.sh`, `hc-s.sh` and `hc-s2.sh`. Otherwise size, owner and mtime.
+  `hcb-p.sh`, the Phase P script, was added to the list, pinned by its Acer
+  hash.
+- **This session continues this entry.** There is no new heading and no
+  rotation.
+
+**Phase P (12:11:40–12:11:50, read-only).** The pins were unchanged: netVM
+MainPID 11761, invocation `f1a996dd…`, `NRestarts=0`, and waypipe-client
+MainPID 1592. No process held any listed path. Compared with the Acer pins, all
+39 Appendix A hashes and all 4 other-record hashes matched. The 50 unhashed
+files matched in size and owner (hcb § 0 execution log).
+
+- **P1, `vm-lvs.service`:** `disabled`, `inactive (dead)`, `Type=oneshot`. It
+  has no `ExecMainStartTimestamp`, no journal entry this boot, and no
+  `*.wants/` symlink. It runs `lvchange -ay -K` on `vg0/vm_personal_rw` and
+  `vg0/vm_personal_home`, then `dmsetup mknodes` and `udevadm settle`. **Neither
+  LV exists.** `~/vm-lvs.service` was an earlier draft that differs in one line
+  (`vm_personal` instead of `vm_personal_rw`). The unit is **ruled out** as the
+  cause of `vm_tpl_foundation` being active without `k` (*Invariants*,
+  thin-LV activation).
+- **P2, `~/katmate-os/`:** **no `.git`.** It held `agent/`, `app_web.con`
+  (2026-07-23) and `init/`: 5 files, 945278 B. It was not a clone, so H3 could
+  not arise.
+- **P3, `~/code_auth_token.txt`:** 109 bytes, one line of 108 characters. The
+  prefix is Anthropic's `sk-ant-o…`, the OAuth form, and the length fits a
+  Claude Code `setup-token` token. **The issuer is identified by prefix and
+  length only.** Revocation is the operator's step, at the issuing claude.ai
+  account. mtime 2026-06-15 18:09.
+- **The kept scripts, verbatim.** `host_lan_up.sh` (140 B, 2026-07-06):
+
+  ```
+  # run as root
+  ip link set enp195s0f3u1u1 up
+  ip addr add 10.3.1.3/24 dev enp195s0f3u1u1
+  ip route add default via 10.3.1.1 dev enp195s0f3u1u1
+  ```
+
+  `proton-wg-up.sh` (206 B, 2026-03-07) runs `wg-quick up proton`, after a
+  vestigial `ip link add dev tun.proton type wireguard` (full text in hcb). The
+  only reference to either name is `~/.local/share/fish/fish_history`.
+- **Read and kept, as the brief listed:**
+  - `vms/` holds only `ovmf/personal_VARS.fd` (540672 B), a personalVM UEFI
+    vars file.
+  - `iso/` holds only `debian-13.3.0-amd64-netinst.iso`.
+  - `acer/` holds four files, 2961 B.
+  - `arch-cache/` holds 425 files, 637 MB of `.pkg.tar.zst`.
+
+**Deleted, 12:37:26–12:37:40 CEST, by one script** (`hcb-d.sh`, `5d783a98…`).
+It re-checked every pin before the first deletion and the netVM and
+waypipe-client pins after each group. No `rm -f` was used, and no glob in any
+deletion path. Nothing mismatched and nothing was left in place.
+
+- **92 files:**
+  - the #42 dev scripts, prototypes, logs, captures and personalVM launchers
+    at `~`;
+  - `config-katmate-3flags.bak`;
+  - `.katmate-netvm-pass` and `code_auth_token.txt`;
+  - `hc-i.sh`, `hc-r.sh`, `hc-s.sh`, `hc-s2.sh` and `hcb-p.sh`;
+  - `~/vm-lvs.service` and `/etc/systemd/system/vm-lvs.service`. That unit
+    was not enabled, so no `disable` was issued. `daemon-reload` exit 0, and
+    the unit is now `not-found`;
+  - `/var/lib/katmate/instances/scratch_home.img` (4 GiB, `681f4b58…`);
+  - `~/.config/systemd/user/waypipe-client.socket`.
+- **2 symlinks:** the two dangling `waypipe-client@1024.service`, followed by
+  `systemctl --user daemon-reload` (exit 0).
+- **4 directories:**
+  - `gate-stage/`;
+  - `personal_boot/` (49 MB);
+  - `katmate-os/`;
+  - `src/kernel/linux-6.12.94/` (2278703639 B, 97751 files).
+
+**After:** netVM `active`, MainPID 11761, invocation `f1a996dd…`,
+`NRestarts=0`. waypipe-client `active`, MainPID 1592. `ping-client ping 3`
+returned `status=0x00 (OK)`. `list-unit-files 'waypipe*'` shows only
+`waypipe-client.service enabled`, and its `default.target.wants` symlink
+remains. `src/kernel/` now holds only `linux-6.12.y`. `instances/` holds only
+`test_web.qcow2`.
+
+**Left, and why:**
+- `host_lan_up.sh` and `proton-wg-up.sh` (ruling, above).
+- `99-vm-lvm.rules` (gap 16, #43).
+- `~/katmate-dev/` and `~/katmate-build/out/netvm/` (keep-listed).
+- `~/hcb-d.sh` itself (18524 B). It was not on the list and goes at the next
+  clean-up.
+
+**Not executed, therefore not claimed.** No revocation of the token was
+attempted. Whether anything reads `~/vm-lvs.service` or the deleted launchers at
+the next boot was not traced beyond the grep for the two kept scripts. The
+closing line of `hcb-d.sh` lists the four directories as *"SKIPPED"*. That line
+is **wrong**, a defect in the script's pin table (hcb, execution log). The
+check above it found none of them present.
+
 ## Previous session (2026-09-27, pool-fold) — the slot pool folded into the shipped sys-driver unit, netVM started under it with no console, and host-side `tap-int0` retired
 
 Two sessions. `pool-fold` ran on the Acer and MINIS, and `wp-0927` retired
@@ -1840,6 +1958,25 @@ touched.
    closing condition is unchanged** — nothing yet checks the record — and #22
    stays open.
 
+   **Note 2026-09-27 — the second kernel image is deleted, and it was the tree
+   this entry described.** `~/src/kernel/linux-6.12.94/` (no `.git`, Makefile
+   6.12.94, 2278703639 B, 97751 files) was deleted by operator ruling (#42,
+   hcb). Before deletion, its `arch/x86/boot/bzImage` read 14238720 B with
+   mtime `2026-07-06 15:59:27.699084734 +0200`. That is **identical to the
+   nanosecond** to the *second kernel image* note's source
+   (`adr034-pregate-report.md` § 3.2). The identification is by size and
+   nanosecond mtime; that report recorded no hash. **Still no cause is
+   assigned** to why the tree existed. `src/kernel/` now holds only
+   `linux-6.12.y`.
+
+   **Note 2026-09-27 — the spare `.bak` config is deleted.**
+   `~/config-katmate-3flags.bak` (143430 B, mtime 2026-07-01 08:04:56) hashed
+   `499a53a2…8a71` before deletion. That is **the same sha256** as the spare
+   config of the 2026-09-01 note above, and the same size
+   `adr034-pregate-report.md` § 5 records, so it is that object. The archived
+   config `7720cf22…`, which `CONFIG_SHA256` names, was not touched
+   (`~/katmate-kernels/` is kept).
+
 23. **A link's socket outlives its process, including on a failed start.**
    Added 2026-08-24, from link-m1 § 13.1, § 20.1 and § 23, and link-m2 § A.3.
    QEMU creates its `local.path` at start and **does not unlink it at exit** —
@@ -2494,6 +2631,39 @@ touched.
    `Pictures/`, `walls/`, `sway.sh`, the `shot-*.png`, `sway-old-*.tar.gz`,
    `iso/`, `arch-cache/`, `acer/` and `Claude.assistent/` are not judged. Neither
    is `~/katmate-build/out/netvm/` (`root:root`, 2026-07-08, contents not read).
+
+   **Note 2026-09-27 (hcb) — ruled and executed. Only this session's own
+   deletion script remains undecided.** Everything was pinned, re-checked and
+   recorded in hcb Appendix D.
+   - **Resolved, deleted 12:37 CEST:** everything listed above except the
+     items below:
+     - the instance image `scratch_home.img`;
+     - both dangling `waypipe-client@1024.service` symlinks, and also
+       `waypipe-client.socket`;
+     - both `vm-lvs.service` copies (the unit was disabled and names only the
+       absent `vm_personal_*` LVs);
+     - `han0.*` and `nftables.conf`;
+     - `~/katmate-os/`, which had no `.git`, only `agent/`, `app_web.con` and
+       `init/`;
+     - `linux-6.12.94/`, which was #22's second kernel image (#22 note);
+     - the personalVM launchers and logs, prototypes, dev scripts (`hc-*.sh`
+       included), logs, captures and backups;
+     - `config-katmate-3flags.bak` (#22 note);
+     - `.katmate-netvm-pass` (a credential already rotated);
+     - `code_auth_token.txt`, identified by prefix and length as a claude.ai
+       token. Revocation is the operator's step.
+   - **Kept, as ruled:**
+     - `vms/` (only a personalVM `personal_VARS.fd`), `iso/`, `acer/`,
+       `arch-cache/`, `Pictures/`, `walls/`, `sway.sh`, `shot-*.png`,
+       `sway-old-*.tar.gz` and `Claude.assistent/`;
+     - `~/katmate-dev/`, so `net-m1/` and `net-up/` stay, and
+       `~/katmate-build/`, so `out/netvm/` stays;
+     - **`host_lan_up.sh` and `proton-wg-up.sh`**, which bring up the host
+       uplink and `proton`. They retire when HOST-CONFIG §2 lands;
+     - `99-vm-lvm.rules`, now #43 and gap 16.
+   - **Undecided:** `~/hcb-d.sh` (18524 B, `5d783a98…`), the deleting script
+     itself, which was not on the list. **#42 stays open for that one item
+     only.**
 
 ## Next steps
 
@@ -3595,6 +3765,16 @@ frozen `vm_home_skel` vs qcow2 branch.
   activated it. Newly built LVs also stay active after their build (#37). So
   "inactive with `k`" is not a state that can be assumed on MINIS. Read
   `lv_attr` first.
+  **Note 2026-09-27 — one candidate ruled out, one remains.**
+  `/etc/systemd/system/vm-lvs.service` is **ruled out by reading** (hcb P1). It
+  was `disabled` and did not run this boot: empty `ExecMainStartTimestamp`, no
+  journal entries. Its `ExecStart=` lines name only `vg0/vm_personal_rw` and
+  `vg0/vm_personal_home`, which no longer exist. It was deleted the same day.
+  **Remaining candidate: LVM event autoactivation** of a `vm_tpl_foundation`
+  that carries no `k` flag. That LV reads `Vri-a-tz--` and its dm node dates
+  from boot (10:30). **This is UNMEASURED.** It is settled at a boot by the
+  journal (`journalctl -b` for `lvm-activate-*` / `pvscan` entries naming
+  `vg0`) together with LVM's activation records for that LV.
 
 - **vfio passthrough — memlock (RTL8125):** VFIO pins the ENTIRE guest RAM
   regardless of `-overcommit mem-lock=off` or hugepages. A manual
