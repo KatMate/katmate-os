@@ -22,6 +22,9 @@
 - [x] Template model designed (immutable base + overlays, ADR-007)
 - [x] NetVM operational — RTL8125 vfio passthrough, WireGuard/ProtonVPN, inner
       segment routing (live on MINIS/UM870; ADR-009 realized ahead of v0.3)
+      **[Note 2026-09-27: the ADR-037 image of 2026-09-27 carries no VPN.**
+      Vanilla egress is direct through `uplink0` (R2, R20). A VPN is a
+      post-install option through the config disk (R8), not implemented.**]**
 - [x] NetVM declarative build (`build/netvm.sh`) — sysVM class, debootstrap,
       proven end-to-end; the netinst pet is retired (ADR-021)
 - [x] Network object model — topology as a graph, NIC as an assignable object
@@ -43,6 +46,10 @@
       preflight check and both hops are committed. The metadata field and the
       step-11 install are written but UNVERIFIED — only a real `make
       foundation` exercises them.
+      **[Note 2026-09-27: step 10's field and step 11's install executed** in
+      the foundation rebuild of 2026-09-26 (`KERNEL_PROVENANCE=recorded`;
+      `state.md` open problem #22). The item stays open, because nothing
+      checks the record yet.**]**
 - [ ] Kernel provenance: the release orchestrator's presence check (ADR-034
       § A.3) — **blocked by open problem #25**, not deferred. `KERNEL_SRC_DIR`
       derives from `$HOME` and resolves under `/root` when the script runs as
@@ -74,6 +81,10 @@
 - [ ] Networking automation (NetVM lifecycle managed by installer/katmate)
 - [ ] VPN migration host → NetVM complete in installer (live on MINIS but not
       yet installer-integrated)
+      **[Note 2026-09-27: not live.** The 2026-09-26 net-up reading found no
+      WireGuard in netVM (`adr037-readpass-report.md` D11, outside the
+      repository), and the host's `proton` link is dev scaffolding (the
+      operator's gap-3 ruling; SECURITY-MODEL gap 3).**]**
 - [ ] Domain indicator — waybar module (authoritative) + 2px border, drawn
       host-side from waypipe CID identity, encoding the netVM attachment
       (carriers and identity path settled: ADR-026)
