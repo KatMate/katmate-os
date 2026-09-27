@@ -7402,3 +7402,96 @@ comment in `60-katmate-uplink.link` says so.
   *"Only configure IPv4"*, and no reading was taken on the uplink.
 - The refusal half of the `NETVM_UPLINK_PCI_ADDR` preflight. Its pass half ran
   in the 2026-09-27 build; a malformed value has never been run.
+
+**Revision note (2026-09-27, step-3 rulings — the config disk and the static
+uplink, R30–R40, before any code):** **Status: still PROPOSED.** G5 and G6 are
+untaken, and so is G3's static half. This note records rulings. It implements
+nothing, takes no gate, and changes no text above. The rulings are the
+operator's of 2026-09-27, given on a read pass of the tree against R7 and R8
+(`r8-readpass-report.md`, outside the repository, cited as r8). Its divergence
+and question numbers (D1–D14, Q-R8a–Q-R8i) are r8's own, and are **not** the
+D-numbers of rp cited in the notes above. Each ruling cites what it answers.
+
+- **R30 — arc step 3 is the config disk and the static uplink.** Its gates
+  are G6 and G3's static half. **VPN mode** (the WireGuard config, the VPN
+  ruleset and the kill-switch) is **arc step 5**, after arc step 4, under its
+  own ADR. It is not called "3b": build-order step 3b is the launch daemon,
+  and shipped T4 comments cite it by that name. R30 **supersedes R20's
+  scheduling sentence**, *"The VPN-mode ruleset, kill-switch included, is
+  designed at arc step 3 with R8"*; the rest of R20 stands. R8's *"the
+  WireGuard config"* is therefore arc step 5's, not step 3's. (r8 D9, D11)
+- **R31 — the T1 location.** Per-installation netVM configuration lives in
+  **`/etc/katmate/vm/<instance>.d/`**, keyed by **instance**, one file per
+  concern. Step 3's file is **`uplink`**. The directory holds only concerns
+  that are not properties: no key may appear both there and in
+  `<instance>.toml`, and **an unknown file is refused**. This **replaces
+  `/etc/katmate/netvm/`** in R8 and in G6. How it stands against
+  [ADR-032](DECISIONS.md#adr-032) § 1 is recorded in ADR-032's note of this
+  date. The modes for a secret are arc step 5's. (r8 D1, D2, D12)
+- **R32 — who builds the disk, and where it lives.** A new T4 executable,
+  run as an `ExecStartPre=+` **after** `katmate-generate-env`. The image is
+  `/run/katmate/cfgdisk/<instance>.img`, in a `root:root 0700` directory, and
+  is itself `root:root 0600`, from step 3 on. Its tier is **runtime
+  projection**. Like the env file, it is not removed at stop. (r8 D3; Q-R8a,
+  Q-R8b)
+- **R33 — the format.** A raw **`ustar`** archive with reproducible flags: no
+  filesystem on either side, and no mount. The first member is `VERSION`, and
+  an unknown version is refused. The guest extracts **named members only**,
+  into `/run`. (r8 Q-R8c)
+- **R34 — the argv.** The image path is static in the template, built from
+  `%i`, so `katmate-generate-env` does not change. The drive carries
+  `readonly=on` and **no `cache=none`**. The device carries `addr=0x15` and
+  `serial=kmcfg`, and the pair is listed immediately after the root drive's
+  pair. **One reading is taken before any code:** the guest PCI enumeration,
+  from the host journal, with the command r8 Q-R8d gives. (r8 Q-R8d, D6)
+- **R35 — parse and re-emit.** T1 content is parsed, validated and re-emitted
+  in canonical form on the host. **It is never copied through** into netVM.
+  (r8 D5)
+- **R36 — absent versus malformed.** **Absent** means there is no `uplink`
+  file: the disk is still built and always attached, without the entry, and
+  netVM leases by DHCP. **Malformed, or an unknown file:** the host fails
+  closed. The builder refuses and QEMU does not start. **A canonical entry
+  the guest cannot parse:** the consumer fails, and because `dhcpcd.service`
+  `Requires=` the consumer, there is no uplink. (r8 D4, D7; Q-R8f)
+- **R37 — the schema.** The file is flat `key = value`, read by a
+  **generalised flat reader in `katmate-lib.sh`**, with `km_t1_read` as its
+  wrapper; that refactor is its own commit. The keys are
+  `address = "a.b.c.d/nn"`, `gateway`, and `nameservers = "x,y"`. **At least
+  one nameserver** is required. Loopback and `0.0.0.0` are refused, and every
+  value is IPv4 only. **`validate-properties.fish` is not changed.**
+  (r8 Q-R8g)
+- **R38 — the guest consumer**, r8 Q-R8e's option (i). A oneshot unit,
+  ordered before `dhcpcd`, writes a complete dhcpcd configuration to `/run`. A
+  `dhcpcd.service` drop-in runs dhcpcd with `-f` on that file and `Requires=`
+  the oneshot. The baked `/etc/dhcpcd.conf` is **never rewritten**. The
+  packaged `dhcpcd.service` and its hooks are read in the guest before this
+  is written. (r8 Q-R8e)
+- **R39 — the gates.** G6: the pass half, and the refusal halves R-a to R-d,
+  as r8 Q-R8i proposes them. G3's static half, pass: as r8 Q-R8i proposes.
+  G3's static half, refusal: **no DHCP on `uplink0` in static mode**. In the
+  guest, no lease newer than boot. On the host, a tcpdump that captures zero
+  packets, with a positive control. (r8 Q-R8i)
+- **R40 — G1 stays non-discriminating.** There is no fixture argv. R11's
+  expectation that *"the discriminator comes at networking-arc step 3, when
+  R8's config disk adds the first new device"* does not hold: the config disk
+  carries an explicit `addr=` under R11's own rule, and so does not move
+  `vfio-pci`. (r8 D8)
+
+**The sequence is r8 § 4's.** One ordering is a hard constraint: the unit
+change goes onto the current image, with no T1 (the absent path), **before**
+the guest consumer and the rebuild. The static T1 for G3's static half is
+written on MINIS by the operator (R25).
+
+**G6, read in the sense of R35 and R36.** G6's text is left as written, and
+is read as follows. *Pass half:* a T1 file placed under
+`/etc/katmate/vm/<instance>.d/` (R31) reaches the guest read-only as its
+**re-emission**, not as the file. *Refusal half:* *"netVM starts with the
+config disk absent, and falls back to DHCP"* is the **absent** case of R36 (no
+`uplink` file, the disk attached without the entry). The disk itself is never
+absent. The refusal halves in substance are R39's R-a to R-d.
+
+**§ *Status*, the implementation sentence** (`wp-0927e-report.md` § 5.4,
+accepted by the operator on 2026-09-27). § *Status*'s *"no `addr=`, no
+`uplink0.link`, no dhcpcd, no dnsmasq … exist in the tree or on MINIS"* is
+false from 2026-09-27 for all but the config disk (implementation note; the
+`.link` is `60-katmate-uplink.link`, R12).
