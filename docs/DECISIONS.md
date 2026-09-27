@@ -7262,3 +7262,81 @@ above is left as written:
     precondition over to dhcpcd.
   - `state.md` § *Live state*, netVM: *"the uplink comes up MAC-matched"* and
     *"Interface names are not normative"*.
+
+**Revision note (2026-09-27, implementation — the tree, the rebuild, and gates
+G1–G4):** **Status: still PROPOSED.** G5 and G6 are untaken, and so is G3's
+static half (R25). Acceptance waits on them. This note records the
+implementation, the gate results and the operator's rulings of the same day. It
+changes no decision above. Sources are outside the repository:
+`adr037-impl-A-report.md` (cited as A, the code session on the Acer) and
+`adr037-impl-B-report.md` (cited as B, the install, rebuild and gate session on
+MINIS).
+
+- **Implemented** in nine commits, `6827583`…`c37f9d1`, pushed and
+  server-confirmed (`git ls-remote` returned `c37f9d1`; B, step 15).
+- **Built** on MINIS as a dev build (R27): `NETVM_BUILT=2026-09-27T13:01:13Z`,
+  kernel `6.12.107+deb13-amd64`. netVM runs on that image under
+  `katmate-sys-driver@netvm.service`, whose installed copy equals the tree at
+  `c37f9d1` (B § 1).
+
+**Gate results.** All were taken on MINIS on 2026-09-27, and each is quoted
+verbatim in B:
+
+| Gate | Pass half | Refusal half |
+|---|---|---|
+| G1 | **PASS**, 2026-09-27: argv `vfio-pci,host=0000:01:00.0,addr=0x4`; guest `r8169 0000:00:04.0 … RTL8125B, 38:05:25:34:7c:47`; on the new image, sysfs `0x10ec`/`0x8125` at `0000:00:04.0`. **Does not discriminate cause** (R11). | none named |
+| G2 | **PASS**, 2026-09-27: `ID_NET_LINK_FILE=/usr/lib/systemd/network/60-katmate-uplink.link`; exactly one `uplink0`; 16 slots on 16 distinct slot `.link` files | none named |
+| G3, DHCP half (R25) | **PASS**, 2026-09-27: `dhcpcd` active; no `/run/dbus`; `dbus`, `dbus-daemon` and `dbus-system-bus-common` not installed; `/etc/resolv.conf` `0:0 644` carrying dhcpcd's header and the lease nameserver; lease `10.3.1.103` on `uplink0` | **PASS (ruled)**, 2026-09-27, scoped to dhcpcd-originated state (below) |
+| G3, static half | not taken; arc step 3, with R8 (R25) | — |
+| G4 | **PASS**, 2026-09-27: a fixture peer on slot 05 got an answer with 4 A records from `10.100.1.1`; `ss` shows the wildcard bind (R17); dnsmasq's argv carries `-I lo` | **PASS**, 2026-09-27: no answer from the uplink lease within 5 s, with a positive control. **Does not discriminate cause:** netVM's `input` chain drops the query before dnsmasq's `except-interface=uplink0` is reached |
+| G5, G6 | not taken (G5 needs an AppVM on a slot; G6 needs R8) | — |
+| R12 build gate | **PASS**, 2026-09-27: `Build gate OK: 17 katmate .link files — 16 slots, and the uplink on pci-0000:00:04.0` | not exercised on a real image |
+
+**Rulings of 2026-09-27, made during the implementation:**
+
+- **R29 — resolv.conf and dnsmasq's loopback** (on A's divergence V2). As
+  given: *"netVM's /etc/resolv.conf is baked as an empty root:root 0644 file
+  (dhcpcd's sandbox rewrites it in place and cannot create it), and a tracked
+  /etc/default/dnsmasq sets DNSMASQ_EXCEPT="lo" — dnsmasq serves the slots
+  only (R17's intent) and never registers itself as the system resolver (R18).
+  The unmeasured "unit refuses to start without the file" stays UNVERIFIED."*
+  The packaged `dhcpcd.service` carries `ProtectSystem=strict` and
+  `ReadWritePaths=… /etc/resolv.conf`, and `netvm.sh` deletes the build-time
+  file (A § 0).
+- **V1 — `libdbus-1-3` is an accepted cost** (on A's divergence V1). No
+  dnsmasq package form avoids it: `dnsmasq-base` `Depends:` on it. It is a
+  library with no bus to talk to. The dbus daemon stays absent, and G3
+  measured it absent. **The build refuses `enable-dbus`** in
+  `/etc/dnsmasq.conf` and `/etc/dnsmasq.d/` (A § 1, C7). dnsmasq is compiled
+  with D-Bus support, and it is not enabled (B, step 14).
+
+**R14's refusal half, corrected.** R14 above says that after boot and one
+NETCFG ADD/REMOVE cycle, *"no `km*` interface carries an address, a route or a
+lease that NETCFG did not program"*. That wording was an overreach. **The
+operator ruled (2026-09-27, on G3) that its scope is dhcpcd-originated state
+on the slots**: a lease, IPv4LL, an IPv4 address or route, or any dhcpcd
+journal line naming `km*`. All of it was absent. The kernel's IPv6 link-local
+on a slot that NETCFG raised is outside R14. It was recorded as a finding,
+not a gate result (B, the G3 ruling). R14's text is left as written.
+
+**§ *Context*, the `Path=` bullet.** *"A `.link` matching on `Path=` has not
+been observed selecting an interface in this guest"* is **now observed**, by
+G2 on 2026-09-27.
+
+**A recorded hazard (rp D12): `uplink0` names two objects.** One is the
+guest-side interface name that R3 fixes, a T4 constant written into dhcpcd's
+`allowinterfaces` and the ruleset's `oifname`. The other is the host-side T1
+NIC label (`nic = "…"`, published under `/run/katmate/nics/`), which belongs to
+the machine's owner and may be anything. They are the same string in different
+tiers, one by derivation and one by convention. **It is not a conflict.** The
+comment in `60-katmate-uplink.link` says so.
+
+**UNVERIFIED, carried:**
+
+- R29's premise: that the packaged `dhcpcd.service` refuses to start, or
+  cannot create the file, when `/etc/resolv.conf` is absent. The empty baked
+  file makes it moot for this image, and it was never measured.
+- `ipv4only` and router solicitation on the uplink. The man page says only
+  *"Only configure IPv4"*, and no reading was taken on the uplink.
+- The refusal half of the `NETVM_UPLINK_PCI_ADDR` preflight. Its pass half ran
+  in the 2026-09-27 build; a malformed value has never been run.
