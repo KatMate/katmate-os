@@ -54,7 +54,7 @@ restartable — and so updatable — without touching running VMs.
 Direction unchanged: IOMMU-capable platforms only (VT-d/AMD-Vi).
 MINIS is primary host and merge target.
 
-## This session (2026-09-27, adr037-impl A and B) — ADR-037 implemented in nine commits, netVM rebuilt on it, and G1–G4 taken
+## Previous session (2026-09-27, adr037-impl A and B) — ADR-037 implemented in nine commits, netVM rebuilt on it, and G1–G4 taken
 
 Two sessions, one arc. `adr037-impl-A` wrote the code on the Acer, did not
 build it and did not push it. `adr037-impl-B` installed the host side on MINIS,
@@ -152,104 +152,6 @@ The agent binary was baked as-is (mtime 2026-07-23), consistent with its
 source by mtime only (#14). `wp-0927d` ran on the Acer only and observed
 nothing on MINIS.
 
-## Previous session (2026-09-27, adr037-readpass and rulings) — the tree read against ADR-037, and the operator's rulings R10–R28 recorded before any code
-
-Two sessions, both on the Acer only. MINIS was not contacted. `adr037-readpass`
-read the tree against ADR-037 before the netVM rebuild. Its report is outside
-the repository: `~/Claude.assistent/adr037-readpass-report.md` (cited as rp).
-`wp-0927c` wrote the rulings on it into `docs/DECISIONS.md` and this file.
-
-**The read pass (rp), in summary.** It mapped every file that R2–R7, #38 and
-#27 touch (rp § 1) and found **fourteen divergences, D1–D14**, none of them
-resolved by the pass (rp § 2). The pool unit named in ADR-037 § *Carried* is
-already folded (D1). R3 reverses statements its cross-reference does not name
-(D2). Nothing keeps dhcpcd off the slots (D3). ADR-037's Status points at
-`state.md` for rulings that live in `docs/SESSIONS.md` (D4). G3's static half
-cannot be taken on the step-2 build (D6). G1 cannot tell the pin from today's
-auto-placement (D7). ADR-035's rename build gate does not exist in the tree
-(D8). ADR-021's write grant and `MODULES=dep` are stale (D10, D13). Two
-published statements say WireGuard terminates in netVM, and net-up read none
-(D11). The pass also asked the questions the implementation cannot start
-without (rp § 3), stated the readiness of gates G1–G4 with a proposed refusal
-half for each (rp § 4), and proposed a commit sequence (rp § 5). Every
-component behaviour it states from general knowledge is marked **[recall,
-unverified]** there, and none of those statements was measured.
-
-**Operator rulings of 2026-09-27 on the read pass, R10–R28.** The full text,
-with each ruling's rp reference, is ADR-037's revision note of 2026-09-27. This
-list is the index, not a second copy:
-
-- **R10:** `vfio-pci` gets `addr=0x4`, and the unit gets comment (6).
-- **R11:** G1 is accepted as not discriminating cause. Every new device in the
-  netVM unit carries an explicit `addr=`.
-- **R12:** the uplink `.link` is `60-katmate-uplink.link`, and ADR-035's rename
-  build gate lands in this rebuild as a file check on 17 `.link` files.
-- **R13:** `netvm.meta` records `UPLINK_PCI_ADDR`. The preflight that compares
-  it with the unit is open problem #44.
-- **R14:** dhcpcd gets `allowinterfaces uplink0`, `noipv4ll` and `ipv4only`,
-  and G3 gains a refusal half on `km*`.
-- **R15:** systemd-networkd is disabled in netVM. The agent unit drops its
-  `Wants=`/`After=` on it.
-- **R16:** the dhcpcd package form is whichever pulls in no dbus, measured in
-  the chroot and after the build.
-- **R17:** dnsmasq runs in its default wildcard mode, with `interface=km*`,
-  `except-interface=uplink0`, and DNS only.
-- **R18:** `/etc/resolv.conf` never points at loopback. Clear-text upstream DNS
-  is accepted for vanilla.
-- **R19:** there is no explicit reverse forward rule, and `udp dport 51820` is
-  removed.
-- **R20:** `wireguard-tools` stays and `proton.conf.template` goes. Nothing
-  baked in this rebuild references `proton`.
-- **R21:** the finding-12 slot guard is not in this rebuild. It lands before arc
-  step 4, as its own step.
-- **R22:** no `icmpv6` accept is added. Its absence is load-bearing for #24
-  (*Invariants*).
-- **R23:** `nftables.conf` becomes `0644` in its own commit, and `root:root` is
-  fixed in `netvm.sh` step 5 (#38).
-- **R24:** the agent unit moves into `manifests/netvm.conf.d/`, and step 7's
-  heredoc goes (#27).
-- **R25:** G3 is split. The DHCP half is taken at step 2 and the static half at
-  step 3. There is no fixture path for T1.
-- **R26:** G4 is taken with a fixture peer in `~/katmate-dev/`, and gains a LAN
-  refusal half.
-- **R27:** the rebuild is a dev build.
-- **R28:** the rulings are recorded before code. D5 and D8–D14, apart from D13,
-  wait for the write pass after the rebuild.
-
-**Carried rulings (operator, 2026-09-27; rp § 6):**
-
-- The token that was in `~/code_auth_token.txt` was rotated several times, so
-  it is **obsolete**. No revocation is needed. The notes are on the
-  host-cleanup entry below and on #42.
-- `/home/host/hcb-d.sh` was **deleted by the operator**. #42 closes.
-- SECURITY-MODEL **gap 3 stands for the product**. The host's `proton` link is
-  **dev scaffolding**, on the pre-release removal list beside the dev sshd
-  (#4). The gap's note of 2026-09-27 records it.
-
-**Permission mode (operator ruling, 2026-09-27):** sessions run in **auto
-mode**. When the classifier refuses a command, the agent stops, reports the
-exact command, and waits for the operator to allow it. It never retries the
-same thing in another command form. This supersedes the Manual-mode rule of
-2026-09-26 (§ *Live state*, *Dev access to MINIS*).
-
-**Ruled in-session (wp-0927c):** rp D2 also lists `docs/ARCHITECTURE.md:76`
-(*"Core stack: systemd, systemd-networkd/-resolved, …"*) as reversed by R3.
-That line is under `## Host`, so it describes the host's stack, and R3/R6
-change only netVM. The operator ruled that ADR-037's note omits it.
-
-**Written (wp-0927c):** the pool-fold entry rotated to `docs/SESSIONS.md`.
-ADR-037 has a revision note (R10–R28, D1, D4, and D2's extended
-cross-reference), and ADR-021 has one (D2, D10, D13). In this file: this entry,
-the permission-mode note, #42 closed, #44 added, the arc step-2 note and the
-finding-12 step, and two invariant notes. SECURITY-MODEL gap 3 has a note.
-
-**Not done, and not claimed.** Nothing was implemented, built or run.
-`netvm.sh`, the units and the manifests are unchanged. Every gate of ADR-037
-is untaken. rp's **[recall, unverified]** statements about dhcpcd, dnsmasq and
-QEMU are still unverified, and R14, R16 and R17 are rulings on them, not
-measurements of them. `docs/ARCHITECTURE.md` still says WireGuard terminates in
-netVM (D11). It waits with D5, D8, D9, D11, D12 and D14.
-
 ## Session archive
 
 Rotated sessions are enumerated in `docs/SESSIONS.md`, newest first; that
@@ -282,6 +184,22 @@ extracted block against the pre-move blob.
 *second of two* entry (3a part 1) rotated out as the 2026-08-17 entry arrived. Two
 rotations in one day is not a defect — it is what keeping two sessions costs when
 two sessions close on the same day.
+
+**Closed 2026-09-27 (fifth rotation of that day).** The 2026-09-27
+*adr037-readpass and rulings* entry (the tree read against ADR-037, and the
+operator's rulings R10–R28 recorded before any code) rotated to the archive as
+the 2026-09-27 *r8-readpass, wp-0927e and rulings* entry arrived. **The block
+moved verbatim, heading included**, and *Previous session* stays *Previous
+session*. Verified three ways. The whole block, heading line included, hashed
+**identical before and after, `c195f9f17ddf0753…`**. The pre-move block diffed
+clean against the `HEAD` blob. The block re-extracted from `docs/SESSIONS.md`
+at its new home diffed clean against the pre-move block. `docs/SESSIONS.md`
+gained 98 lines, the 97-line block and one blank separator, and lost none. The
+block was inserted at the head of the entry list, above the 2026-09-27
+*host-cleanup* entry, newest first. The 2026-09-27 *adr037-impl A and B*
+entry's prefix changed from *This session* to *Previous session*, and its body
+is untouched. **No ordinal changed.** The rotation and the new entry are
+separate commits, so between them this file held one session, never three.
 
 **Closed 2026-09-27 (fourth rotation of that day).** The 2026-09-27
 *host-cleanup* entry (MINIS dev leftovers retired, networkd managing no link,
