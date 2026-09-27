@@ -5,13 +5,12 @@
 > each working session. Detailed proofs and command sequences live in git
 > history and the ADRs — this file references them rather than repeating them.
 
-**Milestone:** v0.2 (in development) · **Last updated:** 2026-09-26
-(a second documentation write pass that day, on the Acer, MINIS not contacted,
-that wrote the day's two netVM sessions — `net-up`, which removed both `/etc`
-console drop-ins and started netVM again, and `net-m1`, which read what the
-network rulings needed — into this file from their two reports and the
-operator's rulings of 2026-09-26, proposed [ADR-037](docs/DECISIONS.md#adr-037)
-on those rulings, and rotated the 2026-09-20 *second of two* entry to
+**Milestone:** v0.2 (in development) · **Last updated:** 2026-09-27
+(a write pass on the Acer, preceded by one authorised clean-up on MINIS, that
+wrote the `pool-fold` session — the slot pool folded into
+`katmate-sys-driver@.service`, installed, and netVM started under it — into
+this file from its report and the operator's rulings of 2026-09-27, retired the
+host-side `tap-int0`, and rotated the 2026-09-24 … 2026-09-26 entry to
 `docs/SESSIONS.md`).
 
 ## Current focus
@@ -49,6 +48,120 @@ restartable — and so updatable — without touching running VMs.
 
 Direction unchanged: IOMMU-capable platforms only (VT-d/AMD-Vi).
 MINIS is primary host and merge target.
+
+## This session (2026-09-27, pool-fold) — the slot pool folded into the shipped sys-driver unit, netVM started under it with no console, and host-side `tap-int0` retired
+
+Two sessions. `pool-fold` ran on the Acer and MINIS, and `wp-0927` retired
+`tap-int0` on MINIS and wrote this up on the Acer. Reports outside the
+repository: `~/Claude.assistent/pool-fold-report.md` (cited as pf) and
+`~/Claude.assistent/wp-0927-report.md`.
+
+**Two halts, both resolved by the operator.** (1) Before any MINIS contact the
+session was in auto mode; the operator switched to Manual. (2) At A6, the diff
+of the repository unit against the pool unit held one hunk outside the
+expected transplant: the generator argument, `%p` against the pool's literal
+`katmate-sys-driver`. **Ruling:** the unit keeps
+`katmate-generate-env %p %i`. G1 of 2026-08-19 had already observed that line
+pass the generator's profile assertion, and the pool's literal was needed only
+because `%p` expands to `katmate-pool` there. The same ruling fixed the reboot
+time at 10:30:45 (pf, top and § 2.3).
+
+**The fold (option (b) of #39).** C1 `a36bdb2` transplants the ADR-035 slot
+pool into `katmate-sys-driver@.service`: sixteen `dgram` netdevs and
+`virtio-net-pci` devices replace the `int0` tap, and `RuntimeDirectory=` names
+the sixteen slot directories, with `RuntimeDirectoryPreserve=yes`. C2
+`70b08c7` adds the R9 comment on the per-session dev drop-in (pf § 1).
+Installed on MINIS as `a378f875…`, 14463 B. The pool unit
+(`1d727b25…`) and the pre-fold sys-driver unit (`813f27c8…`) were saved to
+`~/katmate-dev/removed-0927/`, `root:root`, and `katmate-pool@netvm` is now
+`not-found` (pf § 2.5).
+
+**netVM started under the shipped unit** at **10:50:33 CEST**: MainPID
+**11761**, invocation **`f1a996dd…d943`**, `NRestarts=0`, all three
+`ExecStartPre=` `status=0` — which re-observes the `%p` line —
+`StandardInput=null`, and empty `DropInPaths=` (pf § 2.6).
+
+**Both halves of the `208/STDIN` UNVERIFIED are settled.** For the boot half,
+after the 10:30:45 boot neither unit carried a drop-in and both read
+`StandardInput=null` (pf § 2.1, A2). For the start half, the folded unit
+started with `/run/katmate-dev/` absent and no drop-in anywhere (pf § 2.6, C3).
+
+**C4 readings** (pf § 2.8): 16 `dgram` netdevs and 16 `virtio-net-pci`
+devices in the argv, 0 `tap,`, 0 `tap-int0`. 16 slot directories, all
+`drwxr-xr-x root:root`. `ping-client ping 3` answered `status=0x00 (OK)` on
+attempt 3. 16 renames to `km00`…`km0f`, 16 distinct, 0 duplicates. **The
+binding reading first said 0/16, then 16/16.** `Type=simple` returns from
+`start` when QEMU forks, and the first script snapshotted QEMU's fds before
+QEMU had bound its netdevs. A re-take 26 s later read 16/16: socket inodes
+40491–40506 held by fds 15–30 of 11761, with the same inodes for 08–0f as the
+first reading (pf §§ 2.6, 2.7). This is now an *Invariants* entry.
+
+**Phase M — host-side `tap-int0` retired (wp-0927, authorised).** Before
+(11:02:19): MainPID 11761, invocation `f1a996dd…`, `NRestarts=0`. `tap-int0`
+was `NO-CARRIER`, `tun type tap … persist on`. The argv held 0 `tap-int0` and
+0 `tap,`. The host had 0 `/dev/net/tun` fds open, so nothing held it. The
+script (11:07:10) re-checked the pinned MainPID, invocation and file hashes,
+then moved `tap-int0.netdev` (`e0ff450d…`) and `tap-int0.network`
+(`1d8f66a0…`) to `~/katmate-dev/removed-0927/`, `cmp`-identical to pre-move
+copies. It then ran `networkctl reload` (exit 0) and `ip link delete tap-int0`
+(exit 0). After: `ip link show tap-int0` gave *Device "tap-int0" does not
+exist.* (exit 1), `networkctl list` no longer lists it, the unit is still
+`active` with **the same MainPID and invocation** and `NRestarts=0`, and
+`ping-client ping 3` answered `status=0x00 (OK)`. The auto-mode classifier
+refused this session's first attempt before execution. It ran in Manual
+mode, as the rule in § *Live state*, *Dev access to MINIS*, requires.
+
+**Finding, not a change — host-side networkd config left over from
+personalVM / the pre-sysVM layout, not removed.** The operator ruled the
+other links out of scope. A read-only listing of `/etc/systemd/network/`
+after Phase M:
+
+| File | Size | mtime | sha256 (prefix) |
+|---|---|---|---|
+| `br-personal.netdev` | 38 B | 2026-03-12 15:13:59 | `7cc41284…` |
+| `br-personal.network` | 104 B | 2026-08-02 17:41:19 | `2dacd33a…` |
+| `tap0.netdev` | 45 B | 2026-03-08 13:35:27 | `77ad9900…` |
+| `tap0.network` | 77 B | 2026-08-02 17:41:19 | `9ad82940…` |
+| `tap-outer.netdev` | 50 B | 2026-03-08 13:39:29 | `c99c91db…` |
+| `tap-outer.network` | 102 B | 2026-08-02 17:41:19 | `3b1be5aa…` |
+| `tap-personal.netdev` | 53 B | 2026-03-08 13:38:33 | `046c3261…` |
+| `tap-personal.network` | 85 B | 2026-08-02 17:41:19 | `6ec5f763…` |
+| `tap-work.netdev` | 49 B | 2026-03-08 13:39:16 | `1e1099a3…` |
+| `tap-work.network` | 101 B | 2026-08-02 17:41:19 | `55e218e0…` |
+
+`br-personal` is a bridge with no L3. `tap0` and `tap-personal` are enslaved
+to it (`Bridge=br-personal`). `tap-outer` and `tap-work` are standalone taps
+with `LinkLocalAddressing=no`. Every `.netdev` tap carries `User=host`, and
+every `.network` carries `RequiredForOnline=no`. `networkctl list` shows all
+five as `no-carrier configured`. Full hashes and contents are in
+`wp-0927-report.md`. No KatMate unit is known to use any of them. That is
+not verified: they were not traced, only listed.
+
+**Operator rulings of 2026-09-27**, recorded as rulings:
+
+- **R9 — ruled: yes.** The dev console drop-in is per-session only, in
+  `/run/systemd/system/<unit>.d/90-dev-monitor.conf`, and never in `/etc`.
+- **#39 — option (b), applied.** The pool is folded into
+  `katmate-sys-driver@.service` (`a36bdb2`, `70b08c7`). One unit now starts
+  netVM.
+- **H4:** the unit keeps `katmate-generate-env %p %i` (above).
+- **ADR-035 revision note:** accepted as proposed in pf § 6 item 9. Written
+  as ADR-035's 2026-09-27 note.
+- **`tap-int0` host files:** removed now (Phase M, above).
+- **`KM_MAC_INT` in the generator:** the orphaned `sys` branch is removed in
+  its own commit at networking arc step 4, alongside #19. The `app` branch
+  stays (ADR-035 §9). Open problem #41.
+
+**Not executed, therefore not claimed.** The C5 rollback is **UNVERIFIED**. It
+first executes on the next failed start of the folded unit, and it is settled
+by `katmate-pool@netvm` `LoadState=loaded` after a restore and
+`daemon-reload`, then that unit `active` with 16/16 bindings (pf § 6). No stop
+was issued, so `RuntimeDirectoryPreserve=yes` under the folded unit is not
+re-measured. No traffic crossed any slot. The guest's link state and addresses
+were not read. `/run/katmate/vm/netvm.env` was not read, so the claim that the
+projection still carries `KM_MAC_INT` is inferred from the generator source.
+`net-sys.con` still names `tap-int0` (`:26`), which is a finding and was not
+changed.
 
 ## Previous session (2026-09-26, net-up and net-m1) — netVM running again on a per-session console, its network baseline read, and the vanilla network stack ruled
 
@@ -548,6 +661,12 @@ touched.
   ("Remote Shell Writes"). Both calls were refused before execution, so nothing
   reached MINIS and nothing needed undoing; the same calls ran in Manual mode
   (`net-m1-report.md` §§ 3, 4, 6, 7).
+  **The rsync form of record (2026-09-27)**, as `pool-fold-report.md` § 2.5
+  used it, dry run (`-an --itemize-changes`) first:
+  `rsync -a --delete --exclude=.git/ --exclude=trixie-build/ --exclude=out/
+  --exclude=agent/target/ --exclude=git-cli.txt ~/katmate-os/
+  host@10.3.1.3:/home/host/katmate-build/`. With `--delete`, a form without
+  these excludes removes the build outputs on MINIS.
 - **Installed vs tree, 2026-08-22 — one file, deliberately.** The installed
   `/usr/lib/katmate/katmate-generate-env` on MINIS now **differs from the
   repository**, and only in the stale-label refusal's wording (*"it was created
@@ -594,7 +713,12 @@ touched.
   a drift: the lease is volatile and only the MAC identifies the guest) and the
   internal p2p segment on its **derived** MAC **`52:54:00:21:b2:08`**, measured
   live 2026-08-19 — emitted as `KM_MAC_INT` and carried into QEMU's argv as
-  `-device virtio-net-pci,netdev=int0,mac=…`. **This entry published the
+  `-device virtio-net-pci,netdev=int0,mac=…`. **[2026-09-27: the argv half of
+  that sentence is no longer true. The shipped `katmate-sys-driver@.service`
+  (`a36bdb2`) carries no `int0` device and never reads `KM_MAC_INT`; its argv
+  has 0 `tap,` netdevs and 16 `dgram,` (`pool-fold-report.md` § 2.6). The
+  generator still emits the key for `sys`, with no consumer (open problem
+  #41).]** **This entry published the
   authored `52:54:0a:64:01:01` until that run**; the *Invariants* entry below
   carries why it changed and what still uses the old value. **Interface
   names are not normative and have moved across sessions** (`enp0s6` on the
@@ -613,7 +737,10 @@ touched.
   `memlock` via `LimitMEMLOCK=infinity` (unit) or `ulimit -l
   unlimited` (manual launch). Runs independently of app_web.
   **WHAT IS RUNNING TODAY IS NOT THIS UNIT (2026-09-05; unit corrected
-  2026-09-07).** netVM is started by `katmate-pool@netvm.service`, the ADR-035
+  2026-09-07).** **[2026-09-27: no longer true — netVM now runs under the
+  shipped `katmate-sys-driver@netvm.service`, into which the pool was folded;
+  see the block *NETVM RUNS UNDER THE SHIPPED UNIT (2026-09-27)* below.]**
+  netVM is started by `katmate-pool@netvm.service`, the ADR-035
   G1 scaffolding template — **consolidated on 2026-09-07 to carry
   `RuntimeDirectory=` naming the sixteen slot directories and
   `RuntimeDirectoryPreserve=yes` folded in**, and hash-confirmed
@@ -634,16 +761,24 @@ touched.
   all sixteen `netvm` nodes rebound at new inodes and no `EADDRINUSE`
   occurred (source: `g5b-restart-report.md`) — while
   `katmate-sys-driver@netvm.service` is **inactive**. The two must never run
-  at once: same instance name, same LV, same CID, same VFIO device. The pool
+  at once: same instance name, same LV, same CID, same VFIO device.
+  **[2026-09-27: there is now one unit. `katmate-pool@.service` has left
+  `/etc` and `katmate-pool@netvm` is `not-found` (`pool-fold-report.md`
+  § 2.5).]** The pool
   unit replaces the single `tap-int0` device with sixteen `dgram` slots, so
   the guest carries **no internal-segment interface and eighteen links, not
   nineteen**; host-side `tap-int0` and its networkd `.netdev`/`.network` are
-  untouched and still exist. Two untracked, per-machine files carry it, both
+  untouched and still exist. **[2026-09-27: no longer true — both files were
+  moved to `~/katmate-dev/removed-0927/` and the link deleted; see the
+  2026-09-27 block below.]** Two untracked, per-machine files carry it, both
   under `/etc` and both surviving a host reboot that the FIFO does not:
   `/etc/systemd/system/katmate-pool@.service` and
   `/etc/systemd/system/katmate-pool@.service.d/90-dev-monitor.conf`
-  (`71b3b5db…`, unchanged). **The one-shot first-stop observation has been
-  spent** — G1b took it, and it is the finding that QEMU does not unlink its
+  (`71b3b5db…`, unchanged). **[2026-09-27: neither is in `/etc` any more. The
+  drop-in went on 2026-09-26 (R1). The pool unit was moved to
+  `~/katmate-dev/removed-0927/` when it was folded into the tracked
+  `katmate-sys-driver@.service` (`pool-fold-report.md` § 2.5).]**
+  **The one-shot first-stop observation has been spent** — G1b took it, and it is the finding that QEMU does not unlink its
   `netvm` sockets at exit. **Every MainPID recorded before 943031 is dead**,
   including all four of 2026-09-05 — the pool was stopped and started four
   times that day, the last of them 3952302, and the 2026-09-07 consolidation
@@ -750,8 +885,34 @@ touched.
   now leaves no `208/STDIN` trap is UNVERIFIED** until the next host boot; it is
   settled by `systemctl show -p StandardInput,DropInPaths` on both units after
   that boot (`null`, empty) and a successful start with no `/run/katmate-dev/`
-  (§ 23). A stop or a reboot removes the console entirely, and the `/run`
-  placement awaits the operator's ruling (R9; § 24).
+  (§ 23). **[Settled 2026-09-27: after the 10:30:45 boot both units read
+  `StandardInput=null` with empty `DropInPaths=`, and the folded unit started
+  successfully with no `/run/katmate-dev/` (`pool-fold-report.md` §§ 2.1,
+  2.6).]** A stop or a reboot removes the console entirely, and the `/run`
+  placement awaits the operator's ruling (R9; § 24). **[Ruled 2026-09-27
+  (R9): per-session only, in
+  `/run/systemd/system/<unit>.d/90-dev-monitor.conf`, never in `/etc`.]**
+
+  **NETVM RUNS UNDER THE SHIPPED UNIT (2026-09-27).** The blocks above are left
+  as published. netVM was started at **10:50:33 CEST** by
+  **`katmate-sys-driver@netvm.service`**, the tracked unit with the ADR-035
+  slot pool folded in (`a36bdb2`, with the R9 comment `70b08c7`), installed at
+  `/usr/lib/systemd/system/katmate-sys-driver@.service`, `a378f875…`,
+  14463 B: MainPID **11761**, invocation
+  **`f1a996dd5ecc4868b6620f72c451d943`**, `NRestarts=0`, all three
+  `ExecStartPre=` `status=0` (`pool-fold-report.md` §§ 2.5, 2.6). **There is
+  no console:** `StandardInput=null`, empty `DropInPaths=`, and no
+  `/run/katmate-dev/`. **`katmate-pool@netvm.service` is `not-found`.** Two
+  files are saved, not deleted, in `~/katmate-dev/removed-0927/` on MINIS,
+  **`root:root`** because a root script created them (the parent
+  `katmate-dev/` is `host:host`): the pool unit `katmate-pool@.service`
+  (`1d727b25…`, 13021 B) and the pre-fold `katmate-sys-driver@.service`
+  (`813f27c8…`, 9403 B) (§ 2.5). **Host-side `tap-int0` is gone** (Phase M
+  of `wp-0927`, 11:07:10 CEST). Its `.netdev` (`e0ff450d…`) and `.network`
+  (`1d8f66a0…`) are in the same directory, `cmp`-identical to their originals.
+  `ip link show tap-int0` answers *Device "tap-int0" does not exist.*, and
+  netVM's MainPID and invocation did not change. The other five networkd
+  links on the host are untouched (see the 2026-09-27 entry's finding).
 
   **The uplink is capped by the cable, and that is a condition of the
   environment rather than a defect.** On the boot of 2026-09-12 the link came up
@@ -2201,11 +2362,17 @@ touched.
    fix belongs to the netVM rebuild that implements ADR-037 (§ *Next steps*,
    *Networking arc*).
 
-39. **`katmate-pool@.service`, the live netVM launcher, is untracked.** Added
+39. **RESOLVED 2026-09-27 — folded, not tracked separately.** Kept as a closed
+   marker so the number is not reused. The published text is left as written:
+   **`katmate-pool@.service`, the live netVM launcher, is untracked.** Added
    2026-09-26. It exists only at `/etc/systemd/system/katmate-pool@.service` on
    MINIS (`1d727b25…`, 13021 B); `git ls-files` has no pool unit. R4 changes it
    (`addr=` on `vfio-pci`), so **it must enter the repository first**, or the
    change is made to a file no commit can show.
+   **[Resolved by option (b), operator ruling of 2026-09-27: the slot pool is
+   folded into the tracked `katmate-sys-driver@.service` (`a36bdb2`, `70b08c7`),
+   and the pool unit has left `/etc` on MINIS. R4 (`addr=`) now applies to
+   `katmate-sys-driver@.service`.]**
 
 40. **The netVM config disk is decided and not implemented.** Added
    2026-09-26. R8 ([ADR-037](docs/DECISIONS.md#adr-037)): per-installation
@@ -2213,6 +2380,18 @@ touched.
    assembles from `/etc/katmate/netvm/`. Nothing of it exists; gate G6 of
    ADR-037 is its acceptance test, and `docs/HOST-CONFIG.md` § 12 carries the
    host side as `[OPEN]`.
+
+41. **`KM_MAC_INT` is emitted for `sys` with no consumer.** Added 2026-09-27.
+   `katmate-generate-env:360-364` derives it when `CLASS == sys` and
+   `provides_network == true` (and for an `app` with `netvm` set), and `:403`
+   emits it. Its only consumer in `host/` was
+   `katmate-sys-driver@.service:138`'s `int0` device, which `a36bdb2` removed,
+   so netVM's projection carries a key nothing reads (`pool-fold-report.md`
+   § A7; the live projection was not read). **It is not a failure:** the
+   `sys-driver` required-key set (`:439-447`) excludes the key deliberately.
+   **Ruling of 2026-09-27:** the `sys` branch is removed in its own commit at
+   networking arc step 4, alongside #19. The `app` branch stays, per ADR-035
+   §9.
 
 ## Next steps
 
@@ -2307,7 +2486,9 @@ and the order is a dependency order rather than a preference.
    convention under `/run/katmate/link/` and the slot-to-interface naming — and
    **that naming is the one the ADR flags as unresolved**: NETCFG programs a
    `/32`, and a mapping that is not stable and legible programs the right address
-   on the wrong interface. `ExecStopPost=` must unlink the slot's socket, since a
+   on the wrong interface. **[2026-09-27: the `katmate-sys-driver@.service`
+   half is done (`a36bdb2`); `net-sys.con` still names `tap-int0` and is not
+   done.]** `ExecStopPost=` must unlink the slot's socket, since a
    socket file outlives its process including on a failed start (open problem
    #23).
 2. **The `app-routed` template.** An AppVM taking a free slot at launch and
@@ -2678,6 +2859,9 @@ frozen `vm_home_skel` vs qcow2 branch.
   no diagnostic. `[Link] RequiredForOnline=no` is not optional and is not a
   boot-speed matter; it is a requirement, recorded in
   [docs/HOST-CONFIG.md](docs/HOST-CONFIG.md) §1 with its failure mode.
+  **[2026-09-27: `tap-int0` is retired on the host. Both files were moved to
+  `~/katmate-dev/removed-0927/` and the link deleted (§ *Live state*,
+  netVM). The `RequiredForOnline=no` lesson stands.]**
 
 - **`net-sys.con` under git — RESOLVED 2026-07-20** (`f5f8ef2`). Was MINIS-only
   from 07-09, never committed. The file lands in `~/katmate-build/` and is
@@ -2797,14 +2981,18 @@ frozen `vm_home_skel` vs qcow2 branch.
 - **Networking arc (2026-09-26)**, in this order
   ([ADR-037](docs/DECISIONS.md#adr-037), PROPOSED):
   1. **The pool unit into the repository** (open problem #39) — R4 changes it,
-     so it is tracked before it is edited.
+     so it is tracked before it is edited. **[Done 2026-09-27 by folding: the
+     pool is in the tracked `katmate-sys-driver@.service` (`a36bdb2`), and R4
+     is made to that unit.]**
   2. **ADR-037 implemented in one netVM rebuild:** `addr=` on `vfio-pci`,
      `uplink0.link` on `Path=`, the ruleset on `oifname "uplink0"`, `dhcpcd`,
      `dnsmasq`, and the ownership fix (open problem #38), with #27 alongside.
      Its gates G1–G4 are read on that build.
   3. **The config disk** (R8, open problem #40; ADR-037 G6).
   4. **The AppVM side:** the slot, the guest IP, `NETCFG`, and `accept_ra=0`
-     (open problem #24); ADR-037 G5 needs this step.
+     (open problem #24); ADR-037 G5 needs this step. **[Added 2026-09-27:**
+     also the removal of the generator's `KM_MAC_INT` `sys` branch, in its own
+     commit, alongside #19 (open problem #41).**]**
 - **waypipe on the host** (added 2026-09-26):
   - ~~Remove the distro `waypipe` package from MINIS.~~ — **done 2026-09-26**
     by the operator (`pacman -Rs waypipe`); see § *Live state*, *Host GUI
@@ -2966,6 +3154,13 @@ frozen `vm_home_skel` vs qcow2 branch.
   `StandardInput=null` restored; console input is installed per session, all
   on tmpfs (`net-up-report.md` §§ 14, 15). Absence after a reboot is
   UNVERIFIED until the next boot (§ *Live state*, netVM).
+  **[Ruled 2026-09-27 (R9): the drop-in this entry places in `/etc` now goes
+  only in `/run/systemd/system/katmate-sys-driver@.service.d/90-dev-monitor.conf`,
+  per session, never in `/etc`, so a reboot takes it with the FIFO.]**
+  **[Settled 2026-09-27: both UNVERIFIED halves. After the 10:30:45 boot both
+  units read `StandardInput=null` with empty `DropInPaths=`, and the folded
+  unit started with no `/run/katmate-dev/` (`pool-fold-report.md` §§ 2.1,
+  2.6).]**
 
 - **Reading the netVM console: `journalctl -o cat`, never the default format.**
   journald renders any record containing non-printable bytes as
@@ -3045,6 +3240,9 @@ frozen `vm_home_skel` vs qcow2 branch.
   applies to both.
   **Ruled and applied 2026-09-26 (R1):** neither unit carries an `/etc`
   drop-in now (`net-up-report.md` § 14).
+  **[2026-09-27: there is now one unit. The pool is folded into
+  `katmate-sys-driver@.service`, and `katmate-pool@netvm` is `not-found`
+  (`pool-fold-report.md` § 2.5).]**
 - **QEMU does not unlink its `netvm` nodes at exit, but it does `unlink()`
   before `bind()` — the earlier claim that a sweep is load-bearing against
   `EADDRINUSE` was wrong, and is corrected here.** Measured 2026-09-12: a
@@ -3069,6 +3267,19 @@ frozen `vm_home_skel` vs qcow2 branch.
   too late to close that window** — only an unlink at stop does. §5's
   `ExecStopPost=` unlinking the sixteen `netvm` files remains
   **unimplemented** (ADR-035's 2026-09-12 revision note, finding 7).
+  **[2026-09-27: this applies to the folded `katmate-sys-driver@.service`
+  exactly as it did to the pool unit. It carries no `ExecStopPost=` either.]**
+- **`Type=simple` returns from `systemctl start` as soon as QEMU forks —
+  before QEMU has bound its netdevs — so the slot bindings are read after the
+  guest answers PING, not after `start`.** Measured 2026-09-27: a binding check
+  run straight after `start` read **0/16**. It had snapshotted
+  `/proc/<pid>/fd` before walking the slots while QEMU was still binding.
+  Nodes 00–07 were absent, and 08–0f were compared against the stale fd list.
+  A re-take 26 s later read **16/16**, with the same socket inodes for 08–0f,
+  so both readings describe one set of bindings seen at two moments.
+  **Same family as *"a check that cannot fire…"*:** the first reading was
+  confident, well-formed and wrong. Source: `pool-fold-report.md` §§ 2.6,
+  2.7.
 - **`RuntimeDirectoryPreserve=yes` is load-bearing, reconfirmed under a live
   peer.** A second, independent restart of `katmate-pool@netvm.service`
   (2026-09-12) left `appvm` inode 7528, its bound `/proc/net/unix` socket
