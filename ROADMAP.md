@@ -148,6 +148,12 @@ depends on that daemon staying alive.
 4. **NetVM installer integration** — netVM lifecycle automated from the
    installer; NIC passthrough; VPN provisioned at install time. Unblocked: the
    declarative build and the uplink are proven.
+   **[Note 2026-09-27: not "at install time".** Under ADR-037 R2 the VPN is a
+   post-install option the user enables by supplying a WireGuard config. VPN
+   mode is **networking arc step 5**, under its own ADR (R30, in ADR-037's
+   note on the step-3 rulings; `state.md` § *Next steps*). That is the
+   networking arc's numbering, not this build order's step 5. The text above
+   is left as written.**]**
 5. **Default AppVMs** — instantiate the domains from two manifests + properties;
    per-instance home on raw thin LV (ADR-030 §7: the home LV is per instance,
    not per app layer — today's name is per layer and would corrupt on a second
