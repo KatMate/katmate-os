@@ -6,11 +6,12 @@
 > history and the ADRs — this file references them rather than repeating them.
 
 **Milestone:** v0.2 (in development) · **Last updated:** 2026-09-27
-(`wp-0927c`, a docs-only write pass on the Acer. It recorded the
-`adr037-readpass` session and the operator's rulings R10–R28 on it, before any
-implementation, in ADR-037's and ADR-021's revision notes and in this file. It
-also recorded the auto-mode permission rule and closed #42, and it rotated the
-2026-09-27 `pool-fold` entry to `docs/SESSIONS.md`).
+(`wp-0927d`, a docs-only write pass on the Acer. It recorded ADR-037's
+implementation (sessions `adr037-impl` A and B): the nine commits, the netVM
+rebuild, gates G1–G4, and the operator's rulings of that day, in ADR-037's and
+ADR-035's revision notes, in `docs/ARCHITECTURE.md` § *Networking* and in
+this file. It closed #27 and #38, opened #45, and rotated the 2026-09-27
+`host-cleanup` entry to `docs/SESSIONS.md`).
 
 ## Current focus
 
@@ -47,6 +48,104 @@ restartable — and so updatable — without touching running VMs.
 
 Direction unchanged: IOMMU-capable platforms only (VT-d/AMD-Vi).
 MINIS is primary host and merge target.
+
+## This session (2026-09-27, adr037-impl A and B) — ADR-037 implemented in nine commits, netVM rebuilt on it, and G1–G4 taken
+
+Two sessions, one arc. `adr037-impl-A` wrote the code on the Acer, did not
+build it and did not push it. `adr037-impl-B` installed the host side on MINIS,
+rebuilt netVM, took G1–G4 and pushed A's commits. Both reports are outside the
+repository: `~/Claude.assistent/adr037-impl-A-report.md` (A) and
+`~/Claude.assistent/adr037-impl-B-report.md` (B). `wp-0927d` wrote the record.
+
+**A: nine commits, all `G`.** `6827583` bakes the conf tree `root:root` and
+reads the ownership back (#38). `a209ebf` sets `nftables.conf` to mode 0644
+(R23). `098e868` makes the agent unit a tracked file in the conf tree (#27,
+R24, R15). `8391bb3` pins `addr=0x4` on `vfio-pci` (R4, R10, R11). `0f304c9`
+adds `60-katmate-uplink.link` on `Path=`, the 17-file `.link` build gate and
+`UPLINK_PCI_ADDR` (R3, R12, R13). `bb1481a` replaces systemd-networkd with
+dhcpcd on the uplink (R6, R14–R16, R29). `8f388d4` adds dnsmasq on the slots
+only (R5, R17, R18, R29). `7550734` sends vanilla egress through `uplink0`,
+with the return path by conntrack only (R2, R19, R22). `c37f9d1` retires the
+ProtonVPN template (R20). A halted once before its first commit, on V1 and V2
+(both ruled, below). Its build-time refusals ran against fixtures only.
+
+**B: installation.** Hash-first before any change compared 8 files and found
+2 expected differences (`katmate-generate-env`, the unit) and 0 others. **The
+whole tracked host set was re-installed from the tree at `c37f9d1`**, 6
+`/usr/lib/katmate/*` files and both units: 8 of 8 sha256-verified,
+`root:root`, git modes. From 14:22:49 CEST hash-first is clean. netVM was
+restarted on the new unit, and G1 was taken on the old image.
+
+**B: the rebuild.** After the operator's reboot and with suspend masked,
+`lvremove -y vg0/vm_sys_netvm` ran at 14:45:35 CEST. The dev build (R27) ran
+14:47:06–15:01:13 CEST as the transient unit `km-netvm-build` (launch form
+below), `netvm.sh rc=0`. Every build read-back printed its pass line, among
+them `34 conf-tree paths … all owned 0:0`, `24 baked conf-tree files, none
+names 'proton'` and `Build gate OK: 17 katmate .link files`. No host dnsmasq
+appeared at either watcher probe. Image: `NETVM_BUILT=2026-09-27T13:01:13Z`,
+kernel `6.12.107+deb13-amd64`. netVM was started on it at 15:03:39 CEST
+(MainPID 50080) with a per-session console.
+
+**Gates, all 2026-09-27; the full table is ADR-037's implementation note:**
+- **G1 PASS:** argv `addr=0x4`, and the RTL8125 at guest `00:04.0`. It does
+  not discriminate cause (R11).
+- **G2 PASS:** `ID_NET_LINK_FILE=…/60-katmate-uplink.link`, exactly one
+  `uplink0`, and 16 slots on 16 distinct `.link` files.
+- **G3 DHCP half PASS:** dhcpcd active, no dbus daemon, `resolv.conf` written
+  in place, lease `10.3.1.103`. **Refusal half PASS, as ruled** (scope below).
+  The static half waits for arc step 3.
+- **G4 PASS:** a fixture peer on slot 05 got 4 A records from `10.100.1.1`.
+  **Refusal half PASS**, and it does not discriminate cause (the `input`
+  chain drops the LAN query before dnsmasq is reached).
+- Not a gate: an ICMP echo from the fixture to `1.1.1.1` was answered, so
+  egress and masquerade out `uplink0` work for a pool-sourced packet. G5 still
+  needs an AppVM.
+
+**Operator rulings of 2026-09-27, recorded as rulings:**
+- **R29** (A's V2): netVM's `/etc/resolv.conf` is baked as an empty
+  `root:root 0644` file, and a tracked `/etc/default/dnsmasq` sets
+  `DNSMASQ_EXCEPT="lo"`. The full text is in ADR-037's implementation note.
+- **V1:** `libdbus-1-3` is an accepted cost, a library with no bus. The build
+  refuses `enable-dbus`.
+- **G3's refusal half is scoped to dhcpcd-originated state.** R14's wording,
+  *"anything NETCFG did not program"*, was an overreach. The kernel's IPv6
+  link-local on a raised slot is a separate finding, #45.
+- **B § 0.1, items 1–7:** (1) the `katmate-generate-env` mismatch was
+  expected, and the whole tracked set was re-installed, which closes
+  *Installed vs tree, 2026-08-22*; (2) the silent `resolv.conf` read-back is
+  settled by G3's in-guest `stat`; (3) the three host units to read are
+  `katmate-sys-driver@netvm`, `katmate-publish-nics` and `km-console-holder`;
+  (4) the host dnsmasq watch probes at the *Baking netVM config tree* line and
+  at build exit, and a hit is recorded, not killed; (5) a root wrapper reads
+  the dev root hash from a `0:0 0600` file into the environment, with no
+  `set -x`; (6) G1 by the guest journal before the rebuild, plus sysfs after
+  it; (7) G4's refusal half is recorded as not discriminating cause.
+- **Launch form:** a netVM build runs as a transient `systemd-run` unit, so an
+  ssh drop cannot kill it (§ *Live state*, *Dev access to MINIS*).
+- **Permission mode, as done in B, not a new rule:** after a classifier
+  refusal B was switched from auto to Manual for the rest of that session,
+  and the refused call was retried once, verbatim, on the operator's
+  instruction. **The standing rule stays auto plus stop-report-wait.**
+
+**Left on MINIS (B § 6).** netVM is running (MainPID 50080). The console is
+logged out, with its drop-in, FIFO and holder in `/run`. Slot 05 holds a dead
+`appvm` socket node from the G4 fixture. `km02` and `km05` are UP with IPv6
+link-locals only (#45). Suspend is unmasked. The new LV holds `jbd2/dm-8-8`,
+so **a reboot is due before the next `netvm.sh`**, as always.
+
+**Not executed, and therefore not claimed:**
+- G5, G6, and G3's static half;
+- the refusal half of the `NETVM_UPLINK_PCI_ADDR` preflight;
+- dhcpcd without the empty `resolv.conf` (R29's premise);
+- router solicitation on the uplink (`ipv4only`);
+- whether the LAN DHCP server received netVM's hostname;
+- whether the LV's live `jbd2` thread at boot affects the guest filesystem
+  (no fsck was taken);
+- the removal of the `/run` scaffolding by a reboot.
+
+The agent binary was baked as-is (mtime 2026-07-23), consistent with its
+source by mtime only (#14). `wp-0927d` ran on the Acer only and observed
+nothing on MINIS.
 
 ## Previous session (2026-09-27, adr037-readpass and rulings) — the tree read against ADR-037, and the operator's rulings R10–R28 recorded before any code
 
@@ -621,7 +720,19 @@ touched.
   --exclude=agent/target/ --exclude=git-cli.txt ~/katmate-os/
   host@10.3.1.3:/home/host/katmate-build/`. With `--delete`, a form without
   these excludes removes the build outputs on MINIS.
-- **Installed vs tree, 2026-08-22 — one file, deliberately.** The installed
+  **[Note 2026-09-27 (operator ruling, the launch form for builds).** A netVM
+  build runs as a **transient `systemd-run` unit**, started through `sudo -n
+  bash`, so that an ssh drop cannot kill `netvm.sh` mid-build. It is followed
+  through its journal and its log file. First used by `adr037-impl-B`
+  (`km-netvm-build`, 14:47:06–15:01:13 CEST). Such a unit has no `HOME` (see
+  *Invariants*, the transient-unit entry).**]**
+- **[CLOSED 2026-09-27: from 14:22:49 CEST the installed set equals the tree
+  at `c37f9d1`.** `adr037-impl-B` re-installed all 8 tracked files (six
+  `/usr/lib/katmate/*` and both units) from the tree, sha256-verified each, and
+  `katmate-generate-env` went `ed55ce55…` → `27899269…` (B, Phase 1; ruling
+  § 0.1 item 1). Hash-first now expects no difference. The entry is left as
+  published.**]**
+  **Installed vs tree, 2026-08-22 — one file, deliberately.** The installed
   `/usr/lib/katmate/katmate-generate-env` on MINIS now **differs from the
   repository**, and only in the stale-label refusal's wording (*"it was created
   for …"* → *"`$NIC_FILE` claims …"*). Behaviour is unchanged; nothing else in
@@ -649,7 +760,10 @@ touched.
   principle, superseded. (b) The **declarative build** `vm_sys_netvm` (linear RW
   4G) from `build/netvm.sh`, booted via `~/net-sys.con` (RTL8125 via
   `-device vfio-pci,host=0000:01:00.0`, `-kernel`/`-initrd` direct boot, kernel
-  **6.12.107+deb13-amd64**, last rebuilt **2026-09-05 20:40:32Z** — was
+  **6.12.107+deb13-amd64**, last rebuilt **2026-09-05 20:40:32Z**
+  **[2026-09-27: superseded. Last rebuilt `2026-09-27T13:01:13Z`, on the
+  ADR-037 image, and the kernel is unchanged; see the block *NETVM ON THE
+  ADR-037 IMAGE (2026-09-27)* below.]** — was
   `6.12.101+deb13-amd64` on 2026-08-11 and `6.12.96+deb13-amd64` from the
   2026-07-23 build, and the change is trixie moving under a declarative
   manifest, not a defect; the 2026-09-05 build did **not** move it, `vmlinuz`
@@ -661,6 +775,9 @@ touched.
   `MACAddress=` being unable to glob onto it. The initrd's compressor moved
   **gzip → zstd** on the same build and it boots. Boots through full
   systemd, root on `/dev/vda`; the uplink comes up MAC-matched
+  **[2026-09-27: false on the ADR-037 image. The uplink is named `uplink0` by
+  `60-katmate-uplink.link` on `Path=pci-0000:00:04.0`, and dhcpcd holds it;
+  `20-uplink.network` is gone (R3, R6; G2). The MAC is unchanged.]**
   (`38:05:25:34:7c:47`, `Link is Up 1Gbps/Full`, `firmware-realtek` loaded,
   DHCP lease **`10.3.1.103`** confirmed by host ARP scan on 2026-08-19 — it was
   **`10.3.1.104`** on 2026-08-11, and the lease moving is the rule holding, not
@@ -675,7 +792,11 @@ touched.
   #41).]** **This entry published the
   authored `52:54:0a:64:01:01` until that run**; the *Invariants* entry below
   carries why it changed and what still uses the old value. **Interface
-  names are not normative and have moved across sessions** (`enp0s6` on the
+  names are not normative and have moved across sessions** **[2026-09-27:
+  false for the uplink on the ADR-037 image. `uplink0` is load-bearing, because
+  dhcpcd's `allowinterfaces` and the ruleset's `oifname` use it (R3). The slot
+  names `km00`…`km0f` were already load-bearing (ADR-035's 2026-09-20
+  note).]** (`enp0s6` on the
   retired pet, `enp0s4`/`enp0s5` on the declarative build) — read the MACs, not
   the names (see *Invariants*). The uplink deltas (`firmware-realtek`,
   `20-uplink.network`, cleaned `interfaces`) are baked by the manifest, not
@@ -833,7 +954,8 @@ touched.
   with fd 3 on the FIFO since the rendezvous (§§ 15, 16.2). **Both `/etc`
   drop-ins are removed**; copies are at `~/katmate-dev/removed-0926/` on MINIS,
   `host:host 0644` (§ 14). The guest holds lease **`10.3.1.103`**; the uplink
-  is `enp0s4` ↔ **`38:05:25:34:7c:47`** at guest `00:04.0`, settled at
+  is `enp0s4` **[2026-09-27: `uplink0` on the ADR-037 image]** ↔
+  **`38:05:25:34:7c:47`** at guest `00:04.0`, settled at
   **100 Mbps/Full (downshifted)** after two 1 Gbps up/down cycles (§§ 16.5,
   17.1, 19.2). The console was left at the login prompt (§ 20). **That a reboot
   now leaves no `208/STDIN` trap is UNVERIFIED** until the next host boot; it is
@@ -854,9 +976,14 @@ touched.
   `/usr/lib/systemd/system/katmate-sys-driver@.service`, `a378f875…`,
   14463 B: MainPID **11761**, invocation
   **`f1a996dd5ecc4868b6620f72c451d943`**, `NRestarts=0`, all three
-  `ExecStartPre=` `status=0` (`pool-fold-report.md` §§ 2.5, 2.6). **There is
+  `ExecStartPre=` `status=0` (`pool-fold-report.md` §§ 2.5, 2.6).
+  **[2026-09-27: MainPID 11761 is dead. It was restarted on the new unit as
+  123155, and then started on the ADR-037 image as 50080; see the block
+  below.]** **There is
   no console:** `StandardInput=null`, empty `DropInPaths=`, and no
-  `/run/katmate-dev/`. **`katmate-pool@netvm.service` is `not-found`.** Two
+  `/run/katmate-dev/`. **[2026-09-27: no longer true until the next host
+  reboot. A per-session console is present in `/run`; see the block
+  below.]** **`katmate-pool@netvm.service` is `not-found`.** Two
   files are saved, not deleted, in `~/katmate-dev/removed-0927/` on MINIS,
   **`root:root`** because a root script created them (the parent
   `katmate-dev/` is `host:host`): the pool unit `katmate-pool@.service`
@@ -870,6 +997,38 @@ touched.
   **[2026-09-27, host-cleanup: those five are gone too. Their files are in
   `~/katmate-dev/removed-0927b/networkd/`, the links are deleted, and networkd
   now manages no link. MainPID and invocation are again unchanged (hc).]**
+
+  **NETVM ON THE ADR-037 IMAGE (2026-09-27).** The blocks above are left as
+  published. `vm_sys_netvm` was removed and rebuilt by `build/netvm.sh` as a dev
+  build (R27): **`NETVM_BUILT=2026-09-27T13:01:13Z`**, kernel
+  **`6.12.107+deb13-amd64`**, and the meta carries
+  `UPLINK_PCI_ADDR=0000:00:04.0`. `katmate-sys-driver@netvm.service` (installed
+  copy `737d7ad9…`, equal to the tree at `c37f9d1`, argv
+  `vfio-pci,host=0000:01:00.0,addr=0x4`) was started on it at 15:03:39 CEST:
+  MainPID **50080**, invocation **`caa8c62c1cf742d0a989a6e04601c0dc`**,
+  `NRestarts=0`, 16 of 16 slot bindings, PING OK (B, step 10).
+  - **The uplink is `uplink0`** (`ID_NET_LINK_FILE=…/60-katmate-uplink.link`,
+    G2), `38:05:25:34:7c:47` at guest `0000:00:04.0`, lease **`10.3.1.103`**
+    (confirmed by host ARP scan).
+  - **dhcpcd** holds the uplink (`allowinterfaces uplink0`). **dnsmasq**
+    answers DNS on the slots (wildcard bind, `-I lo`). **systemd-networkd, its
+    socket and wait-online are disabled** (`inactive / disabled`).
+    `nftables` is active, with `oifname "uplink0"` in `forward` and `nat`.
+  - **`libdbus-1-3 1.16.2-2` is installed (V1); the dbus daemon is absent**
+    (`dbus` `un`, no `dbus-daemon`, no `/run/dbus`).
+  - **A console is present in `/run` until the next reboot.** The drop-in
+    `/run/systemd/system/katmate-sys-driver@.service.d/90-dev-monitor.conf`
+    (the saved sys-driver copy `b44de3a9…`, installed unedited), the FIFO
+    `/run/katmate-dev/netvm-console.in`, and the holder `km-console-holder`
+    (MainPID 49840, `comm=sleep`). The console is logged out.
+  - **A dead `appvm` socket node in slot 05**
+    (`/run/katmate/link/netvm/05/appvm`, inode 4485), left by the G4 fixture
+    under its no-unlink rule. A reboot removes it.
+  - **`km02` and `km05` are UP with IPv6 link-local addresses only**, and
+    carry no IPv4 address or route, after NETCFG ADD/REMOVE by G3 and G4 (open
+    problem #45).
+  - The new LV holds `jbd2/dm-8-8`. **A reboot is due before the next
+    `netvm.sh`.**
 
   **The uplink is capped by the cable, and that is a condition of the
   environment rather than a defect.** On the boot of 2026-09-12 the link came up
@@ -886,7 +1045,9 @@ touched.
   carry **the one place in that session where a name and a MAC were read
   together and agreed**: `enp0s4` carries **38:05:25:34:7c:47**, and the sixteen
   `.link` files correctly do not glob onto it — the uplink keeps its stage-one
-  name.
+  name. **[2026-09-27: on the ADR-037 image the uplink is renamed a second time,
+  `enp0s4` → `uplink0` at 3.44 s, by `60-katmate-uplink.link` (B, step 10;
+  G2).]**
 
   **Slot bindings, as left at the close of the 2026-09-12 gate arc, because
   the next measuring session inherits them.** **[HISTORICAL — every binding
@@ -1938,7 +2099,18 @@ touched.
    open.** Any delta whose suffix is not in `APP_TYPES` still makes
    `--dry-run` fatal. `scratch_home.img` remains (#42).]**
 
-27. **The `netvm-agent` unit baked into the netVM image still names the Path A
+27. **RESOLVED 2026-09-27 — fixed in the image by the ADR-037 rebuild.** Kept
+   as a closed marker so the number is not reused. The agent unit is the
+   tracked `manifests/netvm.conf.d/etc/systemd/system/netvm-agent.service`
+   (`098e868`, R24), and step 7's heredoc is gone. **Gate evidence
+   (`adr037-impl-B`, 2026-09-27):** in the guest, `systemctl cat netvm-agent`
+   is the tracked file, verbatim, with 0 `networkd` mentions outside comments
+   and `ReadWritePaths=/run`. The agent started with no networkd ordering, PING
+   answered OK, and NETCFG ADD and REMOVE returned OK in two cycles, with
+   `/etc/systemd/network` read-only. It closed in the rebuild, not in the
+   pool's commits (ADR-035's 2026-09-27 implementation note). The published text
+   is left as written:
+   **The `netvm-agent` unit baked into the netVM image still names the Path A
    mechanism ADR-025 rejected.** Added 2026-09-02, from the ADR-035 read pass
    (`~/adr035-readpass-report.md` § 8 D3). **Read from the tree only** — nothing
    was run, no image was mounted, and this says nothing about the installed
@@ -2349,7 +2521,15 @@ touched.
    (`appweb-rebuild-report.md` § 8 item 2). **Why they stay active is
    unmeasured.** Open count was 0 throughout, so this is not a hold.
 
-38. **The netVM build bakes uid-1000 ownership into the ruleset and the network
+38. **RESOLVED 2026-09-27 — fixed in the image by the ADR-037 rebuild.** Kept
+   as a closed marker so the number is not reused. Step 5 copies with
+   `cp -a --no-preserve=ownership` and reads the ownership back (`6827583`),
+   and `nftables.conf` is git mode 0644 (`a209ebf`, R23). **Gate evidence
+   (`adr037-impl-B`, 2026-09-27):** the build printed *"Read-back OK: 34
+   conf-tree paths in the image, all owned 0:0"* (24 files and 10
+   directories), and in the guest `/etc/nftables.conf` is `root:root 0:0 644`.
+   The published text is left as written:
+   **The netVM build bakes uid-1000 ownership into the ruleset and the network
    files.** Added 2026-09-26. `cp -a` in `netvm.sh` step 5 carries the build
    tree's `host:host` (uid 1000) into the image: in the guest,
    `/etc/nftables.conf` is `1000:1000` with mode **0755**, and
@@ -2522,6 +2702,25 @@ touched.
    it at runtime. To the host it fails
    silently, except through the ARP scan. The preflight is a later step, not
    part of the ADR-037 rebuild.
+   **[Note 2026-09-27 (`adr037-impl-B`): both values now exist and agree.**
+   The meta carries `UPLINK_PCI_ADDR=0000:00:04.0`, and the installed unit's
+   argv carries `addr=0x4`. **There is still no automated check.** The
+   agreement was read by hand, and G2 confirmed it at runtime.**]**
+
+45. **IPv6 on the slots: a raised slot autoconfigures a link-local, and REMOVE
+   leaves it.** Added 2026-09-27, from `adr037-impl-B` (G3's refusal half and
+   G4). After NETCFG ADD, the kernel autoconfigures an IPv6 link-local address
+   on the slot (`km02 UP … fe80::5054:1ff:fe00:2/64`, plus `fe80::/64 dev
+   km02`). NETCFG REMOVE removes the IPv4 address and route but leaves the link
+   **UP** with its link-local. `km02` and `km05` were left that way. **netVM
+   also sends IPv6 on the slots:** MLD and DAD from `::` right after ADD, then
+   router solicitations (ICMPv6 to `33:33:00:00:00:02`) from
+   `fe80::5054:1ff:fe00:5` at 15:20:21 and 15:20:29 CEST, seen by the G4
+   fixture peer. This combines two things already on record: the missing
+   *DOWN on REMOVE* (the ADR-035 step-1 inheritance, § *Next steps*) and IPv6
+   on the slots (#24, ADR-037 R22). **It is a finding, and no fix is
+   decided.** It is not a G3 failure: the operator scoped G3's refusal half
+   to dhcpcd-originated state (ADR-037's implementation note).
 
 ## Next steps
 
@@ -2947,7 +3146,14 @@ frozen `vm_home_skel` vs qcow2 branch.
   confirmed so far (from the host). The agent is NOT the verification path (no
   RUN).
 
-- **DNS-leak policy in the manifest** — the uplink DHCP offers `DNS=1.1.1.1`
+- **[SUPERSEDED 2026-09-27 by ADR-037 (R5, R17, R18), and implemented
+  (`8f388d4`; G4 passed on 2026-09-27).** netVM resolves directly upstream
+  through dhcpcd's `resolv.conf`, and dnsmasq serves the slots only. There is
+  no `20-uplink.network` any more, and vanilla has no ProtonVPN. Clear-text DNS
+  to the upstream the uplink receives is accepted for vanilla (R18). *"(LAN
+  router)"* below is wrong as well: `1.1.1.1` is a public resolver, and the
+  router is `10.3.1.1` (rp D5). The item is left as written.**]**
+  **DNS-leak policy in the manifest** — the uplink DHCP offers `DNS=1.1.1.1`
   (LAN router). netVM must push DNS through ProtonVPN (`10.2.0.1`). Decide:
   override with `DNS=10.2.0.1` + `Domains=~.` in `20-uplink.network`, or drop
   the uplink DNS entirely. Security-relevant; fold into the manifest. Of the
@@ -3135,6 +3341,14 @@ frozen `vm_home_skel` vs qcow2 branch.
      taken with a fixture peer** on a slot's `appvm` socket, plus a LAN
      refusal half (R26). G1 is accepted as not discriminating cause (R11).
      The finding-12 guard is **not** in this step (R21).**]**
+     **[DONE 2026-09-27 (`adr037-impl` A and B):** implemented in
+     `6827583`…`c37f9d1` (pushed), built at `2026-09-27T13:01:13Z`. **G1 PASS**
+     (does not discriminate cause, R11); **G2 PASS**; **G3 DHCP half PASS**, and
+     its refusal half **PASS as ruled** (scoped to dhcpcd-originated state);
+     **G4 PASS**, and its refusal half **PASS** (does not discriminate cause);
+     the R12 build gate **PASS**. ADR-037 stays PROPOSED. **Next, in order:**
+     step 3 (R8, G6, and G3's static half), then 3a (the finding-12 guard),
+     then step 4 (the AppVM side, G5, and #45).**]**
   3. **The config disk** (R8, open problem #40; ADR-037 G6).
      **3a. The finding-12 slot guard** (added 2026-09-27, R21). It is its own
      step with its own gate, and it must land **before step 4**, the first
@@ -3388,6 +3602,15 @@ frozen `vm_home_skel` vs qcow2 branch.
   16.2). A procedure that expects fd 3 before the start misreads a healthy
   holder. **The absence of any recorded form of this holder is what halted
   net-up (its H6); it must not recur.**
+  **[Note 2026-09-27 (`adr037-impl-B`): the form of record covers the FIFO and
+  the holder, but not the drop-in's content.** Sessions install a saved copy
+  unedited, under `/run/systemd/system/<unit>.d/90-dev-monitor.conf` (R9). For
+  sys-driver that copy is
+  `~/katmate-dev/removed-0926/katmate-sys-driver@.service.d--90-dev-monitor.conf`,
+  `b44de3a9…`, 1470 B. Its comments are **stale**: they say it belongs in
+  `/etc`, and they cite `katmate-sys-driver@.service:141-147`, which is now at
+  `:201-211`. It works as installed, and the stale text is not
+  corrected.**]**
 - **`katmate-sys-driver@netvm` and `katmate-pool@netvm` must never run at
   once** — same instance name, same LV, same CID, same VFIO device — and both
   point at the same FIFO, so the `208/STDIN` failure after a host reboot now
@@ -3502,6 +3725,12 @@ frozen `vm_home_skel` vs qcow2 branch.
   DHCP DNS only in its private lease file**, `/run/systemd/netif/leases/<n>`,
   headed *"Do not parse"* (`net-m1-report.md` § 9.3). ADR-037's gate G3
   applies this rule to dhcpcd.
+  **[Note 2026-09-27 (ADR-037 image; ruling V1): the daemon is still
+  absent,** with `dbus` `un`, no `dbus-daemon` and no `/run/dbus`, and G3
+  passed with dhcpcd running without a bus. **The image now carries the
+  library `libdbus-1-3 1.16.2-2`**, which dnsmasq-base depends on. It is
+  accepted as a library with no bus, and the build refuses `enable-dbus`.
+  "`dbus`-free" in this entry means daemon-free.**]**
 - **netVM initrd needs `MODULES=most`, NOT `dep`.** `netvm.sh` builds in a chroot
   on a mounted LV (root = ext4-on-dm), but the guest BOOTS as a virtio device
   (root = `/dev/vda` on virtio-blk). `MODULES=dep` resolves modules against the
@@ -3578,6 +3807,23 @@ frozen `vm_home_skel` vs qcow2 branch.
   a boot; meeting the hold at the preflight costs the boot anyway, plus the
   build. Source for the 2026-09-05 reading:
   `~/Claude.assistent/netvm-rebuild-3-report.md` § 13.
+- **Map an LV to its `dm-N` from the `/dev/<vg>/<lv>` symlink, not by parsing
+  `dmsetup info`.** Its `Major, minor: 254, 8` line is easy to parse into the
+  **major**: an `awk -F'[:,]' … print $3` did exactly that on 2026-09-27
+  (`adr037-impl-B`, 14:45:35). The scripted `jbd2` precondition before the
+  `lvremove` then searched for `jbd2/dm-254-*`, a guard that **could not
+  fire**, and it printed `dm node: dm-254`. The precondition held in fact, and
+  that is known only because the full `jbd2` thread listing was printed beside
+  the verdict (`jbd2/dm-2-8` and `jbd2/nvme0n1p2-8`, no `dm-8`; the symlink
+  said `../dm-8`). Read `ls -l /dev/<vg>/<lv>` for the number, and print the
+  raw listing next to any verdict drawn from it.
+- **A transient `systemd-run` unit without `User=` has no `HOME`, and
+  `build/config.sh` under `set -u` dies on it.** Measured 2026-09-27
+  (`adr037-impl-B`): the build wrapper, run as `km-netvm-build`, logged
+  `HOME before: '<unset>'`. `config.sh:41` expands `$HOME`, and `netvm.sh` runs
+  with `set -u`. The wrapper exports `HOME=/root` (what `sudo` would give)
+  before it calls `netvm.sh`. A build started in the ruled launch form (§ *Live
+  state*, *Dev access to MINIS*) needs that export.
 - **netVM root is DELIBERATELY UNLOCKED in dev — this invariant inverted.**
     `netvm.sh` step 6 locks root (`passwd -l`) and unlocks it in the next breath
     (`usermod -p`). Intentional: `netvm-agent` has no `RUN` and `NETCFG` replies
@@ -3607,6 +3853,11 @@ frozen `vm_home_skel` vs qcow2 branch.
   (via `sudo bash -c 'DEBIAN_MIRROR=... bash netvm.sh'` — `sudo` env_reset drops
   a bare `VAR=... sudo` prefix). An SI mirror over a CH tunnel is worse, and the
   Ljubljana `deb.debian.org` fastly timeout does not apply from a CH exit.
+  **[Note 2026-09-27 (rp D14): the host `proton` link this entry presumes is
+  dev scaffolding** (the operator's gap-3 ruling of 2026-09-27; SECURITY-MODEL
+  gap 3). The product host carries no VPN. **The mirror choice follows whatever
+  the host's egress is.** The CH mirror is right only while MINIS exits
+  through CH. The 2026-09-27 build used it.**]**
 
 - **netVM needs `firmware-realtek` for the passed-through RTL8125.** vfio hands
   the card to the guest as a plain PCI device; the guest's own `r8169` needs
@@ -3648,6 +3899,12 @@ frozen `vm_home_skel` vs qcow2 branch.
   `20-uplink.network` is retired. **Until that rebuild lands, this entry still
   describes the tree and the running image.** The internal-segment half is
   not affected by R3.**]**
+  **[Note 2026-09-27, `adr037-impl-B`: the condition is met, and the rebuild
+  has landed.** The uplink is `uplink0` by `Path=`
+  (`ID_NET_LINK_FILE=…/60-katmate-uplink.link`, G2), and `20-uplink.network`
+  is gone from the image. For the uplink, this entry is now historical. **The
+  internal-segment half stands:** the sixteen slot `.link` files match by
+  MAC, 16 slots on 16 distinct files (G2).**]**
 
 - **A netinst netVM writes stale installer configs.** The recurring first-boot
   `[FAILED] Raise network interfaces` came from a leftover static block for the
@@ -3953,6 +4210,22 @@ frozen `vm_home_skel` vs qcow2 branch.
   wrong for `nftables.conf` (`1000:1000 755`). The ownership also covers
   `20-uplink.network` and all sixteen slot `.link` files (`net-up-report.md`
   § 19.3 item 10, `net-m1-report.md` § 10.7). Open problem #38.
+  **[Note 2026-09-27: fixed in the image.** `cp -a --no-preserve=ownership`
+  plus a read-back (`6827583`, C1): the build printed *"34 conf-tree paths …
+  all owned 0:0"*, and in the guest `nftables.conf` is `0:0 644`. **The `0755`
+  was the git mode**, and it is now 0644 (`a209ebf`, C2, R23). #38 is
+  closed.**]**
+
+- **In a netVM build chroot, dnsmasq's postinst starts nothing on the host.**
+  Measured 2026-09-27 (`adr037-impl-B`, build log lines 840–842): *"Setting
+  up dnsmasq (2.91-1+deb13u2) ... / Running in chroot, ignoring request."*,
+  and no `dnsmasq` process on MINIS at either watcher probe (`pgrep -af` and
+  `/proc/*/comm`, after apt and at build exit). **The mechanism predicted in
+  advance was wrong:** `adr037-impl-A` § 6.1 expected *"could not determine
+  current runlevel"*, and that line appears nowhere in the log. Which program
+  prints *"Running in chroot"* is **not established** by the log. A package
+  that could start a daemon on the build host is checked by watching the host,
+  not by predicting the maintainer script.
 
 - **A negative that coincides with a natural expiry window is not a
   measurement.** A conntrack read 39 s after the last flow came back empty,
