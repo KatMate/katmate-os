@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# katmate-build-cfgdisk — netVM's read-only config disk (ADR-037 R32–R37, R42–R44)
+# katmate-build-cfgdisk — netVM's read-only config disk (ADR-037 R32–R37, R42–R45)
 #
 # T4 (ADR-032 §2): reads T1, writes only under /run/katmate/, decides binarily.
 #
@@ -145,6 +145,23 @@ ip4_text() {
     printf '%d.%d.%d.%d' $(( ($1 >> 24) & 255 )) $(( ($1 >> 16) & 255 )) $(( ($1 >> 8) & 255 )) $(( $1 & 255 ))
 }
 
+# R45: every address this file accepts — the address, the gateway and each
+# nameserver — is unicast: outside 0.0.0.0/8, 127.0.0.0/8, 224.0.0.0/4
+# (multicast) and 240.0.0.0/4 (reserved, which holds 255.255.255.255). One rule,
+# applied to each field on its own, before any check that relates two fields.
+ip4_require_unicast() {
+    local ip="$1" key="$2" shown
+    shown="$(ip4_text "$ip")"
+    (( (ip >> 24) != 0 )) \
+        || km_die "$UPLINK_FILE: key '$key': $shown is in 0.0.0.0/8; refused (ADR-037 R45)"
+    (( (ip >> 24) != 127 )) \
+        || km_die "$UPLINK_FILE: key '$key': $shown is loopback, in 127.0.0.0/8; refused (ADR-037 R45)"
+    (( (ip >> 28) != 14 )) \
+        || km_die "$UPLINK_FILE: key '$key': $shown is multicast, in 224.0.0.0/4; refused (ADR-037 R45)"
+    (( (ip >> 28) != 15 )) \
+        || km_die "$UPLINK_FILE: key '$key': $shown is in 240.0.0.0/4, reserved (it holds the limited broadcast 255.255.255.255); refused (ADR-037 R45)"
+}
+
 UPLINK_KEYS=(address gateway nameservers)
 CANON_UPLINK=""
 SUMMARY_UPLINK=""
@@ -174,18 +191,21 @@ if [[ "$HAVE_UPLINK" == yes ]]; then
     NET=$(( ADDR & MASK ))
     BCAST=$(( NET | (~MASK & 0xFFFFFFFF) ))
 
-    (( (ADDR >> 24) != 127 && ADDR != 0 )) \
-        || km_die "$UPLINK_FILE: key 'address': $(ip4_text "$ADDR") is loopback or 0.0.0.0; refused (ADR-037 R37)"
+    ip4_require_unicast "$ADDR" address
     (( ADDR != NET )) \
         || km_die "$UPLINK_FILE: key 'address': $(ip4_text "$ADDR") is the network address of /$PREFIX (ADR-037 R43)"
     (( ADDR != BCAST )) \
         || km_die "$UPLINK_FILE: key 'address': $(ip4_text "$ADDR") is the broadcast address of /$PREFIX (ADR-037 R43)"
 
-    # gateway: inside the prefix, and not the address, the network or the
-    # broadcast (R43). Inside a prefix of 8 or longer, and not its network, it
-    # cannot be loopback or 0.0.0.0 unless the address is, which is refused.
+    # gateway: unicast (R45), inside the prefix, and not the address, the
+    # network or the broadcast (R43). With a prefix of 8 or longer the gateway
+    # shares the address's first octet, so once the address has passed R45 no
+    # gateway inside the prefix can fail it. The check stands anyway, first,
+    # so that the rule is the field's own and the diagnostic names R45 rather
+    # than the prefix.
     ip4_parse "${UPLINK[gateway]}" gateway
     GW=$IP4
+    ip4_require_unicast "$GW" gateway
     (( (GW & MASK) == NET )) \
         || km_die "$UPLINK_FILE: key 'gateway': $(ip4_text "$GW") is outside $(ip4_text "$NET")/$PREFIX (ADR-037 R43)"
     (( GW != ADDR )) \
@@ -195,9 +215,9 @@ if [[ "$HAVE_UPLINK" == yes ]]; then
     (( GW != BCAST )) \
         || km_die "$UPLINK_FILE: key 'gateway': $(ip4_text "$GW") is the broadcast address of /$PREFIX (ADR-037 R43)"
 
-    # nameservers = "x,y": 1–3 unicast IPv4 addresses, comma-separated, no
-    # spaces, no duplicates, none in 127.0.0.0/8, 0.0.0.0/8, 224.0.0.0/4 or
-    # 255.255.255.255 (R37, R43). Order is kept: it is the resolver order.
+    # nameservers = "x,y": 1–3 unicast IPv4 addresses (R45), comma-separated,
+    # no spaces, no duplicates (R37, R43). Order is kept: it is the resolver
+    # order.
     [[ "${UPLINK[nameservers]}" =~ ^[^,[:space:]]+(,[^,[:space:]]+)*$ ]] \
         || km_die "$UPLINK_FILE: key 'nameservers': '${UPLINK[nameservers]}' is not a comma-separated list with no spaces and no empty entries (ADR-037 R43)"
     IFS=, read -r -a NS_TEXT <<< "${UPLINK[nameservers]}"
@@ -207,14 +227,7 @@ if [[ "$HAVE_UPLINK" == yes ]]; then
     declare -A NS_SEEN=()
     for ns in "${NS_TEXT[@]}"; do
         ip4_parse "$ns" nameservers
-        (( (IP4 >> 24) != 127 )) \
-            || km_die "$UPLINK_FILE: key 'nameservers': $ns is in 127.0.0.0/8 (ADR-037 R37, R43)"
-        (( (IP4 >> 24) != 0 )) \
-            || km_die "$UPLINK_FILE: key 'nameservers': $ns is in 0.0.0.0/8 (ADR-037 R37, R43)"
-        (( (IP4 >> 28) != 14 )) \
-            || km_die "$UPLINK_FILE: key 'nameservers': $ns is multicast, in 224.0.0.0/4 (ADR-037 R43)"
-        (( IP4 != 0xFFFFFFFF )) \
-            || km_die "$UPLINK_FILE: key 'nameservers': $ns is the limited broadcast address (ADR-037 R43)"
+        ip4_require_unicast "$IP4" nameservers
         [[ ! -v NS_SEEN[$IP4] ]] \
             || km_die "$UPLINK_FILE: key 'nameservers': $ns is listed twice (ADR-037 R43)"
         NS_SEEN[$IP4]=1
