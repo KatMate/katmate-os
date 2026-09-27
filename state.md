@@ -52,7 +52,7 @@ restartable — and so updatable — without touching running VMs.
 Direction unchanged: IOMMU-capable platforms only (VT-d/AMD-Vi).
 MINIS is primary host and merge target.
 
-## This session (2026-09-27, r8-readpass, wp-0927e and rulings) — the stale lines after the implementation corrected, the tree read against R7/R8, and the step-3 rulings R30–R40 recorded before any code
+## Previous session (2026-09-27, r8-readpass, wp-0927e and rulings) — the stale lines after the implementation corrected, the tree read against R7/R8, and the step-3 rulings R30–R40 recorded before any code
 
 Three sessions, all on the Acer only. MINIS was not contacted. `wp-0927e`
 corrected the lines the implementation left stale. `r8-readpass` read the
@@ -112,104 +112,6 @@ reproducibility and dhcpcd's static `resolv.conf` (D13) are still
 unverified. `build/netvm.sh:207-208`'s *"ONLY author"* sentence (D10) is
 unqualified, and waits for the consumer commit. No ADR body was changed.
 
-## Previous session (2026-09-27, adr037-impl A and B) — ADR-037 implemented in nine commits, netVM rebuilt on it, and G1–G4 taken
-
-Two sessions, one arc. `adr037-impl-A` wrote the code on the Acer, did not
-build it and did not push it. `adr037-impl-B` installed the host side on MINIS,
-rebuilt netVM, took G1–G4 and pushed A's commits. Both reports are outside the
-repository: `~/Claude.assistent/adr037-impl-A-report.md` (A) and
-`~/Claude.assistent/adr037-impl-B-report.md` (B). `wp-0927d` wrote the record.
-
-**A: nine commits, all `G`.** `6827583` bakes the conf tree `root:root` and
-reads the ownership back (#38). `a209ebf` sets `nftables.conf` to mode 0644
-(R23). `098e868` makes the agent unit a tracked file in the conf tree (#27,
-R24, R15). `8391bb3` pins `addr=0x4` on `vfio-pci` (R4, R10, R11). `0f304c9`
-adds `60-katmate-uplink.link` on `Path=`, the 17-file `.link` build gate and
-`UPLINK_PCI_ADDR` (R3, R12, R13). `bb1481a` replaces systemd-networkd with
-dhcpcd on the uplink (R6, R14–R16, R29). `8f388d4` adds dnsmasq on the slots
-only (R5, R17, R18, R29). `7550734` sends vanilla egress through `uplink0`,
-with the return path by conntrack only (R2, R19, R22). `c37f9d1` retires the
-ProtonVPN template (R20). A halted once before its first commit, on V1 and V2
-(both ruled, below). Its build-time refusals ran against fixtures only.
-
-**B: installation.** Hash-first before any change compared 8 files and found
-2 expected differences (`katmate-generate-env`, the unit) and 0 others. **The
-whole tracked host set was re-installed from the tree at `c37f9d1`**, 6
-`/usr/lib/katmate/*` files and both units: 8 of 8 sha256-verified,
-`root:root`, git modes. From 14:22:49 CEST hash-first is clean. netVM was
-restarted on the new unit, and G1 was taken on the old image.
-
-**B: the rebuild.** After the operator's reboot and with suspend masked,
-`lvremove -y vg0/vm_sys_netvm` ran at 14:45:35 CEST. The dev build (R27) ran
-14:47:06–15:01:13 CEST as the transient unit `km-netvm-build` (launch form
-below), `netvm.sh rc=0`. Every build read-back printed its pass line, among
-them `34 conf-tree paths … all owned 0:0`, `24 baked conf-tree files, none
-names 'proton'` and `Build gate OK: 17 katmate .link files`. No host dnsmasq
-appeared at either watcher probe. Image: `NETVM_BUILT=2026-09-27T13:01:13Z`,
-kernel `6.12.107+deb13-amd64`. netVM was started on it at 15:03:39 CEST
-(MainPID 50080) with a per-session console.
-
-**Gates, all 2026-09-27; the full table is ADR-037's implementation note:**
-- **G1 PASS:** argv `addr=0x4`, and the RTL8125 at guest `00:04.0`. It does
-  not discriminate cause (R11).
-- **G2 PASS:** `ID_NET_LINK_FILE=…/60-katmate-uplink.link`, exactly one
-  `uplink0`, and 16 slots on 16 distinct `.link` files.
-- **G3 DHCP half PASS:** dhcpcd active, no dbus daemon, `resolv.conf` written
-  in place, lease `10.3.1.103`. **Refusal half PASS, as ruled** (scope below).
-  The static half waits for arc step 3.
-- **G4 PASS:** a fixture peer on slot 05 got 4 A records from `10.100.1.1`.
-  **Refusal half PASS**, and it does not discriminate cause (the `input`
-  chain drops the LAN query before dnsmasq is reached).
-- Not a gate: an ICMP echo from the fixture to `1.1.1.1` was answered, so
-  egress and masquerade out `uplink0` work for a pool-sourced packet. G5 still
-  needs an AppVM.
-
-**Operator rulings of 2026-09-27, recorded as rulings:**
-- **R29** (A's V2): netVM's `/etc/resolv.conf` is baked as an empty
-  `root:root 0644` file, and a tracked `/etc/default/dnsmasq` sets
-  `DNSMASQ_EXCEPT="lo"`. The full text is in ADR-037's implementation note.
-- **V1:** `libdbus-1-3` is an accepted cost, a library with no bus. The build
-  refuses `enable-dbus`.
-- **G3's refusal half is scoped to dhcpcd-originated state.** R14's wording,
-  *"anything NETCFG did not program"*, was an overreach. The kernel's IPv6
-  link-local on a raised slot is a separate finding, #45.
-- **B § 0.1, items 1–7:** (1) the `katmate-generate-env` mismatch was
-  expected, and the whole tracked set was re-installed, which closes
-  *Installed vs tree, 2026-08-22*; (2) the silent `resolv.conf` read-back is
-  settled by G3's in-guest `stat`; (3) the three host units to read are
-  `katmate-sys-driver@netvm`, `katmate-publish-nics` and `km-console-holder`;
-  (4) the host dnsmasq watch probes at the *Baking netVM config tree* line and
-  at build exit, and a hit is recorded, not killed; (5) a root wrapper reads
-  the dev root hash from a `0:0 0600` file into the environment, with no
-  `set -x`; (6) G1 by the guest journal before the rebuild, plus sysfs after
-  it; (7) G4's refusal half is recorded as not discriminating cause.
-- **Launch form:** a netVM build runs as a transient `systemd-run` unit, so an
-  ssh drop cannot kill it (§ *Live state*, *Dev access to MINIS*).
-- **Permission mode, as done in B, not a new rule:** after a classifier
-  refusal B was switched from auto to Manual for the rest of that session,
-  and the refused call was retried once, verbatim, on the operator's
-  instruction. **The standing rule stays auto plus stop-report-wait.**
-
-**Left on MINIS (B § 6).** netVM is running (MainPID 50080). The console is
-logged out, with its drop-in, FIFO and holder in `/run`. Slot 05 holds a dead
-`appvm` socket node from the G4 fixture. `km02` and `km05` are UP with IPv6
-link-locals only (#45). Suspend is unmasked. The new LV holds `jbd2/dm-8-8`,
-so **a reboot is due before the next `netvm.sh`**, as always.
-
-**Not executed, and therefore not claimed:**
-- G5, G6, and G3's static half;
-- the refusal half of the `NETVM_UPLINK_PCI_ADDR` preflight;
-- dhcpcd without the empty `resolv.conf` (R29's premise);
-- router solicitation on the uplink (`ipv4only`);
-- whether the LAN DHCP server received netVM's hostname;
-- whether the LV's live `jbd2` thread at boot affects the guest filesystem
-  (no fsck was taken);
-- the removal of the `/run` scaffolding by a reboot.
-
-The agent binary was baked as-is (mtime 2026-07-23), consistent with its
-source by mtime only (#14). `wp-0927d` ran on the Acer only and observed
-nothing on MINIS.
-
 ## Session archive
 
 Rotated sessions are enumerated in `docs/SESSIONS.md`, newest first; that
@@ -242,6 +144,23 @@ extracted block against the pre-move blob.
 *second of two* entry (3a part 1) rotated out as the 2026-08-17 entry arrived. Two
 rotations in one day is not a defect — it is what keeping two sessions costs when
 two sessions close on the same day.
+
+**Closed 2026-09-27 (sixth rotation of that day).** The 2026-09-27
+*adr037-impl A and B* entry (ADR-037 implemented in nine commits, netVM
+rebuilt on it, and G1–G4 taken) rotated to the archive as the 2026-09-27
+*r8-impl A and B* entry arrived. **The block moved verbatim, heading
+included**, and *Previous session* stays *Previous session*. Verified three
+ways. The whole block, heading line included, hashed **identical before and
+after, `2096a9adc13f8e58…`**. The pre-move block diffed clean against the
+`HEAD` blob. The block re-extracted from `docs/SESSIONS.md` at its new home
+diffed clean against the pre-move block. `docs/SESSIONS.md` gained 98 lines,
+the 97-line block and one blank separator, and lost none. The block was
+inserted at the head of the entry list, above the 2026-09-27 *adr037-readpass
+and rulings* entry, newest first. The 2026-09-27 *r8-readpass, wp-0927e and
+rulings* entry's prefix changed from *This session* to *Previous session*,
+and its body is untouched. **No ordinal changed.** The rotation and the new
+entry are separate commits, so between them this file held one session,
+never three.
 
 **Closed 2026-09-27 (fifth rotation of that day).** The 2026-09-27
 *adr037-readpass and rulings* entry (the tree read against ADR-037, and the
