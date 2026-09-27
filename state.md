@@ -48,7 +48,7 @@ restartable — and so updatable — without touching running VMs.
 Direction unchanged: IOMMU-capable platforms only (VT-d/AMD-Vi).
 MINIS is primary host and merge target.
 
-## This session (2026-09-27, adr037-readpass and rulings) — the tree read against ADR-037, and the operator's rulings R10–R28 recorded before any code
+## Previous session (2026-09-27, adr037-readpass and rulings) — the tree read against ADR-037, and the operator's rulings R10–R28 recorded before any code
 
 Two sessions, both on the Acer only. MINIS was not contacted. `adr037-readpass`
 read the tree against ADR-037 before the netVM rebuild. Its report is outside
@@ -146,213 +146,6 @@ QEMU are still unverified, and R14, R16 and R17 are rulings on them, not
 measurements of them. `docs/ARCHITECTURE.md` still says WireGuard terminates in
 netVM (D11). It waits with D5, D8, D9, D11, D12 and D14.
 
-## Previous session (2026-09-27, host-cleanup) — MINIS dev leftovers retired, networkd now manages no link, and HOST-CONFIG §1 re-measured
-
-One session, on MINIS and the Acer. Report outside the repository:
-`~/Claude.assistent/hostclean-0927-report.md` (cited as hc). It halted once
-before contacting MINIS, because it was not in Manual mode. The operator switched
-modes and resumed it.
-
-**Operator rulings of 2026-09-27**, recorded as rulings:
-
-- **MINIS is a dev machine.** Leftovers from the early project and from
-  personalVM go. The operator confirms from memory that `tap-outer` and `tap0`
-  were his early experiments.
-- **Anything found beyond the authorised list is reported, never touched.**
-  The operator decides it in chat. The list is open problem #42.
-- **HOST-CONFIG §1 is rewritten once**, from the measurement taken after the
-  clean-up, and not before.
-- **R5 reference (ruled in-session):** the pf scripts' Acer copies are the
-  files fetched back from MINIS into `~/Claude.assistent/pool-fold/`, verified
-  against the sha256 values `pool-fold-report.md` records. All four matched. The
-  report's listing of `pf-c3.sh` differs from the executed file by one trailing
-  space (hc § 2). The old report is not edited.
-
-**Removed, 11:39:12–11:39:27 CEST, by one script** (`hc-r.sh`, `f39e648c…`).
-Before the first mutation it re-checked every identity pinned by the read-only
-inventory at 11:36:56: file hashes, netVM MainPID and invocation, the
-waypipe-client PID, and `vm_tpl_foundation_pre0926` = `dm-8`. It re-checked the
-pins again after each phase. **Moved** to `~/katmate-dev/removed-0927b/` on
-MINIS, each `cmp`- or `diff -r`-identical to a pre-move copy:
-
-- the ten networkd files of `br-personal`, `tap0`, `tap-outer`,
-  `tap-personal` and `tap-work`;
-- the user units `personal-vm.service` and `work-vm.service`, and
-  `netVM.service.d/` (holding only `memlock.conf`). No `*.wants/` symlink pointed
-  at any of them;
-- `/var/lib/katmate/foundation.meta.pre0926`, `/var/lib/katmate/kernels.pre0926/`
-  and `~/katmate-build/out/vm-agent.pre0926`.
-
-`networkctl reload` exited 0. `ip link delete` exited 0 on the four taps and then on
-`br-personal`, and all five now answer *Device "…" does not exist.* After
-`systemctl --user daemon-reload` all three units are `not-found`. **Deleted:**
-`instances/test_web.qcow2.pre0926`; the LVs `vm_app_web_pre0926`,
-`vm_app_vault_pre0926` (both inactive, with no dm device) and then
-`vm_tpl_foundation_pre0926` (open 0, no `jbd2/dm-8-*`, no origin-user left),
-each `lvremove` exiting 0 without `-f`; `instances/scratch.qcow2` (#26); and the
-six dev scripts `pf-a.sh`, `pf-c2.sh`, `pf-c3.sh`, `pf-c4b.sh`, `pm-m1.sh` and
-`pm-m23.sh`, each hash-matched first. `vm_pool` data went from 0.96 % to
-0.42 %.
-
-**scratch.qcow2, as it was** (the only record): qcow2, virtual 20 GiB, 844 MiB
-on disk, `backing file: /dev/vg0/vm_app_web`, format raw, `corrupt: false`,
-mtime 2026-07-29 19:30:11, `host:host`, `e32466b9…`. No process held it.
-**Its backing name resolved to the `vm_app_web` rebuilt on 2026-09-26**, two
-months after the delta's mtime, so the layer it named was no longer the one it
-was written on. A 4 GiB `scratch_home.img` beside it (2026-07-30) was not
-authorised and remains (#42).
-
-**Undisturbed, observed after every phase:** netVM
-`katmate-sys-driver@netvm.service` `active`, MainPID **11761**, invocation
-**`f1a996dd…`**, `NRestarts=0`; `ping-client ping 3` → `status=0x00 (OK)`;
-`waypipe-client` `active`, MainPID **1592** before and after.
-
-**HOST-CONFIG §1 re-measured (11:39:39, read-only):** `networkctl list` shows
-three links, all `unmanaged`: `lo`, `enp195s0f3u1u1` (routable) and `proton`
-(wireguard, routable). **networkd manages no link.** `/etc/systemd/network/` is
-empty. `networkctl status`: `State: routable`, `Online state: unknown`.
-`network-online.target` and `systemd-networkd-wait-online.service` (enabled)
-are both `inactive (dead)`. **A direct probe,
-`/usr/lib/systemd/systemd-networkd-wait-online --timeout=15`, printed *"Timeout
-occurred while waiting for network connectivity."* and exited 1 after 15.2 s.**
-
-**Neither unit has run this boot (10:30:08).** Every Active/Inactive
-timestamp is empty, and `journalctl -b` for both units has no entries. The only
-reverse dependency of `network-online.target` is
-`archlinux-keyring-wkd-sync.service`. So this boot says nothing about how
-wait-online behaved with the taps present. **No pre-removal probe was taken**,
-so the probe's timeout cannot be attributed to the removal (hc § 5).
-
-**Not executed, therefore not claimed.** What wait-online does as a *unit* at
-the next boot or the next `archlinux-keyring-wkd-sync` run is **UNVERIFIED**. It
-is settled by `systemctl show -p ActiveState,Result,ActiveEnterTimestamp
-network-online.target systemd-networkd-wait-online.service` and `journalctl -b
--u systemd-networkd-wait-online` after something has pulled the target in.
-`vm-agent.pre0926` was pinned by size and mtime, not by hash, because Phase I
-listed `out/` by name only. Nothing in `removed-0927b/` has been used for a
-restore.
-
-**Continuation, the same day — the #42 queue deleted, as ruled
-(`hostclean-0927b`).** The report is outside the repository:
-`~/Claude.assistent/hostclean-0927b-report.md` (cited as hcb). **It halted twice
-on H1.** The first halt was before any MINIS contact, because the mode was
-unconfirmed. The second came between the read-only Phase P and the deletion,
-when a system notice said auto mode was active. The operator re-confirmed
-Manual both times.
-
-**Operator rulings of 2026-09-27**, recorded as rulings:
-
-- **The #42 queue was reviewed by the operator, and the listed items go.
-  They are deleted, not archived.** The record of what was deleted is hcb
-  Appendix D: path, size and sha256 for each file, and `du -sb` and file count
-  for each directory.
-- **`/etc/udev/rules.d/99-vm-lvm.rules` stays for now.** It is a security
-  finding and not a leftover: SECURITY-MODEL gap 16 and open problem #43.
-- **`~/.katmate-netvm-pass` holds a credential that was already rotated.** It
-  is deleted.
-- **`~/code_auth_token.txt` is unknown to the operator.** It is deleted, after
-  its issuer was identified (below). Deleting the file does not revoke the
-  token. **[Note 2026-09-27 (operator ruling): the token was rotated several
-  times and is obsolete. No revocation is needed.]**
-- **`host_lan_up.sh` and `proton-wg-up.sh` are KEPT.** They bring up the host
-  uplink and the `proton` link, and may be the operator's manual post-boot step
-  that HOST-CONFIG §2 (`[OPEN]`) implies. They retire when §2 lands, not before.
-- **Pins:** a hash wherever a record had one: hc Appendix A;
-  `adr034-pregate-report.md` § 5 for the `.bak`; the Acer copies of
-  `hc-r.sh`, `hc-s.sh` and `hc-s2.sh`. Otherwise size, owner and mtime.
-  `hcb-p.sh`, the Phase P script, was added to the list, pinned by its Acer
-  hash.
-- **This session continues this entry.** There is no new heading and no
-  rotation.
-
-**Phase P (12:11:40–12:11:50, read-only).** The pins were unchanged: netVM
-MainPID 11761, invocation `f1a996dd…`, `NRestarts=0`, and waypipe-client
-MainPID 1592. No process held any listed path. Compared with the Acer pins, all
-39 Appendix A hashes and all 4 other-record hashes matched. The 50 unhashed
-files matched in size and owner (hcb § 0 execution log).
-
-- **P1, `vm-lvs.service`:** `disabled`, `inactive (dead)`, `Type=oneshot`. It
-  has no `ExecMainStartTimestamp`, no journal entry this boot, and no
-  `*.wants/` symlink. It runs `lvchange -ay -K` on `vg0/vm_personal_rw` and
-  `vg0/vm_personal_home`, then `dmsetup mknodes` and `udevadm settle`. **Neither
-  LV exists.** `~/vm-lvs.service` was an earlier draft that differs in one line
-  (`vm_personal` instead of `vm_personal_rw`). The unit is **ruled out** as the
-  cause of `vm_tpl_foundation` being active without `k` (*Invariants*,
-  thin-LV activation).
-- **P2, `~/katmate-os/`:** **no `.git`.** It held `agent/`, `app_web.con`
-  (2026-07-23) and `init/`: 5 files, 945278 B. It was not a clone, so H3 could
-  not arise.
-- **P3, `~/code_auth_token.txt`:** 109 bytes, one line of 108 characters. The
-  prefix is Anthropic's `sk-ant-o…`, the OAuth form, and the length fits a
-  Claude Code `setup-token` token. **The issuer is identified by prefix and
-  length only.** Revocation is the operator's step, at the issuing claude.ai
-  account. mtime 2026-06-15 18:09. **[Note 2026-09-27 (operator ruling): the
-  token was rotated several times and is obsolete. No revocation is
-  needed.]**
-- **The kept scripts, verbatim.** `host_lan_up.sh` (140 B, 2026-07-06):
-
-  ```
-  # run as root
-  ip link set enp195s0f3u1u1 up
-  ip addr add 10.3.1.3/24 dev enp195s0f3u1u1
-  ip route add default via 10.3.1.1 dev enp195s0f3u1u1
-  ```
-
-  `proton-wg-up.sh` (206 B, 2026-03-07) runs `wg-quick up proton`, after a
-  vestigial `ip link add dev tun.proton type wireguard` (full text in hcb). The
-  only reference to either name is `~/.local/share/fish/fish_history`.
-- **Read and kept, as the brief listed:**
-  - `vms/` holds only `ovmf/personal_VARS.fd` (540672 B), a personalVM UEFI
-    vars file.
-  - `iso/` holds only `debian-13.3.0-amd64-netinst.iso`.
-  - `acer/` holds four files, 2961 B.
-  - `arch-cache/` holds 425 files, 637 MB of `.pkg.tar.zst`.
-
-**Deleted, 12:37:26–12:37:40 CEST, by one script** (`hcb-d.sh`, `5d783a98…`).
-It re-checked every pin before the first deletion and the netVM and
-waypipe-client pins after each group. No `rm -f` was used, and no glob in any
-deletion path. Nothing mismatched and nothing was left in place.
-
-- **92 files:**
-  - the #42 dev scripts, prototypes, logs, captures and personalVM launchers
-    at `~`;
-  - `config-katmate-3flags.bak`;
-  - `.katmate-netvm-pass` and `code_auth_token.txt`;
-  - `hc-i.sh`, `hc-r.sh`, `hc-s.sh`, `hc-s2.sh` and `hcb-p.sh`;
-  - `~/vm-lvs.service` and `/etc/systemd/system/vm-lvs.service`. That unit
-    was not enabled, so no `disable` was issued. `daemon-reload` exit 0, and
-    the unit is now `not-found`;
-  - `/var/lib/katmate/instances/scratch_home.img` (4 GiB, `681f4b58…`);
-  - `~/.config/systemd/user/waypipe-client.socket`.
-- **2 symlinks:** the two dangling `waypipe-client@1024.service`, followed by
-  `systemctl --user daemon-reload` (exit 0).
-- **4 directories:**
-  - `gate-stage/`;
-  - `personal_boot/` (49 MB);
-  - `katmate-os/`;
-  - `src/kernel/linux-6.12.94/` (2278703639 B, 97751 files).
-
-**After:** netVM `active`, MainPID 11761, invocation `f1a996dd…`,
-`NRestarts=0`. waypipe-client `active`, MainPID 1592. `ping-client ping 3`
-returned `status=0x00 (OK)`. `list-unit-files 'waypipe*'` shows only
-`waypipe-client.service enabled`, and its `default.target.wants` symlink
-remains. `src/kernel/` now holds only `linux-6.12.y`. `instances/` holds only
-`test_web.qcow2`.
-
-**Left, and why:**
-- `host_lan_up.sh` and `proton-wg-up.sh` (ruling, above).
-- `99-vm-lvm.rules` (gap 16, #43).
-- `~/katmate-dev/` and `~/katmate-build/out/netvm/` (keep-listed).
-- `~/hcb-d.sh` itself (18524 B). It was not on the list and goes at the next
-  clean-up.
-
-**Not executed, therefore not claimed.** No revocation of the token was
-attempted. Whether anything reads `~/vm-lvs.service` or the deleted launchers at
-the next boot was not traced beyond the grep for the two kept scripts. The
-closing line of `hcb-d.sh` lists the four directories as *"SKIPPED"*. That line
-is **wrong**, a defect in the script's pin table (hcb, execution log). The
-check above it found none of them present.
-
 ## Session archive
 
 Rotated sessions are enumerated in `docs/SESSIONS.md`, newest first; that
@@ -385,6 +178,22 @@ extracted block against the pre-move blob.
 *second of two* entry (3a part 1) rotated out as the 2026-08-17 entry arrived. Two
 rotations in one day is not a defect — it is what keeping two sessions costs when
 two sessions close on the same day.
+
+**Closed 2026-09-27 (fourth rotation of that day).** The 2026-09-27
+*host-cleanup* entry (MINIS dev leftovers retired, networkd managing no link,
+and HOST-CONFIG §1 re-measured) rotated to the archive as the 2026-09-27
+*adr037-impl A and B* entry arrived. **The block moved verbatim, heading
+included**, and *Previous session* stays *Previous session*. Verified three
+ways. The whole block, heading line included, hashed **identical before and
+after, `77926c799489d1a5…`**. The pre-move block diffed clean against the
+`HEAD` blob. The block re-extracted from `docs/SESSIONS.md` at its new home
+diffed clean against the pre-move block. `docs/SESSIONS.md` gained 207 lines,
+the 206-line block and one blank separator, and lost none. The block was
+inserted at the head of the entry list, above the 2026-09-27 *pool-fold*
+entry, newest first. The 2026-09-27 *adr037-readpass and rulings* entry's
+prefix changed from *This session* to *Previous session*, and its body is
+untouched. **No ordinal changed.** The rotation and the new entry are separate
+commits, so between them this file held one session, never three.
 
 **Closed 2026-09-27 (third rotation of that day).** The 2026-09-27
 *pool-fold* entry (the slot pool folded into the shipped sys-driver unit,
