@@ -7524,3 +7524,64 @@ accepted by the operator on 2026-09-27). § *Status*'s *"no `addr=`, no
 `uplink0.link`, no dhcpcd, no dnsmasq … exist in the tree or on MINIS"* is
 false from 2026-09-27 for all but the config disk (implementation note; the
 `.link` is `60-katmate-uplink.link`, R12).
+
+**Revision note (2026-09-27, rulings R41–R44 and the two readings taken
+before step-3 code):** **Status: still PROPOSED.** This note records four
+rulings of the operator of 2026-09-27 and two readings. It changes no text
+above.
+
+- **R41 — how arc steps are named.** An arc step number is always written
+  **"networking arc step N"**. The clash with build-order step numbers is
+  accepted, and the qualifier resolves it. "Networking arc step 5" stays the
+  name for VPN mode.
+- **R42 — the modes in `<instance>.d/`.**
+  `/etc/katmate/vm/<instance>.d/uplink` is **`root:root 0644`**, like
+  `<instance>.toml`, and the directory is `root:root 0755`. The builder
+  **refuses** a file or directory in `<instance>.d/` that is not owned by
+  root, or that is group- or world-writable. The modes for a secret remain
+  networking arc step 5's.
+- **R43 — the validation R37 left open.** The prefix is **8–30**. The
+  address is not the network or the broadcast address of its prefix. The
+  gateway is inside the prefix, and is not the address, the network or the
+  broadcast. Every nameserver is a unicast IPv4 address outside
+  `127.0.0.0/8`, `0.0.0.0/8`, `224.0.0.0/4` and `255.255.255.255`. There are
+  **at most 3** nameservers, in a comma-separated list with no spaces and no
+  duplicates.
+- **R44 — the image size** is whatever `ustar` produces from its content.
+  There is no padding and no fixed size.
+
+**R34's reading: the guest PCI enumeration.** Taken 2026-09-27 on the build
+machine, read-only, from the host journal of the boot that began 14:32:09
+CEST, with the command r8 Q-R8d gives (`journalctl -o cat -b -u
+katmate-sys-driver@netvm.service`, filtered on the kernel's `pci
+0000:00:xx.x: [vvvv:dddd]` lines). **24 lines, one guest boot**: the unit
+started once that boot (15:03:40 CEST), and every line occurs once. `00.0`
+is the q35 host bridge (`8086:29c0`); `01.0` is `1af4:1005` (virtio-rng);
+`02.0` is `1af4:1053` (virtio-vsock); `03.0` is `1af4:1001` (virtio-blk, the
+root); `04.0` is `10ec:8125` (the RTL8125, `addr=0x4`); `05.0`…`14.0` are
+sixteen `1af4:1000` (virtio-net, the slot NICs); `1f.0`, `1f.2` and `1f.3`
+are `8086:2918`, `8086:2922` and `8086:2930` (ICH9 LPC, AHCI, SMBus). **No
+device sits at `00:15`…`00:1e`, so `0x15` is free.** Source:
+`r8-impl-A-report.md` § *Step 0.1* (outside the repository).
+
+**R38's reading: the packaged dhcpcd, from the Debian package.** The operator
+ruled that the pre-code read R38 asks for is taken from the Debian package
+of the exact version installed in netVM, not from the guest: the same bytes
+the image installed, with no console. The image carries `dhcpcd` and
+`dhcpcd-base`, both `1:10.1.0-11+deb13u4` (`adr037-impl-B-report.md`, the
+in-guest `dpkg-query`). Both `.deb`s were fetched from the `deb.debian.org`
+pool (`dhcpcd_…_all.deb`, sha256 `945719b6…05eb`, 14188 B;
+`dhcpcd-base_…_amd64.deb`, sha256 `5226a174…a062`, 201244 B), and both
+hashes match trixie's `Packages` index. The unit is in `dhcpcd`, and the
+hooks are in `dhcpcd-base`.
+- The packaged `dhcpcd.service`: `Type=forking`, `PIDFile=/run/dhcpcd/pid`,
+  `RuntimeDirectory=dhcpcd`, `ExecStart=/usr/sbin/dhcpcd -q -b` (`-q` is
+  present, and there is no `-f`), `ExecStop=/usr/sbin/dhcpcd -x`,
+  `ProtectSystem=strict`, `ReadWritePaths=/var/lib/dhcpcd /run/dhcpcd
+  /etc/dhcpcd.conf /etc/resolv.conf`, `ProtectHome=true`,
+  `PrivateDevices=true`, and `PrivateTmp` commented out.
+- `/usr/lib/dhcpcd/dhcpcd-hooks/` holds `01-test`, `20-resolv.conf`,
+  `30-hostname` and `50-timesyncd.conf`. **The resolv.conf hook is
+  `20-resolv.conf`.** Its state lives under `/run/dhcpcd/hook-state`.
+
+Source: `r8-impl-A-report.md` § *Step 0.2* (outside the repository).
