@@ -189,10 +189,14 @@ ExecStart=/usr/bin/qemu-system-x86_64 \
 # The serial console goes to the journal, one way. That is the correct end state
 # — open problem #12 becomes unreachable rather than resolved — and it means
 # in-guest observation during bring-up needs a pty or a separate dev launcher,
-# which must NOT be this unit. A development monitor is a drop-in at
-# /etc/systemd/system/katmate-sys-driver@.service.d/90-dev-monitor.conf:
+# which must NOT be this unit. A development monitor is a per-session drop-in at
+# /run/systemd/system/katmate-sys-driver@.service.d/90-dev-monitor.conf:
 # additive, per-machine, out of git, and on the list of dev scaffolding to be
-# removed before release (ADR-030 §6).
+# removed before release (ADR-030 §6). It is NEVER placed under /etc (ruling R9,
+# 2026-09-27). The FIFO it points StandardInput= at lives in /run and dies with a
+# reboot; a drop-in in /etc survives it, and the next start then fails above
+# ExecStart= with 208/STDIN before any ExecStartPre= runs (state.md, Invariants).
+# In /run the drop-in and its FIFO share one lifetime.
 StandardInput=null
 StandardOutput=journal
 StandardError=journal
