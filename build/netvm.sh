@@ -3,14 +3,14 @@
 #
 # netVM is a DISTINCT COMPONENT CLASS (sysVM), not the foundation and not an
 # app-layer. It does NOT share the foundation, carries full systemd (with
-# dhcpcd, not networkd, on the uplink; wg), boots q35 with a passed-through NIC
+# dhcpcd, not networkd, on the uplink), boots q35 with a passed-through NIC
 # (vfio), holds its own PRIVILEGED control agent (netvm-agent), and updates on
 # its own track (netvm-update), never via katmate-update. See ADR-021.
 #
 # Divergences from foundation.sh (deliberate, per ADR-021 / ADR-018):
 #   - STANDALONE LINEAR RW LV, not thin and not in a snapshot chain (netVM is
 #     nobody's backing store) -> no -K -ay skip-activation, no RO-freeze.
-#   - NOT frozen: runtime-mutable state (/var, leases, wg handshake, resolv.conf,
+#   - NOT frozen: runtime-mutable state (/var, leases, resolv.conf,
 #     logs, and host-delivered dynamic /32 routes) lives on the RW LV. The image
 #     is disposable: rebuild = overwrite the LV.
 #   - full systemd (debootstrap default variant, NOT --variant=minbase).
@@ -23,9 +23,13 @@
 # neutral helpers (log/die/require_root/mount_root/umount_root/chroot_run) and
 # installs its OWN trap + cleanup for the linear-LV case (ADR-021, option B).
 #
-# Secrets (WireGuard keys, per-install values) are NOT baked here. The manifest
-# installs only a wg CONFIG TEMPLATE with placeholders; concrete values are
-# written at provisioning time (ADR-021 image/state separation).
+# Secrets and per-installation values are NOT baked here, and neither is any
+# VPN provider's configuration. Vanilla egress is direct through the uplink
+# (ADR-037 R2). The image carries wireguard-tools for a post-install VPN and no
+# tunnel config and no template: a provider config is the user's T1, not the
+# release's T4 (R20), and the build refuses an image whose baked conf tree names
+# `proton` (step 5). Per-installation configuration reaches netVM at run time
+# through a read-only config disk (R8), which does not exist yet.
 #
 # Run on MINIS (build host). Authored on Acer, GPG-signed, rsync-pushed. bash,
 # not fish. root required (debootstrap, lvcreate, mount, chroot).
@@ -203,7 +207,7 @@ chroot_run "$NETVM_MNT" apt-get install -y --no-install-recommends "${PKGS[@]}"
 # Everything under conf.d/ is copied verbatim into the image. This is the ONLY
 # author of netVM configuration — no installer, no drift. The tree is
 # appVM-AGNOSTIC: it bakes the uplink's name and DHCP client config, firewall
-# policy, wg template, sysctl —
+# policy, DNS forwarder config, sysctl —
 # and NO internal /32 route (not even personalVM). All internal routes arrive
 # at launch via the agent's NETCFG (ADR-021).
 #
@@ -233,6 +237,17 @@ while IFS= read -r -d '' rel; do
 done < <(cd "$NETVM_CONFD" && find . -mindepth 1 -printf '%P\0')
 [[ $NETVM_CONFD_PATHS -gt 0 ]] || die "step 5 read-back: the conf tree $NETVM_CONFD yielded no paths"
 log "Read-back OK: $NETVM_CONFD_PATHS conf-tree paths in the image, all owned 0:0"
+
+# Nothing baked in this rebuild references `proton` (ADR-037 R20): the old
+# ProtonVPN template and ruleset are gone, and a provider's name in the image
+# would be the release asserting the user's T1. Searched over the image's copy
+# of every conf-tree file, so an edit made after the copy is seen too.
+mapfile -d '' NETVM_CONFD_FILES < <(cd "$NETVM_CONFD" && find . -type f -printf '%P\0')
+[[ ${#NETVM_CONFD_FILES[@]} -gt 0 ]] || die "proton check: the conf tree $NETVM_CONFD yielded no files"
+if (cd "$NETVM_MNT" && grep -nF -- proton "${NETVM_CONFD_FILES[@]}"); then
+  die "baked conf tree names 'proton' (above): nothing in the vanilla image may reference a VPN provider (ADR-037 R20)"
+fi
+log "proton check OK: ${#NETVM_CONFD_FILES[@]} baked conf-tree files, none names 'proton'"
 
 # dhcpcd, not systemd-networkd, holds the uplink (ADR-037 R6), and networkd is
 # DISABLED (R15): after R6 it has no job, and left enabled it is a second
@@ -602,6 +617,6 @@ mv -f -- "$META_TMP" "$NETVM_META"   # atomic: mktemp created it on the same fs
 log "netVM image built: $DEV (linear, RW, NOT frozen)"
 log "  runtime payload + meta: $NETVM_RUNTIME_DIR (KVER=$KVER)  <- units read this"
 log "  build-tree export:      $NETVM_OUT"
-log "  Provision secrets (wg keys) at deploy time; do not bake into the image."
+log "  Per-installation config (static address, VPN) is T1 and never baked (ADR-037 R7, R8, R20)."
 
 exit 0

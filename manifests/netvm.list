@@ -50,7 +50,10 @@ dnsmasq
 nftables
 iproute2
 
-# --- VPN --------------------------------------------------------------------
+# --- VPN (post-install only) ------------------------------------------------
+# Vanilla netVM runs no tunnel (ADR-037 R2). wireguard-tools stays so a user can
+# enable a VPN after install from their own config (R20); no provider config
+# or template is baked.
 wireguard-tools
 
 # --- console / diagnostics (dev; trim for release) --------------------------
