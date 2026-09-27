@@ -243,15 +243,16 @@ log "Read-back OK: $NETVM_CONFD_PATHS conf-tree paths in the image, all owned 0:
 # networkd that is not running. systemd-resolved is not installed (ADR-037
 # R18: netVM resolves directly upstream through /etc/resolv.conf, written by
 # dhcpcd).
-log "Enabling systemd services (dhcpcd, nftables); disabling systemd-networkd"
+log "Enabling systemd services (dhcpcd, dnsmasq, nftables); disabling systemd-networkd"
 chroot_run "$NETVM_MNT" systemctl enable dhcpcd
+chroot_run "$NETVM_MNT" systemctl enable dnsmasq
 chroot_run "$NETVM_MNT" systemctl enable nftables
 NETVM_NETWORKD_UNITS=(systemd-networkd.service systemd-networkd.socket systemd-networkd-wait-online.service)
 chroot_run "$NETVM_MNT" systemctl disable "${NETVM_NETWORKD_UNITS[@]}"
 
 # Read back the enablement state, not the commands' exit codes.
 netvm_unit_state() { chroot_run "$NETVM_MNT" systemctl is-enabled "$1" 2>/dev/null || true; }
-for u in dhcpcd.service nftables.service; do
+for u in dhcpcd.service dnsmasq.service nftables.service; do
   st="$(netvm_unit_state "$u")"
   [[ "$st" == enabled ]] || die "step 5 read-back: $u is '$st' in the image, expected enabled"
 done
@@ -259,7 +260,29 @@ for u in "${NETVM_NETWORKD_UNITS[@]}"; do
   st="$(netvm_unit_state "$u")"
   [[ "$st" == disabled ]] || die "step 5 read-back: $u is '$st' in the image, expected disabled (ADR-037 R15)"
 done
-log "Read-back OK: dhcpcd, nftables enabled; ${#NETVM_NETWORKD_UNITS[@]} networkd units disabled"
+log "Read-back OK: dhcpcd, dnsmasq, nftables enabled; ${#NETVM_NETWORKD_UNITS[@]} networkd units disabled"
+
+# dnsmasq serves DNS on the slots and nothing else (ADR-037 R17), and its D-Bus
+# interface stays off (operator ruling, 2026-09-27: libdbus-1-3 is accepted
+# only as a library with no bus). The tracked config carries none of these;
+# this refuses an image in which anything that dnsmasq reads does.
+NETVM_DNSMASQ_CONF=("$NETVM_MNT/etc/dnsmasq.conf")
+[[ -d "$NETVM_MNT/etc/dnsmasq.d" ]] && NETVM_DNSMASQ_CONF+=("$NETVM_MNT/etc/dnsmasq.d")
+if grep -rnE '^[[:space:]]*(enable-dbus|bind-interfaces|bind-dynamic|dhcp-range|enable-ra)([[:space:]=]|$)' -- "${NETVM_DNSMASQ_CONF[@]}"; then
+  die "dnsmasq configuration in the image carries a forbidden option (above): netVM's dnsmasq is DNS only, default wildcard mode, no D-Bus (ADR-037 R17)"
+fi
+grep -qxF 'DNSMASQ_EXCEPT="lo"' "$NETVM_MNT/etc/default/dnsmasq" \
+  || die "/etc/default/dnsmasq in the image does not set DNSMASQ_EXCEPT=\"lo\" (ruling R29): dnsmasq would listen on loopback and could register itself as the system resolver"
+
+# No resolvconf implementation in the image (R18). With one present, dhcpcd's
+# 20-resolv.conf hook hands DNS to it instead of writing /etc/resolv.conf, and
+# dnsmasq's packaged helper switches its upstream to /run/dnsmasq/resolv.conf.
+# systemd-resolved, openresolv and resolvconf all provide one.
+for p in usr/sbin/resolvconf usr/bin/resolvconf sbin/resolvconf; do
+  [[ ! -e "$NETVM_MNT/$p" ]] \
+    || die "/$p exists in the image: a resolvconf implementation would take /etc/resolv.conf away from dhcpcd (ADR-037 R18)"
+done
+log "dnsmasq config OK: slots only, no DHCP/RA/D-Bus, DNSMASQ_EXCEPT=lo; no resolvconf in the image"
 # networking.service (ifupdown) stays present but inert: interfaces is reduced
 # to lo+source in the conf tree, so it does nothing on the uplink. Not disabled.
 

@@ -40,6 +40,13 @@ firmware-realtek
 # 1:10.1.0-11+deb13u4; R16). Its sandbox cannot CREATE /etc/resolv.conf, only
 # rewrite it, so build/netvm.sh bakes an empty one (R29).
 dhcpcd
+# dnsmasq: DNS for the AppVMs on the slots, forwarding to the upstream the
+# uplink lease names (ADR-037 R5, R17). dnsmasq-base DEPENDS on libdbus-1-3, and
+# no dnsmasq form avoids it; the library is an accepted cost, a library with no
+# bus (operator ruling, 2026-09-27). The dbus DAEMON is not pulled:
+# libdbus-1-3 only Recommends it, and this manifest installs without
+# recommends. dnsmasq's D-Bus interface is opt-in (enable-dbus) and not enabled.
+dnsmasq
 nftables
 iproute2
 
