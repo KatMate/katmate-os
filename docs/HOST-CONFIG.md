@@ -52,6 +52,47 @@ where, and what silently breaks if it is not.*
 **Scope:** any host running VM taps under networkd · **[LIVE]** on MINIS
 (`/etc/systemd/network/`) · **[V]** 2026-08-02
 
+**Re-measured 2026-09-27, after the host clean-up: MINIS now has no tap and no
+bridge, and networkd manages no link.** The last six networkd-managed links
+are gone from the host: `tap-int0` (moved out that morning) and `br-personal`,
+`tap0`, `tap-outer`, `tap-personal` and `tap-work`. Their files are
+in `~/katmate-dev/removed-0927/` and `removed-0927b/`. `/etc/systemd/network/` is empty.
+Readings (`../state.md`, 2026-09-27 *host-cleanup* entry):
+`networkctl list` shows `lo`, `enp195s0f3u1u1` (routable) and `proton`
+(routable), **all three `unmanaged`**. `networkctl status` gives `State: routable` and
+`Online state: unknown`. `network-online.target` and
+`systemd-networkd-wait-online.service` (enabled) are both `inactive (dead)`.
+**Neither has run during this boot:** every activation timestamp is empty and
+the journal has no entries for either. The only unit that pulls the target in
+is `archlinux-keyring-wkd-sync.service`. A direct probe,
+`/usr/lib/systemd/systemd-networkd-wait-online --timeout=15`, printed
+*"Timeout occurred while waiting for network connectivity."* and **exited 1
+after 15.2 s**. No probe was taken before the removal, so this reading is not
+evidence that the removal changed anything.
+
+**Correction, as a note — the text below is left as published.** *"On MINIS
+every networkd-managed link is a carrier-less tap"* did not describe the host.
+`br-personal` was a networkd-managed, carrier-less **bridge**. Its `.netdev`
+dates from 2026-03-12, before this section's 2026-08-02 verification. The
+requirement text already names bridges, so only the description changes. That a
+bridge with the default holds `network-online.target` the way the taps did was
+never measured.
+
+**The requirement stands.** Installer output for any **future** tap or bridge
+still carries `RequiredForOnline=no`. MINIS today has none, so the `[LIVE]`
+marker above has nothing on MINIS to apply to until a tap or bridge returns.
+**What the host does at its next boot, or the next time something pulls in
+`network-online.target`, with zero managed links, is UNVERIFIED.** This
+boot reached its targets without ever activating that target, so it says
+nothing either way. It is settled by `systemctl show -p
+ActiveState,Result,ActiveEnterTimestamp network-online.target
+systemd-networkd-wait-online.service` and `journalctl -b -u
+systemd-networkd-wait-online`, after a boot or an
+`archlinux-keyring-wkd-sync` run. The probe's timeout predicts a failed
+wait-online there, and it is a prediction until that reading exists. The ADR-029
+bearing below is unchanged: VM units must not depend on
+`network-online.target`.
+
 **Requirement:** every networkd `[Link]` section for a tap or bridge carries
 `RequiredForOnline=no`.
 
