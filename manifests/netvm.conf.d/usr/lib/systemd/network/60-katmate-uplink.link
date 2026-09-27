@@ -1,0 +1,19 @@
+# netVM uplink name (ADR-037 R3, R12). Matched on the guest PCI path, which is
+# pinned by addr=0x4 on vfio-pci in katmate-sys-driver@.service (R4, R10); the
+# build-side copy of the constant is build/config.sh NETVM_UPLINK_PCI_ADDR, and
+# build/netvm.sh refuses an image whose Path= below differs from it.
+#
+# `uplink0` HERE IS A GUEST-SIDE T4 NAME, NOT THE HOST'S T1 NIC LABEL. The host
+# label (`nic = "..."` in T1, published under /run/katmate/nics/) belongs to
+# the machine's owner and may be anything; this name is fixed by the release,
+# because dhcpcd's allowinterfaces and the ruleset's oifname are written
+# against it. The two share a string by coincidence of convention, not by
+# derivation (adr037-readpass D12).
+#
+# Sorts before 73-usb-net-by-mac.link and 99-default.link, so it is the first
+# .link to match the uplink.
+[Match]
+Path=pci-0000:00:04.0
+
+[Link]
+Name=uplink0

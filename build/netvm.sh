@@ -117,6 +117,10 @@ require_root
 command -v debootstrap >/dev/null || die "debootstrap not installed"
 [[ -f "$NETVM_PKGS"  ]] || die "package manifest not found: $NETVM_PKGS"
 [[ -d "$NETVM_CONFD" ]] || die "config tree not found: $NETVM_CONFD"
+# The uplink's guest PCI address (build/config.sh). A malformed value would reach
+# the step-5a gate as an expected Path= that no file could carry; say so here.
+[[ "${NETVM_UPLINK_PCI_ADDR:-}" =~ ^[0-9a-f]{4}:[0-9a-f]{2}:[0-9a-f]{2}\.[0-7]$ ]] \
+  || die "NETVM_UPLINK_PCI_ADDR is '${NETVM_UPLINK_PCI_ADDR:-}', expected a PCI address such as 0000:00:04.0 (build/config.sh)"
 
 if lvs "$DEV" >/dev/null 2>&1; then
   die "$DEV already exists — refusing to clobber. Remove deliberately first: lvremove -f $DEV"
@@ -236,6 +240,43 @@ chroot_run "$NETVM_MNT" systemctl enable nftables
 # resolved here.
 # networking.service (ifupdown) stays present but inert: interfaces is reduced
 # to lo+source in the conf tree, so it does nothing on the uplink. Not disabled.
+
+# --- 5a. build gate: the .link files (ADR-035 note 2026-09-20, ADR-037 R12) ----
+# Seventeen interface names are load-bearing in this image: km00..km0f, which
+# NETCFG and the slot pool address, and uplink0, which dhcpcd's allowinterfaces
+# and the ruleset's oifname are written against. udev renames nothing in a
+# chroot, so what a build can check is the FILES that will do the renaming;
+# whether the names are taken at boot is gate G2's, at runtime.
+#
+# Exactly 17 katmate .link files anywhere systemd-udevd reads .link files, and
+# each one's effective content (comments and blank lines dropped) is exactly
+# what is expected. A stray copy in /etc, a missing slot, a MAC or name typo,
+# or an uplink Path= that is not NETVM_UPLINK_PCI_ADDR all stop the build.
+log "Build gate: katmate .link files (17 expected)"
+netvm_link_body() { grep -vE '^[[:space:]]*([#;]|$)' -- "$1" || true; }
+NETVM_LINK_DIRS=()
+for d in etc/systemd/network run/systemd/network usr/local/lib/systemd/network usr/lib/systemd/network; do
+  [[ -d "$NETVM_MNT/$d" ]] && NETVM_LINK_DIRS+=("$NETVM_MNT/$d")
+done
+NETVM_KM_LINKS=()
+if [[ ${#NETVM_LINK_DIRS[@]} -gt 0 ]]; then
+  mapfile -d '' NETVM_KM_LINKS < <(find "${NETVM_LINK_DIRS[@]}" -maxdepth 1 -name '*katmate*.link' -print0)
+fi
+[[ ${#NETVM_KM_LINKS[@]} -eq 17 ]] \
+  || die "build gate: ${#NETVM_KM_LINKS[@]} katmate .link files in the image, expected 17: ${NETVM_KM_LINKS[*]:-(none)}"
+NETVM_LINK_DIR="$NETVM_MNT/usr/lib/systemd/network"
+for i in $(seq 0 15); do
+  kk="$(printf '%02x' "$i")"
+  f="$NETVM_LINK_DIR/70-katmate-slot-$kk.link"
+  [[ -f "$f" ]] || die "build gate: slot $kk: $f missing"
+  [[ "$(netvm_link_body "$f")" == $'[Match]\nMACAddress=52:54:01:00:00:'"$kk"$'\n[Link]\nName=km'"$kk" ]] \
+    || die "build gate: slot $kk: $f does not carry exactly MACAddress=52:54:01:00:00:$kk and Name=km$kk"
+done
+f="$NETVM_LINK_DIR/60-katmate-uplink.link"
+[[ -f "$f" ]] || die "build gate: uplink: $f missing"
+[[ "$(netvm_link_body "$f")" == $'[Match]\nPath=pci-'"$NETVM_UPLINK_PCI_ADDR"$'\n[Link]\nName=uplink0' ]] \
+  || die "build gate: uplink: $f does not carry exactly Path=pci-$NETVM_UPLINK_PCI_ADDR and Name=uplink0"
+log "Build gate OK: 17 katmate .link files — 16 slots, and the uplink on pci-$NETVM_UPLINK_PCI_ADDR"
 
 # --- 5b. clean apt state (same hygiene as app-layer.sh) -----------------------
 log "Cleaning apt state inside image"
@@ -474,6 +515,12 @@ done
 # DESCRIPTION and never an instruction: nothing consults it to decide anything
 # yet, and a reader that ignores it is unaffected.
 #
+# UPLINK_PCI_ADDR (ADR-037 R13) is the guest PCI address the image's
+# 60-katmate-uplink.link matches, from build/config.sh NETVM_UPLINK_PCI_ADDR,
+# the value the step-5a gate checked. The unit pins the same address as
+# addr=0x4; the preflight comparing the two is open problem #44, and until it
+# exists nothing reads this key.
+#
 # Added at KATMATE_META_VERSION=1, unchanged. km_meta_open() in
 # host/usr/lib/katmate/katmate-lib.sh refuses any version but 1, and readers
 # take keys individually with km_meta_get/km_meta_require, so an added key is
@@ -495,6 +542,7 @@ NETVM_ROOTFSTYPE=ext4
 NETVM_KERNEL=$NETVM_RUNTIME_DIR/vmlinuz
 NETVM_INITRD=$NETVM_RUNTIME_DIR/initrd.img
 NETVM_ROOT_UNLOCKED=$NETVM_ROOT_UNLOCKED
+UPLINK_PCI_ADDR=$NETVM_UPLINK_PCI_ADDR
 META
 chmod 0644 "$META_TMP"
 mv -f -- "$META_TMP" "$NETVM_META"   # atomic: mktemp created it on the same fs

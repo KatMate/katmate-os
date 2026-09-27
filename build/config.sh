@@ -18,6 +18,14 @@ POOL="vm_pool"
 FOUNDATION_LV="vm_tpl_foundation"     # thin, RO-frozen — the single shared base
 APP_LV_PREFIX="vm_app_"               # app-<type> -> vm_app_<type> (e.g. vm_app_web)
 
+# --- netVM uplink: guest PCI address (ADR-037 R4, R10, R12, R13) -------------
+# The ONE build-side source of the uplink's guest PCI address. build/netvm.sh
+# checks 60-katmate-uplink.link's Path= against it and records it in netvm.meta
+# as UPLINK_PCI_ADDR. The same constant is also written, as addr=0x4, into
+# katmate-sys-driver@.service; nothing compares the unit with this value yet
+# (open problem #44). Change all three together, or the uplink stays unrenamed.
+NETVM_UPLINK_PCI_ADDR="0000:00:04.0"
+
 # --- paths -------------------------------------------------------------------
 BUILD_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 ROOT_DIR="$(cd "$BUILD_DIR/.." && pwd)"
