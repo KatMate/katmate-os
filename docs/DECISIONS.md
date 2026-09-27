@@ -7620,3 +7620,61 @@ prefix of 8 or longer, a gateway inside the prefix of an address that has
 passed R45 cannot fail it, so the gateway's check fires only for a gateway
 that is also outside the prefix; it is placed first so that the diagnostic
 names R45.
+
+**Revision note (2026-09-27, step-3 gates — G6, and G3's static half):**
+**Status: still PROPOSED.** G5 is untaken, and acceptance waits on it. This
+note records gate results and what they settle. It changes no text above.
+The gates were taken on MINIS on 2026-09-27 by the session r8-impl-B
+(`r8-impl-B-report.md`, outside the repository, cited as B), on the code of
+`r8-impl-A-report.md` (cited as A) and `8f6ebd5`. Each reading is quoted
+verbatim in B; the operator accepted B's gate table on 2026-09-27.
+
+- **Implemented** in six commits of A, `e659db3`…`ba11679`, and two of B,
+  `8f6ebd5` (R45) and `5bc028a` (R45, R46). The host side was installed on
+  MINIS and equals the tree at `5bc028a` (B, Phase 1, 9 of 9 by sha256).
+- **Built** on MINIS as a dev build (R27): `NETVM_BUILT=2026-09-27T18:34:22Z`,
+  kernel `6.12.107+deb13-amd64`, carrying the consumer, the oneshot and the
+  `dhcpcd.service` drop-in (B, Phase 4).
+
+| Gate | Result, 2026-09-27 | Source in B |
+|---|---|---|
+| G6, pass | **PASS.** The builder names `uplink`: `entries: VERSION uplink (address=10.3.1.172/24 gateway=10.3.1.1 nameservers=10.3.1.1)`, image `sha256=e960fadc…ea1c`. The guest consumer logs the same sha256, `members: VERSION uplink`. `/run/katmate-cfg/dhcpcd.conf` carries the `static` block for `uplink0`. The argv carries `cfg0 … readonly=on` and `virtio-blk-pci,drive=cfg0,addr=0x15,serial=kmcfg`; the guest shows `1af4:1001` at `00:15.0`, and the root stays `/dev/vda`. | Phases 2, 5, 6; gate table |
+| G6, R-a (absent) | **PASS.** No `uplink`: the builder logs `entries: VERSION only … the absent path`, image `c9a4e5e4…d406`; the consumer logs the same sha256 and `no uplink entry: dhcpcd leases on uplink0 (ADR-037 R36)`; `uplink0` leased `10.3.1.103`, and `/etc/resolv.conf` carries dhcpcd's header. | Phase 5 |
+| G6, R-b (malformed) and R-c (unknown file), with the R42, R45 and symlink refusals | **PASS.** Each refused before QEMU, with 0 QEMU processes and no image: R-b `octet 256 in '10.3.1.256' is greater than 255`; R-c `unknown file wg0`; R42 mode `0666`; R42 owner uid 1000; R45 `key 'gateway': 224.0.0.1 is multicast`; a symbolic link for `uplink`. A valid T1 between them started netVM (the positive control). | Phase 3 |
+| G6, R-d (read-only) | **PASS.** `dev=vdb ro=1` in the guest, in the absent boot and in the static boot. | Phases 5, 6 |
+| G3, static half, pass | **PASS.** `inet 10.3.1.172/24 … scope global noprefixroute uplink0`, `valid_lft forever`; `default via 10.3.1.1 dev uplink0 src 10.3.1.172`; `/etc/resolv.conf` `0:0 644` with dhcpcd's header and `nameserver 10.3.1.1`; the host's ARP scan finds the uplink MAC at `10.3.1.172`. | Phase 6 |
+| G3, static half, refusal (R39) | **PASS.** A host capture of DHCP on the LAN interface read **0 packets** across the static boot; its positive control, across a DHCP-mode restart, read 1 (a DHCP Request from the uplink MAC). In the guest, no lease file is newer than boot, and dhcpcd's journal for the boot has no soliciting, offered, leased, rebind, renew, request, discover or inform line. | Phases 5, 6 |
+| G5 | not taken (it needs an AppVM on a slot) | — |
+
+Recorded so that the static readings are not misread: in static mode,
+dhcpcd's `resolv.conf` header still says *"from uplink0.dhcp"*, and the
+prefix route carries `proto dhcp`. These are dhcpcd's labels for the
+interface's configuration source, not evidence of DHCP traffic. The refusal
+half measures the traffic directly.
+
+**What the gates settle:**
+
+- **r8 D13 is settled.** dhcpcd's `20-resolv.conf` hook writes the static
+  nameserver into the baked `/etc/resolv.conf` (`0:0 644`, dhcpcd's header).
+  R38's reading had left it UNVERIFIED until G3's static half.
+- **A's H3 reading is observed.** dhcpcd runs with `-f
+  /run/katmate-cfg/dhcpcd.conf` under the packaged sandbox, unwidened: the
+  unit's effective `ExecStart=` is `/usr/sbin/dhcpcd -q -b -f
+  /run/katmate-cfg/dhcpcd.conf`, `status=0`, in both modes. (The argv is read
+  from the unit, because dhcpcd rewrites its process title.)
+- **Tar reproducibility across two machines.** The absent-path image built on
+  MINIS has the sha256 of the one built on the Acer (`c9a4e5e4…d406`). Both
+  run GNU tar 1.35. It is **not** claimed across tar versions.
+- **§ *Status*, the implementation sentence.** The step-3 rulings note says
+  § *Status*'s list is false *"for all but the config disk"*. From
+  2026-09-27 the config disk exists too, in the tree (`30b1708`, `0996b70`,
+  `ba11679`) and on MINIS (above).
+
+**Not executed, and therefore not claimed (B § 6):** the builder's `trap`
+cleanup and stale-file sweep; the refusals of a group-writable or non-root
+`<instance>.d/` directory, of `<instance>.d/` as a symlink or a
+non-directory, of an unknown or missing key and of a leading-zero octet, as
+installed (each ran only in an extracted-block driver, not the executable);
+every failure path of the guest consumer on a real image;
+`ExecStop=/usr/sbin/dhcpcd -x`; and whether the static T1 holds across a host
+reboot.
