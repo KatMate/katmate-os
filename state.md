@@ -1358,6 +1358,9 @@ touched.
    AppVM tap to hand over, and netVM's `tap-int0` can be pre-created with
    `ip tuntap add … user <uid>`. C2 returns as a link-topology question when the
    AppVM acquires an endpoint. SECURITY-MODEL gap #11.
+   **Cross-reference 2026-09-27:** C1 also has to retire the blanket udev rule
+   that gives uid 1000 read-write on every `vm_*` device, thin pool included
+   (#43, gap 16).
 
 18. **vsock CID space is global on the host (C6).** Any host process can reach
    any VM's agent on port 1025. Linux 7.0 makes vsock namespace-aware for
@@ -2664,6 +2667,20 @@ touched.
    - **Undecided:** `~/hcb-d.sh` (18524 B, `5d783a98…`), the deleting script
      itself, which was not on the list. **#42 stays open for that one item
      only.**
+
+43. **A blanket udev rule gives uid 1000 read-write access under every thin
+   LV.** Added 2026-09-27. `/etc/udev/rules.d/99-vm-lvm.rules` on MINIS
+   (2026-02-09, untracked, in no document before today) runs `chown host:host`
+   and `chmod 0660` on every `vg0` block device whose LV name matches `vm_*`.
+   **Observed** (hcb Phase P): `host:host brw-rw----` on `vm_sys_netvm`,
+   `vm_tpl_foundation` and `vm_app_web_home`, **and on `vm_pool`,
+   `vm_pool-tpool`, `vm_pool_tdata` and `vm_pool_tmeta`**. uid 1000 therefore
+   has read-write access to netVM's rootfs, to the shared template, and to the
+   thin pool's raw data and metadata, i.e. under every thin LV, active or not.
+   Its likely consumer is `app_web.con`, launched as `host`. That is
+   **inferred, not measured**. **Kept for now, by operator ruling.** The fix
+   belongs to **C1** (#17): per-LV, per-instance DAC granted by the unit's
+   `ExecStartPre=+`, never a blanket rule. SECURITY-MODEL **gap 16**.
 
 ## Next steps
 
