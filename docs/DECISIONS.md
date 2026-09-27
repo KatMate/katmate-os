@@ -7123,3 +7123,114 @@ its open DNS-leak decision.
 - open problem #27;
 - `20-uplink.network` and its ProtonVPN comment, which are retired by the
   implementation, not by this ADR's write pass.
+
+**Revision note (2026-09-27, § *Status*, § *Decision* and § *Gates* — the
+operator's rulings on the read pass, R10–R28, before any implementation):**
+**Status: still PROPOSED.** This note refines the decisions. It implements
+nothing, takes no gate, and acceptance still waits on the gates. The rulings
+are the operator's of 2026-09-27, given on a read pass of the tree against this
+ADR (`adr037-readpass-report.md`, outside the repository, cited as rp). They
+continue R2–R9 and are numbered R10–R28. Each one cites the rp question or
+divergence it answers.
+
+- **R10 — the pinned slot (R4).** `vfio-pci` carries **`addr=0x4`**. It is
+  the only measured slot, and the only one with an `ID_PATH` reading behind
+  `Path=pci-0000:00:04.0`. The unit gets comment (6): a guest `addr=` is
+  assigned by the argv, not by firmware, so
+  [ADR-030](DECISIONS.md#adr-030) §5's ban on a BDF does not apply to it.
+  (rp Q-R4a, Q-R4c)
+- **R11 — G1 does not discriminate cause, and that is accepted.** With the
+  pin equal to today's auto-placed slot, G1's positive half passes
+  identically without the pin. The discriminator comes at networking-arc step
+  3, when R8's config disk adds the first new device. **Rule from now on:
+  every new device in the netVM unit carries an explicit `addr=`.**
+  (rp Q-R4b, D7)
+- **R12 — the uplink `.link` is `60-katmate-uplink.link`.**
+  [ADR-035](DECISIONS.md#adr-035)'s rename build gate (its 2026-09-20 note)
+  lands in this rebuild **as a file check**: 17 `.link` files with the
+  expected content, the sixteen slots and the uplink. The names are checked
+  at runtime by G2, because a chroot renames nothing. (rp Q-R3c, D8)
+- **R13 — `netvm.meta` records `UPLINK_PCI_ADDR`.** An automated preflight
+  comparing it with the unit's `addr=` is a **new open problem**, not part of
+  this step. A mismatch fails closed, and G2 catches it. (rp Q-R3b)
+- **R14 — dhcpcd's scope (R6).** dhcpcd is restricted with **`allowinterfaces
+  uplink0`**, **`noipv4ll`** and **`ipv4only`**. Vanilla egress is IPv4
+  only; IPv6 egress needs its own ADR. **G3 gains a refusal half:** after boot
+  and one NETCFG ADD/REMOVE cycle, no `km*` interface carries an address, a
+  route or a lease that NETCFG did not program. This is the dhcpcd form of
+  [ADR-025](DECISIONS.md#adr-025) Path B's precondition that internal NICs are
+  unmanaged. (rp Q-R6c, Q-R6d, D3)
+- **R15 — systemd-networkd is disabled in netVM.** After R6 it has no job.
+  The agent unit drops `Wants=`/`After=systemd-networkd.service`. (rp Q-R6a)
+- **R16 — the dhcpcd package is whichever form pulls in no dbus**, either
+  `dhcpcd-base` or `dhcpcd`. The implementation measures this with `apt-get -s`
+  in the build chroot and with `dpkg-query` after the build, as part of G3.
+  (rp Q-R6b)
+- **R17 — dnsmasq binding (R5).** dnsmasq runs in its **default wildcard
+  mode**, with neither `bind-interfaces` nor `bind-dynamic`. It uses
+  `interface=km*` and `except-interface=uplink0`, and serves **DNS only, with
+  no DHCP and no RA.** (rp Q-R5a, Q-R5b)
+- **R18 — no loopback resolver.** netVM's `/etc/resolv.conf` **never points at
+  a loopback address**. netVM resolves directly upstream, and dnsmasq reads the
+  same file. Clear-text DNS to the upstream the uplink receives is **accepted
+  for vanilla**. (rp Q-R5c)
+- **R19 — the forward return path (R2).** There is no explicit reverse forward
+  rule; return traffic goes through `ct state established,related` only.
+  **`udp dport 51820` is removed.** (rp Q-R2a, Q-R2b)
+- **R20 — VPN residue.** **`wireguard-tools` stays**, because the post-install
+  VPN needs it. **`proton.conf.template` is removed**, because a provider
+  config is the user's T1 and not T4. The VPN-mode ruleset, kill-switch
+  included, is designed at arc step 3 with R8. **Nothing baked in this rebuild
+  references `proton`.** (rp Q-R2c)
+- **R21 — the finding-12 slot guard is not in this rebuild.** It must land
+  **before arc step 4** (the first AppVM on a slot), as its own step with its
+  own gate. (rp Q-R2d)
+- **R22 — no `icmpv6` accept rule is added.** The absence of any ICMPv6 accept
+  in netVM's `input` chain is **load-bearing for open problem #24**, because it
+  drops RAs arriving on the slots. `accept_ra` stays at arc step 4.
+  (rp Q-R2d; #24)
+- **R23 — `nftables.conf` becomes mode `0644`**, in its own commit, because a
+  git mode change is its own concern. **`root:root` ownership** of everything
+  step 5 of `netvm.sh` bakes is fixed in step 5 itself (open problem #38).
+  (rp Q-38)
+- **R24 — the agent unit gets one author.** It moves into
+  `manifests/netvm.conf.d/` as a tracked file, and the heredoc in `netvm.sh`
+  step 7 is removed (open problem #27). (rp Q-27)
+- **R25 — G3 is split.** The DHCP half is taken on the arc step-2 build. The
+  static half is taken at step 3, with R8. There is no fixture path for T1
+  content. (rp D6)
+- **R26 — G4 is taken with a fixture peer:** ARP and a UDP DNS query on a
+  slot's `appvm` socket, as dev scaffolding in `~/katmate-dev/`, with the
+  script quoted in full in its report. **G4 gains a refusal half:** a DNS query
+  from the LAN (the MINIS host) to netVM's uplink lease gets no answer.
+  (rp § 4, G4)
+- **R27 — the rebuild is a dev build** (dev root unlocked), because G2 and G3
+  need the console. (rp § 8 item 2)
+- **R28 — the rulings are recorded before code** (this note). D5 and D8–D14,
+  apart from D13, wait for the write pass after the rebuild.
+
+**Corrections to this ADR's own text.** They are recorded here, and the text
+above is left as written:
+
+- **§ *Carried*, the pool unit (rp D1).** The pool unit was folded into the
+  shipped unit on 2026-09-27 (`a36bdb2`; ADR-035's note of that date). R4, and
+  now R10, target **`katmate-sys-driver@.service`**, not an untracked
+  `katmate-pool@.service`.
+- **§ *Status*, where the rulings live (rp D4).** R1–R9 are recorded in
+  `docs/SESSIONS.md`, rotated out of `state.md` in `019478a`, and not in
+  `state.md`.
+- **§ *Decision* 2, R3's cross-reference, extended (rp D2).** On
+  implementation, R3 (with R6) also retires the following statements, which
+  the cross-reference did not name. They are named here, and **none of them is
+  changed by this note**. Until the implementation lands, each one still
+  describes the tree.
+  - ADR-021 § *Decision*, the bake-list bullet
+    *"`/etc/systemd/network/20-uplink.network` — MAC-matched DHCP on the vfio
+    uplink NIC"*.
+  - ADR-025 Path B's **load-bearing fact**, *"the image bakes only the
+    MAC-matched `20-uplink.network`, so internal virtio-net NICs are
+    networkd-unmanaged"*, and ADR-025's 2026-08-09 note, *"`manifests/
+    netvm.conf.d/` carries the MAC-matched **uplink** only"*. R14 carries the
+    precondition over to dhcpcd.
+  - `state.md` § *Live state*, netVM: *"the uplink comes up MAC-matched"* and
+    *"Interface names are not normative"*.
