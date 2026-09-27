@@ -202,6 +202,13 @@ km_meta_open() {
 # RuntimeDirectory is removed when an instance stops and would take the shared
 # parent — and every other instance's projection and the boot's nic labels —
 # with it.
+#
+# km_run_subdir <sub> [mode]. The mode defaults to 0755, which the projection
+# and the nic labels use: they are read by the unit's own user. The config
+# disk's directory is 0700 (ADR-037 R32), because what it holds may carry a
+# secret from networking arc step 5 on, and only root reads it. `install -d -m`
+# also resets the mode of a directory that already exists, so a directory left
+# with a wider mode by anything earlier is narrowed on the next call.
 km_run_subdir() {
     # Two `local` statements, not one: in bash 5.3 the right-hand sides of a
     # single `local a=… b="$a"` are all expanded before any of the assignments
@@ -211,8 +218,11 @@ km_run_subdir() {
     # earning its keep on a path a behavioural test would also have found, but
     # later).
     local sub="$1"
+    local mode="${2:-0755}"
     local dir="$KM_RUN_DIR/$sub"
-    install -d -m 0755 "$dir" \
+    [[ "$mode" =~ ^0[0-7]{3}$ ]] \
+        || km_usage "km_run_subdir: mode '$mode' is not an octal 0NNN"
+    install -d -m "$mode" "$dir" \
         || km_die "cannot create $dir"
     printf '%s' "$dir"
 }
