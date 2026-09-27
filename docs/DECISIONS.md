@@ -6321,6 +6321,27 @@ changes no decision.
   none. The hijack window of the 2026-09-12 note, finding 7, applies to
   `katmate-sys-driver@.service` exactly as it did to the pool unit.
 
+**Revision note (2026-09-27, the 2026-09-20 note's build gate and
+§ *Consequences* — ADR-037's implementation):** this note records what exists.
+It changes no decision.
+
+- **The rename build gate of the 2026-09-20 note exists** (`0f304c9`,
+  [ADR-037](DECISIONS.md#adr-037) R12). It is a **file check**: the image must
+  carry exactly 17 `*katmate*.link` files with the expected content, the
+  sixteen `70-katmate-slot-kk.link` and `60-katmate-uplink.link`. It **passed
+  on a real image** on 2026-09-27: *"Build gate OK: 17 katmate .link files — 16
+  slots, and the uplink on pci-0000:00:04.0"*. **The note's *"sixteen names,
+  counted"* is met by counting files, not names, because a chroot renames
+  nothing.** The names are checked at runtime by ADR-037's G2, which passed
+  on 2026-09-27 with 16 slots on 16 distinct slot `.link` files and one
+  `uplink0`.
+- **§ *Consequences*, *"Open problems #23 and #27 close in the pool's
+  commits"*, did not hold** (rp D9). #27 closed in the ADR-037 rebuild
+  (`098e868`, R24): the agent unit is a tracked file in the conf tree, and
+  the baked unit is that file. It was not closed in the pool's commits. **#23's
+  `ExecStopPost=` is still unimplemented**, as this ADR's previous note says.
+  The shipped `katmate-sys-driver@.service` carries none.
+
 ---
 
 ## ADR-036 — The distributable unit is the enforcing set of the trust model; the host base is a pinned composition, neither a mutable install nor a distribution
