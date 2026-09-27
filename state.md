@@ -6,12 +6,11 @@
 > history and the ADRs — this file references them rather than repeating them.
 
 **Milestone:** v0.2 (in development) · **Last updated:** 2026-09-27
-(a write pass on the Acer, preceded by one authorised clean-up on MINIS, that
-wrote the `pool-fold` session — the slot pool folded into
-`katmate-sys-driver@.service`, installed, and netVM started under it — into
-this file from its report and the operator's rulings of 2026-09-27, retired the
-host-side `tap-int0`, and rotated the 2026-09-24 … 2026-09-26 entry to
-`docs/SESSIONS.md`).
+(`wp-0927c`, a docs-only write pass on the Acer. It recorded the
+`adr037-readpass` session and the operator's rulings R10–R28 on it, before any
+implementation, in ADR-037's and ADR-021's revision notes and in this file. It
+also recorded the auto-mode permission rule and closed #42, and it rotated the
+2026-09-27 `pool-fold` entry to `docs/SESSIONS.md`).
 
 ## Current focus
 
@@ -48,6 +47,104 @@ restartable — and so updatable — without touching running VMs.
 
 Direction unchanged: IOMMU-capable platforms only (VT-d/AMD-Vi).
 MINIS is primary host and merge target.
+
+## This session (2026-09-27, adr037-readpass and rulings) — the tree read against ADR-037, and the operator's rulings R10–R28 recorded before any code
+
+Two sessions, both on the Acer only. MINIS was not contacted. `adr037-readpass`
+read the tree against ADR-037 before the netVM rebuild. Its report is outside
+the repository: `~/Claude.assistent/adr037-readpass-report.md` (cited as rp).
+`wp-0927c` wrote the rulings on it into `docs/DECISIONS.md` and this file.
+
+**The read pass (rp), in summary.** It mapped every file that R2–R7, #38 and
+#27 touch (rp § 1) and found **fourteen divergences, D1–D14**, none of them
+resolved by the pass (rp § 2). The pool unit named in ADR-037 § *Carried* is
+already folded (D1). R3 reverses statements its cross-reference does not name
+(D2). Nothing keeps dhcpcd off the slots (D3). ADR-037's Status points at
+`state.md` for rulings that live in `docs/SESSIONS.md` (D4). G3's static half
+cannot be taken on the step-2 build (D6). G1 cannot tell the pin from today's
+auto-placement (D7). ADR-035's rename build gate does not exist in the tree
+(D8). ADR-021's write grant and `MODULES=dep` are stale (D10, D13). Two
+published statements say WireGuard terminates in netVM, and net-up read none
+(D11). The pass also asked the questions the implementation cannot start
+without (rp § 3), stated the readiness of gates G1–G4 with a proposed refusal
+half for each (rp § 4), and proposed a commit sequence (rp § 5). Every
+component behaviour it states from general knowledge is marked **[recall,
+unverified]** there, and none of those statements was measured.
+
+**Operator rulings of 2026-09-27 on the read pass, R10–R28.** The full text,
+with each ruling's rp reference, is ADR-037's revision note of 2026-09-27. This
+list is the index, not a second copy:
+
+- **R10:** `vfio-pci` gets `addr=0x4`, and the unit gets comment (6).
+- **R11:** G1 is accepted as not discriminating cause. Every new device in the
+  netVM unit carries an explicit `addr=`.
+- **R12:** the uplink `.link` is `60-katmate-uplink.link`, and ADR-035's rename
+  build gate lands in this rebuild as a file check on 17 `.link` files.
+- **R13:** `netvm.meta` records `UPLINK_PCI_ADDR`. The preflight that compares
+  it with the unit is open problem #44.
+- **R14:** dhcpcd gets `allowinterfaces uplink0`, `noipv4ll` and `ipv4only`,
+  and G3 gains a refusal half on `km*`.
+- **R15:** systemd-networkd is disabled in netVM. The agent unit drops its
+  `Wants=`/`After=` on it.
+- **R16:** the dhcpcd package form is whichever pulls in no dbus, measured in
+  the chroot and after the build.
+- **R17:** dnsmasq runs in its default wildcard mode, with `interface=km*`,
+  `except-interface=uplink0`, and DNS only.
+- **R18:** `/etc/resolv.conf` never points at loopback. Clear-text upstream DNS
+  is accepted for vanilla.
+- **R19:** there is no explicit reverse forward rule, and `udp dport 51820` is
+  removed.
+- **R20:** `wireguard-tools` stays and `proton.conf.template` goes. Nothing
+  baked in this rebuild references `proton`.
+- **R21:** the finding-12 slot guard is not in this rebuild. It lands before arc
+  step 4, as its own step.
+- **R22:** no `icmpv6` accept is added. Its absence is load-bearing for #24
+  (*Invariants*).
+- **R23:** `nftables.conf` becomes `0644` in its own commit, and `root:root` is
+  fixed in `netvm.sh` step 5 (#38).
+- **R24:** the agent unit moves into `manifests/netvm.conf.d/`, and step 7's
+  heredoc goes (#27).
+- **R25:** G3 is split. The DHCP half is taken at step 2 and the static half at
+  step 3. There is no fixture path for T1.
+- **R26:** G4 is taken with a fixture peer in `~/katmate-dev/`, and gains a LAN
+  refusal half.
+- **R27:** the rebuild is a dev build.
+- **R28:** the rulings are recorded before code. D5 and D8–D14, apart from D13,
+  wait for the write pass after the rebuild.
+
+**Carried rulings (operator, 2026-09-27; rp § 6):**
+
+- The token that was in `~/code_auth_token.txt` was rotated several times, so
+  it is **obsolete**. No revocation is needed. The notes are on the
+  host-cleanup entry below and on #42.
+- `/home/host/hcb-d.sh` was **deleted by the operator**. #42 closes.
+- SECURITY-MODEL **gap 3 stands for the product**. The host's `proton` link is
+  **dev scaffolding**, on the pre-release removal list beside the dev sshd
+  (#4). The gap's note of 2026-09-27 records it.
+
+**Permission mode (operator ruling, 2026-09-27):** sessions run in **auto
+mode**. When the classifier refuses a command, the agent stops, reports the
+exact command, and waits for the operator to allow it. It never retries the
+same thing in another command form. This supersedes the Manual-mode rule of
+2026-09-26 (§ *Live state*, *Dev access to MINIS*).
+
+**Ruled in-session (wp-0927c):** rp D2 also lists `docs/ARCHITECTURE.md:76`
+(*"Core stack: systemd, systemd-networkd/-resolved, …"*) as reversed by R3.
+That line is under `## Host`, so it describes the host's stack, and R3/R6
+change only netVM. The operator ruled that ADR-037's note omits it.
+
+**Written (wp-0927c):** the pool-fold entry rotated to `docs/SESSIONS.md`.
+ADR-037 has a revision note (R10–R28, D1, D4, and D2's extended
+cross-reference), and ADR-021 has one (D2, D10, D13). In this file: this entry,
+the permission-mode note, #42 closed, #44 added, the arc step-2 note and the
+finding-12 step, and two invariant notes. SECURITY-MODEL gap 3 has a note.
+
+**Not done, and not claimed.** Nothing was implemented, built or run.
+`netvm.sh`, the units and the manifests are unchanged. Every gate of ADR-037
+is untaken. rp's **[recall, unverified]** statements about dhcpcd, dnsmasq and
+QEMU are still unverified, and R14, R16 and R17 are rulings on them, not
+measurements of them. `docs/ARCHITECTURE.md` still says WireGuard terminates in
+netVM (D11). It waits with D5, D8, D9, D11, D12 and D14.
 
 ## Previous session (2026-09-27, host-cleanup) — MINIS dev leftovers retired, networkd now manages no link, and HOST-CONFIG §1 re-measured
 
@@ -155,7 +252,8 @@ Manual both times.
   is deleted.
 - **`~/code_auth_token.txt` is unknown to the operator.** It is deleted, after
   its issuer was identified (below). Deleting the file does not revoke the
-  token.
+  token. **[Note 2026-09-27 (operator ruling): the token was rotated several
+  times and is obsolete. No revocation is needed.]**
 - **`host_lan_up.sh` and `proton-wg-up.sh` are KEPT.** They bring up the host
   uplink and the `proton` link, and may be the operator's manual post-boot step
   that HOST-CONFIG §2 (`[OPEN]`) implies. They retire when §2 lands, not before.
@@ -188,7 +286,9 @@ files matched in size and owner (hcb § 0 execution log).
   prefix is Anthropic's `sk-ant-o…`, the OAuth form, and the length fits a
   Claude Code `setup-token` token. **The issuer is identified by prefix and
   length only.** Revocation is the operator's step, at the issuing claude.ai
-  account. mtime 2026-06-15 18:09.
+  account. mtime 2026-06-15 18:09. **[Note 2026-09-27 (operator ruling): the
+  token was rotated several times and is obsolete. No revocation is
+  needed.]**
 - **The kept scripts, verbatim.** `host_lan_up.sh` (140 B, 2026-07-06):
 
   ```
@@ -701,6 +801,11 @@ touched.
   ("Remote Shell Writes"). Both calls were refused before execution, so nothing
   reached MINIS and nothing needed undoing; the same calls ran in Manual mode
   (`net-m1-report.md` §§ 3, 4, 6, 7).
+  **[Note 2026-09-27 (operator ruling), which supersedes the rule above. The
+  rule is left as written.]** Sessions run in **auto mode**. When the
+  classifier refuses a command, the agent **stops, reports the exact command
+  that was refused, and waits** for the operator to allow it. It **never**
+  retries the same thing through a different command form.
   **The rsync form of record (2026-09-27)**, as `pool-fold-report.md` § 2.5
   used it, dry run (`-an --itemize-changes`) first:
   `rsync -a --delete --exclude=.git/ --exclude=trixie-build/ --exclude=out/
@@ -2476,7 +2581,11 @@ touched.
    networking arc step 4, alongside #19. The `app` branch stays, per ADR-035
    §9.
 
-42. **MINIS dev leftovers awaiting the operator's ruling.** Added 2026-09-27
+42. **RESOLVED 2026-09-27 — `hcb-d.sh` was deleted by the operator, the one
+   item left undecided.** Kept as a closed marker so the number is not reused.
+   The token noted below is obsolete (operator ruling, 2026-09-27). The
+   published text is left as written:
+   **MINIS dev leftovers awaiting the operator's ruling.** Added 2026-09-27
    from the host-cleanup inventory (hc Appendix A, read 11:36:56). **This is a
    list, not a decision.** Each item was judged a leftover from its name, date
    and location only. None was traced, opened or touched, and the operator rules
@@ -2534,6 +2643,8 @@ touched.
    volatile and `proton` is up, so either may be how they come up.
    `~/.katmate-netvm-pass` is, by its name, the netVM dev root secret (#11, #12).
    `~/code_auth_token.txt` holds a credential and is the operator's to handle.
+   **[Note 2026-09-27 (operator ruling): the token was rotated several times
+   and is obsolete. No revocation is needed.]**
    `Pictures/`, `walls/`, `sway.sh`, the `shot-*.png`, `sway-old-*.tar.gz`,
    `iso/`, `arch-cache/`, `acer/` and `Claude.assistent/` are not judged. Neither
    is `~/katmate-build/out/netvm/` (`root:root`, 2026-07-08, contents not read).
@@ -2557,7 +2668,9 @@ touched.
      - `config-katmate-3flags.bak` (#22 note);
      - `.katmate-netvm-pass` (a credential already rotated);
      - `code_auth_token.txt`, identified by prefix and length as a claude.ai
-       token. Revocation is the operator's step.
+       token. Revocation is the operator's step. **[Note 2026-09-27
+       (operator ruling): the token was rotated several times and is
+       obsolete. No revocation is needed.]**
    - **Kept, as ruled:**
      - `vms/` (only a personalVM `personal_VARS.fd`), `iso/`, `acer/`,
        `arch-cache/`, `Pictures/`, `walls/`, `sway.sh`, `shot-*.png`,
@@ -2570,6 +2683,8 @@ touched.
    - **Undecided:** `~/hcb-d.sh` (18524 B, `5d783a98…`), the deleting script
      itself, which was not on the list. **#42 stays open for that one item
      only.**
+     **[Note 2026-09-27 (operator ruling): `hcb-d.sh` was deleted by the
+     operator, so #42 closes.]**
 
 43. **A blanket udev rule gives uid 1000 read-write access under every thin
    LV.** Added 2026-09-27. `/etc/udev/rules.d/99-vm-lvm.rules` on MINIS
@@ -2584,6 +2699,20 @@ touched.
    **inferred, not measured**. **Kept for now, by operator ruling.** The fix
    belongs to **C1** (#17): per-LV, per-instance DAC granted by the unit's
    `ExecStartPre=+`, never a blanket rule. SECURITY-MODEL **gap 16**.
+
+44. **Nothing checks that the unit's `addr=` and the image's uplink `Path=`
+   agree.** Added 2026-09-27 (ADR-037 R13; rp Q-R3b). After the rebuild, the
+   guest address of the uplink is one constant in two artefacts on two update
+   tracks: `addr=0x4` on `vfio-pci` in `katmate-sys-driver@.service` (the host
+   T4 unit, reinstalled) and `Path=pci-0000:00:04.0` in
+   `60-katmate-uplink.link` (the netVM image, rebuilt). `netvm.meta` records
+   the image's value as `UPLINK_PCI_ADDR` (R13). **No automated preflight
+   compares the two.** A mismatch fails closed, **predicted from the rulings
+   and not observed**: the uplink falls to `99-default.link`, is not named
+   `uplink0`, and gets neither dhcpcd (R14) nor forwarded egress. G2 catches
+   it at runtime. To the host it fails
+   silently, except through the ARP scan. The preflight is a later step, not
+   part of the ADR-037 rebuild.
 
 ## Next steps
 
@@ -3180,7 +3309,31 @@ frozen `vm_home_skel` vs qcow2 branch.
      `uplink0.link` on `Path=`, the ruleset on `oifname "uplink0"`, `dhcpcd`,
      `dnsmasq`, and the ownership fix (open problem #38), with #27 alongside.
      Its gates G1–G4 are read on that build.
+     **[Note 2026-09-27 (operator rulings R10–R28, ADR-037's note of that
+     date): the step now contains** `addr=0x4` with comment (6) (R10);
+     `60-katmate-uplink.link` and the rename build gate as a file check on 17
+     `.link` files (R12); `UPLINK_PCI_ADDR` in `netvm.meta` (R13); dhcpcd
+     with `allowinterfaces uplink0`, `noipv4ll`, `ipv4only`, in its dbus-free
+     package form (R14, R16); systemd-networkd disabled, and the agent's
+     `Wants=`/`After=` on it dropped (R15); dnsmasq in wildcard mode on `km*`,
+     DNS only (R17); no loopback in `resolv.conf` (R18); no explicit reverse
+     rule and no `udp dport 51820` (R19); `proton.conf.template` removed and
+     `wireguard-tools` kept (R20); no `icmpv6` accept (R22); `root:root` in
+     step 5 (#38) and `nftables.conf` at `0644` in its own commit (R23); the
+     agent unit moved into `manifests/netvm.conf.d/` (#27, R24); and a dev
+     build (R27). **G3 is split (R25):** the DHCP half, with its `km*`
+     refusal half (R14), is taken here, and the static half at step 3. **G4 is
+     taken with a fixture peer** on a slot's `appvm` socket, plus a LAN
+     refusal half (R26). G1 is accepted as not discriminating cause (R11).
+     The finding-12 guard is **not** in this step (R21).**]**
   3. **The config disk** (R8, open problem #40; ADR-037 G6).
+     **3a. The finding-12 slot guard** (added 2026-09-27, R21). It is its own
+     step with its own gate, and it must land **before step 4**, the first
+     AppVM on a slot. The candidate is
+     `~/Claude.assistent/nftables-f12-candidate.conf`, outside the repository.
+     It was written against the pre-ADR-037 ruleset, and its gate (a),
+     `nft -c` inside netVM (nft 1.1.3), is untaken. *(Numbered 3a so that
+     "arc step 4" keeps the meaning every existing reference gives it.)*
   4. **The AppVM side:** the slot, the guest IP, `NETCFG`, and `accept_ra=0`
      (open problem #24); ADR-037 G5 needs this step. **[Added 2026-09-27:**
      also the removal of the generator's `KM_MAC_INT` `sys` branch, in its own
@@ -3629,6 +3782,17 @@ frozen `vm_home_skel` vs qcow2 branch.
   `nmap -sn 10.3.1.0/24` (ARP at L2) shows the guest by its uplink MAC
   (`38:05:25:34:7c:47`) + DHCP lease. Silent ping is correct posture, not a fault.
 
+- **netVM's `input` chain has no ICMPv6 accept rule, and that absence is
+  load-bearing (ADR-037 R22, 2026-09-27).** `input` is `policy drop` with no
+  `icmpv6` rule, so it drops every inbound ICMPv6, **router advertisements
+  arriving on the slots included**. That is what keeps netVM from taking an RA
+  from an AppVM while `accept_ra=1` is set on `default` (net-up § 19.3 item 5).
+  It is the netVM-receiving direction of open problem #24, which `accept_ra`
+  does not cover until arc step 4. **A ruleset rewrite that adds an `icmpv6`
+  accept opens #24 silently.** Any such rule needs #24 settled first. The
+  source is `adr037-readpass-report.md` Q-R2d, read from the ruleset text; no
+  RA was sent to test it.
+
 - **netVM build mirror: pick by VPN exit, not by home geography.** MINIS's
   ProtonVPN exit is in CH; use `DEBIAN_MIRROR=http://ftp.ch.debian.org/debian`
   (via `sudo bash -c 'DEBIAN_MIRROR=... bash netvm.sh'` — `sudo` env_reset drops
@@ -3667,6 +3831,14 @@ frozen `vm_home_skel` vs qcow2 branch.
   the derived MAC without complaint. **`net-sys.con:27` still hands QEMU the
   authored value**, so until the `.con` deletion (G3) the segment's MAC depends
   on which launcher starts netVM.
+  **[Note 2026-09-27 (ADR-037 R3, R10, R12): this entry is reversed for the
+  uplink at the ADR-037 rebuild.** The uplink will be named `uplink0` by
+  `60-katmate-uplink.link` matched on `Path=pci-0000:00:04.0`, with
+  `addr=0x4` pinned in the unit. Its name becomes load-bearing, because
+  dhcpcd's `allowinterfaces` and the ruleset's `oifname` use it, and
+  `20-uplink.network` is retired. **Until that rebuild lands, this entry still
+  describes the tree and the running image.** The internal-segment half is
+  not affected by R3.**]**
 
 - **A netinst netVM writes stale installer configs.** The recurring first-boot
   `[FAILED] Raise network interfaces` came from a leftover static block for the
