@@ -6264,6 +6264,35 @@ unread"*. It is **`nftables v1.1.3`**, not the host's 1.1.7
 host — **does not carry into netVM by version identity**. Gate (a) of that
 note, `nft -c -f` on the candidate as root **inside netVM**, is still untaken.
 
+**Revision note (2026-09-27, §5 and §9 — the pool is in the shipped unit, and
+§9's retirement is half done):** this note records rulings and measurements. It
+changes no decision.
+
+- **§5's *"literal in the netVM template"* is now true of the shipped unit.**
+  `katmate-sys-driver@.service` at `a36bdb2` carries the sixteen
+  `-netdev dgram`/`-device virtio-net-pci` pairs with `%i` paths, the §2
+  MACs, and `RuntimeDirectory=` naming the sixteen slot directories with
+  `RuntimeDirectoryPreserve=yes`. They are transcribed byte-for-byte from the
+  scaffolding template `katmate-pool@.service` (`1d727b25…`), which ran under
+  G1–G5. Installed on MINIS and started on 2026-09-27: 16 `dgram` netdevs in
+  the argv, 0 `tap,`, and 16/16 `netvm` nodes bound by the QEMU process
+  (`pool-fold-report.md` §§ 2.6–2.8). The pool unit has left `/etc`, and
+  **one unit now starts netVM** (operator ruling, 2026-09-27: open problem
+  #39, option (b)). The measurement of the 2026-09-12 note, finding 5, that
+  the installed templates are exactly `katmate-pool@.service` and
+  `katmate-sys-driver@.service`, stands as a measurement of that date.
+- **§9's retirement of `KM_MAC_INT` is half done.** The unit no longer reads it:
+  the `int0` tap device and its `mac=${KM_MAC_INT}` are gone, and host-side
+  `tap-int0` was removed on 2026-09-27. The generator still emits the key for
+  `sys`, with no consumer. Because the key is not in the `sys-driver`
+  required-key set, nothing fails (`pool-fold-report.md` § A7). **Ruled
+  2026-09-27:** the `sys` branch is removed in its own commit at the AppVM
+  step (networking arc step 4); the `app` branch stays, per §9. §9's
+  `KM_NETVM`/`KM_SLOT` half is unchanged by this note.
+- **§5's `ExecStopPost=` is still unimplemented.** The folded unit carries
+  none. The hijack window of the 2026-09-12 note, finding 7, applies to
+  `katmate-sys-driver@.service` exactly as it did to the pool unit.
+
 ---
 
 ## ADR-036 — The distributable unit is the enforcing set of the trust model; the host base is a pinned composition, neither a mutable install nor a distribution
