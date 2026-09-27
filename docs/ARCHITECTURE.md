@@ -344,8 +344,9 @@ Benefits: no X11, no network listener, native Wayland path. Clipboard
 ## Networking
 
 **Live state (MINIS/UM870, v0.2):** netVM is operational and is the sole
-network-facing domain ([ADR-009](DECISIONS.md#adr-009)). WireGuard (ProtonVPN)
-terminates in netVM, not on the host. netVM is a **sysVM**
+network-facing domain ([ADR-009](DECISIONS.md#adr-009)). Vanilla egress
+leaves netVM directly through its uplink, `uplink0`, masqueraded, with no VPN
+([ADR-037](DECISIONS.md#adr-037)). netVM is a **sysVM**
 ([ADR-021](DECISIONS.md#adr-021)) and, in [ADR-022](DECISIONS.md#adr-022) terms,
 a **driver domain**.
 
@@ -355,7 +356,12 @@ netVM topology:
   own `r8169` needs `firmware-realtek` (`rtl_nic/rtl8125b-2.fw`) or the PHY stays
   down. `20-uplink.network` matches by **MAC**, not interface name, so a PCI
   slot change cannot break it. DHCP.
-- **VPN:** `wg-quick@proton`; NAT masquerade out `proton`; `ip_forward=1`.
+- **Egress and DNS:** forward from the internal segment out `uplink0`, with the
+  return path by conntrack; NAT masquerade out `uplink0`; `ip_forward=1`. AppVM
+  DNS is `dnsmasq` in netVM, answering on the slots only and forwarding to the
+  DNS server the uplink receives. **VPN** is a post-install option: the user
+  supplies a WireGuard config through netVM's read-only config disk (R8), which
+  is **not implemented** ([ADR-037](DECISIONS.md#adr-037)).
 - **Internal segment:** `10.100.1.0/24`. Each AppVM gets its own p2p `Link` with
   a link-scoped `/32` route, delivered by **NETCFG at launch** and withdrawn at
   teardown. **Nothing is baked** — on a clean boot netVM has no internal route,
