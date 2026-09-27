@@ -5,7 +5,9 @@
 # executed, and it is not one of the five T4 executables: it carries no check,
 # no policy and no decision. Only three things live here — the canonical paths,
 # a diagnostic style, and the two readers (T1 and T2) that three of the four
-# executables would otherwise each carry a copy of.
+# executables would otherwise each carry a copy of. The T1 reader is a flat
+# key = value parser that takes a path (km_flat_read), and km_t1_read is its
+# wrapper for <instance>.toml.
 #
 # Why a library at all, when /usr/lib/katmate/ is a flat directory of
 # single-purpose executables: `katmate-check-image`, `katmate-activate-lvs` and
@@ -68,43 +70,45 @@ km_check_instance() {
         || km_die "instance name '$name' is not [a-z][a-z0-9_]* — it is used as a filename under $KM_ETC_VM and is not taken on trust"
 }
 
-# --- T1: /etc/katmate/vm/<instance>.toml -------------------------------------
-# Fills the associative array KM_T1 and sets KM_T1_FILE. Presence is tested
-# with `[[ -v KM_T1[key] ]]`, never with -n: an EMPTY value is a valid value and
-# differs from an absent key (ADR-032 §3 — `netvm = ""` is a declared offline
-# domain, an absent `netvm` is an unstated assumption).
+# --- T1: the flat key = value reader -----------------------------------------
+# km_flat_read <file> <array> fills the associative array named <array> from
+# <file>. It is the one parser for both T1 forms (ADR-032 §1 and its note of
+# 2026-09-27): <instance>.toml through km_t1_read below, and the per-concern
+# files in <instance>.d/ (ADR-037 R37). It knows the syntax and nothing else —
+# which file, which keys and what they mean are the caller's.
+#
+# Presence is tested with `[[ -v ARRAY[key] ]]`, never with -n: an EMPTY value
+# is a valid value and differs from an absent key (ADR-032 §3 — `netvm = ""` is
+# a declared offline domain, an absent `netvm` is an unstated assumption).
 #
 # This is a reader for the subset of TOML the schema uses — flat key = value,
 # quoted strings, integers, booleans, comments — and it refuses everything else
 # rather than skipping it. A line it cannot parse is an error, because a T1 line
 # silently dropped is the silent-wrong-object class the schema exists to close.
-declare -gA KM_T1=()
-KM_T1_FILE=""
+#
+# A missing file is the caller's to diagnose: km_t1_read's absence means "no
+# such instance", and an absent <instance>.d/ file can mean "not configured".
+km_flat_read() {
+    local file="$1" line key val lineno=0
+    local -n km_flat_out="$2"
+    km_flat_out=()
 
-km_t1_read() {
-    local instance="$1" line key val lineno=0
-    km_check_instance "$instance"
-    KM_T1_FILE="$KM_ETC_VM/$instance.toml"
-    KM_T1=()
-
-    [[ -e "$KM_T1_FILE" ]] \
-        || km_die "no T1 properties for instance '$instance': $KM_T1_FILE does not exist. T1 is user-authored and is never shipped (ADR-032 §1); the installer seeds it at build-order step 6."
-    [[ -f "$KM_T1_FILE" && -r "$KM_T1_FILE" ]] \
-        || km_die "$KM_T1_FILE is not a readable regular file"
+    [[ -f "$file" && -r "$file" ]] \
+        || km_die "$file is not a readable regular file"
 
     while IFS= read -r line || [[ -n "$line" ]]; do
         lineno=$(( lineno + 1 ))
         line="${line%$'\r'}"
         if [[ "$line" =~ ^[[:space:]]*(#.*)?$ ]]; then continue; fi
         if [[ "$line" =~ ^[[:space:]]*\[ ]]; then
-            km_die "$KM_T1_FILE:$lineno: TOML tables are not part of the T1 schema — every key is top-level"
+            km_die "$file:$lineno: TOML tables are not part of the T1 schema — every key is top-level"
         fi
 
         if [[ "$line" =~ ^[[:space:]]*([A-Za-z_][A-Za-z0-9_]*)[[:space:]]*=[[:space:]]*(.*)$ ]]; then
             key="${BASH_REMATCH[1]}"
             val="${BASH_REMATCH[2]}"
         else
-            km_die "$KM_T1_FILE:$lineno: not a 'key = value' line: $line"
+            km_die "$file:$lineno: not a 'key = value' line: $line"
         fi
 
         # A quoted value is taken literally, so a '#' inside it is not a
@@ -116,17 +120,39 @@ km_t1_read() {
         elif [[ "$val" =~ ^([^[:space:]\"#]+)[[:space:]]*(#.*)?$ ]]; then
             val="${BASH_REMATCH[1]}"
         else
-            km_die "$KM_T1_FILE:$lineno: unparsable value for '$key' — expected \"string\", integer or true/false"
+            km_die "$file:$lineno: unparsable value for '$key' — expected \"string\", integer or true/false"
         fi
 
         # TOML forbids a duplicate key, and the last-wins reading a naive parser
         # gives it is precisely a file that says one thing and means another.
-        if [[ -v KM_T1[$key] ]]; then
-            km_die "$KM_T1_FILE:$lineno: duplicate key '$key' — a T1 file has one value per key, and last-wins would make the file disagree with itself"
+        if [[ -v km_flat_out[$key] ]]; then
+            km_die "$file:$lineno: duplicate key '$key' — a T1 file has one value per key, and last-wins would make the file disagree with itself"
         fi
 
-        KM_T1[$key]="$val"
-    done < "$KM_T1_FILE"
+        # The target is associative (KM_T1 is `declare -gA`), which shellcheck
+        # cannot see through the nameref: without the `$` the subscript would
+        # be the literal string "key".
+        # shellcheck disable=SC2004
+        km_flat_out[$key]="$val"
+    done < "$file"
+}
+
+# --- T1: /etc/katmate/vm/<instance>.toml -------------------------------------
+# Fills the associative array KM_T1 and sets KM_T1_FILE: km_flat_read, bound to
+# the instance's properties file, plus the one key every reader of that file
+# needs before it can evaluate anything else.
+declare -gA KM_T1=()
+KM_T1_FILE=""
+
+km_t1_read() {
+    local instance="$1"
+    km_check_instance "$instance"
+    KM_T1_FILE="$KM_ETC_VM/$instance.toml"
+    KM_T1=()
+
+    [[ -e "$KM_T1_FILE" ]] \
+        || km_die "no T1 properties for instance '$instance': $KM_T1_FILE does not exist. T1 is user-authored and is never shipped (ADR-032 §1); the installer seeds it at build-order step 6."
+    km_flat_read "$KM_T1_FILE" KM_T1
 
     [[ -v KM_T1[class] ]] \
         || km_die "$KM_T1_FILE: no 'class' key. Everything class-dependent — the required and forbidden key sets, the manifest values, the CID band, the profile — is unevaluable without it (ADR-032 §3)."
