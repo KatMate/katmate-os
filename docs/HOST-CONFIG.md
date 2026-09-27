@@ -319,6 +319,28 @@ has no defined rofi source, and the licence position of the CYBRland-derived
 **Scope:** all · **[OPEN]** — decided, not implemented; no confidence marker,
 because nothing exists yet to verify
 
+**Note 2026-09-27, after networking arc step 3: `[LIVE]` on MINIS, `[V]`
+2026-09-27.** The mechanism is implemented, installed on MINIS and gated
+(ADR-037's note of 2026-09-27 on the step-3 gates: G6 and G3's static half
+PASS). The operator's static T1 is in place on MINIS as
+`/etc/katmate/vm/netvm.d/uplink`, `root:root 0644`, in a `root:root 0755`
+directory, and netVM runs on it with a static uplink. The Scope line above
+and the notes below are left as written.
+- **Failure mode, now stated and observed.** A malformed `uplink`, an unknown
+  file in `<instance>.d/`, a symbolic link for `uplink`, or an `uplink` with a
+  wrong owner or mode **fails closed**. The builder refuses, the unit fails
+  before QEMU starts, and netVM does not start, so there is no uplink for any
+  AppVM. The journal names the file, and for a malformed value the key. **An
+  absent `uplink` is not a failure:** the disk is built without the entry, and
+  netVM leases by DHCP. The same refusals for the **directory** (wrong owner or
+  mode, a symbolic link, not a directory) are implemented and were run only
+  against an extracted copy of the check, not the installed builder.
+- **Not measured:** whether the static T1 holds across a host reboot. No
+  reboot was taken with the file in place.
+- **The installer** may create `<instance>.d/` and its files only under
+  [ADR-032](DECISIONS.md#adr-032)'s rule for T1: it creates, and it never
+  overwrites a file it did not create in the same run.
+
 **Ruled 2026-09-27, before any code: the location is now
 `/etc/katmate/vm/<instance>.d/uplink`, and still `[OPEN]`.** The operator's
 rulings of that day (ADR-037's note of 2026-09-27 on the step-3 rulings; the
