@@ -49,6 +49,92 @@ restartable — and so updatable — without touching running VMs.
 Direction unchanged: IOMMU-capable platforms only (VT-d/AMD-Vi).
 MINIS is primary host and merge target.
 
+## This session (2026-09-27, host-cleanup) — MINIS dev leftovers retired, networkd now manages no link, and HOST-CONFIG §1 re-measured
+
+One session, on MINIS and the Acer. Report outside the repository:
+`~/Claude.assistent/hostclean-0927-report.md` (cited as hc). It halted once
+before contacting MINIS, because it was not in Manual mode. The operator switched
+modes and resumed it.
+
+**Operator rulings of 2026-09-27**, recorded as rulings:
+
+- **MINIS is a dev machine.** Leftovers from the early project and from
+  personalVM go. The operator confirms from memory that `tap-outer` and `tap0`
+  were his early experiments.
+- **Anything found beyond the authorised list is reported, never touched.**
+  The operator decides it in chat. The list is open problem #42.
+- **HOST-CONFIG §1 is rewritten once**, from the measurement taken after the
+  clean-up, and not before.
+- **R5 reference (ruled in-session):** the pf scripts' Acer copies are the
+  files fetched back from MINIS into `~/Claude.assistent/pool-fold/`, verified
+  against the sha256 values `pool-fold-report.md` records. All four matched. The
+  report's listing of `pf-c3.sh` differs from the executed file by one trailing
+  space (hc § 2). The old report is not edited.
+
+**Removed, 11:39:12–11:39:27 CEST, by one script** (`hc-r.sh`, `f39e648c…`).
+Before the first mutation it re-checked every identity pinned by the read-only
+inventory at 11:36:56: file hashes, netVM MainPID and invocation, the
+waypipe-client PID, and `vm_tpl_foundation_pre0926` = `dm-8`. It re-checked the
+pins again after each phase. **Moved** to `~/katmate-dev/removed-0927b/` on
+MINIS, each `cmp`- or `diff -r`-identical to a pre-move copy:
+
+- the ten networkd files of `br-personal`, `tap0`, `tap-outer`,
+  `tap-personal` and `tap-work`;
+- the user units `personal-vm.service` and `work-vm.service`, and
+  `netVM.service.d/` (holding only `memlock.conf`). No `*.wants/` symlink pointed
+  at any of them;
+- `/var/lib/katmate/foundation.meta.pre0926`, `/var/lib/katmate/kernels.pre0926/`
+  and `~/katmate-build/out/vm-agent.pre0926`.
+
+`networkctl reload` exited 0. `ip link delete` exited 0 on the four taps and then on
+`br-personal`, and all five now answer *Device "…" does not exist.* After
+`systemctl --user daemon-reload` all three units are `not-found`. **Deleted:**
+`instances/test_web.qcow2.pre0926`; the LVs `vm_app_web_pre0926`,
+`vm_app_vault_pre0926` (both inactive, with no dm device) and then
+`vm_tpl_foundation_pre0926` (open 0, no `jbd2/dm-8-*`, no origin-user left),
+each `lvremove` exiting 0 without `-f`; `instances/scratch.qcow2` (#26); and the
+six dev scripts `pf-a.sh`, `pf-c2.sh`, `pf-c3.sh`, `pf-c4b.sh`, `pm-m1.sh` and
+`pm-m23.sh`, each hash-matched first. `vm_pool` data went from 0.96 % to
+0.42 %.
+
+**scratch.qcow2, as it was** (the only record): qcow2, virtual 20 GiB, 844 MiB
+on disk, `backing file: /dev/vg0/vm_app_web`, format raw, `corrupt: false`,
+mtime 2026-07-29 19:30:11, `host:host`, `e32466b9…`. No process held it.
+**Its backing name resolved to the `vm_app_web` rebuilt on 2026-09-26**, two
+months after the delta's mtime, so the layer it named was no longer the one it
+was written on. A 4 GiB `scratch_home.img` beside it (2026-07-30) was not
+authorised and remains (#42).
+
+**Undisturbed, observed after every phase:** netVM
+`katmate-sys-driver@netvm.service` `active`, MainPID **11761**, invocation
+**`f1a996dd…`**, `NRestarts=0`; `ping-client ping 3` → `status=0x00 (OK)`;
+`waypipe-client` `active`, MainPID **1592** before and after.
+
+**HOST-CONFIG §1 re-measured (11:39:39, read-only):** `networkctl list` shows
+three links, all `unmanaged`: `lo`, `enp195s0f3u1u1` (routable) and `proton`
+(wireguard, routable). **networkd manages no link.** `/etc/systemd/network/` is
+empty. `networkctl status`: `State: routable`, `Online state: unknown`.
+`network-online.target` and `systemd-networkd-wait-online.service` (enabled)
+are both `inactive (dead)`. **A direct probe,
+`/usr/lib/systemd/systemd-networkd-wait-online --timeout=15`, printed *"Timeout
+occurred while waiting for network connectivity."* and exited 1 after 15.2 s.**
+
+**Neither unit has run this boot (10:30:08).** Every Active/Inactive
+timestamp is empty, and `journalctl -b` for both units has no entries. The only
+reverse dependency of `network-online.target` is
+`archlinux-keyring-wkd-sync.service`. So this boot says nothing about how
+wait-online behaved with the taps present. **No pre-removal probe was taken**,
+so the probe's timeout cannot be attributed to the removal (hc § 5).
+
+**Not executed, therefore not claimed.** What wait-online does as a *unit* at
+the next boot or the next `archlinux-keyring-wkd-sync` run is **UNVERIFIED**. It
+is settled by `systemctl show -p ActiveState,Result,ActiveEnterTimestamp
+network-online.target systemd-networkd-wait-online.service` and `journalctl -b
+-u systemd-networkd-wait-online` after something has pulled the target in.
+`vm-agent.pre0926` was pinned by size and mtime, not by hash, because Phase I
+listed `out/` by name only. Nothing in `removed-0927b/` has been used for a
+restore.
+
 ## Previous session (2026-09-27, pool-fold) — the slot pool folded into the shipped sys-driver unit, netVM started under it with no console, and host-side `tap-int0` retired
 
 Two sessions. `pool-fold` ran on the Acer and MINIS, and `wp-0927` retired
@@ -846,6 +932,9 @@ touched.
   `ip link show tap-int0` answers *Device "tap-int0" does not exist.*, and
   netVM's MainPID and invocation did not change. The other five networkd
   links on the host are untouched (see the 2026-09-27 entry's finding).
+  **[2026-09-27, host-cleanup: those five are gone too. Their files are in
+  `~/katmate-dev/removed-0927b/networkd/`, the links are deleted, and networkd
+  now manages no link. MainPID and invocation are again unchanged (hc).]**
 
   **The uplink is capped by the cable, and that is a condition of the
   environment rather than a defect.** On the boot of 2026-09-12 the link came up
@@ -917,6 +1006,8 @@ touched.
   `vm_app_vault_pre0926`, on the old foundation. `manifests/vault.list` now
   names pcmanfm instead of nautilus (`adc217f`). **Not rebuilt**
   (`appweb-rebuild-report.md` § 6).
+  **[2026-09-27, host-cleanup: `vm_app_vault_pre0926` is deleted. There is
+  now no vault app layer on MINIS under any name.]**
 - **Set aside 2026-09-26 (`_pre0926`).** The rebuild renamed rather than
   removed what it replaced: `vm_tpl_foundation_pre0926`, `vm_app_web_pre0926`,
   `vm_app_vault_pre0926`; `instances/test_web.qcow2.pre0926`, **rebased with
@@ -925,6 +1016,11 @@ touched.
   `/var/lib/katmate/foundation.meta.pre0926`; `/var/lib/katmate/kernels.pre0926/`;
   `~/katmate-build/out/vm-agent.pre0926` (`appweb-rebuild-report.md` §§ 3, 6,
   10). **Removal is the operator's decision.**
+  **[Removed 2026-09-27 (host-cleanup, operator ruling). The three LVs and
+  `test_web.qcow2.pre0926` are deleted. `foundation.meta.pre0926`,
+  `kernels.pre0926/` and `vm-agent.pre0926` were moved to
+  `~/katmate-dev/removed-0927b/` on MINIS. Nothing `_pre0926` remains in
+  `vg0`, in `/var/lib/katmate/` or in `out/`.]**
 - **Host GUI ingress (`waypipe-client`, user unit) — 2026-09-26.** The unit
   files live **only on MINIS**, in `~/.config/systemd/user/`, untracked (#31).
   Edited by the operator 10:47–10:49: `ExecStart` →
@@ -937,7 +1033,11 @@ touched.
   2026-09-18), so host and guest ran **0.11.2 against 0.11.0 from that date**,
   undetected because `katmate-check-waypipe` checks the `/opt` binary.
   Leftovers in the same directory: `personal-vm.service`, `work-vm.service`,
-  `netVM.service.d/` (operator, 2026-09-26). Requirement:
+  `netVM.service.d/` (operator, 2026-09-26). **[Removed 2026-09-27
+  (host-cleanup): all three were moved to `~/katmate-dev/removed-0927b/user/`
+  and are `not-found` after `daemon-reload`. `waypipe-client` kept PID 1592
+  throughout. Two dangling `waypipe-client@1024.service` symlinks remain,
+  unauthorised (#42).]** Requirement:
   `docs/HOST-CONFIG.md` § 11.
   **Later on 2026-09-26 (operator):** HOST-CONFIG § 11's `ExecStart` arguments
   are verified — the operator showed the unit file. The distro `waypipe` was
@@ -1874,6 +1974,13 @@ touched.
    investigate, delete or rename it. Whether the delta should go or the script
    should tolerate an unknown type is not decided here.
 
+   **[2026-09-27, host-cleanup: narrowed, still open.** `scratch.qcow2` is
+   deleted (operator ruling), and its `qemu-img info` is recorded in the
+   2026-09-27 *host-cleanup* entry. The delta that triggered the refusal is gone.
+   **The script's handling of an unknown app type is unchanged and still
+   open.** Any delta whose suffix is not in `APP_TYPES` still makes
+   `--dry-run` fatal. `scratch_home.img` remains (#42).]**
+
 27. **The `netvm-agent` unit baked into the netVM image still names the Path A
    mechanism ADR-025 rejected.** Added 2026-09-02, from the ADR-035 read pass
    (`~/adr035-readpass-report.md` § 8 D3). **Read from the tree only** — nothing
@@ -2325,6 +2432,68 @@ touched.
    **Ruling of 2026-09-27:** the `sys` branch is removed in its own commit at
    networking arc step 4, alongside #19. The `app` branch stays, per ADR-035
    §9.
+
+42. **MINIS dev leftovers awaiting the operator's ruling.** Added 2026-09-27
+   from the host-cleanup inventory (hc Appendix A, read 11:36:56). **This is a
+   list, not a decision.** Each item was judged a leftover from its name, date
+   and location only. None was traced, opened or touched, and the operator rules
+   in chat. All paths are on MINIS; `~` = `/home/host`.
+
+   - **Instances:** `/var/lib/katmate/instances/scratch_home.img` (4 GiB,
+     2026-07-30, `host:host`). It is the companion of the deleted
+     `scratch.qcow2` by name only.
+   - **User units:** `~/.config/systemd/user/default.target.wants/waypipe-client@1024.service`
+     and `…/multi-user.target.wants/waypipe-client@1024.service`, both
+     **dangling** symlinks to the absent `waypipe-client@.service` (2026-02-16).
+     A `multi-user.target.wants/` in a user manager's directory is itself
+     inert. These are `waypipe-client@…`, outside the brief's `waypipe-client.*`
+     keep glob, and were not authorised.
+   - **System units:** `/etc/systemd/system/vm-lvs.service` (372 B,
+     2026-02-23, owned by no package; contents not read), with a root-owned
+     copy at `~/vm-lvs.service` (369 B).
+   - **networkd files outside `/etc`:** `~/han0.netdev` and `~/han0.network`
+     (`root:root`, 2026-03-03). They are inert where they are. Also `~/nftables.conf`
+     (`root:root`, 2026-03-03).
+   - **A second repository-shaped tree:** `~/katmate-os/` (2026-07-23).
+     The synced tree is `~/katmate-build/`; this one's contents and origin were
+     not read.
+   - **Kernel source:** `~/src/kernel/linux-6.12.94/`, **no `.git`**. This is
+     consistent with #22's *second kernel image* note (a different version,
+     no `.git`). Its `bzImage` was not checked, so the match is not
+     established.
+   - **Pre-sysVM / personalVM launchers and logs at `~`:** `net.con2`,
+     `net.con3`, `personal.com.1`, `personal.con2`, `personal-firefox`,
+     `personal.ses`, `netvm.ses`, `sd-personal.sh`, `personal_boot/`, `vms/`,
+     `personal-vm.log`, `netVM.log`, `disk-commit`, `disk-refresh`,
+     `vm_disk_creation.txt`.
+   - **Superseded prototypes at `~`:** `vm-agent` and `vm-agent.c` (2026-03-20,
+     the pre-Rust agent), `vm-power-helper` and `vm-power-helper.c`,
+     `vm-fileget.sh`, `vm-fileput.sh`, `grok`, `grok2`, `grok3` and their `.c`.
+   - **Earlier sessions' dev scripts at `~`:** `adr034-gate.sh`,
+     `adr034-pregate-read.sh`, `adr034-pregate-read2.sh`, `g1-dgram-probe.sh`,
+     `g1-step0.sh`, `g8.sh`, `gate2-g.sh`, `gate2-r1.sh`, `gate2-r2.sh`,
+     `gate-fn.sh`, `gate-hop.sh`, `gate-stage/`, `q2-measure.sh`,
+     `recapture.sh`, `guest-cmds.txt`, and the fifteen `nv-*.sh` of
+     2026-09-03. This session's own `hc-i.sh`, `hc-r.sh`, `hc-s.sh` and `hc-s2.sh`
+     join them. Their hashes are in hc.
+   - **Logs, captures and backups at `~`:** `frac035_run.log`,
+     `grok3_run.log`, `wd03_run.log`, `wd10_run.log`, `wd50_clean.log` and its
+     three `.bak*`, `run1.csv`, `run2.csv`, `host.txt`, `kernel.txt`
+     (`root:root`), `netVM.txt`, `personal.txt`, `nft.txt`, `minis_capture.txt`,
+     `minis_harvest.sh`, `host.sh`, `minis_dela.md.bak`,
+     `config-katmate-3flags.bak`, `run-waypipe-enoch.txt`, `winwin.txt`, an
+     empty `.pkg.tar.zst`.
+   - **Session records:** `~/katmate-dev/net-m1/` and `~/katmate-dev/net-up/`.
+     These are the 2026-09-26 transcripts, which the brief did not keep-list.
+
+   **Not judged leftovers, and listed so their absence here is not read as an
+   oversight:** `~/host_lan_up.sh` and `~/proton-wg-up.sh`. The host uplink is
+   volatile and `proton` is up, so either may be how they come up.
+   `~/.katmate-netvm-pass` is, by its name, the netVM dev root secret (#11, #12).
+   `~/code_auth_token.txt` holds a credential and is the operator's to handle.
+   `Pictures/`, `walls/`, `sway.sh`, the `shot-*.png`, `sway-old-*.tar.gz`,
+   `iso/`, `arch-cache/`, `acer/` and `Claude.assistent/` are not judged. Neither
+   is `~/katmate-build/out/netvm/` (`root:root`, 2026-07-08, contents not read).
 
 ## Next steps
 
