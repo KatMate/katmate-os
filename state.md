@@ -49,7 +49,7 @@ restartable — and so updatable — without touching running VMs.
 Direction unchanged: IOMMU-capable platforms only (VT-d/AMD-Vi).
 MINIS is primary host and merge target.
 
-## This session (2026-09-27, host-cleanup) — MINIS dev leftovers retired, networkd now manages no link, and HOST-CONFIG §1 re-measured
+## Previous session (2026-09-27, host-cleanup) — MINIS dev leftovers retired, networkd now manages no link, and HOST-CONFIG §1 re-measured
 
 One session, on MINIS and the Acer. Report outside the repository:
 `~/Claude.assistent/hostclean-0927-report.md` (cited as hc). It halted once
@@ -253,120 +253,6 @@ closing line of `hcb-d.sh` lists the four directories as *"SKIPPED"*. That line
 is **wrong**, a defect in the script's pin table (hcb, execution log). The
 check above it found none of them present.
 
-## Previous session (2026-09-27, pool-fold) — the slot pool folded into the shipped sys-driver unit, netVM started under it with no console, and host-side `tap-int0` retired
-
-Two sessions. `pool-fold` ran on the Acer and MINIS, and `wp-0927` retired
-`tap-int0` on MINIS and wrote this up on the Acer. Reports outside the
-repository: `~/Claude.assistent/pool-fold-report.md` (cited as pf) and
-`~/Claude.assistent/wp-0927-report.md`.
-
-**Two halts, both resolved by the operator.** (1) Before any MINIS contact the
-session was in auto mode; the operator switched to Manual. (2) At A6, the diff
-of the repository unit against the pool unit held one hunk outside the
-expected transplant: the generator argument, `%p` against the pool's literal
-`katmate-sys-driver`. **Ruling:** the unit keeps
-`katmate-generate-env %p %i`. G1 of 2026-08-19 had already observed that line
-pass the generator's profile assertion, and the pool's literal was needed only
-because `%p` expands to `katmate-pool` there. The same ruling fixed the reboot
-time at 10:30:45 (pf, top and § 2.3).
-
-**The fold (option (b) of #39).** C1 `a36bdb2` transplants the ADR-035 slot
-pool into `katmate-sys-driver@.service`: sixteen `dgram` netdevs and
-`virtio-net-pci` devices replace the `int0` tap, and `RuntimeDirectory=` names
-the sixteen slot directories, with `RuntimeDirectoryPreserve=yes`. C2
-`70b08c7` adds the R9 comment on the per-session dev drop-in (pf § 1).
-Installed on MINIS as `a378f875…`, 14463 B. The pool unit
-(`1d727b25…`) and the pre-fold sys-driver unit (`813f27c8…`) were saved to
-`~/katmate-dev/removed-0927/`, `root:root`, and `katmate-pool@netvm` is now
-`not-found` (pf § 2.5).
-
-**netVM started under the shipped unit** at **10:50:33 CEST**: MainPID
-**11761**, invocation **`f1a996dd…d943`**, `NRestarts=0`, all three
-`ExecStartPre=` `status=0` — which re-observes the `%p` line —
-`StandardInput=null`, and empty `DropInPaths=` (pf § 2.6).
-
-**Both halves of the `208/STDIN` UNVERIFIED are settled.** For the boot half,
-after the 10:30:45 boot neither unit carried a drop-in and both read
-`StandardInput=null` (pf § 2.1, A2). For the start half, the folded unit
-started with `/run/katmate-dev/` absent and no drop-in anywhere (pf § 2.6, C3).
-
-**C4 readings** (pf § 2.8): 16 `dgram` netdevs and 16 `virtio-net-pci`
-devices in the argv, 0 `tap,`, 0 `tap-int0`. 16 slot directories, all
-`drwxr-xr-x root:root`. `ping-client ping 3` answered `status=0x00 (OK)` on
-attempt 3. 16 renames to `km00`…`km0f`, 16 distinct, 0 duplicates. **The
-binding reading first said 0/16, then 16/16.** `Type=simple` returns from
-`start` when QEMU forks, and the first script snapshotted QEMU's fds before
-QEMU had bound its netdevs. A re-take 26 s later read 16/16: socket inodes
-40491–40506 held by fds 15–30 of 11761, with the same inodes for 08–0f as the
-first reading (pf §§ 2.6, 2.7). This is now an *Invariants* entry.
-
-**Phase M — host-side `tap-int0` retired (wp-0927, authorised).** Before
-(11:02:19): MainPID 11761, invocation `f1a996dd…`, `NRestarts=0`. `tap-int0`
-was `NO-CARRIER`, `tun type tap … persist on`. The argv held 0 `tap-int0` and
-0 `tap,`. The host had 0 `/dev/net/tun` fds open, so nothing held it. The
-script (11:07:10) re-checked the pinned MainPID, invocation and file hashes,
-then moved `tap-int0.netdev` (`e0ff450d…`) and `tap-int0.network`
-(`1d8f66a0…`) to `~/katmate-dev/removed-0927/`, `cmp`-identical to pre-move
-copies. It then ran `networkctl reload` (exit 0) and `ip link delete tap-int0`
-(exit 0). After: `ip link show tap-int0` gave *Device "tap-int0" does not
-exist.* (exit 1), `networkctl list` no longer lists it, the unit is still
-`active` with **the same MainPID and invocation** and `NRestarts=0`, and
-`ping-client ping 3` answered `status=0x00 (OK)`. The auto-mode classifier
-refused this session's first attempt before execution. It ran in Manual
-mode, as the rule in § *Live state*, *Dev access to MINIS*, requires.
-
-**Finding, not a change — host-side networkd config left over from
-personalVM / the pre-sysVM layout, not removed.** The operator ruled the
-other links out of scope. A read-only listing of `/etc/systemd/network/`
-after Phase M:
-
-| File | Size | mtime | sha256 (prefix) |
-|---|---|---|---|
-| `br-personal.netdev` | 38 B | 2026-03-12 15:13:59 | `7cc41284…` |
-| `br-personal.network` | 104 B | 2026-08-02 17:41:19 | `2dacd33a…` |
-| `tap0.netdev` | 45 B | 2026-03-08 13:35:27 | `77ad9900…` |
-| `tap0.network` | 77 B | 2026-08-02 17:41:19 | `9ad82940…` |
-| `tap-outer.netdev` | 50 B | 2026-03-08 13:39:29 | `c99c91db…` |
-| `tap-outer.network` | 102 B | 2026-08-02 17:41:19 | `3b1be5aa…` |
-| `tap-personal.netdev` | 53 B | 2026-03-08 13:38:33 | `046c3261…` |
-| `tap-personal.network` | 85 B | 2026-08-02 17:41:19 | `6ec5f763…` |
-| `tap-work.netdev` | 49 B | 2026-03-08 13:39:16 | `1e1099a3…` |
-| `tap-work.network` | 101 B | 2026-08-02 17:41:19 | `55e218e0…` |
-
-`br-personal` is a bridge with no L3. `tap0` and `tap-personal` are enslaved
-to it (`Bridge=br-personal`). `tap-outer` and `tap-work` are standalone taps
-with `LinkLocalAddressing=no`. Every `.netdev` tap carries `User=host`, and
-every `.network` carries `RequiredForOnline=no`. `networkctl list` shows all
-five as `no-carrier configured`. Full hashes and contents are in
-`wp-0927-report.md`. No KatMate unit is known to use any of them. That is
-not verified: they were not traced, only listed.
-
-**Operator rulings of 2026-09-27**, recorded as rulings:
-
-- **R9 — ruled: yes.** The dev console drop-in is per-session only, in
-  `/run/systemd/system/<unit>.d/90-dev-monitor.conf`, and never in `/etc`.
-- **#39 — option (b), applied.** The pool is folded into
-  `katmate-sys-driver@.service` (`a36bdb2`, `70b08c7`). One unit now starts
-  netVM.
-- **H4:** the unit keeps `katmate-generate-env %p %i` (above).
-- **ADR-035 revision note:** accepted as proposed in pf § 6 item 9. Written
-  as ADR-035's 2026-09-27 note.
-- **`tap-int0` host files:** removed now (Phase M, above).
-- **`KM_MAC_INT` in the generator:** the orphaned `sys` branch is removed in
-  its own commit at networking arc step 4, alongside #19. The `app` branch
-  stays (ADR-035 §9). Open problem #41.
-
-**Not executed, therefore not claimed.** The C5 rollback is **UNVERIFIED**. It
-first executes on the next failed start of the folded unit, and it is settled
-by `katmate-pool@netvm` `LoadState=loaded` after a restore and
-`daemon-reload`, then that unit `active` with 16/16 bindings (pf § 6). No stop
-was issued, so `RuntimeDirectoryPreserve=yes` under the folded unit is not
-re-measured. No traffic crossed any slot. The guest's link state and addresses
-were not read. `/run/katmate/vm/netvm.env` was not read, so the claim that the
-projection still carries `KM_MAC_INT` is inferred from the generator source.
-`net-sys.con` still names `tap-int0` (`:26`), which is a finding and was not
-changed.
-
 ## Session archive
 
 Rotated sessions are enumerated in `docs/SESSIONS.md`, newest first; that
@@ -399,6 +285,23 @@ extracted block against the pre-move blob.
 *second of two* entry (3a part 1) rotated out as the 2026-08-17 entry arrived. Two
 rotations in one day is not a defect — it is what keeping two sessions costs when
 two sessions close on the same day.
+
+**Closed 2026-09-27 (third rotation of that day).** The 2026-09-27
+*pool-fold* entry (the slot pool folded into the shipped sys-driver unit,
+netVM started under it with no console, and host-side `tap-int0` retired)
+rotated to the archive as the 2026-09-27 *adr037-readpass and rulings* entry
+arrived. **The block moved verbatim, heading included**, and *Previous
+session* stays *Previous session*. Verified three ways. The whole block,
+heading line included, hashed **identical before and after,
+`268e2998c6078b13…`**. The pre-move block diffed clean against the `HEAD`
+blob. The block re-extracted from `docs/SESSIONS.md` at its new home diffed
+clean against the pre-move block. `docs/SESSIONS.md` gained 114 lines, the
+113-line block and one blank separator, and lost none. The block was inserted
+at the head of the entry list, above the 2026-09-26 *net-up and net-m1* entry,
+newest first. The 2026-09-27 *host-cleanup* entry's prefix changed from *This
+session* to *Previous session*, and its body is untouched. **No ordinal
+changed.** The rotation and the new entry are separate commits, so between
+them this file held one session, never three.
 
 **Closed 2026-09-27 (second rotation of that day).** The 2026-09-26 *net-up
 and net-m1* entry (netVM running again on a per-session console, its network
