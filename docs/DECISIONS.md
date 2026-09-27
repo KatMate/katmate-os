@@ -7585,3 +7585,38 @@ hooks are in `dhcpcd-base`.
   `20-resolv.conf`.** Its state lives under `/run/dhcpcd/hook-state`.
 
 Source: `r8-impl-A-report.md` § *Step 0.2* (outside the repository).
+
+**Revision note (2026-09-27, rulings R45 and R46, and the implementation's
+additions accepted as rulings):** **Status: still PROPOSED.** This note
+records the operator's rulings of 2026-09-27 on the step-3 implementation
+(`r8-impl-A-report.md`, outside the repository, cited as A). It changes no
+text above.
+
+- **R45 — the unicast rule, for every address the builder accepts** (A § 5,
+  items 3–5). `address`, `gateway` and each nameserver must each lie outside
+  `0.0.0.0/8`, `127.0.0.0/8`, `224.0.0.0/4` and `240.0.0.0/4`; the last
+  includes `255.255.255.255`. R45 **supersedes** R37's narrower *"Loopback and
+  `0.0.0.0` are refused"* and R43's nameserver list. **Bare (unquoted) values
+  stay accepted**, as they are in `<instance>.toml`; the shared flat reader is
+  not forked.
+- **A's additions are rulings.** The builder **refuses an octet with a
+  leading zero** (`010` is 10 to one parser and 8 to `inet_aton(3)`),
+  **refuses a symbolic link** for `<instance>.d/` and for `uplink`, **sweeps
+  stale temporary files** of an interrupted earlier run together with the
+  previous image, and the guest consumer **logs the config device's sha256**,
+  so that G6's host/guest comparison is two journal lines (A § 4, items 2–4
+  and 6).
+- **R46 — gate fixtures, for the session r8-impl-B only.** That session may
+  write under `/etc/katmate/vm/netvm.d/`, and only there, for the host
+  refusal fixtures and for the operator's static T1: `address =
+  "10.3.1.172/24"`, `gateway = "10.3.1.1"`, `nameservers = "10.3.1.1"`. Each
+  fixture is removed after its reading; the static T1 stays when the session
+  ends. It is the operator's authorisation under `CLAUDE.md` § *Ask before*,
+  and **it does not amend R25 for the product**.
+
+R45 is implemented in `katmate-build-cfgdisk` (`8f6ebd5`): one check applied
+to each field on its own, the gateway's before its in-prefix check. With a
+prefix of 8 or longer, a gateway inside the prefix of an address that has
+passed R45 cannot fail it, so the gateway's check fires only for a gateway
+that is also outside the prefix; it is placed first so that the diagnostic
+names R45.
