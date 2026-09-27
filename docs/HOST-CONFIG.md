@@ -319,6 +319,24 @@ has no defined rofi source, and the licence position of the CYBRland-derived
 **Scope:** all · **[OPEN]** — decided, not implemented; no confidence marker,
 because nothing exists yet to verify
 
+**Ruled 2026-09-27, before any code: the location is now
+`/etc/katmate/vm/<instance>.d/uplink`, and still `[OPEN]`.** The operator's
+rulings of that day (ADR-037's note of 2026-09-27 on the step-3 rulings; the
+T1 form is recorded in ADR-032's note of the same date) change this entry as
+follows. The heading and the text below are left as written.
+- **Location (R31).** `/etc/katmate/vm/<netvm-instance>.d/`, keyed by
+  instance, one file per concern, and **not** `/etc/katmate/netvm/`. Arc step
+  3's file is `uplink`, the static uplink. An unknown file there is refused.
+  The WireGuard config is arc step 5's (R30), and so are the modes for a
+  secret.
+- **The disk (R32).** It is built at every start by a T4 executable, as
+  `/run/katmate/cfgdisk/<instance>.img` (directory `root:root 0700`, image
+  `root:root 0600`), a runtime projection and not a file this section owns.
+- **The failure mode to state here once it is implemented (R36):** a
+  malformed `uplink`, or an unknown file, **fails closed**. The builder
+  refuses and netVM does not start, so there is no uplink for any AppVM. An
+  absent `uplink` is not a failure: netVM leases by DHCP.
+
 **Requirement:** a directory `/etc/katmate/netvm/` holding the per-installation
 configuration of netVM — T1, the user's and never the image's
 ([ADR-032](DECISIONS.md#adr-032)). It carries the **static uplink**
