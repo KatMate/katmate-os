@@ -1,0 +1,23 @@
+[Unit]
+# netVM's consumer of the read-only config disk (ADR-037 R38). It reads the
+# disk the host attaches at guest PCI 0x15 with serial=kmcfg, and writes
+# /run/katmate-cfg/dhcpcd.conf, which dhcpcd.service reads through its
+# drop-in (dhcpcd.service.d/katmate-cfgdisk.conf). It writes nothing under /etc.
+Description=KatMate: apply netVM's read-only config disk
+
+# The disk is named by its serial, never by vdX, which is enumeration order.
+# Requires= as well as After=: if the device never appears, this unit fails,
+# and so does dhcpcd, which Requires= this one. No uplink is the fail-closed
+# outcome ruled (R36). A DHCP fallback here would broadcast on a LAN the user
+# configured statically.
+Requires=dev-disk-by\x2did-virtio\x2dkmcfg.device
+After=dev-disk-by\x2did-virtio\x2dkmcfg.device
+Before=dhcpcd.service
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+ExecStart=/usr/lib/katmate/katmate-cfgdisk-apply
+
+[Install]
+WantedBy=multi-user.target

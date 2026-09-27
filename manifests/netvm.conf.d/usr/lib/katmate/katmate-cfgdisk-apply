@@ -1,0 +1,132 @@
+#!/bin/sh
+# katmate-cfgdisk-apply — netVM's side of the read-only config disk
+# (ADR-037 R33, R36, R38)
+#
+# Baked into the netVM image by build/netvm.sh step 5, and run once per boot by
+# katmate-cfgdisk.service, before dhcpcd. POSIX sh: it runs under the image's
+# own /bin/sh.
+#
+# Reads /dev/disk/by-id/virtio-kmcfg, the raw ustar archive the host built
+# (katmate-build-cfgdisk) and attached read-only, member by member with
+# `tar -xOf`. Nothing from the disk is ever extracted onto a filesystem.
+#
+# Writes /run/katmate-cfg/dhcpcd.conf: the baked /etc/dhcpcd.conf as it is,
+# plus, when the disk carries `uplink`, an `interface uplink0` block with the
+# static address, router and nameservers. The dhcpcd.service drop-in runs
+# dhcpcd with `-f` on that file, in DHCP mode and static mode alike, so dhcpcd
+# always reads one path. /etc is never written: the root is a RW LV, and a
+# runtime author of a baked file is the netinst drift class (r8 Q-R8e).
+#
+# Strict, and failing closed. The host re-emits a canonical form (R35), so
+# anything else found here is a host-side defect or a disk that is not ours:
+# an unknown VERSION, an unknown member, or an uplink not in canonical form
+# makes this exit non-zero. dhcpcd `Requires=` this unit, so it does not start,
+# and netVM has no uplink (R36) — loudly, on the serial console, which lands in
+# the host journal. The values are not re-validated for meaning: the host did
+# that before QEMU started, and a second validator here would be a second
+# schema to keep in step.
+
+set -eu
+
+DEV=/dev/disk/by-id/virtio-kmcfg
+BAKED=/etc/dhcpcd.conf
+OUT_DIR=/run/katmate-cfg
+OUT="$OUT_DIR/dhcpcd.conf"
+
+log() { printf 'katmate-cfgdisk-apply: %s\n' "$*"; }
+die() { printf 'katmate-cfgdisk-apply: FATAL: %s\n' "$*" >&2; exit 1; }
+
+[ -b "$DEV" ] \
+    || die "$DEV is not a block device. The config disk is always attached (ADR-037 R36); its absence is a host-side fault"
+[ -f "$BAKED" ] \
+    || die "$BAKED is missing from the image"
+
+# A member's bytes, exactly: the trailing "x" keeps trailing newlines through
+# the command substitution, and is stripped by the caller.
+member() {
+    tar -xOf "$DEV" "$1" && printf x
+}
+
+# The image's sha256 equals the host's (the device is the file, byte for
+# byte), so the two journal lines can be compared for G6.
+dev_sha=$(sha256sum < "$DEV") || die "cannot read $DEV"
+dev_sha=${dev_sha%% *}
+
+# The member list, exactly and in order: VERSION first, and uplink the only
+# other member layout 1 knows.
+members=$(tar -tf "$DEV") || die "tar cannot list $DEV"
+case "$members" in
+VERSION)
+    have_uplink=no ;;
+"VERSION
+uplink")
+    have_uplink=yes ;;
+*)
+    die "$DEV: unexpected member list '$(printf '%s' "$members" | tr '\n' ' ')'; layout 1 has VERSION and, optionally, uplink" ;;
+esac
+
+version=$(member VERSION) || die "$DEV: cannot read member VERSION"
+[ "$version" = "1
+x" ] || die "$DEV: VERSION is not '1'; this image knows layout 1 only (ADR-037 R33)"
+
+umask 022
+mkdir -p "$OUT_DIR"
+chmod 0755 "$OUT_DIR"
+tmp=$(mktemp "$OUT_DIR/.dhcpcd.conf.XXXXXX")
+trap 'rm -f "$tmp"' EXIT
+
+if [ "$have_uplink" = yes ]; then
+    up=$(member uplink) || die "$DEV: cannot read member uplink"
+    up=${up%x}
+
+    # The canonical form only (katmate-build-cfgdisk): three lines in a fixed
+    # order, key=value, one final newline, octets without leading zeros. The
+    # byte count is compared too, because a command substitution drops NUL
+    # bytes that the line checks would then never see.
+    [ "$(tar -xOf "$DEV" uplink | wc -c)" -eq "${#up}" ] \
+        || die "$DEV: member uplink is not plain text"
+    [ "$(printf '%s' "$up" | wc -l)" -eq 3 ] \
+        || die "$DEV: member uplink does not have exactly 3 lines"
+    case "$up" in
+    *"
+") ;;
+    *) die "$DEV: member uplink does not end in a newline" ;;
+    esac
+
+    octet='(25[0-5]|2[0-4][0-9]|1[0-9][0-9]|[1-9][0-9]|[0-9])'
+    ip="$octet\\.$octet\\.$octet\\.$octet"
+    l1=$(printf '%s' "$up" | sed -n 1p)
+    l2=$(printf '%s' "$up" | sed -n 2p)
+    l3=$(printf '%s' "$up" | sed -n 3p)
+    printf '%s\n' "$l1" | grep -Eqx "address=$ip/([89]|[12][0-9]|30)" \
+        || die "$DEV: member uplink, line 1 is not canonical 'address=a.b.c.d/nn': $l1"
+    printf '%s\n' "$l2" | grep -Eqx "gateway=$ip" \
+        || die "$DEV: member uplink, line 2 is not canonical 'gateway=a.b.c.d': $l2"
+    printf '%s\n' "$l3" | grep -Eqx "nameservers=$ip(,$ip){0,2}" \
+        || die "$DEV: member uplink, line 3 is not canonical 'nameservers=a.b.c.d[,…]': $l3"
+
+    address=${l1#address=}
+    gateway=${l2#gateway=}
+    nameservers=$(printf '%s' "${l3#nameservers=}" | tr ',' ' ')
+
+    {
+        cat "$BAKED"
+        printf '\n'
+        printf '# --- static uplink, from the config disk (ADR-037 R38) ---\n'
+        printf '# Written at boot by katmate-cfgdisk-apply into /run. Not a source:\n'
+        printf '# the source is /etc/katmate/vm/<instance>.d/uplink on the host.\n'
+        printf 'interface uplink0\n'
+        printf 'static ip_address=%s\n' "$address"
+        printf 'static routers=%s\n' "$gateway"
+        printf 'static domain_name_servers=%s\n' "$nameservers"
+    } > "$tmp"
+    summary="static uplink: address=$address gateway=$gateway nameservers=${l3#nameservers=}"
+else
+    cat "$BAKED" > "$tmp"
+    summary="no uplink entry: dhcpcd leases on uplink0 (ADR-037 R36)"
+fi
+
+chmod 0644 "$tmp"
+mv -f "$tmp" "$OUT"
+log "config disk $DEV sha256=$dev_sha, layout 1, members: $(printf '%s' "$members" | tr '\n' ' ')"
+log "$summary; wrote $OUT"

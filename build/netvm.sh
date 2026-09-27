@@ -29,7 +29,8 @@
 # tunnel config and no template: a provider config is the user's T1, not the
 # release's T4 (R20), and the build refuses an image whose baked conf tree names
 # `proton` (step 5). Per-installation configuration reaches netVM at run time
-# through a read-only config disk (R8), which does not exist yet.
+# through a read-only config disk (R8): the host builds it at every start, and
+# the image carries only its consumer, katmate-cfgdisk.service (step 5, R38).
 #
 # Run on MINIS (build host). Authored on Acer, GPG-signed, rsync-pushed. bash,
 # not fish. root required (debootstrap, lvcreate, mount, chroot).
@@ -205,7 +206,10 @@ chroot_run "$NETVM_MNT" apt-get install -y --no-install-recommends "${PKGS[@]}"
 
 # --- 5. bake config tree (declarative; closes the netinst drift class) --------
 # Everything under conf.d/ is copied verbatim into the image. This is the ONLY
-# author of netVM configuration — no installer, no drift. The tree is
+# author of netVM's BAKED configuration — no installer, no drift.
+# Per-installation configuration is not baked: it arrives at every boot on the
+# read-only config disk (ADR-037 R8), and the guest writes it only to /run,
+# never over a file this step baked (R38). The tree is
 # appVM-AGNOSTIC: it bakes the uplink's name and DHCP client config, firewall
 # policy, DNS forwarder config, sysctl —
 # and NO internal /32 route (not even personalVM). All internal routes arrive
@@ -258,16 +262,21 @@ log "proton check OK: ${#NETVM_CONFD_FILES[@]} baked conf-tree files, none names
 # networkd that is not running. systemd-resolved is not installed (ADR-037
 # R18: netVM resolves directly upstream through /etc/resolv.conf, written by
 # dhcpcd).
-log "Enabling systemd services (dhcpcd, dnsmasq, nftables); disabling systemd-networkd"
+#
+# katmate-cfgdisk.service is the config disk's consumer (ADR-037 R38): a
+# oneshot before dhcpcd that writes /run/katmate-cfg/dhcpcd.conf, which
+# dhcpcd reads through the baked drop-in. It is enabled with the others.
+log "Enabling systemd services (dhcpcd, dnsmasq, nftables, katmate-cfgdisk); disabling systemd-networkd"
 chroot_run "$NETVM_MNT" systemctl enable dhcpcd
 chroot_run "$NETVM_MNT" systemctl enable dnsmasq
 chroot_run "$NETVM_MNT" systemctl enable nftables
+chroot_run "$NETVM_MNT" systemctl enable katmate-cfgdisk
 NETVM_NETWORKD_UNITS=(systemd-networkd.service systemd-networkd.socket systemd-networkd-wait-online.service)
 chroot_run "$NETVM_MNT" systemctl disable "${NETVM_NETWORKD_UNITS[@]}"
 
 # Read back the enablement state, not the commands' exit codes.
 netvm_unit_state() { chroot_run "$NETVM_MNT" systemctl is-enabled "$1" 2>/dev/null || true; }
-for u in dhcpcd.service dnsmasq.service nftables.service; do
+for u in dhcpcd.service dnsmasq.service nftables.service katmate-cfgdisk.service; do
   st="$(netvm_unit_state "$u")"
   [[ "$st" == enabled ]] || die "step 5 read-back: $u is '$st' in the image, expected enabled"
 done
@@ -275,7 +284,23 @@ for u in "${NETVM_NETWORKD_UNITS[@]}"; do
   st="$(netvm_unit_state "$u")"
   [[ "$st" == disabled ]] || die "step 5 read-back: $u is '$st' in the image, expected disabled (ADR-037 R15)"
 done
-log "Read-back OK: dhcpcd, dnsmasq, nftables enabled; ${#NETVM_NETWORKD_UNITS[@]} networkd units disabled"
+log "Read-back OK: dhcpcd, dnsmasq, nftables, katmate-cfgdisk enabled; ${#NETVM_NETWORKD_UNITS[@]} networkd units disabled"
+
+# The config disk's consumer, read back as the image holds it (ADR-037 R38).
+# Without the drop-in, dhcpcd would read the baked /etc/dhcpcd.conf and ignore a
+# static uplink with no diagnostic, so the -f line itself is checked, not just
+# the file. Without tar the consumer cannot read the disk, dhcpcd does not
+# start, and the image has no uplink.
+NETVM_CFGDISK_DROPIN="$NETVM_MNT/etc/systemd/system/dhcpcd.service.d/katmate-cfgdisk.conf"
+[[ -f "$NETVM_CFGDISK_DROPIN" ]] \
+  || die "step 5 read-back: ${NETVM_CFGDISK_DROPIN#"$NETVM_MNT"} is missing from the image"
+grep -qxF 'ExecStart=/usr/sbin/dhcpcd -q -b -f /run/katmate-cfg/dhcpcd.conf' "$NETVM_CFGDISK_DROPIN" \
+  || die "step 5 read-back: ${NETVM_CFGDISK_DROPIN#"$NETVM_MNT"} does not point dhcpcd at /run/katmate-cfg/dhcpcd.conf"
+[[ -x "$NETVM_MNT/usr/lib/katmate/katmate-cfgdisk-apply" ]] \
+  || die "step 5 read-back: /usr/lib/katmate/katmate-cfgdisk-apply is missing or not executable in the image"
+[[ -x "$NETVM_MNT/usr/bin/tar" || -x "$NETVM_MNT/bin/tar" ]] \
+  || die "step 5 read-back: tar is in neither /usr/bin nor /bin in the image; katmate-cfgdisk-apply reads the config disk with it"
+log "Read-back OK: katmate-cfgdisk consumer executable, dhcpcd drop-in present with -f /run/katmate-cfg/dhcpcd.conf, tar in the image"
 
 # dnsmasq serves DNS on the slots and nothing else (ADR-037 R17), and its D-Bus
 # interface stays off (operator ruling, 2026-09-27: libdbus-1-3 is accepted
