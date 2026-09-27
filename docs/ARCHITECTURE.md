@@ -354,8 +354,10 @@ netVM topology:
 - **Uplink:** RTL8125 (`10ec:8125`, IOMMU group 12) passed through via
   `vfio-pci` (`disable_idle_d3=1`, `softdep r8169 pre: vfio-pci`). The guest's
   own `r8169` needs `firmware-realtek` (`rtl_nic/rtl8125b-2.fw`) or the PHY stays
-  down. `20-uplink.network` matches by **MAC**, not interface name, so a PCI
-  slot change cannot break it. DHCP.
+  down. The guest names it `uplink0` through `60-katmate-uplink.link`, matched
+  on **`Path=pci-0000:00:04.0`**, not on the MAC: the unit pins that slot with
+  `addr=0x4` on `vfio-pci`, and the name is load-bearing. `dhcpcd` holds the
+  uplink (`allowinterfaces uplink0`) ([ADR-037](DECISIONS.md#adr-037)).
 - **Egress and DNS:** forward from the internal segment out `uplink0`, with the
   return path by conntrack; NAT masquerade out `uplink0`; `ip_forward=1`. AppVM
   DNS is `dnsmasq` in netVM, answering on the slots only and forwarding to the
