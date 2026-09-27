@@ -200,8 +200,33 @@ chroot_run "$NETVM_MNT" apt-get install -y --no-install-recommends "${PKGS[@]}"
 # appVM-AGNOSTIC: it bakes the uplink, firewall policy, wg template, sysctl —
 # and NO internal /32 route (not even personalVM). All internal routes arrive
 # at launch via the agent's NETCFG (ADR-021).
+#
+# OWNERSHIP (open problem #38, ruling R23): everything baked here lands
+# root:root. `cp -a` alone preserved the builder's owner, and the build tree on
+# the build host is host:host (uid 1000), so the ruleset and every network file
+# in the image were owned by uid 1000. `--no-preserve=ownership` keeps -a's
+# modes, timestamps and recursion but lets a root cp create each file as root.
+# Mode stays the tracked git mode: that is a property of the tree, not of this
+# copy. (Rejected: `rsync -a --chown=0:0` — a tool this script does not otherwise
+# need; a `chown -R` after the copy — it would have to name every destination
+# path anyway, and a recursive chown on /etc or /usr/lib reaches files this
+# step did not write.)
 log "Baking netVM config tree from $NETVM_CONFD"
-cp -a "$NETVM_CONFD/." "$NETVM_MNT/"
+cp -a --no-preserve=ownership "$NETVM_CONFD/." "$NETVM_MNT/"
+
+# Read back the outcome, not the flag: every path the conf tree names must be
+# 0:0 in the image. The count is printed beside the verdict, so a walk that
+# found nothing cannot read as a walk that found everything correct.
+NETVM_CONFD_PATHS=0
+while IFS= read -r -d '' rel; do
+  owner="$(stat -c '%u:%g' -- "$NETVM_MNT/$rel")" \
+    || die "step 5 read-back: $rel is in the conf tree but not in the image"
+  [[ "$owner" == "0:0" ]] \
+    || die "step 5 read-back: /$rel is owned $owner in the image, expected 0:0 (open problem #38)"
+  NETVM_CONFD_PATHS=$((NETVM_CONFD_PATHS + 1))
+done < <(cd "$NETVM_CONFD" && find . -mindepth 1 -printf '%P\0')
+[[ $NETVM_CONFD_PATHS -gt 0 ]] || die "step 5 read-back: the conf tree $NETVM_CONFD yielded no paths"
+log "Read-back OK: $NETVM_CONFD_PATHS conf-tree paths in the image, all owned 0:0"
 
 log "Enabling systemd services (networkd, nftables)"
 chroot_run "$NETVM_MNT" systemctl enable systemd-networkd
