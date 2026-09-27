@@ -6,12 +6,10 @@
 > history and the ADRs — this file references them rather than repeating them.
 
 **Milestone:** v0.2 (in development) · **Last updated:** 2026-09-27
-(`wp-0927d`, a docs-only write pass on the Acer. It recorded ADR-037's
-implementation (sessions `adr037-impl` A and B): the nine commits, the netVM
-rebuild, gates G1–G4, and the operator's rulings of that day, in ADR-037's and
-ADR-035's revision notes, in `docs/ARCHITECTURE.md` § *Networking* and in
-this file. It closed #27 and #38, opened #45, and rotated the 2026-09-27
-`host-cleanup` entry to `docs/SESSIONS.md`).
+(`wp-0927f`, a docs-only write pass on the Acer. It recorded the operator's
+step-3 rulings R30–R40 before any code, in ADR-037's and ADR-032's revision
+notes, HOST-CONFIG § 12, `ROADMAP.md` and this file, and rotated the
+2026-09-27 `adr037-readpass and rulings` entry to `docs/SESSIONS.md`).
 
 ## Current focus
 
@@ -53,6 +51,66 @@ restartable — and so updatable — without touching running VMs.
 
 Direction unchanged: IOMMU-capable platforms only (VT-d/AMD-Vi).
 MINIS is primary host and merge target.
+
+## This session (2026-09-27, r8-readpass, wp-0927e and rulings) — the stale lines after the implementation corrected, the tree read against R7/R8, and the step-3 rulings R30–R40 recorded before any code
+
+Three sessions, all on the Acer only. MINIS was not contacted. `wp-0927e`
+corrected the lines the implementation left stale. `r8-readpass` read the
+tree against ADR-037 R7 and R8 before arc step 3. Its report is outside the
+repository: `~/Claude.assistent/r8-readpass-report.md` (cited as r8).
+`wp-0927f` wrote the operator's rulings on both into `docs/DECISIONS.md`,
+`docs/HOST-CONFIG.md`, `ROADMAP.md` and this file.
+
+**wp-0927e, in one paragraph.** Four commits, `fb6be86`…`95acef4`, pushed.
+`docs/ARCHITECTURE.md` § *Networking*'s uplink bullet now says the uplink is
+`uplink0` by `Path=` on the pinned slot, held by dhcpcd (`fb6be86`). ADR-021
+and ADR-025 gained notes recording the uplink retirements that landed
+(`f9a8da1`). Dated notes went into this file (§ *Current focus*, the
+WireGuard/DNS line in § *Live state*, and two § *Next steps* items;
+`79f218b`) and into `ROADMAP.md` (`95acef4`). ADR-037 § *Status* was left
+alone, and a note line for it was proposed.
+
+**The read pass (r8), in summary.** It found **fourteen divergences, D1–D14**
+(r8 § 2), and posed **nine questions, Q-R8a–Q-R8i**, that the implementation
+cannot start without (r8 § 3). r8's D-numbers are its own and are not rp's.
+The central findings: R8's `/etc/katmate/netvm/` is the per-VM-directory shape
+ADR-032 § 1 rejects, and its key is unstated (D1, D2); nobody had said who
+builds the disk, where, or in which tier (D3); G6's refusal half is a
+fallback, and its pass half describes copy-through (D4, D5); "the disk
+absent" cannot be expressed in the fixed argv (D7); the config disk does not
+make G1 discriminate (D8); "step 3b" already names the launch daemon (D9);
+and R30 contradicts R20's scheduling (D11). r8 § 4 proposed a commit
+sequence.
+
+**The rulings, R30–R40 (index; the text is ADR-037's note on the step-3
+rulings).** R30: arc step 3 is the config disk and the static uplink, and VPN
+mode is arc step 5 under its own ADR. R31: the T1 location is
+`/etc/katmate/vm/<instance>.d/` (recorded in ADR-032's note of the same date).
+R32: a T4 builder after `katmate-generate-env`, writing
+`/run/katmate/cfgdisk/<instance>.img`. R33: a `ustar` image. R34: the argv,
+and the PCI reading before code. R35: parse and re-emit. R36: absent versus
+malformed. R37: the schema. R38: the guest consumer. R39: the gates. R40: G1
+stays non-discriminating. The sequence is r8 § 4's, with one hard ordering
+constraint (§ *Next steps*, arc step 3).
+
+**The rulings on wp-0927e.** The ADR-037 § *Status* note line it proposed is
+accepted, and is written in ADR-037's note on the step-3 rulings. The sshd
+item in § *Next steps* stays: it is #4's while the dev host's sshd exists. The
+extra bullet in the ADR-025 note stays.
+
+**wp-0927f's commits.** The previous-but-one entry rotated out (§ *Session
+archive*, the fifth closure of 2026-09-27). ADR-037 and ADR-032 gained notes,
+HOST-CONFIG § 12 a dated note, and `ROADMAP.md` step 4 a dated note. In this
+file: #40, arc step 3, a new arc step 5, the WireGuard item's "step 3", and
+the § *Live state* `20-uplink.network` line.
+
+**Not done, and not claimed.** Nothing was implemented, built or run. No
+gate was taken, and ADR-037 stays PROPOSED. The two pre-code readings (R34's
+PCI enumeration, R38's `dhcpcd.service` and hooks) are untaken. r8's
+**[recall, unverified]** statements about QEMU slot placement, `ustar`
+reproducibility and dhcpcd's static `resolv.conf` (D13) are still
+unverified. `build/netvm.sh:207-208`'s *"ONLY author"* sentence (D10) is
+unqualified, and waits for the consumer commit. No ADR body was changed.
 
 ## Previous session (2026-09-27, adr037-impl A and B) — ADR-037 implemented in nine commits, netVM rebuilt on it, and G1–G4 taken
 
@@ -723,7 +781,9 @@ touched.
   retired pet, `enp0s4`/`enp0s5` on the declarative build) — read the MACs, not
   the names (see *Invariants*). The uplink deltas (`firmware-realtek`,
   `20-uplink.network`, cleaned `interfaces`) are baked by the manifest, not
-  hand-applied.
+  hand-applied. **[2026-09-27: on the ADR-037 image the uplink is `uplink0`,
+  held by dhcpcd, and `20-uplink.network` is gone (R3, R6; G2). The text is
+  left as written.]**
   **In-guest status:** `netvm-agent` is live-gated on PING / NETCFG / SHUTDOWN
   (ADR-024, ADR-025), so the control path is no longer the gap; root is
   deliberately unlocked for console observation (open problems #11/#12) — from
@@ -2485,6 +2545,19 @@ touched.
    assembles from `/etc/katmate/netvm/`. Nothing of it exists; gate G6 of
    ADR-037 is its acceptance test, and `docs/HOST-CONFIG.md` § 12 carries the
    host side as `[OPEN]`.
+   **[Note 2026-09-27: ruled, and still not implemented.** The operator's
+   rulings R30–R40 (ADR-037's note on the step-3 rulings) settle it before any
+   code. The T1 location is `/etc/katmate/vm/<instance>.d/uplink`, not
+   `/etc/katmate/netvm/` (R31; ADR-032's note of that date). A T4 executable
+   builds `/run/katmate/cfgdisk/<instance>.img` at every start, after
+   `katmate-generate-env` (R32). The image is a `ustar` archive with a
+   `VERSION` member (R33), attached `readonly=on` at `addr=0x15`,
+   `serial=kmcfg` (R34). T1 is parsed and re-emitted, never copied through
+   (R35). An absent `uplink` means DHCP, and a malformed one fails closed
+   (R36). The schema is `address`, `gateway`, `nameservers` (R37). A guest
+   oneshot writes a dhcpcd config to `/run` (R38). The gates are R39's, and
+   G1 stays non-discriminating (R40). VPN mode is arc step 5 (R30). The text
+   above is left as written.**]**
 
 41. **`KM_MAC_INT` is emitted for `sys` with no consumer.** Added 2026-09-27.
    `katmate-generate-env:360-364` derives it when `CLASS == sys` and
@@ -3105,6 +3178,11 @@ frozen `vm_home_skel` vs qcow2 branch.
   option: the user supplies a WireGuard config through the config disk (R8),
   which is **not implemented** (networking arc step 3). The text above is
   left as written.**]**
+  **[Note 2026-09-27 (R30, ADR-037's note on the step-3 rulings): VPN mode is
+  networking arc step 5, not step 3**, under its own ADR, after arc step 4.
+  Arc step 3 is the config disk and the static uplink only. R8's T1
+  directory is now `/etc/katmate/vm/<instance>.d/` (R31); the modes for a
+  secret there are step 5's.**]**
 
 - **`netvm.sh` cleanup — RESOLVED 2026-07-24.** The trap already existed
   (`netvm_cleanup` + `trap … EXIT`, its own linear-LV model, deliberately not
@@ -3283,6 +3361,26 @@ frozen `vm_home_skel` vs qcow2 branch.
      step 3 (R8, G6, and G3's static half), then 3a (the finding-12 guard),
      then step 4 (the AppVM side, G5, and #45).**]**
   3. **The config disk** (R8, open problem #40; ADR-037 G6).
+     **[Note 2026-09-27 (rulings R30–R40, ADR-037's note on the step-3
+     rulings): the step is the config disk and the static uplink** (R30),
+     gated by G6 and G3's static half (R39). VPN mode is not in it (step 5
+     below). **Two readings come before any code:** the guest PCI
+     enumeration from the host journal, with the command in r8 Q-R8d (R34);
+     and, in the guest, the packaged `dhcpcd.service` and its hooks (R38).
+     **The sequence is r8 § 4's:** the flat-reader refactor of
+     `katmate-lib.sh` in its own commit (R37); a `0700` run-subdirectory
+     helper, if the existing one is not parameterised (R32); the builder;
+     then the unit
+     change (the `ExecStartPre=+` line and the drive/device pair), installed
+     onto the **current** image with no T1, the absent path. **That comes
+     before the guest consumer and the rebuild. It is the one hard ordering
+     constraint**, because a rebuilt image with the consumer would wait on a
+     disk that is never attached. Then the consumer, the dev-build rebuild
+     (reboot before, suspend masked), G6 with R-a…R-d, and G3's static half.
+     **The static T1 for G3**, which the operator writes on MINIS himself
+     (R25): `address = "10.3.1.172/24"`, `gateway = "10.3.1.1"`,
+     `nameservers = "10.3.1.1"`. r8 is `~/Claude.assistent/r8-readpass-report.md`,
+     outside the repository.**]**
      **3a. The finding-12 slot guard** (added 2026-09-27, R21). It is its own
      step with its own gate, and it must land **before step 4**, the first
      AppVM on a slot. The candidate is
@@ -3294,6 +3392,12 @@ frozen `vm_home_skel` vs qcow2 branch.
      (open problem #24); ADR-037 G5 needs this step. **[Added 2026-09-27:**
      also the removal of the generator's `KM_MAC_INT` `sys` branch, in its own
      commit, alongside #19 (open problem #41).**]**
+  5. **VPN mode** (added 2026-09-27, R30): the WireGuard config, the VPN
+     ruleset and the kill-switch, under **its own ADR**, after step 4. R8
+     names the config disk as the WireGuard config's channel, and R31 gives
+     the T1 directory; the modes for a secret there are this step's (r8 D12).
+     Nothing else of it is designed. *(Numbered 5, not "3b": build-order step 3b is
+     the launch daemon, and shipped T4 comments cite it by that name; r8 D9.)*
 - **waypipe on the host** (added 2026-09-26):
   - ~~Remove the distro `waypipe` package from MINIS.~~ — **done 2026-09-26**
     by the operator (`pacman -Rs waypipe`); see § *Live state*, *Host GUI
