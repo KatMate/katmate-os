@@ -5,11 +5,11 @@
 > each working session. Detailed proofs and command sequences live in git
 > history and the ADRs — this file references them rather than repeating them.
 
-**Milestone:** v0.2 (in development) · **Last updated:** 2026-09-27
-(`wp-0927g`, a docs-only write pass on the Acer. It recorded networking arc
-step 3 as done and gated (G6 and G3's static half PASS) in ADR-037's revision
-notes, HOST-CONFIG § 12 and this file, and rotated the 2026-09-27
-`adr037-impl A and B` entry to `docs/SESSIONS.md`).
+**Milestone:** v0.2 (in development) · **Last updated:** 2026-09-28
+(`wp-0928a`, a docs-only write pass on the Acer. It recorded the operator's
+step-3a rulings R47–R56 in ADR-037's revision notes, the gates F12a and F12b
+in ADR-035's, and this file, and rotated the 2026-09-27 `r8-readpass,
+wp-0927e and rulings` entry to `docs/SESSIONS.md`).
 
 ## Current focus
 
@@ -25,7 +25,8 @@ open for most of July, is closed (ADR-024, ADR-025).
 side). The launch daemon follows the arc. The text of this section is left
 as written.**]** **[Note 2026-09-27, later: step 3 is done and gated (G6 and
 G3's static half PASS; r8-impl A and B). Next is 3a, the finding-12 guard,
-then step 4, then step 5.]**
+then step 4, then step 5.]** **[Note 2026-09-28: next is still 3a. It is
+ruled (R47–R56, ADR-037's note of 2026-09-28) and not implemented.]**
 
 The **entire build chain remains scripted and proven from nothing**:
 `make foundation` builds the shared systemd-free base
@@ -53,6 +54,60 @@ restartable — and so updatable — without touching running VMs.
 
 Direction unchanged: IOMMU-capable platforms only (VT-d/AMD-Vi).
 MINIS is primary host and merge target.
+
+## This session (2026-09-28, f12-readpass and rulings) — the finding-12 candidate read against the tree, and the step-3a rulings R47–R56 recorded before any code
+
+Two sessions, both on the Acer only. MINIS was not contacted.
+`f12-readpass` read the finding-12 candidate ruleset against the tree before
+networking arc step 3a. Its report is outside the repository:
+`~/Claude.assistent/f12-readpass-report.md` (cited as F). `wp-0928a` wrote
+the operator's rulings into `docs/DECISIONS.md` and this file.
+
+**The read pass (F), in summary.** It found **twenty divergences, D1–D20**
+(F § 2), and posed **ten questions, Q-F12a–Q-F12j** (F § 4). F's D-numbers
+are its own. The central findings: the candidate was written against the
+pre-ADR-037 ruleset, and its policy lines revert R2, R3 and R19 (D5–D8).
+After a guard-only step, `rp_filter = 2` would still be inherited silently
+from the vendor file, which ADR-036 § 3 rule 2 forbids (D15). ADR-036 § 3
+makes G2's refusal half in both forms, IPv4 and ARP, the conformance test,
+and nothing recorded whether step 4 may start with the ARP half open (D16).
+`input` accepts, and `forward` passes to `uplink0`, any source in
+`10.100.1.0/24` whatever interface it arrives on, `uplink0` included, and the
+candidate closes that for the `/28` only (D18). The candidate's rule 18 drops
+IPv6 on the slots incidentally, and does not say so (D19). The agent accepts
+any `/24` peer on any slot, so a wrong pair would be dropped by the guard
+silently (D20). Also: ADR-035's note of 2026-09-12 has eleven findings, and
+finding 12 is the audit's (D1); ADR-036 § *Open* is stale on the sysctl
+ordering (D17).
+
+**The rulings, R47–R56 (index; the text is ADR-037's note of 2026-09-28,
+and the gates are defined in ADR-035's note of the same date).** R47: the
+guard lands on the ruleset in the tree, and only the chain is taken from the
+candidate. R48: sixteen literal pairs, and a build read-back of them. R49: an
+explicit IPv6 drop on the slots, and R22's role narrows. R50: segment sources
+off their slot, over the `/24`, `lo` excluded; and the chain order. R51:
+`rp_filter` adopted explicitly, read before and after the rebuild. R52: gate
+F12a, and an `nft -c` build preflight. R53: gate F12b. R54: #34, the ARP
+half, must land before the second networked AppVM, not the first. R55: the
+agent-side pairing check at step 4 (#49). R56: where it is recorded; ADR-036
+is not touched.
+
+**wp-0928a's commits.** The previous-but-one entry rotated out (§ *Session
+archive*, *Closed 2026-09-28*). ADR-037 gained the rulings note, and ADR-035
+the gates note. In this file: § *Current focus*, #33, #34, new #48 and #49,
+and networking arc steps 3a and 4.
+
+**Not done, and not claimed.** Nothing was implemented, built or run. F12a
+and F12b are untaken, and ADR-037 stays PROPOSED (G5). `rp_filter` is unread
+on the current image (F D4); the last reading is of 2026-09-14, on the
+2026-09-05 image. F's **[recall, unverified]** statements are still
+unverified: that a rule with no L3 match in an `inet` table applies to IPv6;
+how conntrack classes ICMPv6 neighbour and router traffic; whether loose
+`rp_filter` passes an off-slot segment source on `uplink0`; and what `nft -c`
+in a chroot measures. No ADR body was changed.
+
+`f12-readpass` and `wp-0928a` ran on the Acer only and observed nothing on
+MINIS.
 
 ## Previous session (2026-09-27, r8-impl A and B) — networking arc step 3 implemented in eight commits, netVM rebuilt on it, and G6 and G3's static half taken
 
@@ -2475,6 +2530,10 @@ touched.
    journald record, not a rename, so it is looser than 2026-09-20's
    (`net-up-report.md` § 16.5).
 
+   **[Note 2026-09-28 (F D17; ADR-037 R56): ADR-036 § *Open* still lists
+   this ordering as open.** ADR-036 is not edited: the operator ruled that it
+   is not touched, and the divergence is recorded here only.**]**
+
 34. **The pool's ARP surface is uncovered, and the finding-12 candidate does not
    reach it.** Added 2026-09-20, **named as open at the moment the IPv4 half of
    finding 12 was ruled, deliberately, so the ruling is not read as closing
@@ -2495,6 +2554,11 @@ touched.
    **and accepted the control too**, so `-c` cannot settle load-time device
    binding at all (`auditfix-liveread-report.md` §§ 2.5, 5.4). Settling it needs
    a real `nft -f` load, which is a state change.
+
+   **[Note 2026-09-28 (ADR-037 R54): step 3a closes the IPv4 half of finding
+   12 only.** Networking arc step 4 may start with this problem open, because
+   ARP poisoning needs two tenants on slots. **It must land before the second
+   networked AppVM**, not before the first.**]**
 
 35. **Foundation dependency debt.** Added 2026-09-26. The rebuilt foundation
    carries `systemd`, `systemd-sysv`, `dbus` and `dbus-daemon`, none of them
@@ -2775,6 +2839,23 @@ touched.
    (`katmate-check-waypipe`, `katmate-check-image`, `katmate-build-cfgdisk`,
    `katmate-generate-env`, `katmate-activate-lvs`, `katmate-publish-nics`).
    Small, and a comment only; the fix is its own commit.
+
+48. **A failed `nftables.service` at netVM boot would leave forwarding on
+   with no ruleset.** Added 2026-09-28, in the step-3a rulings.
+   `30-netvm-forward.conf` sets `net.ipv4.ip_forward = 1`, and the ruleset is
+   loaded by `nftables.service`. If that unit fails at boot, netVM is left
+   with `ip_forward = 1` and no ruleset: **fail-open**. **Predicted, not
+   measured.** The R52 build preflight (`nft -c -f` on the baked file, in the
+   build chroot) lowers the chance. It does not remove the case.
+
+49. **The agent does not bind a peer address to its slot.** Added
+   2026-09-28, from F D20 (`f12-readpass-report.md`, outside the repository).
+   `netvm-agent` accepts any peer in the `/24` on any slot (F § 1.7). Under
+   the finding-12 guard, a NETCFG ADD that pairs slot `kk` with a peer other
+   than `10.100.1.(16+k)` is accepted by the agent, and its traffic is then
+   dropped by the guard **silently**: a counter with no reader, since the
+   agent has no `RUN`. **Deferred to networking arc step 4** (ADR-037 R55),
+   with #19 and #41, where the host assigns slots.
 
 ## Next steps
 
@@ -3450,10 +3531,21 @@ frozen `vm_home_skel` vs qcow2 branch.
      It was written against the pre-ADR-037 ruleset, and its gate (a),
      `nft -c` inside netVM (nft 1.1.3), is untaken. *(Numbered 3a so that
      "arc step 4" keeps the meaning every existing reference gives it.)*
+     **[Note 2026-09-28 (rulings R47–R56, ADR-037's note of that date; gates
+     F12a and F12b, ADR-035's note of that date): ruled, not implemented.**
+     The candidate is a source for the `slot_guard` chain only (R47). **The
+     sequence:** `f12-impl-A` on the Acer — the guard on the ruleset in the
+     tree (R47–R50), R51's `30-netvm-forward.conf` in its own commit, the
+     `netvm.sh` read-back of the sixteen pairs (R48) and the `nft -c`
+     preflight (R52), and the extended fixture (R53); then `f12-impl-B` on
+     MINIS — read `rp_filter` on the running image (R51's precondition),
+     reboot, rebuild, F12a, F12b.**]**
   4. **The AppVM side:** the slot, the guest IP, `NETCFG`, and `accept_ra=0`
      (open problem #24); ADR-037 G5 needs this step. **[Added 2026-09-27:**
      also the removal of the generator's `KM_MAC_INT` `sys` branch, in its own
-     commit, alongside #19 (open problem #41).**]**
+     commit, alongside #19 (open problem #41).**]** **[Added 2026-09-28
+     (ADR-037 R54):** this step may start with the ARP half of finding 12
+     (#34) open. #34 must land before the second networked AppVM.**]**
   5. **VPN mode** (added 2026-09-27, R30): the WireGuard config, the VPN
      ruleset and the kill-switch, under **its own ADR**, after step 4. R8
      names the config disk as the WireGuard config's channel, and R31 gives
