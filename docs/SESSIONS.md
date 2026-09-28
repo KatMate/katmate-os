@@ -51,6 +51,66 @@
 
 ---
 
+## Previous session (2026-09-27, r8-readpass, wp-0927e and rulings) — the stale lines after the implementation corrected, the tree read against R7/R8, and the step-3 rulings R30–R40 recorded before any code
+
+Three sessions, all on the Acer only. MINIS was not contacted. `wp-0927e`
+corrected the lines the implementation left stale. `r8-readpass` read the
+tree against ADR-037 R7 and R8 before arc step 3. Its report is outside the
+repository: `~/Claude.assistent/r8-readpass-report.md` (cited as r8).
+`wp-0927f` wrote the operator's rulings on both into `docs/DECISIONS.md`,
+`docs/HOST-CONFIG.md`, `ROADMAP.md` and this file.
+
+**wp-0927e, in one paragraph.** Four commits, `fb6be86`…`95acef4`, pushed.
+`docs/ARCHITECTURE.md` § *Networking*'s uplink bullet now says the uplink is
+`uplink0` by `Path=` on the pinned slot, held by dhcpcd (`fb6be86`). ADR-021
+and ADR-025 gained notes recording the uplink retirements that landed
+(`f9a8da1`). Dated notes went into this file (§ *Current focus*, the
+WireGuard/DNS line in § *Live state*, and two § *Next steps* items;
+`79f218b`) and into `ROADMAP.md` (`95acef4`). ADR-037 § *Status* was left
+alone, and a note line for it was proposed.
+
+**The read pass (r8), in summary.** It found **fourteen divergences, D1–D14**
+(r8 § 2), and posed **nine questions, Q-R8a–Q-R8i**, that the implementation
+cannot start without (r8 § 3). r8's D-numbers are its own and are not rp's.
+The central findings: R8's `/etc/katmate/netvm/` is the per-VM-directory shape
+ADR-032 § 1 rejects, and its key is unstated (D1, D2); nobody had said who
+builds the disk, where, or in which tier (D3); G6's refusal half is a
+fallback, and its pass half describes copy-through (D4, D5); "the disk
+absent" cannot be expressed in the fixed argv (D7); the config disk does not
+make G1 discriminate (D8); "step 3b" already names the launch daemon (D9);
+and R30 contradicts R20's scheduling (D11). r8 § 4 proposed a commit
+sequence.
+
+**The rulings, R30–R40 (index; the text is ADR-037's note on the step-3
+rulings).** R30: arc step 3 is the config disk and the static uplink, and VPN
+mode is arc step 5 under its own ADR. R31: the T1 location is
+`/etc/katmate/vm/<instance>.d/` (recorded in ADR-032's note of the same date).
+R32: a T4 builder after `katmate-generate-env`, writing
+`/run/katmate/cfgdisk/<instance>.img`. R33: a `ustar` image. R34: the argv,
+and the PCI reading before code. R35: parse and re-emit. R36: absent versus
+malformed. R37: the schema. R38: the guest consumer. R39: the gates. R40: G1
+stays non-discriminating. The sequence is r8 § 4's, with one hard ordering
+constraint (§ *Next steps*, arc step 3).
+
+**The rulings on wp-0927e.** The ADR-037 § *Status* note line it proposed is
+accepted, and is written in ADR-037's note on the step-3 rulings. The sshd
+item in § *Next steps* stays: it is #4's while the dev host's sshd exists. The
+extra bullet in the ADR-025 note stays.
+
+**wp-0927f's commits.** The previous-but-one entry rotated out (§ *Session
+archive*, the fifth closure of 2026-09-27). ADR-037 and ADR-032 gained notes,
+HOST-CONFIG § 12 a dated note, and `ROADMAP.md` step 4 a dated note. In this
+file: #40, arc step 3, a new arc step 5, the WireGuard item's "step 3", and
+the § *Live state* `20-uplink.network` line.
+
+**Not done, and not claimed.** Nothing was implemented, built or run. No
+gate was taken, and ADR-037 stays PROPOSED. The two pre-code readings (R34's
+PCI enumeration, R38's `dhcpcd.service` and hooks) are untaken. r8's
+**[recall, unverified]** statements about QEMU slot placement, `ustar`
+reproducibility and dhcpcd's static `resolv.conf` (D13) are still
+unverified. `build/netvm.sh:207-208`'s *"ONLY author"* sentence (D10) is
+unqualified, and waits for the consumer commit. No ADR body was changed.
+
 ## Previous session (2026-09-27, adr037-impl A and B) — ADR-037 implemented in nine commits, netVM rebuilt on it, and G1–G4 taken
 
 Two sessions, one arc. `adr037-impl-A` wrote the code on the Acer, did not
