@@ -6501,6 +6501,49 @@ instrument are unchanged, except that the positive control is taken both
 first and last (PC-1 and PC-2), and a failed PC-2 voids every refusal row
 (ADR-037 R59's note).
 
+**Revision note (2026-09-28, F12a and F12b taken — the finding-12 guard
+gated):** this note records gate results. It changes no text above. The
+gates were taken on MINIS on 2026-09-28 by the session f12-impl-B
+(`f12-impl-B-report.md`, outside the repository, cited as B), on
+`NETVM_BUILT=2026-09-28T17:38:12Z`, in the guest through the dev console.
+The operator ruled **F12a PASS** and **F12b PASS**, every row as B's gate
+table records it. The full table, with every counter reading before and
+after, is B's *Gate table*; in short:
+
+| Row | Sent | Counter, increment | `answered` |
+|---|---|---|---|
+| F12a | — | `nftables v1.1.3`; `nft -c` rc 0; `active`; 16 `return`s and 3 counted drops at 0 | — |
+| PC-1 (02 and 05, DNS and ICMP) | 4 × 5 | none moves | 5 of 5, each |
+| 1: 05 as `10.100.1.18` | 10 | R50 +10 | 0; listener on 02 `rx=0` |
+| 2a: 05 as `10.100.1.5` | 5 | R50 +5 | 0 |
+| 2b: 05 as `192.0.2.10` | 10 | rule 18 +10 | 0 |
+| 2c: 05 as `10.100.1.1` | 5 | kernel martian witness: `in_martian_src` +5, five `log_martians` lines naming `km05`; R50 +0 | 0 |
+| 3: 05, IPv6 echo to `ff02::1` | 5 | R49 +5 | 0 |
+| 4: host → `10.3.1.172` as `10.100.1.5` | 10 | R50 +10 | `rx_from_target=0` |
+| 4, control: as `10.3.1.3` | 10 | R50 +0 | `rx_from_target=0` |
+| PC-2 (the four again, re-bound sockets) | 4 × 5 | none moves | 5 of 5, each |
+
+Row 2c passed with the kernel martian witness, as R59 defines it. R51's
+`rp_filter` reading held before the rebuild (old image) and after it:
+`all` 0, and 2 on the other 19 of 20 conf dirs.
+
+**Observed, each on one run and one image (B § 6, *recall items*):**
+- Loose `rp_filter` passed every forged IPv4 source **except netVM's own
+  address** to nft: an off-slot pool source on a slot (row 1), a non-pool
+  segment source on a slot (2a), a TEST-NET source on a slot (2b), and **a
+  segment source on `uplink0` (row 4)**. `in_martian_src` did not move, and
+  the nft counter took the frames. This answers the open item of
+  `f12-readpass-report.md` D18 (outside the repository) for that one run.
+- A source equal to netVM's own `10.100.1.1` is dropped as a martian source
+  before any nft hook (row 2c): R59's premise, observed.
+- QEMU delivers to an `appvm` socket re-bound at the same path (PC-1's
+  second run on each slot, every forged run, and all of PC-2).
+
+**Not executed, and therefore not claimed (B § 6):** the failure paths of
+[ADR-037](DECISIONS.md#adr-037) R52's build preflight and R48's read-back on
+a real image (only their pass paths ran); and the optional
+conntrack-shaped repeat of row 1, which is not in the gate.
+
 ---
 
 ## ADR-036 — The distributable unit is the enforcing set of the trust model; the host base is a pinned composition, neither a mutable install nor a distribution
