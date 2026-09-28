@@ -4435,6 +4435,17 @@ note does not rule on whether the two formulations are one question.
 is PROPOSED and none of its six gates has been taken: what is closed above is
 the design question in each case, never the mechanism.
 
+**Revision note (2026-09-28, § *Decision* — the slot is not a field on
+ADR-017's allocation):** *"Slot allocation is CID allocation's mechanism on
+a second namespace … a slot is another field on the same allocation, not a
+new subsystem"*, and *"Reconcile ([ADR-017](DECISIONS.md#adr-017)) gains
+a slot field"*, are
+superseded by [ADR-035](DECISIONS.md#adr-035) §5: a slot is the lowest
+`kk` with no `owner` in the runtime tree, and a fixed AppVM needs no
+ADR-017 record for its slot. This is the operator's ruling R62 of
+2026-09-28 ([ADR-037](DECISIONS.md#adr-037)'s note of that date). The text
+above is not edited.
+
 ---
 
 ## ADR-034 — Kernel provenance: a sidecar captured at build, carried into T2, checked at install
