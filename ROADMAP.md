@@ -142,6 +142,11 @@ depends on that daemon staying alive.
      deleted from the repository and nothing was lost** — which is also the
      empirical gate on ADR-030's schema. ADR-030 gate E1 passed 2026-08-06
      (candidate A: generator as `ExecStartPre=+` in the VM unit).
+     **[Note 2026-09-28: step 3a shipped `sys-driver` only.** Under ADR-037
+     R61 the other two follow in this order: `app-routed` lands at
+     networking arc step 4a, and `app-offline` ships with the vault
+     instance. The `.con` deletion is not in networking arc step 4. See
+     ADR-030's note of 2026-09-28. The text above is left as written.**]**
    - **3b — the launch daemon.** Graph ownership, CID allocation and reconcile
      (ADR-017), NETCFG ordering and re-issue (ADR-025), CID→name (ADR-026),
      dependent-VM interlock (ADR-022). Orders units; parents nothing (ADR-029).
