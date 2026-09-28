@@ -6597,6 +6597,81 @@ the repository, cited as S), taken on the Acer only.
   sockets on one end. **The first AppVM on a slot is the first addressed
   QEMU-to-QEMU delivery.**
 
+**Revision note (2026-09-28, step 4.0: the first AppVM on a slot — § *Gates*
+finding 1 of the 2026-09-14 note, § *Questions* item 5):** this note
+records readings and the operator's rulings on them. It changes no text
+above and takes no gate. Networking arc step 4.0
+([ADR-037](DECISIONS.md#adr-037) R60) was taken on MINIS on 2026-09-28 by
+the session s4-m0 (`s4-m0-report.md`, outside the repository, cited as M):
+`app_web`'s image and kernel, started by a fixture launcher outside the
+repository (`app_web.con`'s argv plus a `-netdev dgram` on slot 01 and
+`virtio-net-device` on the derived MAC `52:54:00:6f:19:35`), against netVM
+on NETCFG link 201 (`10.100.1.17`), three boots A, B and C, each with a
+different kernel `ip=` tail. The TTL reading below was taken by the
+operator over M's captures; its table is in `wp-0928d-brief.md`, outside
+the repository.
+
+- **§ *Questions* item 5 is answered for the MINIS config.**
+  `/home/host/katmate-kernels/config-katmate-microvm-amd64-6.12.87`
+  (`7720cf22…`), header line checked (`# Linux/x86 6.12.87 Kernel
+  Configuration`), carries `CONFIG_IP_PNP=y`, with `_DHCP`, `_BOOTP` and
+  `_RARP` also `=y` (M § 1). **Kernel `ip=` is observed working on the
+  microVM kernel** `b34026dd…` (the `-dirty` 6.12.87), on three boots of
+  three: `IP-Config: Complete`, `device=eth0`, the address and the gateway
+  taken from the command line with no userspace (M1). The previous note's
+  *"Kernel `ip=` has never run on the microVM kernel"* was true when
+  written and no longer is. Open problem #22's caveat is unchanged:
+  `CONFIG_IKCONFIG` is unset, so the config is not proven to be the
+  image's.
+- **M2: `ip=` did not give a `/32`.** With the netmask field
+  `255.255.255.255` (boot A), the kernel printed *"IP-Config: Guessing
+  netmask 255.0.0.0"* and completed with `mask=255.0.0.0` and
+  `gw=10.100.1.1`: the mask was replaced by a guess and the gateway was
+  kept, not refused. With `255.255.255.0` (B, C) the mask was taken as
+  given. **Why the kernel guessed was not read**: the ipconfig source was
+  not consulted.
+- **M3, finding 1 of the 2026-09-14 note — settled functionally, not by
+  measurement.** netVM held `10.100.1.17 lladdr 52:54:00:6f:19:35` on
+  `km01` after B and C, and the guest's SYNs left through `uplink0` (M4).
+  A unicast SYN to netVM's slot MAC required the guest to receive netVM's
+  unicast ARP reply, and netVM to accept a unicast frame: **addressed
+  QEMU-to-QEMU delivery works in both directions** (operator ruling,
+  2026-09-28). **`IFF_PROMISC` was not read** on `km01` or on the guest's
+  `eth0`; nothing in either guest sets it. That both receivers were
+  non-promiscuous is an **inference, not a measurement**. This bears on
+  finding 1 and does not close it. No capture was taken on the slot, and
+  the ARP exchange was not seen directly.
+- **M4: the first AppVM traffic to leave through `uplink0`.** A host
+  capture on MINIS's LAN interface holds eight SYNs to `10.3.1.3:8099`
+  from `10.3.1.172` (netVM's uplink) during boots B and C, and, in capture
+  B, three SYNs from the Acer (`10.3.1.170`). Read with `tcpdump -v`, the
+  eight carry **ttl 63** against the Acer's **ttl 64** in the same capture:
+  each crossed one routing hop, netVM. They are the guest's traffic,
+  forwarded through slot 01 and NATed to `10.3.1.172`, not
+  netVM-originated (operator ruling, 2026-09-28). C's first SYN came 1.3 s
+  after RUN `firefox-esr`: firefox restored the session boot B saved on the
+  persistent `/home`. **This is not G5** (ADR-037's note of the same date).
+  No conntrack entry was read inside its expiry window.
+- **M5 and R49 — a hypothesis, unverified.** R49 read +0 on `km01` in all
+  three boots, including A and B without `ipv6.disable=1`. Hypothesis: a
+  router solicitation goes to `33:33:00:00:00:02`; netVM is not a router
+  and does not join that group, so QEMU's virtio-net receive filter drops
+  the frame before netVM's kernel sees it, and R49 cannot count it. F12b
+  row 3 counted only because its fixture sent to `ff02::1`, which netVM
+  joins. **On that reading R49 is not a witness for RS.** Nothing was run
+  to test it. With `ipv6.disable=1` (boot C) the guest runs no IPv6 at
+  all, which its serial line shows directly: *"IPv6: Loaded, but
+  administratively disabled, reboot required to enable"*.
+- **The AppVM kernel starts `netconsole`** (*"netconsole: network logging
+  started"*, `[netcon0] enabled`, on every boot; M § 6 item 6). Its
+  targets were not read. Open problem #52.
+
+**Not read, and not claimed (M § 5):** `IFF_PROMISC` on either receiver;
+any capture on the slot; a conntrack entry inside its expiry window; a
+positive control for R49; the guest's own view of its routes, neighbours,
+resolver or IPv6 state; why ipconfig guessed `255.0.0.0`; a `/32` by any
+other means than `ip=`'s netmask field.
+
 ---
 
 ## ADR-036 — The distributable unit is the enforcing set of the trust model; the host base is a pinned composition, neither a mutable install nor a distribution
