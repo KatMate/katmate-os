@@ -6412,6 +6412,47 @@ It changes no decision.
   `ExecStopPost=` is still unimplemented**, as this ADR's previous note says.
   The shipped `katmate-sys-driver@.service` carries none.
 
+**Revision note (2026-09-28, the 2026-09-20 note's gates (a) and (b) — gates
+F12a and F12b of the finding-12 guard):** this note defines two gates. It
+takes neither, and changes no text above. **Both are untaken.** The rulings
+behind them are [ADR-037](DECISIONS.md#adr-037)'s note of 2026-09-28 (R47–R56;
+the gates are R52 and R53, and R56 places them here). They are named after
+gates (a) and (b) of this ADR's note of 2026-09-20, because § *Gates* is body
+and is not edited. They are the gates of the finding-12 slot guard,
+networking arc step 3a.
+
+- **F12a (R52)**, after the rebuild that bakes the guard, in the guest as
+  root through the dev console: `nft --version`, `nft -c -f
+  /etc/nftables.conf`, `systemctl is-active nftables`, and `nft list chain
+  inet filter slot_guard`. `build/netvm.sh`'s `nft -c -f` on the baked file
+  in the build chroot is a build preflight, **not** this gate: it checks
+  against the build host's kernel.
+- **F12b (R53)**, a live refusal against **both** `input` (DNS to
+  `10.100.1.1`) and `forward` (ICMP echo to `1.1.1.1` via `uplink0`), with
+  two fixture peers on two slots (NETCFG ADD). Each row names the counter it
+  must increment:
+  1. a pool source on the wrong slot (slot *b* claiming slot *a*'s peer) →
+     the R50 counter;
+  2. `10.100.1.1`, and an off-segment source (TEST-NET), on a slot → the
+     rule-18 counter;
+  3. IPv6 on a slot → the R49 counter;
+  4. a segment source on `uplink0`, sent from the MINIS host to netVM's
+     uplink address → the R50 counter. Control: the same packet with source
+     `10.3.1.3` leaves that counter unchanged.
+
+  **Positive control, in the same run:** each peer's true source on its own
+  slot gets a DNS answer and an echo reply. The counters are read before and
+  after through the console, and each row's increment equals the frames
+  sent. `rp_filter` is read before and after (R51). The instrument is
+  `g4peer.py` extended with a slot and a source parameter and an IPv6 frame,
+  with a timestamp on every line.
+
+**Finding 12 is the audit's, not this ADR's.** The note of 2026-09-12 has
+**eleven** findings (*"Eleven findings, appended once"*), and the list ends
+at 11. Finding 12 is counted in [ADR-036](DECISIONS.md#adr-036): netVM's
+forwarding plane accepting the aggregate `10.100.1.0/24` with no per-link
+binding. (`f12-readpass-report.md` D1, outside the repository.)
+
 ---
 
 ## ADR-036 — The distributable unit is the enforcing set of the trust model; the host base is a pinned composition, neither a mutable install nor a distribution
