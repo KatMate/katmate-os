@@ -6544,6 +6544,48 @@ Row 2c passed with the kernel martian witness, as R59 defines it. R51's
 a real image (only their pass paths ran); and the optional
 conntrack-shaped repeat of row 1, which is not in the gate.
 
+**Revision note (2026-09-28, step 4 read — § 5, § *Dependencies surfaced*
+and § *Questions* item 5):** this note records rulings and readings. It
+changes no text above and takes no gate. The rulings are
+[ADR-037](DECISIONS.md#adr-037)'s note of the same date (R60–R75); the
+readings are the read pass behind them (`s4-readpass-report.md`, outside
+the repository, cited as S), taken on the Acer only.
+
+- **§5's `owner` tree governs the slot** (ADR-037 R62). A slot is the
+  lowest `kk` with no `owner`, as § *Consequences* states.
+  [ADR-033](DECISIONS.md#adr-033)'s *"a slot is another field on the same
+  allocation"* as [ADR-017](DECISIONS.md#adr-017)'s is superseded by this
+  §5, and a fixed AppVM needs no ADR-017 record for its slot. Until the
+  launch daemon exists, `owner` is written by hand (R63).
+- **§ *Dependencies surfaced*, corrected (R72; S D5).** *"Until it exists,
+  an AppVM on the pool configures its address by hand through the console,
+  as a gate fixture and nothing more"* names a mechanism that does not
+  exist: katmate-init runs no getty and the AppVM has no console shell, the
+  build lists name no `ip` tool for the image, and `vm-agent` runs as uid
+  1000 without `CAP_NET_ADMIN` (S § 1.5). The addressing path is
+  **ADR-038**, written after networking arc step 4.0 (R60, R65). The
+  sentence above is not edited.
+- **§ *Questions* item 5 is answered for the Acer's config copy only.**
+  `~/katmate-kernels/config-katmate-microvm-amd64-6.12.87` (header line
+  `# Linux/x86 6.12.87 Kernel Configuration`) carries `CONFIG_IP_PNP=y`,
+  with `_DHCP`, `_BOOTP` and `_RARP` also `=y` (S § 1.5). Open problem
+  #22's caveat applies: that file is the Acer's copy and not the config of
+  the image on MINIS, and the Acer's copy has `CONFIG_IKCONFIG` unset, so
+  the image itself cannot be asked. The question is not answered for the
+  running kernel.
+- **The 63 `ip=dhcp` boots of the 2026-09-14 note used the Debian netVM
+  kernel**, `-kernel /var/lib/katmate/netvm/vmlinuz`, version
+  `6.12.107+deb13-amd64` (`adr035-g5b-report.md`, outside the repository;
+  S § 1.5). Their *"Unknown kernel command line parameters "ip=dhcp""*
+  therefore says nothing about the microVM kernel. **Kernel `ip=` has never
+  run on the microVM kernel.**
+- **A recorded risk, not a gate item** (S § 3, Q-S4j). Finding 1 of the
+  2026-09-14 note stands: *"No frame has ever been shown to cross a slot on
+  its own destination address."* Every measured delivery across a slot was
+  into a receiver with `IFF_PROMISC` set, and F12b's fixtures were host
+  sockets on one end. **The first AppVM on a slot is the first addressed
+  QEMU-to-QEMU delivery.**
+
 ---
 
 ## ADR-036 — The distributable unit is the enforcing set of the trust model; the host base is a pinned composition, neither a mutable install nor a distribution
