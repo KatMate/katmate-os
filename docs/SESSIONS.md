@@ -51,6 +51,60 @@
 
 ---
 
+## Previous session (2026-09-28, f12-readpass and rulings) — the finding-12 candidate read against the tree, and the step-3a rulings R47–R56 recorded before any code
+
+Two sessions, both on the Acer only. MINIS was not contacted.
+`f12-readpass` read the finding-12 candidate ruleset against the tree before
+networking arc step 3a. Its report is outside the repository:
+`~/Claude.assistent/f12-readpass-report.md` (cited as F). `wp-0928a` wrote
+the operator's rulings into `docs/DECISIONS.md` and this file.
+
+**The read pass (F), in summary.** It found **twenty divergences, D1–D20**
+(F § 2), and posed **ten questions, Q-F12a–Q-F12j** (F § 4). F's D-numbers
+are its own. The central findings: the candidate was written against the
+pre-ADR-037 ruleset, and its policy lines revert R2, R3 and R19 (D5–D8).
+After a guard-only step, `rp_filter = 2` would still be inherited silently
+from the vendor file, which ADR-036 § 3 rule 2 forbids (D15). ADR-036 § 3
+makes G2's refusal half in both forms, IPv4 and ARP, the conformance test,
+and nothing recorded whether step 4 may start with the ARP half open (D16).
+`input` accepts, and `forward` passes to `uplink0`, any source in
+`10.100.1.0/24` whatever interface it arrives on, `uplink0` included, and the
+candidate closes that for the `/28` only (D18). The candidate's rule 18 drops
+IPv6 on the slots incidentally, and does not say so (D19). The agent accepts
+any `/24` peer on any slot, so a wrong pair would be dropped by the guard
+silently (D20). Also: ADR-035's note of 2026-09-12 has eleven findings, and
+finding 12 is the audit's (D1); ADR-036 § *Open* is stale on the sysctl
+ordering (D17).
+
+**The rulings, R47–R56 (index; the text is ADR-037's note of 2026-09-28,
+and the gates are defined in ADR-035's note of the same date).** R47: the
+guard lands on the ruleset in the tree, and only the chain is taken from the
+candidate. R48: sixteen literal pairs, and a build read-back of them. R49: an
+explicit IPv6 drop on the slots, and R22's role narrows. R50: segment sources
+off their slot, over the `/24`, `lo` excluded; and the chain order. R51:
+`rp_filter` adopted explicitly, read before and after the rebuild. R52: gate
+F12a, and an `nft -c` build preflight. R53: gate F12b. R54: #34, the ARP
+half, must land before the second networked AppVM, not the first. R55: the
+agent-side pairing check at step 4 (#49). R56: where it is recorded; ADR-036
+is not touched.
+
+**wp-0928a's commits.** The previous-but-one entry rotated out (§ *Session
+archive*, *Closed 2026-09-28*). ADR-037 gained the rulings note, and ADR-035
+the gates note. In this file: § *Current focus*, #33, #34, new #48 and #49,
+and networking arc steps 3a and 4.
+
+**Not done, and not claimed.** Nothing was implemented, built or run. F12a
+and F12b are untaken, and ADR-037 stays PROPOSED (G5). `rp_filter` is unread
+on the current image (F D4); the last reading is of 2026-09-14, on the
+2026-09-05 image. F's **[recall, unverified]** statements are still
+unverified: that a rule with no L3 match in an `inet` table applies to IPv6;
+how conntrack classes ICMPv6 neighbour and router traffic; whether loose
+`rp_filter` passes an off-slot segment source on `uplink0`; and what `nft -c`
+in a chroot measures. No ADR body was changed.
+
+`f12-readpass` and `wp-0928a` ran on the Acer only and observed nothing on
+MINIS.
+
 ## Previous session (2026-09-27, r8-impl A and B) — networking arc step 3 implemented in eight commits, netVM rebuilt on it, and G6 and G3's static half taken
 
 Two sessions, one step. `r8-impl-A` took the two pre-code readings and wrote
