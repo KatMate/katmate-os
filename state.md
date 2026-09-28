@@ -5,11 +5,11 @@
 > each working session. Detailed proofs and command sequences live in git
 > history and the ADRs — this file references them rather than repeating them.
 
-**Milestone:** v0.2 (in development) · **Last updated:** 2026-09-28
-(`wp-0928c`, a docs-only write pass on the Acer. It recorded the
-s4-readpass and the step-4 rulings R60–R75 — in ADR-037's, ADR-035's and
-ADR-033's revision notes and this file — and rotated the 2026-09-28
-`f12-readpass and rulings` entry to `docs/SESSIONS.md`).
+**Milestone:** v0.2 (in development) · **Last updated:** 2026-09-29
+(`wp-0928d`, a docs-only write pass on the Acer. It recorded networking
+arc step 4.0 (s4-m0), R75's reading and R76 — in ADR-035's, ADR-037's and
+ADR-030's revision notes, `ROADMAP.md` and this file — and rotated the
+2026-09-28 `f12-impl A and B` entry to `docs/SESSIONS.md`).
 
 ## Current focus
 
@@ -33,6 +33,9 @@ then step 5.]**
 **[Note 2026-09-28, s4-readpass and rulings: step 4 is split (R60). Next
 is 4.0, a measurement with no code, then ADR-038 (guest addressing), then
 4a, 4b, G5 and 4c.]**
+**[Note 2026-09-28, s4-m0 and rulings: step 4.0 is done. Next is ADR-038,
+in its own session, in the direction R76 gives (katmate-init applies the
+guest's address from typed command-line parameters), then 4a.]**
 
 The **entire build chain remains scripted and proven from nothing**:
 `make foundation` builds the shared systemd-free base
@@ -60,6 +63,80 @@ restartable — and so updatable — without touching running VMs.
 
 Direction unchanged: IOMMU-capable platforms only (VT-d/AMD-Vi).
 MINIS is primary host and merge target.
+
+## This session (2026-09-28, s4-m0 and rulings) — networking arc step 4.0: the first AppVM on a slot, measured with no code; R75's reading, and R76, ADR-038's direction
+
+Two sessions and an operator reading. `s4-m0` ran from the Acer against
+MINIS on 2026-09-28, 21:06–22:02 CEST. Its report is outside the
+repository: `~/Claude.assistent/s4-m0-report.md` (cited as M). The
+operator read M's captures with `tcpdump -v` at 22:11 CEST. `wp-0928d`
+wrote the record on the Acer only, across midnight into 2026-09-29.
+
+**Step 4.0, in summary (M).** `app_web`'s image and kernel ran on netVM's
+slot 01 under a fixture launcher outside the repository: `app_web.con`'s
+argv with a `-netdev dgram` on slot 01 and `virtio-net-device` on the
+derived MAC `52:54:00:6f:19:35`, as a transient unit, with NETCFG link
+201 (`10.100.1.17`) added by hand. Three boots, each with a different
+kernel `ip=` tail: A with netmask `255.255.255.255`, B with
+`255.255.255.0`, C as B plus `ipv6.disable=1`. **M1:** kernel `ip=` works
+on the microVM kernel `b34026dd…`, three of three. **M2:** the `/32` was
+replaced by a guessed `/8` (*"Guessing netmask 255.0.0.0"*), gateway
+kept. **M3:** netVM learned the guest's MAC on `km01`. **M4:** eight SYNs
+from `10.3.1.172` reached the LAN in B and C. **M5:** R49 read +0 on all
+three boots; C's serial shows IPv6 administratively disabled. Boot A's
+firefox step, and B's first, were taken on the Acer's firefox by mistake
+(operator's correction), and are void; they became a positive control
+that the capture sees port 8099. netVM was not restarted.
+
+**The TTL reading (operator, 2026-09-28 22:11 CEST).** Every packet in
+cap-B and cap-C is a SYN to `10.3.1.3.8099`. The Acer's three
+(`10.3.1.170`, cap-B) carry **ttl 64**; the eight from `10.3.1.172` (four
+in B, four in C) carry **ttl 63**. The table is in
+`~/Claude.assistent/wp-0928d-brief.md`.
+
+**The rulings (index; the text is in the notes).** Of 2026-09-28, in
+ADR-035's note on step 4.0: **M4 settled** — the ttl-63 SYNs are the
+guest's traffic, forwarded and NATed, the first AppVM traffic to leave
+through `uplink0`; **M3 settled functionally**, `IFF_PROMISC` unread, an
+inference that bears on finding 1 of 2026-09-14 and does not close it;
+**boot C's window was the guest's** (firefox restored boot B's session
+from the persistent `/home`, 1.3 s after RUN); **M5 not settled and not
+needed**, with the R49 hypothesis recorded unverified. In ADR-035's note
+on R75: **R75 supersedes the 2026-09-07 ruling's mechanism and keeps its
+timing; `RuntimeDirectory=` stays**; how the ACL survives its reset is
+C1's. In ADR-037's note on 4.0: **A' not run; M3 and M4 are settled
+without it**; M4 is not G5; **R76**, ADR-038's direction, katmate-init
+(candidate B), kernel `ip=` not taken. Of 2026-09-29, on `wp-0928d`'s
+read-pass halt: M's off-by-four citation of `ping-client` is recorded in
+the report, not a halt; *"a real AppVM"* in R71 means one started by
+`katmate-app-routed@`, and the fixture launcher does not count (ADR-037's
+note); the rotation of this pass is dated 2026-09-29.
+
+**`wp-0928d`'s commits.** The previous-but-one entry rotated out (§
+*Session archive*, *Closed 2026-09-29*). ADR-035 gained two notes (step
+4.0; R75), ADR-037 one (step 4.0 and R76), and ADR-030 one (R61's
+template order), and `ROADMAP.md` step 3a a dated note. In this file: §
+*Current focus*, *THE FIRST APPVM ON A SLOT* in § *Live state*, #22,
+#24, new #52, and three § *Invariants & gotchas* entries.
+
+**Where M's brief was wrong (M § 8).** Its recall that kernel ipconfig
+refuses a gateway outside the netmask did not hold: the mask was replaced
+and the gateway kept. B was planned as R49's positive control and read
++0, so C's +0 has no control. Its after-read timing (*"~20 s"*) could not
+hold a conntrack reading inside the `SYN_SENT` window; the operator steps
+took minutes. It did not say that RUN opens the window on MINIS's screen,
+so A's and B's first firefox steps were taken on the Acer.
+
+**Not done, and not claimed.** G5 is untaken, and ADR-037 stays PROPOSED
+(G5). ADR-038 is not written. From M § 5, still not read: a conntrack
+entry inside its expiry window; `IFF_PROMISC` on `km01` or on the guest's
+`eth0`; any capture on the slot, so the ARP exchange was not seen; a
+positive control for R49; why ipconfig guessed `255.0.0.0`; the guest's
+own view of its routes, neighbours, resolver or IPv6 state; a `/32` by
+other means than `ip=`'s netmask field; `netconsole`'s targets (#52). The
+fixture's refusal paths are **UNVERIFIED**. A' was not run, by ruling.
+
+`wp-0928d` ran on the Acer only and observed nothing on MINIS.
 
 ## Previous session (2026-09-28, s4-readpass and rulings) — networking arc step 4 read against the tree, and the step-4 rulings R60–R75 recorded before any code
 
@@ -1105,6 +1182,31 @@ touched.
   - **The new LV holds `jbd2/dm-9-8`. A reboot is due before the next
     `netvm.sh`.** Suspend is unmasked.
 
+  **THE FIRST APPVM ON A SLOT (2026-09-28, fixture).** The block above is
+  left as published. Networking arc step 4.0 ran `app_web`'s image and
+  kernel on slot 01 under a fixture launcher outside the repository
+  (s4-m0, `s4-m0-report.md`, outside the repository; ADR-035's and
+  ADR-037's notes of 2026-09-28). As left at 22:01:59 CEST (M § 3, end
+  state):
+  - **netVM unchanged:** MainPID `49895`, invocation `1d1b5f66…`,
+    `NRestarts=0`, throughout. Its `slot_guard` counters stand at R49 5,
+    R50 25 and rule 18 10, all F12b's.
+  - **Slot 01 is clean:** link 201 removed by NETCFG REMOVE, the fixture's
+    `appvm` node unlinked; slot 01 holds `netvm` only. The stale `appvm`
+    nodes on slots 02 and 05 from F12b are untouched.
+  - **`vm_app_web`, `vm_tpl_foundation` and `vm_app_web_home` are left
+    active.** Of the three, only `vm_app_web` was activated by the fixture;
+    the other two were already active before it (M § 1).
+  - The console is logged out; holder `49601`, drop-in and FIFO in `/run`
+    until the next reboot. Suspend was never masked.
+  - **Session files**, the fixture (`km-appweb-net.sh`, `d367b488…`), the
+    drivers, three pcaps `cap-{A,B,C}.pcap` and three serial dumps
+    `serial-{A,B,C}.txt` (`root:root`) are in
+    `/home/host/katmate-dev/s4m0/`. All are fixtures, not live
+    configuration. The pcaps and dumps were not copied to the Acer.
+  - **A reboot is still due before the next `netvm.sh`** (`jbd2/dm-9-8`,
+    not re-read by s4-m0).
+
   **The uplink is capped by the cable, and that is a condition of the
   environment rather than a defect.** On the boot of 2026-09-12 the link came up
   1 Gbps, went down, and settled at **100 Mbps/Full (downshifted)**, the driver
@@ -2038,6 +2140,19 @@ touched.
    config `7720cf22…`, which `CONFIG_SHA256` names, was not touched
    (`~/katmate-kernels/` is kept).
 
+   **Note 2026-09-28 — the MINIS config is read, header checked.** s4-m0
+   (`s4-m0-report.md` § 1, outside the repository) read
+   `/home/host/katmate-kernels/config-katmate-microvm-amd64-6.12.87`
+   (`7720cf22…`): line 3 is `# Linux/x86 6.12.87 Kernel Configuration`, and
+   it carries `CONFIG_IP_PNP=y` (with `_DHCP`, `_BOOTP`, `_RARP`),
+   `CONFIG_IPV6=y` and `CONFIG_VIRTIO_NET=y`. The kernel beside it is
+   `b34026dd…`, the `-dirty` image. **The caveat stands:** `IKCONFIG` is
+   unset, so this config is not proven to be that image's; it is
+   consistent with the 2026-08-28 `auto.conf` tie, which is chat-only. The
+   image's behaviour agrees with those symbols (kernel `ip=` worked, three
+   boots; ADR-035's note of 2026-09-28), which is consistency, not proof.
+   #22 stays open. The AppVM kernel also starts `netconsole` (#52).
+
 23. **A link's socket outlives its process, including on a failed start.**
    Added 2026-08-24, from link-m1 § 13.1, § 20.1 and § 23, and link-m2 § A.3.
    QEMU creates its `local.path` at start and **does not unlink it at exit** —
@@ -2097,6 +2212,16 @@ touched.
    **[Note 2026-09-28 (ADR-037 R66): IPv6 in the AppVM is decided by
    networking arc step 4.0's `ipv6.disable=1` reading. If it holds, AppVMs
    are IPv4-only, consistent with R49.]**
+   **[Note 2026-09-28, s4-m0 and rulings (ADR-037 R76): the `app-routed`
+   template carries `ipv6.disable=1` in `-append`.** Boot C's serial shows
+   the guest running no IPv6 at all (*"IPv6: Loaded, but administratively
+   disabled"*). **R49 is not a witness for RS:** on an unverified
+   hypothesis, an RS to `33:33:00:00:00:02` is dropped by QEMU's
+   virtio-net receive filter before netVM's kernel sees it, since netVM is
+   not a router and does not join that group; F12b row 3 counted only
+   because its fixture sent to `ff02::1`. R49 read +0 on all three 4.0
+   boots, with and without the parameter (ADR-035's note of 2026-09-28).
+   Whether netVM sends RAs is still unread.**]**
 
 25. **`KERNEL_SRC_DIR` derives from `$HOME`, and both scripts that read it
    require root — so as root it resolves to a directory that does not exist.**
@@ -2923,6 +3048,15 @@ touched.
    and nothing behaves wrongly. **Ruled (ADR-037 R73):** fixed in their own
    commit, in networking arc step 4c.
 
+52. **The AppVM kernel starts `netconsole`, and where it sends is unread.**
+   Added 2026-09-28, from s4-m0 (`s4-m0-report.md` § 6 item 6, outside the
+   repository). Every boot of step 4.0 printed *"printk: legacy console
+   [netcon0] enabled"* and *"netconsole: network logging started"* on the
+   microVM kernel `b34026dd…`. Its targets, and whether any kernel message
+   left the guest over the slot, were not read. It belongs with the kernel
+   config and #22: the config that would say how `netconsole` is built and
+   configured is not proven to be the image's.
+
 ## Next steps
 
 **ADR numbering.** `ADR-030` = *what the launch daemon reads* (2026-08-06).
@@ -3696,6 +3830,32 @@ frozen `vm_home_skel` vs qcow2 branch.
   is not a search string"*** below, and as every other case in this section
   where a check that cannot fire is indistinguishable from a check that found
   nothing. Source: `auditfix-liveread-report.md` §§ 2.3, 2.6, 4.3.
+- **Kernel `ip=`: a netmask of `255.255.255.255` is replaced by a guess,
+  and the gateway is kept.** `ip=10.100.1.17::10.100.1.1:255.255.255.255:::off`
+  gave *"IP-Config: Guessing netmask 255.0.0.0"* and completed with
+  `mask=255.0.0.0, gw=10.100.1.1`: a `/8` for this `10.x` address, and
+  no refusal of the gateway. A `/32` is not expressible through that
+  field. With `255.255.255.0` the mask is taken as given. Why the kernel
+  guesses was not read. Observed 2026-09-28 on the AppVM kernel
+  `b34026dd…`, one boot. Source: `s4-m0-report.md`, boot A.
+- **TTL tells a forwarded packet from an originated one**, when a LAN
+  host's packet in the same capture is the control. The guest's SYNs,
+  NATed to netVM's uplink address, carried **ttl 63** against the Acer's
+  **ttl 64** in the same host capture: one routing hop, so forwarded, not
+  netVM-originated. It needs `tcpdump -v`; a listing without `-v` does not
+  print the TTL, and s4-m0's listing could not answer the question.
+  Observed 2026-09-28 (the operator's reading over s4-m0's `cap-B` and
+  `cap-C`; the table is in `wp-0928d-brief.md`, outside the repository).
+- **`vm-agent` RUN opens the window on MINIS's screen, and firefox restores
+  its last session from the persistent `/home`.** Traffic can start about a
+  second after RUN, before anyone types a URL: in s4-m0's boot C the first
+  SYN came 1.3 s after RUN `firefox-esr`, reloading the tab boot B had
+  saved. A procedure that has the operator load a page must say where the
+  window appears (not on the Acer, whose own firefox voided two steps of
+  s4-m0) and must account for the restore. **The `waypipe-client` user
+  journal logs no connections**, not even the RUN of boot B, so it cannot
+  attribute a window: its silence is a check that cannot fire. Observed
+  2026-09-28. Source: `s4-m0-report.md` §§ 3, 8.
 - **`nft -c` run unprivileged is a check that cannot fire — any `nft -c`
   preflight must run as root.** Unprivileged it returns **exit 1 with
   *"netlink: Error: cache initialization failed: Operation not permitted"* on
