@@ -51,6 +51,95 @@
 
 ---
 
+## Previous session (2026-09-28, f12-impl A and B) — networking arc step 3a implemented, netVM rebuilt on it, and F12a and F12b taken
+
+Two sessions, one step. `f12-impl-A` wrote the guard and the fixtures on the
+Acer. `f12-impl-B` added R59, rebuilt netVM on MINIS and took the gates.
+Both reports are outside the repository:
+`~/Claude.assistent/f12-impl-A-report.md` (A) and
+`~/Claude.assistent/f12-impl-B-report.md` (B). `wp-0928b` wrote the record.
+
+**A: the halt, and its rulings.** A's read pass halted on A1–A3 (A § 0.2).
+A1: F12b row 2 put `10.100.1.1` on rule 18, but R50's order drops it first.
+A2: the brief gave the fixture peer netVM's own slot MAC. A3: the preflight's
+mounts are `netvm.sh`'s own, not `lib.sh`'s. The operator ruled **R57**
+(`30-netvm-forward.conf` carries the vendor's three `rp_filter` lines
+verbatim, with no explicit `all = 0`) and **R58** (row 2 splits into 2a and
+2b), and a fixture peer's own MAC is `52:54:01:00:01:kk` (ADR-037's note on
+R57 and R58).
+
+**A: five commits, all `G`, pushed (`4650abf..56b3c96`).** `c145a5c` is the
+ADR-037 note with R57 and R58, and `5f17de0` the ADR-035 correction of row 2.
+`629c92d` adds the chain `slot_guard` (R47–R50). `2ca851f` adopts
+`rp_filter` (R51, R57). `56b3c96` adds the R48 read-back and the R52
+preflight to `build/netvm.sh`. (A's report says *"six commits"*; its own `git
+log -6` includes wp-0928a's `4650abf`.) **The fixtures**, outside the
+repository in `~/Claude.assistent/f12/`: `f12peer.py` (a slot peer, with
+`--rebind-stale`), `f12lan.py` (row 4, from the host) and `f12-steps.md`
+(the procedure). **The Acer checks:** R48's extracted block against six
+mutations, and the fixture offline. The `unshare -rn nft -c` syntax check
+had no site: the Acer refuses the namespace unprivileged (now an
+Invariant), so the ruleset stayed UNVERIFIED until MINIS.
+
+**B: R59, and the classifier.** B's first repository write, the ADR-037
+note, was refused by the classifier (*"Modify Shared Resources"*). The
+operator allowed it, and it was retried once, verbatim: `a683c6f` carries
+**R59** (row 2 becomes 2a, a non-pool segment source; 2b, TEST-NET; 2c,
+`10.100.1.1` as an observation row with a two-witness rule), and `81e0736`
+the ADR-035 second correction. Pushed `56b3c96..81e0736`. The first copy to
+MINIS was refused (*"Remote Shell Writes"*). The operator switched the
+session to **Manual**, and it was retried once, verbatim.
+
+**B: on MINIS.** Phase 0 (18:53 CEST): no reboot since 2026-09-27;
+hash-first 9 of 9; netVM MainPID `88010`; the 2026-09-27 console present.
+**R51 before** (19:01, on `2026-09-27T18:34:22Z`): `all` 0, and 2 on the
+other 19 of 20 conf dirs, so the precondition held. The operator rebooted
+(boot 19:12:42). With suspend masked and no `jbd2/dm-9-8`, `lvremove` at
+19:24:06; the dev build ran 19:24:14–19:38:12 CEST, `rc=0`,
+**`NETVM_BUILT=2026-09-28T17:38:12Z`**. **R52's preflight and R48's
+read-back executed for the first time**, both on their pass paths. netVM
+started at 19:39:06 on the static T1, which **held across the reboot**
+(`10.3.1.172` by host ARP scan; one observation).
+
+**Gates (the operator's rulings of 2026-09-28; the table is ADR-035's note
+of that date):**
+- **F12a PASS:** `nftables v1.1.3`, `nft -c` rc 0, `active`, the chain with
+  sixteen `return`s and three counted drops.
+- **F12b PASS**, every row: PC-1 5 of 5 ×4; row 1 R50 +10; 2a R50 +5; 2b
+  rule 18 +10; **2c on the kernel martian witness** (`in_martian_src` +5,
+  five `log_martians` lines on `km05`, R50 +0); row 3 R49 +5; row 4 R50 +10,
+  its control +0; PC-2 5 of 5 ×4 on re-bound sockets. Every refusal row
+  `answered=0`.
+- **R51 held** before and after the rebuild.
+- **Networking arc step 3a is done.** It closes the IPv4 half of finding 12
+  only; the ARP half (#34) must land before the second networked AppVM
+  (R54). **ADR-037 stays PROPOSED** (G5).
+
+**Observed, each on one run and one image:** loose `rp_filter` passed every
+forged IPv4 source except netVM's own address to nft, a segment source on
+`uplink0` included (F's D18 recall item); `10.100.1.1` is a martian before
+nft (now an Invariant); QEMU delivers to a re-bound `appvm` socket.
+
+**Left on MINIS (B § 6):** § *Live state*, *NETVM ON THE STEP-3A IMAGE*.
+netVM MainPID `49895` on the static T1; the console in `/run`, logged out;
+stale `appvm` nodes on slots 02 and 05; `jbd2/dm-9-8` holds the LV, so **a
+reboot is due before the next `netvm.sh`**. Suspend is unmasked. Session
+files are in `/home/host/katmate-dev/f12/`.
+
+**Not executed, and therefore not claimed (B § 6):**
+- the failure paths of R52's preflight and R48's read-back on a real image
+  (#50);
+- the optional conntrack-shaped repeat of row 1 (not in the gate);
+- the ARP half of finding 12 (#34), and IPv6 on `uplink0`;
+- whether a failed `nftables.service` leaves forwarding open (#48);
+- G5;
+- the `km02`/`km05` link state after REMOVE, and netVM's neighbour entries
+  for `.18` and `.21`;
+- whether the vendor file `50-default.conf` is present on the new image
+  (R57's premise is recorded as held on the observed values only).
+
+`wp-0928b` ran on the Acer only and observed nothing on MINIS.
+
 ## Previous session (2026-09-28, f12-readpass and rulings) — the finding-12 candidate read against the tree, and the step-3a rulings R47–R56 recorded before any code
 
 Two sessions, both on the Acer only. MINIS was not contacted.
