@@ -6,11 +6,10 @@
 > history and the ADRs — this file references them rather than repeating them.
 
 **Milestone:** v0.2 (in development) · **Last updated:** 2026-09-28
-(`wp-0928b`, a docs-only write pass on the Acer. It recorded networking arc
-step 3a as done — F12a and F12b taken and PASS in ADR-035's revision notes,
-the step in ADR-037's, the static T1 across a reboot in HOST-CONFIG § 12,
-and this file — and rotated the 2026-09-27 `r8-impl A and B` entry to
-`docs/SESSIONS.md`).
+(`wp-0928c`, a docs-only write pass on the Acer. It recorded the
+s4-readpass and the step-4 rulings R60–R75 — in ADR-037's, ADR-035's and
+ADR-033's revision notes and this file — and rotated the 2026-09-28
+`f12-readpass and rulings` entry to `docs/SESSIONS.md`).
 
 ## Current focus
 
@@ -31,6 +30,9 @@ ruled (R47–R56, ADR-037's note of 2026-09-28) and not implemented.]**
 **[Note 2026-09-28, later: step 3a is done — implemented, built and gated
 (F12a and F12b PASS; f12-impl A and B). Next is step 4, the AppVM side,
 then step 5.]**
+**[Note 2026-09-28, s4-readpass and rulings: step 4 is split (R60). Next
+is 4.0, a measurement with no code, then ADR-038 (guest addressing), then
+4a, 4b, G5 and 4c.]**
 
 The **entire build chain remains scripted and proven from nothing**:
 `make foundation` builds the shared systemd-free base
@@ -58,6 +60,70 @@ restartable — and so updatable — without touching running VMs.
 
 Direction unchanged: IOMMU-capable platforms only (VT-d/AMD-Vi).
 MINIS is primary host and merge target.
+
+## This session (2026-09-28, s4-readpass and rulings) — networking arc step 4 read against the tree, and the step-4 rulings R60–R75 recorded before any code
+
+Two sessions, both on the Acer only. MINIS was not contacted.
+`s4-readpass` read the tree against networking arc step 4, the AppVM side.
+Its report is outside the repository:
+`~/Claude.assistent/s4-readpass-report.md` (cited as S). `wp-0928c` wrote
+the operator's rulings into `docs/DECISIONS.md` and this file.
+
+**The read pass (S), in summary.** It found **nine divergences, D1–D9**
+(S § 2), and posed **fourteen questions, Q-S4-1…Q-S4-14** (S § 4). S's
+D-numbers are its own. D1: the only launcher that can start an AppVM is
+`app_web.con`, which ADR-030's G3 deletes, and no AppVM unit template
+exists in any commit. D2: `KM_HOME_DEV` is not a name mismatch; only
+`KM_DELTA` is (`app_web.qcow2` against the live `test_web.qcow2`). D3: no
+record of a 2026-09-15 ruling on per-slot ACLs was found. D4: ADR-033,
+ADR-017 and ADR-035 give the slot allocation three shapes. D5: ADR-035's
+*"configures its address by hand through the console"* has no mechanism.
+D6: stale SHUTDOWN comments in `opcode.rs` and `vm-agent`'s `op.rs`. D7:
+two step lists for the same work disagree. D8: G5 says an AppVM is
+required, while F12b's PC-1 and PC-2 already matched its observable with
+fixtures. D9 (minor): the ruleset header, already ruled. Also read:
+katmate-init has no network code and reads no configuration; the Acer's
+microVM config copy has `CONFIG_IP_PNP=y`; and the 63 `ip=dhcp` boots of
+2026-09-14 ran the Debian netVM kernel, not the microVM kernel.
+
+**The rulings, R60–R75 (index; the text is ADR-037's note of 2026-09-28).**
+R60: step 4 splits into 4.0, ADR-038, 4a, 4b, G5 and 4c (§ *Next steps*).
+R61: `katmate-app-routed@` only, with #19's guard removal and the `REQ_ENV`
+arm in one commit; `app-offline@` ships with the vault instance; the `.con`
+deletion is not in step 4. R62: the slot is ADR-035 §5's `owner` tree,
+lowest free, and ADR-033's wording is superseded (notes on ADR-033 and
+ADR-035). R63: `owner` written by hand until 3b; no T1 key carries a slot.
+R64: the AppVM's QEMU runs as root at step 4, recorded as debt (gap #11 in
+4a); C1 is its own step. R65: guest addressing is ADR-038, after 4.0. R66:
+IPv6 is decided by 4.0's `ipv6.disable=1` reading. R67: the `netvm-agent`
+items land in 4c, one rebuild. R68: the `netvm` cross-file check goes in the
+validator. R69: the delta rename, in 4a. R70: NETCFG by hand; re-issue is
+3b's. R71: G5 only with a real AppVM, "NATed" observed in a host capture,
+and a refusal half. R72: D5 corrected by a note on ADR-035. R73: the
+SHUTDOWN comments in 4c (#51). R74: `ExecStopPost=`, netVM side in 4a,
+AppVM side in the template. **R75: the operator's ruling of 2026-09-15,
+recorded now for the first time** — per-slot POSIX ACLs keyed to per-VM
+local users, not plain `chown`; its implementation belongs to C1.
+**Recorded, not ruled:** D2 and D9.
+
+**Operator statement (2026-09-28):** the 2026-09-26 boot of `app_web` was
+by `app_web.con`, run as `host` (§ *Live state*, `app_web`).
+
+**wp-0928c's commits.** The previous-but-one entry rotated out (§ *Session
+archive*, *Closed 2026-09-28 (third rotation of that day)*). ADR-037 gained
+the rulings note, ADR-035 the step-4 reading note, and ADR-033 a note on
+R62. In this file: § *Current focus*, the step-4 note in § *Next steps*,
+#19, #23, #24, #41, #45, #49, new #51, and `app_web` in § *Live state*.
+
+**Not done, and not claimed.** Nothing was implemented, built or run. G5 is
+untaken, and ADR-037 stays PROPOSED (G5). S's **[recall, unverified]**
+statements are still unverified. The MINIS readings S § 5 lists (the
+image's kernel config, the image's packages, `app-web.meta`, the instances
+directory, the `netvm` node modes, `cid-pool`) were not taken by these two
+sessions. No ADR body was changed.
+
+`s4-readpass` and `wp-0928c` ran on the Acer only and observed nothing on
+MINIS.
 
 ## Previous session (2026-09-28, f12-impl A and B) — networking arc step 3a implemented, netVM rebuilt on it, and F12a and F12b taken
 
@@ -1172,6 +1238,8 @@ touched.
   2026-09-26:** pcmanfm, foot and firefox-esr render via waypipe; `run nautilus`
   is refused; firefox has no internet, as expected — no network device,
   `app-offline` (operator, 2026-09-26).
+  **[Operator statement, 2026-09-28: that boot was by `app_web.con`, run as
+  `host`.]**
 - **app_vault** (build-only): `vm_app_vault` thin snap RO of `vm_tpl_foundation`,
   built via `make app-vault` (2026-06-29; keepassxc/foot/nautilus). NOT yet
   instantiated — no qcow2 delta, no home LV, no CID (will be allocated from 20+),
@@ -1531,6 +1599,9 @@ touched.
    cross-implementation fixtures must be built from `class = sys` and
    `app-offline` **only**. An `app-routed`-deriving fixture dies at 253 and
    measures the guard, not the rule under test.
+   **[Note 2026-09-28 (ADR-037 R60, R61): closed in networking arc step 4a,
+   by the commit that adds `katmate-app-routed@.service`, which also removes
+   the guard and writes the `REQ_ENV` arm — the three in one commit.]**
 
 20. ~~**`validate-properties.fish --strict` has never been executed.**~~ —
    **Closed 2026-08-22 by measurement, and accepted.** The gate this entry
@@ -2061,6 +2132,10 @@ touched.
    worth inspecting. A stale socket path is not evidence of anything — it is
    rebound under a new inode by the next process to want it (#22's sibling
    finding, link-m1 § 19) — so here the cleanup is wanted and there it is not.
+   **[Note 2026-09-28 (ADR-037 R74): the netVM side — `ExecStopPost=`
+   unlinking all sixteen `netvm` nodes, for the hijack window — lands in
+   networking arc step 4a; the AppVM side (`appvm`) in the `app-routed`
+   template.]**
 
 24. **AppVM guests emit IPv6 router solicitations unprompted.** Added
    2026-08-24, from link-m2 § B2.4. Two 70-byte frames to `33:33:00:00:00:02`
@@ -2089,6 +2164,9 @@ touched.
    therefore process RAs on interfaces that inherit `default`, and is not
    itself a router. Whether anything in netVM *sends* RAs was not read. Carried
    by [ADR-037](docs/DECISIONS.md#adr-037), not decided there.
+   **[Note 2026-09-28 (ADR-037 R66): IPv6 in the AppVM is decided by
+   networking arc step 4.0's `ipv6.disable=1` reading. If it holds, AppVMs
+   are IPv4-only, consistent with R49.]**
 
 25. **`KERNEL_SRC_DIR` derives from `$HOME`, and both scripts that read it
    require root — so as root it resolves to a directory that does not exist.**
@@ -2687,6 +2765,7 @@ touched.
    **Ruling of 2026-09-27:** the `sys` branch is removed in its own commit at
    networking arc step 4, alongside #19. The `app` branch stays, per ADR-035
    §9.
+   **[Note 2026-09-28 (ADR-037 R60, R61): that is step 4a, the host side.]**
 
 42. **RESOLVED 2026-09-27 — `hcb-d.sh` was deleted by the operator, the one
    item left undecided.** Kept as a closed marker so the number is not reused.
@@ -2839,6 +2918,10 @@ touched.
    on the slots (#24, ADR-037 R22). **It is a finding, and no fix is
    decided.** It is not a G3 failure: the operator scoped G3's refusal half
    to dhcpcd-originated state (ADR-037's implementation note).
+   **[Note 2026-09-28 (ADR-037 R67): DOWN on REMOVE lands in networking arc
+   step 4c, in one netVM rebuild with R55's pairing check and ADR-035 §6
+   and §7, after G5 and before the second networked AppVM. G5 does not
+   require it.]**
 
 46. **Parts of networking arc step 3 have not run as installed.** Added
    2026-09-27, from r8-impl-B § 6 (*not executed*). The gates ran the absent
@@ -2883,6 +2966,9 @@ touched.
    dropped by the guard **silently**: a counter with no reader, since the
    agent has no `RUN`. **Deferred to networking arc step 4** (ADR-037 R55),
    with #19 and #41, where the host assigns slots.
+   **[Note 2026-09-28 (ADR-037 R67): it lands in step 4c, the netVM rebuild
+   after G5 and before the second networked AppVM, not with #19 and #41 in
+   4a. G5 does not require it.]**
 
 50. **The failure paths of R52's preflight and R48's read-back have not run
    on a real image.** Added 2026-09-28, from `f12-impl-B-report.md` § 6
@@ -2894,6 +2980,18 @@ touched.
    slot (R48), then the trap's `lvremove`. R48's extracted block ran six
    mutations on the Acer in f12-impl-A's driver, which is not the
    executable.
+
+51. **Stale SHUTDOWN comments contradict ADR-024 and the netVM agent.**
+   Added 2026-09-28, from S D6 (`s4-readpass-report.md`, outside the
+   repository). `agent/crates/katmate-protocol/src/opcode.rs:22` gives
+   SHUTDOWN in netvm-agent as *"absent — host QMP/ACPI"*, `:25–29` says it
+   is absent *"by design"* because the host powers netVM down with QMP
+   `system_powerdown`, and `:43–45` says *"netVM does NOT handle this"*.
+   `agent/crates/vm-agent/src/op.rs:22–23` says *"netVM does NOT have this
+   opcode; it is q35, so the host uses QMP instead."* netvm-agent handles
+   SHUTDOWN (ADR-024; `agent/crates/netvm-agent/src/op.rs`). Comments only,
+   and nothing behaves wrongly. **Ruled (ADR-037 R73):** fixed in their own
+   commit, in networking arc step 4c.
 
 ## Next steps
 
@@ -3593,6 +3691,20 @@ frozen `vm_home_skel` vs qcow2 branch.
      **[Note 2026-09-28, later: this is the next step.** It carries the
      slot, the guest IP, `NETCFG`, `accept_ra=0` (#24), G5, #45, #19 and
      #41, and R55's agent-side pairing check (#49).**]**
+     **[Note 2026-09-28, s4-readpass and rulings (ADR-037 R60–R75): this
+     step is split, and this sub-list supersedes the list above** (R60),
+     which is left as written. In order:
+     - **4.0** — a measurement with no code, fixture-grade.
+     - **ADR-038** — guest addressing, written after 4.0 (R65).
+     - **4a** — the host side: the `app-routed` template, the generator
+       (#19's guard and the `REQ_ENV` arm in one commit, R61; #41), the
+       slot (R62, R63), `ExecStopPost=` (R74), the delta rename (R69).
+     - **4b** — the guest image: katmate-init; foundation → app layer →
+       delta.
+     - **G5** — with a real AppVM, and its refusal half (R71).
+     - **4c** — `netvm-agent`, in one netVM rebuild, after G5 and before
+       the second networked AppVM, together with #34 (R67); and the
+       SHUTDOWN comments in their own commit (R73, #51).**]**
   5. **VPN mode** (added 2026-09-27, R30): the WireGuard config, the VPN
      ruleset and the kill-switch, under **its own ADR**, after step 4. R8
      names the config disk as the WireGuard config's channel, and R31 gives
