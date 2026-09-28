@@ -8008,3 +8008,107 @@ outside the repository.
   conf dirs, identical to the reading before it (B, `rpf-after.out`). The
   presence of the vendor file `50-default.conf` on this image was not read;
   only the outcome was.
+
+**Revision note (2026-09-28, step-4 rulings — the AppVM side, R60–R75,
+before any code):** **Status: still PROPOSED (G5).** This note records
+rulings. It implements nothing, takes no gate, and changes no text above.
+The rulings are the operator's of 2026-09-28, given on a read pass of the
+tree against networking arc step 4 (`s4-readpass-report.md`, outside the
+repository, cited as S), except R75, which is of 2026-09-15 and recorded
+here for the first time. S's divergence and question numbers (D1–D9,
+Q-S4-1…Q-S4-14) are S's own. Each ruling cites what it answers.
+
+- **R60 — step 4 is split** (Q-S4-14, D7). In this order: **4.0**, a
+  measurement with no code, fixture-grade; **ADR-038**, guest addressing,
+  written after 4.0; **4a**, the host side (the template, the generator,
+  the slot, `ExecStopPost=`, the delta rename); **4b**, the guest image
+  (katmate-init; foundation → app layer → delta); **G5**; **4c**,
+  `netvm-agent`, in one rebuild. This list supersedes the step-4 list in
+  `state.md` § *Next steps*, *Networking arc*.
+- **R61 — the launch vehicle** (Q-S4-1, D1). `katmate-app-routed@.service`
+  only, with the removal of the generator's guard (open problem #19) and
+  the `REQ_ENV` arm **in one commit**. `katmate-app-offline@` ships with the
+  vault instance, not before: a template nobody runs would rot. The
+  deletion of the `.con` files ([ADR-030](DECISIONS.md#adr-030) G3) is not
+  in step 4. `app_web.con` and `katmate-app-routed@app_web` must never run
+  at once (same LVs, same CID).
+- **R62 — the slot is [ADR-035](DECISIONS.md#adr-035) §5's `owner` tree**,
+  lowest free (Q-S4-2, D4). [ADR-033](DECISIONS.md#adr-033)'s *"another
+  field on the same allocation"* as [ADR-017](DECISIONS.md#adr-017)'s is
+  superseded by ADR-035 §5 (a note on ADR-033 of the same date). A fixed
+  AppVM needs no ADR-017 record for its slot.
+- **R63 — the carrier before 3b** (Q-S4-3). Until the launch daemon exists,
+  the operator writes `owner` by hand with a dev helper outside the
+  repository: exactly the write the daemon will make. The generator, for
+  `app-routed`, finds the slot whose `owner` names the instance and takes
+  `KM_SLOT` and the `link_id` from it; if none does, it refuses. **No T1 key
+  carries a slot.** An `owner` is lost at host reboot, and the start then
+  fails closed.
+- **R64 — the uid** (Q-S4-4, D3). At step 4 the AppVM's QEMU runs **as
+  root**, like netVM's, deliberately, and it is recorded as debt:
+  SECURITY-MODEL gap #11 is extended to AppVMs **in the commit that makes it
+  true (4a)**, not in this note's pass. C1 (per-VM uids, the ACLs, open
+  problem #43) is its own step, for all units together. Until 3b re-issues
+  links, a netVM restart requires the AppVM to be restarted.
+- **R65 — guest addressing is ADR-038** (Q-S4-5, D5), written after 4.0.
+  The candidate on the table, **not decided**: the generator derives
+  `KM_GUEST_ADDR` from `KM_SLOT`; the template passes it on the command line
+  (`katmate.addr=…`, `katmate.gw=10.100.1.1`); katmate-init applies it,
+  brings up `lo`, sets `accept_ra=0` on the interface before it is up, and
+  writes `resolv.conf`. With no such parameter, init does nothing (the
+  offline path). The image never learns the pool's layout. The alternative
+  is a kernel `ip=` with a minimal init; 4.0 informs the choice.
+- **R66 — IPv6 in the AppVM** (Q-S4-6) is decided by 4.0's
+  `ipv6.disable=1` reading. If it holds, AppVMs are IPv4-only, consistent
+  with R49.
+- **R67 — `netvm-agent`** (Q-S4-7). R55's pairing check (open problem #49),
+  ADR-035 §7's count, §6 (supersession, neighbour delete, conntrack flush)
+  and DOWN on REMOVE (open problem #45) land in **4c, in one netVM
+  rebuild**, after G5 and before the second networked AppVM, together with
+  open problem #34 (R54). G5 requires none of them.
+- **R68** (Q-S4-8). A check that `netvm` names an existing
+  `provides_network = true` sysVM is a cross-file rule in
+  `tools/validate-properties.fish`. The generator reads no second T1; the
+  `owner` lookup (R63) implies the pool exists.
+- **R69** (Q-S4-9). `test_web.qcow2` is renamed `app_web.qcow2` on MINIS
+  ([ADR-032](DECISIONS.md#adr-032) §7 already decided it), and
+  `app_web.con:24` follows, in the same step (4a).
+- **R70** (Q-S4-10). NETCFG ADD and REMOVE are issued by hand with the R63
+  helper; the `link_id` comes from `owner`. Re-issue after a netVM restart
+  is 3b's.
+- **R71 — G5** (Q-S4-11, D8). D8: G5 reads *"This needs an AppVM on a
+  slot"*, and F12b's positive controls PC-1 and PC-2 (ADR-035's note of
+  2026-09-28) already matched G5's observable with fixture peers. **G5 is
+  taken only with a real AppVM:** it is a composition gate. PC-1 and PC-2
+  are recorded as its fixture-level precedent, not as G5. **"NATed"** is
+  observed as the AppVM's SYN in a host capture on the LAN with source
+  `10.3.1.172`. **G5 gains a refusal half:** the same guest, configured
+  with the neighbouring slot's address (`.18` on slot 01), gives R50 +N in
+  netVM and 0 in the host capture. One parameter differs between the
+  halves.
+- **R72** (Q-S4-12, D5). ADR-035 § *Dependencies surfaced*'s *"configures
+  its address by hand through the console"* has no mechanism: no guest
+  shell, no `ip`, and `vm-agent` is unprivileged. It is corrected by a note
+  on ADR-035 of the same date; the path is ADR-038.
+- **R73** (Q-S4-13, D6). The stale SHUTDOWN comments in
+  `agent/crates/katmate-protocol/src/opcode.rs` and
+  `agent/crates/vm-agent/src/op.rs` are fixed in their own commit, in 4c.
+- **R74** (Q-S4-14). `ExecStopPost=` unlink of the slot socket: the netVM
+  side (all sixteen `netvm` nodes, the hijack window) in 4a; the AppVM side
+  (`appvm`) in the `app-routed` template.
+- **R75 — socket permissions** (D3). **Ruled by the operator on 2026-09-15,
+  never recorded until now:** per-slot POSIX ACLs keyed to per-VM local
+  users, not plain `chown`. Its implementation belongs to C1. S found no
+  record of it (D3); the operator confirmed it on 2026-09-28.
+
+**Recorded, not ruled.** D2: `KM_HOME_DEV` is not a name mismatch; only
+`KM_DELTA` is (`app_web.qcow2` against the live `test_web.qcow2`, which R69
+resolves). D9: the ruleset header's *"never per-appVM"* lines stay, as ruled
+on 2026-09-28, and are not re-raised.
+
+**Not done, and not claimed.** Nothing was implemented, built or run. G5 is
+untaken. S's **[recall, unverified]** statements are still unverified:
+whether `ipv6.disable=1` works on a built-in IPv6 and whether `sysctl.` boot
+parameters reach per-interface defaults early enough (R66 rests on 4.0's
+reading); that the kernel's `ip=` writes no resolver file of its own; and
+systemd's dependency propagation for a unit that issues NETCFG.
