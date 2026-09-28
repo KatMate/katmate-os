@@ -51,6 +51,107 @@
 
 ---
 
+## Previous session (2026-09-27, r8-impl A and B) — networking arc step 3 implemented in eight commits, netVM rebuilt on it, and G6 and G3's static half taken
+
+Two sessions, one step. `r8-impl-A` took the two pre-code readings and wrote
+the code on the Acer. `r8-impl-B` added R45, installed the host side on
+MINIS, rebuilt netVM and took the gates. Both reports are outside the
+repository: `~/Claude.assistent/r8-impl-A-report.md` (A) and
+`~/Claude.assistent/r8-impl-B-report.md` (B). `wp-0927g` wrote the record.
+
+**Step 0, the two readings (A; ADR-037's note on R41–R44).** R34: the guest
+PCI enumeration from the host journal, 24 lines of one guest boot. The root
+is at `03.0`, the RTL8125 at `04.0`, the sixteen slot NICs at `05`–`14`, and
+nothing sits at `00:15`…`00:1e`, so `0x15` is free. R38: the packaged dhcpcd,
+read from the Debian `.deb`s of the exact installed version
+(`1:10.1.0-11+deb13u4`), not from the guest. The unit is in `dhcpcd`, the
+hooks are in `dhcpcd-base`, and the resolv.conf hook is `20-resolv.conf`.
+A's H3 reading, that `-f` on a file in `/run` needs no widening of the
+packaged sandbox, was a reading of the documentation until B observed it.
+
+**A: six commits, all `G`, pushed (`78a9008..ba11679`).** `e659db3` is the
+ADR-037 note with R41–R44 and both readings. `00bab3c` gives `katmate-lib.sh`
+a path-taking flat reader, `km_flat_read`, with `km_t1_read` as its wrapper
+(R37). `283b825` gives `km_run_subdir` an optional mode (R32). `30b1708` adds
+the builder, `katmate-build-cfgdisk` (R32, R33, R35–R37, R42–R44). `0996b70`
+attaches the disk: an `ExecStartPre=+` line, and the drive/device pair at
+`addr=0x15`, `serial=kmcfg`, `readonly=on` (R34). `ba11679` adds the guest
+consumer, its oneshot and the `dhcpcd.service` drop-in with `-f
+/run/katmate-cfg/dhcpcd.conf`, and the `netvm.sh` read-backs (R38). A's
+first repository write was refused by the classifier. It stopped, and the
+operator ruled that repository files are written with Edit/Write, never with
+heredocs or redirections.
+
+**B: two commits, both `G`, pushed (`ba11679..5bc028a`).** `8f6ebd5`
+implements **R45**: every address the builder accepts is unicast, outside
+`0.0.0.0/8`, `127.0.0.0/8`, `224.0.0.0/4` and `240.0.0.0/4`, and the
+gateway's check runs before its in-prefix check. `5bc028a` is the ADR-037
+note with R45, A's four additions accepted as rulings, and **R46**: B alone
+could write under `/etc/katmate/vm/netvm.d/`, for the refusal fixtures and
+the operator's static T1. R46 does not amend R25 for the product.
+
+**B: install, the absent path, the refusals.** Hash-first, then the three
+changed host files installed (9 of 9 equal to the tree at `5bc028a` from
+20:02:35 CEST). netVM was restarted on the **old** image with no T1, the
+absent path, before the rebuild (r8 § 4's hard ordering). The builder named
+the absent path, the image was `c9a4e5e4…d406`, **equal to A's on the
+Acer** (both GNU tar 1.35), QEMU accepted the argv, the disk appeared at
+`00:15.0` as `vdb`, and the root stayed `vda`. Then the host refusals on
+that image: R-b, R45 (gateway `224.0.0.1`), R-c (`wg0`), R42 mode, R42 owner
+and a symlink were each refused before QEMU, with a valid T1 between them as
+the positive control.
+
+**B: the rebuild.** Stopped by a classifier refusal (a Write of the
+post-reboot script); after the operator's reboot and ruling, the Write was
+retried once, verbatim. `lvremove` at 20:19:45 CEST after the preconditions
+(no `jbd2/dm-9-8`, `Open count: 0`); the dev build ran 20:20:19–20:34:22 CEST
+as the transient `km-netvm-build`, `rc=0`, image
+`NETVM_BUILT=2026-09-27T18:34:22Z`. Every read-back printed its pass line,
+including the two new ones for the consumer and the drop-in.
+
+**Gates, all 2026-09-27; the table is ADR-037's note on the step-3 gates:**
+- **G6 PASS**, pass half: the builder names `uplink`, image `e960fadc…ea1c`,
+  and the guest consumer logs the same sha256; R-a (absent: DHCP lease), R-b,
+  R-c and R-d (`ro=1`) PASS.
+- **G3's static half PASS:** `10.3.1.172/24` on `uplink0`, the default route
+  via `10.3.1.1`, `nameserver 10.3.1.1`, and the host's ARP scan finds it.
+  Refusal: **0 DHCP packets** captured across the static boot, against a
+  positive control of 1; no lease newer than boot; no soliciting dhcpcd line.
+- Settled with them: r8 D13 (the static nameserver reaches `resolv.conf`)
+  and A's H3 reading (dhcpcd runs with `-f` under the packaged sandbox).
+- **ADR-037 stays PROPOSED.** G5 is untaken.
+
+**B's two faults, as recorded.**
+- **A command file opened a pager on the serial console.** `g5.cmd` ran
+  `systemctl show` without `--no-pager`, `less` consumed the rest of the
+  file as keystrokes, and recovery took `q`, `q` and a newline. B read the
+  console journal for side effects before recovering: none on disk. Now an
+  Invariant.
+- **The host-dnsmasq watcher's `pgrep -af dnsmasq` fired on
+  `systemctl enable dnsmasq`**, the build's own command line, not a daemon.
+  The `/proc/*/comm` count read 0 and decided. Now an Invariant.
+
+**Left on MINIS (B § 6).** netVM runs on the static T1, MainPID `88010`, and
+`/etc/katmate/vm/netvm.d/uplink` **stays** (§ *Live state*, *NETVM ON THE
+STEP-3 IMAGE*). The console is present in `/run` and logged out. The new LV
+holds `jbd2/dm-9-8`, so **a reboot is due before the next `netvm.sh`**.
+Suspend is unmasked. The installed set equals the tree at `5bc028a`. The
+LAN's DHCP server may still hold `10.3.1.103`. Session scaffolding is in
+`/home/host/katmate-dev/r8-impl-B/`.
+
+**Not executed, and therefore not claimed (B § 6):**
+- the builder's `trap` cleanup and stale-file sweep; the directory-level
+  refusals, an unknown or missing key and a leading-zero octet, as installed;
+  every failure path of the guest consumer on a real image (#46);
+- `ExecStop=/usr/sbin/dhcpcd -x` without `-f` (QEMU is stopped by signal);
+- whether the static T1 survives a host reboot;
+- G5, networking arc steps 3a, 4 and 5, IPv6 and router solicitation on the
+  uplink (`ipv4only`), and R29's premise;
+- `EXT4-fs (vda): recovery complete` on the restarted old image, and the
+  guest's partition-scan messages on `vdb`: recorded, not examined.
+
+`wp-0927g` ran on the Acer only and observed nothing on MINIS.
+
 ## Previous session (2026-09-27, r8-readpass, wp-0927e and rulings) — the stale lines after the implementation corrected, the tree read against R7/R8, and the step-3 rulings R30–R40 recorded before any code
 
 Three sessions, all on the Acer only. MINIS was not contacted. `wp-0927e`
