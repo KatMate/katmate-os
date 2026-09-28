@@ -7678,3 +7678,88 @@ installed (each ran only in an extracted-block driver, not the executable);
 every failure path of the guest consumer on a real image;
 `ExecStop=/usr/sbin/dhcpcd -x`; and whether the static T1 holds across a host
 reboot.
+
+**Revision note (2026-09-28, step-3a rulings — the finding-12 slot guard,
+R47–R56, before any code):** **Status: still PROPOSED (G5).** This note
+records rulings. It implements nothing, takes no gate, and changes no text
+above. The rulings are the operator's of 2026-09-28, given on a read pass of
+the tree against the finding-12 candidate
+(`f12-readpass-report.md`, outside the repository, cited as F). F's
+divergence and question numbers (D1–D20, Q-F12a–Q-F12j) are F's own. The
+rulings **elaborate R21**: the guard is networking arc step 3a, and it lands
+before networking arc step 4. Each ruling cites what it answers.
+
+**The candidate is a source for the `slot_guard` chain only.**
+`~/Claude.assistent/nftables-f12-candidate.conf` (ADR-035's note of
+2026-09-20) predates R2, R3 and R19, and its policy lines revert them (F
+D5–D8). Nothing but the chain is taken from it.
+
+- **R47 — the base.** The guard lands on the ruleset at `HEAD`,
+  `manifests/netvm.conf.d/etc/nftables.conf`. Nothing else is taken from the
+  candidate: its pre-ADR-037 policy lines are not taken (F D5–D8), and its
+  header is not carried over (F D10–D13). The ruleset header's statement that
+  the guard is not in the file (F § 1.2, N:27–30) is updated **in the same
+  commit** that adds the guard. (F Q-F12a)
+- **R48 — the pairs.** Sixteen literal rules,
+  `iifname "kmkk" ip saddr 10.100.1.(16+k) return`. `build/netvm.sh` gains a
+  read-back that checks the sixteen pairs in the **baked** file against
+  `km%02x ↔ 10.100.1.(16+k)`, in the same loop as the R12 `.link` gate. A
+  mismatch fails the build. (F Q-F12b)
+- **R49 — IPv6 on the slots.** An explicit rule, immediately after the
+  sixteen `return`s: `iifname { km00 … km0f } meta nfproto ipv6 counter
+  drop`, commented that the internal segment is IPv4-only. It has its own
+  counter. **R22's role narrows:** the absence of an `icmpv6` accept stays
+  load-bearing for `uplink0` and `lo`. On the slots it becomes a second guard,
+  behind R49. (F Q-F12c)
+- **R50 — segment sources off their slot.** The candidate's rule 17 is
+  widened from `10.100.1.16/28` to `10.100.1.0/24`, and excludes `lo`:
+  `iifname != "lo" ip saddr 10.100.1.0/24 counter drop`. Because only the
+  sixteen true pairs return, it drops every other segment source on any
+  interface, `uplink0` included. `lo` is excluded because netVM's own traffic
+  to `10.100.1.1` arrives there. It lands in the same commit as the guard,
+  because it is one invariant. **The chain, in order:** the sixteen
+  `return`s; R49; R50; the candidate's rule 18 (`iifname { km* } counter
+  drop`). The chain is jumped as **rule 1 of `input` and of `forward`**,
+  above `ct state established,related`. (F Q-F12d, D18)
+- **R51 — `rp_filter` is adopted explicitly.** In `30-netvm-forward.conf`,
+  in its own commit: `all = 0`, `default = 2` and the glob `* = 2`. These
+  are the values [ADR-035](DECISIONS.md#adr-035)'s note of 2026-09-14
+  (finding 3) records as read, which the vendor file `50-default.conf`
+  produces. The file carries a comment that the binding is the nft guard and
+  that `rp_filter` is a loose second defence. **Precondition:** `rp_filter`
+  is read on the running image before the rebuild (F D4). If it differs from
+  those values, the implementation halts. It is read again after the
+  rebuild. (F Q-F12e, D15)
+- **R52 — gate F12a, and a build preflight.** **F12a** is taken after the
+  rebuild, in the guest as root through the dev console: `nft --version`,
+  `nft -c -f /etc/nftables.conf`, `systemctl is-active nftables`, and `nft
+  list chain inet filter slot_guard`. **Separately, and not a gate:**
+  `build/netvm.sh` runs `nft -c -f` on the baked file in the build chroot, as
+  root, and a failure fails the build. **The preflight checks against the
+  build host's kernel, not netVM's.** (F Q-F12f)
+- **R53 — gate F12b.** A live refusal against **both** `input` (DNS to
+  `10.100.1.1`) and `forward` (ICMP echo to `1.1.1.1` via `uplink0`), with two
+  fixture peers on two slots (NETCFG ADD). Its four rows, its positive
+  control and its instrument are defined in ADR-035's note of 2026-09-28.
+  (F Q-F12g)
+- **R54 — ARP.** Step 3a closes the **IPv4 half** of finding 12 only.
+  **Networking arc step 4 may start with the ARP half (open problem #34)
+  open**, because ARP poisoning needs two tenants on slots. **#34 must land
+  before the second networked AppVM**, not before the first. (F Q-F12h, D16)
+- **R55 — the agent-side pairing check** is deferred to networking arc step
+  4, with open problems #19 and #41, where the host assigns slots. Until then
+  it is open problem #49. (F Q-F12i, D20)
+- **R56 — where it is recorded.** These rulings are this ADR's, because they
+  elaborate R21. The gates **F12a** and **F12b** are defined in a note on
+  [ADR-035](DECISIONS.md#adr-035) of 2026-09-28, named after gates (a) and
+  (b) of its 2026-09-20 note, because its § *Gates* is body. The two notes
+  cite each other. **ADR-036 is not touched**; F D17 (its § *Open* is stale
+  on the sysctl ordering) is recorded in `state.md` only. (F Q-F12j)
+
+**Not done, and not claimed.** Nothing was implemented, built or run.
+F12a and F12b are untaken. `rp_filter` is unread on the current image. F's
+**[recall, unverified]** statements — that a rule with no L3 match in an
+`inet` table applies to IPv6, how conntrack classes ICMPv6 neighbour and
+router traffic, whether loose `rp_filter` passes an off-slot segment source
+on `uplink0`, and what `nft -c` in a chroot measures — are still
+unverified.
