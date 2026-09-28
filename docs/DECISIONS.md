@@ -8263,3 +8263,44 @@ whether `ipv6.disable=1` works on a built-in IPv6 and whether `sysctl.` boot
 parameters reach per-interface defaults early enough (R66 rests on 4.0's
 reading); that the kernel's `ip=` writes no resolver file of its own; and
 systemd's dependency propagation for a unit that issues NETCFG.
+
+**Revision note (2026-09-28, step 4.0 done — the first AppVM egress, and
+R76, ADR-038's direction):** **Status: still PROPOSED (G5).** This note
+records a measurement and rulings. It implements nothing, takes no gate,
+and changes no text above. Sources: `s4-m0-report.md` (M) and the
+operator's TTL reading over M's captures, whose table is in
+`wp-0928d-brief.md`; both outside the repository. The readings are in
+[ADR-035](DECISIONS.md#adr-035)'s note of the same date.
+
+- **Networking arc step 4.0 is taken** (R60): `app_web`'s image and kernel
+  on slot 01, three boots, a fixture launcher outside the repository, no
+  code.
+- **M4 is the first AppVM traffic to leave through `uplink0`**: eight SYNs
+  from `10.3.1.172` in a host capture, ttl 63 against a LAN host's ttl 64
+  in the same capture, the guest's traffic forwarded and NATed by netVM.
+- **M4 is not G5.** It has no refusal half (R71), and R60 orders G5 after
+  4a and 4b. **Ruling of 2026-09-29:** *"a real AppVM"* in R71 means an
+  AppVM started by the 4a template, `katmate-app-routed@`; the s4-m0
+  fixture launcher does not count.
+- **A' not run; M3 and M4 are settled without it.**
+- **R66 is answered by 4.0's reading.** On this kernel (`CONFIG_IPV6=y`,
+  built in), `ipv6.disable=1` gave *"IPv6: Loaded, but administratively
+  disabled, reboot required to enable"* (M, boot C). This answers the S
+  recall item above on whether `ipv6.disable=1` works on a built-in IPv6;
+  the `sysctl.` item is not reached by it.
+- **R76 — ADR-038's direction: katmate-init (candidate B)** (operator,
+  2026-09-28). katmate-init applies the guest's network configuration from
+  typed command-line parameters: a `/32` address with an on-link default
+  route via `10.100.1.1`, `lo` up, and the resolver `10.100.1.1`. The
+  generator derives the address from `KM_SLOT`; the `app-routed` template
+  carries it and `ipv6.disable=1` in `-append`. With no parameter, init
+  configures nothing (the offline path). **Kernel `ip=` (candidate A) is
+  not taken:** its netmask field cannot express a `/32` (M2:
+  `255.255.255.255` was replaced by a guessed `/8`), and a `/24`
+  contradicts netVM's `/32` peer model. Whether IP_PNP is later removed
+  from the AppVM kernel is not decided. **ADR-038 is written in its own
+  session**; this note records the direction only.
+
+**Not done, and not claimed.** G5 is untaken. Nothing was implemented or
+built. ADR-038 is not written. No conntrack entry was read inside its
+expiry window in 4.0, and `IFF_PROMISC` was not read (ADR-035's note).
