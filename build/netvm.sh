@@ -242,6 +242,28 @@ done < <(cd "$NETVM_CONFD" && find . -mindepth 1 -printf '%P\0')
 [[ $NETVM_CONFD_PATHS -gt 0 ]] || die "step 5 read-back: the conf tree $NETVM_CONFD yielded no paths"
 log "Read-back OK: $NETVM_CONFD_PATHS conf-tree paths in the image, all owned 0:0"
 
+# The baked ruleset must parse (ADR-037 R52): the IMAGE's nft, on the baked
+# /etc/nftables.conf, in the build chroot, as root. A ruleset that fails to
+# load at boot leaves netVM forwarding with no firewall (open problem #48),
+# so a parse failure stops the build here instead. Root is required: run
+# unprivileged, `nft -c` fails on every input, valid or not (state.md
+# Invariants), so it could not tell a broken file from a good one.
+#
+# THIS IS NOT GATE F12a. The chroot shares the build host's kernel, so this
+# checks the file against the HOST kernel's nf_tables through the image's
+# nft binary. F12a is taken inside the booted guest.
+#
+# /usr/sbin/nft by absolute path, because chroot_run sets no PATH (step 6).
+# No mount is added: proc, sys and /dev are mounted after debootstrap above,
+# and nft needs a netlink socket, not a filesystem.
+[[ -x "$NETVM_MNT/usr/sbin/nft" ]] \
+  || die "nft preflight: /usr/sbin/nft is missing or not executable in the image (package nftables)"
+if ! NETVM_NFT_CHECK="$(chroot_run "$NETVM_MNT" /usr/sbin/nft -c -f /etc/nftables.conf 2>&1)"; then
+  die "nft preflight: the image's nft rejects the baked /etc/nftables.conf (checked against the build host's kernel, ADR-037 R52):
+$NETVM_NFT_CHECK"
+fi
+log "nft preflight OK: the image's nft -c -f /etc/nftables.conf exit 0 (build host's kernel; not gate F12a)"
+
 # Nothing baked in this rebuild references `proton` (ADR-037 R20): the old
 # ProtonVPN template and ruleset are gone, and a provider's name in the image
 # would be the release asserting the user's T1. Searched over the image's copy
@@ -350,13 +372,41 @@ fi
 [[ ${#NETVM_KM_LINKS[@]} -eq 17 ]] \
   || die "build gate: ${#NETVM_KM_LINKS[@]} katmate .link files in the image, expected 17: ${NETVM_KM_LINKS[*]:-(none)}"
 NETVM_LINK_DIR="$NETVM_MNT/usr/lib/systemd/network"
+
+# The same sixteen slots, as the BAKED ruleset binds them (ADR-037 R48): chain
+# slot_guard must carry exactly one `iifname "kmkk" ip saddr 10.100.1.(16+k)
+# return` per slot, and no other return. The chain is the lines after
+# `chain slot_guard {` up to the first line that begins with `}`; comments are
+# dropped and whitespace is collapsed. It is counted first, so an absent or
+# doubled chain dies with a name instead of an empty extraction.
+NETVM_NFT="$NETVM_MNT/etc/nftables.conf"
+[[ -f "$NETVM_NFT" ]] || die "build gate: /etc/nftables.conf is missing from the image"
+NETVM_GUARD_CHAINS="$(grep -cE '^[[:space:]]*chain[[:space:]]+slot_guard[[:space:]]*\{' -- "$NETVM_NFT" || true)"
+[[ "$NETVM_GUARD_CHAINS" == 1 ]] \
+  || die "build gate: /etc/nftables.conf carries $NETVM_GUARD_CHAINS 'chain slot_guard {' lines, expected 1 (ADR-037 R48)"
+NETVM_GUARD="$(awk '/^[[:space:]]*chain[[:space:]]+slot_guard[[:space:]]*\{/ {g=1; next}
+                    g && /^[[:space:]]*\}/ {exit}
+                    g' "$NETVM_NFT" \
+               | sed -e 's/#.*//' -e 's/[[:space:]]\{1,\}/ /g' -e 's/^ //' -e 's/ $//')"
 for i in $(seq 0 15); do
   kk="$(printf '%02x' "$i")"
   f="$NETVM_LINK_DIR/70-katmate-slot-$kk.link"
   [[ -f "$f" ]] || die "build gate: slot $kk: $f missing"
   [[ "$(netvm_link_body "$f")" == $'[Match]\nMACAddress=52:54:01:00:00:'"$kk"$'\n[Link]\nName=km'"$kk" ]] \
     || die "build gate: slot $kk: $f does not carry exactly MACAddress=52:54:01:00:00:$kk and Name=km$kk"
+  pair="iifname \"km$kk\" ip saddr 10.100.1.$((16 + i)) return"
+  n="$(grep -cxF -- "$pair" <<< "$NETVM_GUARD" || true)"
+  [[ "$n" == 1 ]] \
+    || die "build gate: slot $kk: slot_guard in /etc/nftables.conf carries '$pair' $n times, expected once (ADR-037 R48)"
 done
+# Every `return` in the chain, quoted strings removed first so a comment or an
+# interface name cannot supply or hide one. Sixteen, and each is a pair above.
+# (sed, not ${var//}: a glob "*" would run from the first quote to the last.)
+# shellcheck disable=SC2001
+NETVM_GUARD_RETURNS="$(sed -e 's/"[^"]*"//g' <<< "$NETVM_GUARD" | { grep -ow return || true; } | wc -l)"
+[[ "$NETVM_GUARD_RETURNS" -eq 16 ]] \
+  || die "build gate: slot_guard in /etc/nftables.conf carries $NETVM_GUARD_RETURNS returns, expected exactly the 16 slot pairs (ADR-037 R48)"
+log "Build gate OK: slot_guard carries 16 slot pairs, km00..km0f <-> 10.100.1.16..31, and no other return"
 f="$NETVM_LINK_DIR/60-katmate-uplink.link"
 [[ -f "$f" ]] || die "build gate: uplink: $f missing"
 [[ "$(netvm_link_body "$f")" == $'[Match]\nPath=pci-'"$NETVM_UPLINK_PCI_ADDR"$'\n[Link]\nName=uplink0' ]] \
