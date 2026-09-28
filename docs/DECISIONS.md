@@ -7870,3 +7870,44 @@ cited as W) and the second on the halted read pass of the session f12-impl-A
   image's `/usr/sbin/nft` by absolute path, because `chroot_run` sets no
   `PATH`. R48's extraction counts the `slot_guard` chain first, so an absent
   chain dies with a named message under `set -euo pipefail` (I § 0.3).
+
+**Revision note (2026-09-28, f12-impl-B — ruling R59, and the rulings on
+f12-impl-A's record):** **Status: still PROPOSED (G5).** This note records
+rulings. It changes no text above and takes no gate. F12a and F12b are
+untaken. The operator gave these rulings on 2026-09-28, in the third round,
+on the session report of f12-impl-A (`f12-impl-A-report.md`, outside the
+repository, cited as A).
+
+- **R59 — F12b row 2, once more.** A packet whose source is one of netVM's
+  own addresses is expected to be dropped by the kernel as a *martian
+  source* at the input route lookup, before any nft hook **[recall,
+  unverified]**. If that holds, `10.100.1.1` cannot discriminate R50, and
+  R58's row 2a could read +0 on a correct ruleset (A § 5, item 1). Row 2
+  therefore becomes:
+  - **2a** — a non-pool **segment** source on a slot (`10.100.1.5` on slot
+    05) → **the R50 counter, +5**, and `answered=0`;
+  - **2b** — unchanged: an off-segment (TEST-NET) source on a slot → the
+    rule-18 counter;
+  - **2c** — `10.100.1.1` on a slot, an **observation row**, not a counter
+    row. It passes if `answered=0` **and exactly one witness accounts for
+    all five frames**: either the R50 counter **+5**, or the kernel's
+    martian witness — `log_martians` enabled on `km05` for this row only,
+    the journal naming `km05` and source `10.100.1.1` five times, together
+    with `in_martian_src` in `/proc/net/stat/rt_cache`. The report records
+    which witness it was. If neither accounts for the frames, or both
+    partly, the session **halts** with both readings.
+
+  The chain order R50 ruled is unchanged. The correction is recorded in a
+  note on [ADR-035](DECISIONS.md#adr-035).
+- **A § 4, items 1–6, are accepted**, `--rebind-stale` included. PC-2, the
+  positive control taken last on re-bound sockets, is the check on it: if
+  PC-2 fails, every refusal row is void, and the session halts.
+- **A § 6's `state.md` write pass is deferred** until after f12-impl-B, so
+  that one write pass records the implementation and the gates together.
+  The ruleset header's lines N:4–8 (*"matched only as the aggregate
+  10.100.1.0/24, never per-appVM"*) stay as they are.
+- **A § 6's two Invariant candidates are accepted:** that `unshare -rn`
+  fails unprivileged on the Acer's hardened kernel, so the Acer has no site
+  for an `nft -c` syntax check; and that the unprivileged `nft -c` message
+  differs by site, while both forms mean "cannot fire". They go into that
+  write pass, not into this note.
