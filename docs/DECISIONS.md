@@ -6474,6 +6474,33 @@ NETCFG ADD argument. That ruling is ADR-037's note of the same date, and it
 is repeated here because it concerns this gate's instrument.
 (`f12-impl-A-report.md` § 0.2, A1 and A2, outside the repository.)
 
+**Revision note (2026-09-28, second correction — F12b row 2 becomes 2a, 2b
+and 2c, [ADR-037](DECISIONS.md#adr-037) R59):** this note corrects the row
+split of the note above. It takes no gate. F12a and F12b are still untaken.
+A packet whose source is one of netVM's own addresses is expected to be
+dropped by the kernel as a martian source at the input route lookup, before
+any nft hook **[recall, unverified]**, so `10.100.1.1` may never reach the
+R50 counter and cannot discriminate R50 (`f12-impl-A-report.md` § 5, item 1,
+outside the repository). Row 2 is therefore replaced once more:
+
+- **2a.** A non-pool **segment** source on a slot (`10.100.1.5` on slot 05)
+  → **the R50 counter, +5**, and `answered=0`.
+- **2b.** Unchanged: an off-segment (TEST-NET) source on a slot → **the
+  rule-18 counter**.
+- **2c.** `10.100.1.1` on a slot: an **observation row**, not a counter row.
+  It passes if `answered=0` **and exactly one witness accounts for all five
+  frames**: either the R50 counter **+5**, or the kernel's martian witness —
+  `log_martians` enabled on `km05` for this row only, the journal naming
+  `km05` and source `10.100.1.1` five times, together with `in_martian_src`
+  in `/proc/net/stat/rt_cache`. The session report records which witness it
+  was. Neither, or both partly: the session halts with both readings.
+
+The rows run in the order 2a, 2b, 2c. Rows 1, 3 and 4, the control of row 4,
+the positive control, the counter reading, the `rp_filter` readings and the
+instrument are unchanged, except that the positive control is taken both
+first and last (PC-1 and PC-2), and a failed PC-2 voids every refusal row
+(ADR-037 R59's note).
+
 ---
 
 ## ADR-036 — The distributable unit is the enforcing set of the trust model; the host base is a pinned composition, neither a mutable install nor a distribution
