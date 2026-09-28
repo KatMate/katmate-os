@@ -341,6 +341,14 @@ and the notes below are left as written.
   [ADR-032](DECISIONS.md#adr-032)'s rule for T1: it creates, and it never
   overwrites a file it did not create in the same run.
 
+**Note 2026-09-28, after networking arc step 3a: the static T1 held across
+one host reboot.** After the MINIS boot of 2026-09-28 19:12:42 and netVM's
+start on the rebuilt image, the host's ARP scan found the uplink MAC at
+`10.3.1.172` (`f12-impl-B-report.md`, Phase C, outside the repository). The
+T1 was unchanged across the reboot (`6cf06c02…`). This is **one
+observation**, and it answers the 2026-09-27 note's *Not measured* line for
+that one reboot. The note above is left as written.
+
 **Ruled 2026-09-27, before any code: the location is now
 `/etc/katmate/vm/<instance>.d/uplink`, and still `[OPEN]`.** The operator's
 rulings of that day (ADR-037's note of 2026-09-27 on the step-3 rulings; the
