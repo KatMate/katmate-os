@@ -7804,3 +7804,48 @@ F12a and F12b are untaken. `rp_filter` is unread on the current image. F's
 router traffic, whether loose `rp_filter` passes an off-slot segment source
 on `uplink0`, and what `nft -c` in a chroot measures — are still
 unverified.
+
+**Revision note (2026-09-28, f12-impl-A — rulings R57 and R58, and three
+rulings on the step-3a record):** **Status: still PROPOSED (G5).** This note
+records rulings. It changes no text above. The operator gave them on
+2026-09-28, the first round on `wp-0928a-report.md` (outside the repository,
+cited as W) and the second on the halted read pass of the session f12-impl-A
+(`f12-impl-A-report.md` § 0.2, outside the repository, cited as I).
+
+- **R51's provenance wording stands.** *"The values … (finding 3) records as
+  read, which the vendor file `50-default.conf` produces"*, in the note
+  above, is kept as written (W § 5, item 1).
+- **R57 — R51's form.** `30-netvm-forward.conf` states the vendor file's
+  three lines **verbatim**: `net.ipv4.conf.default.rp_filter = 2`,
+  `net.ipv4.conf.*.rp_filter = 2`, and the exclusion
+  `-net.ipv4.conf.all.rp_filter`. It does **not** write an explicit `all =
+  0`. `all` stays at the kernel default 0 by the same mechanism the vendor
+  file already relies on, and `all` was read as 0 on 2026-09-14. This avoids
+  the question of how `systemd-sysctl` orders an explicit key against a glob
+  (W § 5, item 2), which is **[recall, unverified]** and is not taken on.
+  R51's post-rebuild reading remains the check. The file's comment names it
+  as KatMate's adoption of the vendor values, and names the nft guard as the
+  binding.
+- **W's unauthorised decisions (W § 4, items 1–5) are accepted.** W § 5,
+  item 3 is accepted as recorded: F12a is taken in the guest only, and the
+  host half of the 2026-09-20 note's gate (a) is not carried.
+- **R58 — F12b row 2 splits.** Row 2 of F12b in
+  [ADR-035](DECISIONS.md#adr-035)'s note of 2026-09-28 was written without
+  applying R50's order, and it is wrong. `10.100.1.1` lies in
+  `10.100.1.0/24` and a slot is not `lo`, so R50 drops it before rule 18 is
+  reached (I, A1). The row splits: **2a**, `10.100.1.1` on a slot → the R50
+  counter; **2b**, an off-segment (TEST-NET) source on a slot → the rule-18
+  counter. **The chain order R50 ruled is unchanged.** The correction is
+  recorded in a note on ADR-035. The candidate's rule-18 comment, which names
+  `10.100.1.1`, is not carried over. Rule 18's comment speaks of off-segment
+  sources only.
+- **A fixture peer's own MAC is `52:54:01:00:01:kk`** (I, A2), as it was for
+  every earlier peer. `52:54:01:00:00:kk` is netVM's side of the slot (§ 2 of
+  ADR-035) and appears only as the NETCFG ADD argument. This is a ruling on
+  the session's brief, not on the ADR, and it changes nothing here.
+- **The R52 preflight adds no mount** (I, A3). `build/netvm.sh` mounts
+  `proc`, `sysfs` and `/dev` itself after debootstrap, not through
+  `build/lib.sh`, and they are in place when step 5 runs. It calls the
+  image's `/usr/sbin/nft` by absolute path, because `chroot_run` sets no
+  `PATH`. R48's extraction counts the `slot_guard` chain first, so an absent
+  chain dies with a named message under `set -euo pipefail` (I § 0.3).
