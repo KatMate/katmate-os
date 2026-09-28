@@ -7981,3 +7981,30 @@ repository, cited as A).
   for an `nft -c` syntax check; and that the unprivileged `nft -c` message
   differs by site, while both forms mean "cannot fire". They go into that
   write pass, not into this note.
+
+**Revision note (2026-09-28, step 3a done — the finding-12 guard
+implemented, built and gated):** **Status: still PROPOSED (G5).** This note
+records what exists and what the gates settle. It changes no text above.
+Sources: `f12-impl-A-report.md` (A) and `f12-impl-B-report.md` (B), both
+outside the repository.
+
+- **Implemented** in `629c92d` (the `slot_guard` chain, R47–R50),
+  `2ca851f` (`30-netvm-forward.conf`, R51 in R57's form) and `56b3c96` (the
+  R48 read-back and the R52 preflight in `build/netvm.sh`).
+- **Built** on MINIS as a dev build: `NETVM_BUILT=2026-09-28T17:38:12Z`,
+  kernel `6.12.107+deb13-amd64` (B, Phase B).
+- **Gated:** F12a and F12b PASS, [ADR-035](DECISIONS.md#adr-035)'s note of
+  the same date. Networking arc step 3a is done. It closes the **IPv4 half**
+  of finding 12 only; the ARP half (open problem #34) must land before the
+  second networked AppVM (R54).
+- **R52's preflight and R48's read-back executed for the first time**, in
+  that build, **on their pass paths**: *"nft preflight OK: the image's nft
+  -c -f /etc/nftables.conf exit 0 (build host's kernel; not gate F12a)"* and
+  *"Build gate OK: slot_guard carries 16 slot pairs, km00..km0f <->
+  10.100.1.16..31, and no other return"* (B, `p4.sh`). Their failure paths
+  are UNVERIFIED on a real image.
+- **R57's premise held on the observed values:** after the rebuild, `all`
+  read 0, and `default`, `km00`…`km0f`, `lo` and `uplink0` read 2, 19 of 20
+  conf dirs, identical to the reading before it (B, `rpf-after.out`). The
+  presence of the vendor file `50-default.conf` on this image was not read;
+  only the outcome was.
