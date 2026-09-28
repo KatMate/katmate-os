@@ -6672,6 +6672,29 @@ positive control for R49; the guest's own view of its routes, neighbours,
 resolver or IPv6 state; why ipconfig guessed `255.0.0.0`; a `/32` by any
 other means than `ip=`'s netmask field.
 
+**Revision note (2026-09-28, §5 — R75 and the ruling of the 2026-09-07
+note):** this note records the operator's reading of a ruling. It changes
+no text above. [ADR-037](DECISIONS.md#adr-037) R75 (per-slot POSIX ACLs
+keyed to per-VM local users, not plain `chown`; ruled 2026-09-15, first
+recorded 2026-09-28) and the 2026-09-07 note's ruling (*"the launch daemon
+sets ownership at assignment and returns it at release"*) were recorded
+without a statement of how they relate. The operator's reading, of
+2026-09-28:
+
+- **R75 supersedes the mechanism** of the 2026-09-07 ruling: ownership by
+  `chown` becomes a per-slot POSIX ACL entry keyed to the VM's user.
+- **R75 keeps its timing:** the grant is made at assignment and withdrawn
+  at release, the same moment the `owner` file is written and removed, so
+  occupancy and permission stay one act.
+- **`RuntimeDirectory=` stays.** This settles the choice the 2026-09-15
+  note reopened (keep the directive, or a non-destructive `ExecStartPre=`
+  helper) in favour of the directive. That note's finding 6 stands: the
+  directive resets ownership, mode and ACLs at every netVM start. **How the
+  ACL survives that reset is decided in C1**, where R75 is implemented.
+
+Nothing was implemented; no mode, owner or ACL under `/run/katmate/link/`
+was changed.
+
 ---
 
 ## ADR-036 — The distributable unit is the enforcing set of the trust model; the host base is a pinned composition, neither a mutable install nor a distribution
