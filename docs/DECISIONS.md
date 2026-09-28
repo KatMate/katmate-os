@@ -3641,6 +3641,17 @@ fixed position, in the braced form.
 is PROPOSED and none of its six gates has been taken, so §9's restoration is a
 decision about argv, not a template that ships.
 
+**Revision note (2026-09-28, the order the unit templates ship in —
+[ADR-037](DECISIONS.md#adr-037) R61):** this note qualifies the 2026-08-09
+note. It changes no text above. Step 3a shipped `sys-driver` only. Under
+R61, **`app-routed` ships first**, at networking arc step 4a, together with
+the removal of the generator's guard (open problem #19) and the `REQ_ENV`
+arm in one commit; **`app-offline` ships with the vault instance**, not
+before, since a template nobody runs would rot. The 2026-08-09 note's
+*"Step 3a ships two unit templates, not three — `sys-driver` and
+`app-offline`"* stands as written, qualified by this note: that was the
+plan for 3a, and 3a shipped one of the two.
+
 ---
 
 ## ADR-032 — Where each tier lives: the path is the tier, and T4 is more than the template
