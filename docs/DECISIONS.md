@@ -6453,6 +6453,27 @@ at 11. Finding 12 is counted in [ADR-036](DECISIONS.md#adr-036): netVM's
 forwarding plane accepting the aggregate `10.100.1.0/24` with no per-link
 binding. (`f12-readpass-report.md` D1, outside the repository.)
 
+**Revision note (2026-09-28, correction to the note above — F12b row 2
+splits, [ADR-037](DECISIONS.md#adr-037) R58):** this note corrects one row
+of the gate definition above. It takes no gate. F12a and F12b are still
+untaken. Row 2 was written without applying the chain order of ADR-037 R50:
+the sixteen `return`s, then R49, then R50 (`iifname != "lo" ip saddr
+10.100.1.0/24 counter drop`), then rule 18. `10.100.1.1` lies in
+`10.100.1.0/24`, and a slot is not `lo`, so R50 drops it and rule 18 never
+sees it. Row 2 is therefore replaced by:
+
+- **2a.** `10.100.1.1` as the source, on a slot → **the R50 counter**;
+- **2b.** an off-segment (TEST-NET) source, on a slot → **the rule-18
+  counter**.
+
+Rows 1, 3 and 4, the control of row 4, the positive control, the counter
+reading, the `rp_filter` readings and the instrument are unchanged. A
+fixture peer's own MAC is `52:54:01:00:01:kk`, as it was for every earlier
+peer. `52:54:01:00:00:kk` is netVM's side of the slot (§ 2) and is only the
+NETCFG ADD argument. That ruling is ADR-037's note of the same date, and it
+is repeated here because it concerns this gate's instrument.
+(`f12-impl-A-report.md` § 0.2, A1 and A2, outside the repository.)
+
 ---
 
 ## ADR-036 — The distributable unit is the enforcing set of the trust model; the host base is a pinned composition, neither a mutable install nor a distribution
