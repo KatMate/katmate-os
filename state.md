@@ -6,10 +6,11 @@
 > history and the ADRs — this file references them rather than repeating them.
 
 **Milestone:** v0.2 (in development) · **Last updated:** 2026-09-29
-(`wp-0929b`, a docs-only write pass on the Acer. It recorded networking
-arc step 4a, s4a-impl A and B, and the rulings R78–R84 — in notes on
-ADR-035, ADR-037, ADR-038 and ADR-030, and this file — and rotated the
-2026-09-28 `s4-m0 and rulings` entry to `docs/SESSIONS.md`).
+(`wp-0929c`, a write pass on the Acer, docs plus one comment-only
+build-script change. It recorded networking arc step 4b, s4b-impl A and B,
+and the rulings R85–R90 — in notes on ADR-038 and ADR-037, in `CLAUDE.md`
+(the classifier rule), and in this file — and rotated the 2026-09-29
+`ADR-038` entry to `docs/SESSIONS.md`).
 
 ## Current focus
 
@@ -47,6 +48,13 @@ rebuild chain. Then ADR-038's G1–G3 and ADR-037's G5.**]**
 B); no gate taken. Next is **4b**: katmate-init per ADR-038, the resolver
 symlink with its read-back in `foundation.sh` and `app-layer.sh`, and the
 rebuild chain. Then ADR-038's G1–G3 and ADR-037's G5.**]**
+**[Note 2026-09-29, step 4b: 4b is done** — implemented and tested on the
+Acer (s4b-impl A, four commits), and on MINIS the chain rebuilt and the
+first AppVM configured itself from `km.*` (s4b-impl B). **ADR-038's G1
+(positive half) and G3 are passed** (R89, R90). Next: a ruling on the
+vehicle for an altered `-append` (G1's refusal half, G2, and ADR-037 G5's
+refusal half); the `init/tests/run.sh` route-verdict fix with its re-run of
+`--apply` on MINIS; and the guest umask (#53).**]**
 
 The **entire build chain remains scripted and proven from nothing**:
 `make foundation` builds the shared systemd-free base
@@ -74,6 +82,101 @@ restartable — and so updatable — without touching running VMs.
 
 Direction unchanged: IOMMU-capable platforms only (VT-d/AMD-Vi).
 MINIS is primary host and merge target.
+
+## This session (2026-09-29, step 4b — s4b-impl A and B) — the guest side: katmate-init configures the AppVM from km.*; G1's positive half and G3 passed; R85–R90
+
+Three sessions. `s4b-impl-A` wrote the code and its tests on the Acer,
+halted once on a measurement (`cp` through a dangling link, A § 5.1), and
+after the operator's rulings made four commits, unpushed. `s4b-impl-B` ran
+the tests on MINIS, rebuilt the chain and booted the first self-configured
+AppVM, 10:40–12:09 CEST, with no commit, no reboot, and netVM untouched.
+`wp-0929c` wrote the record on the Acer. Their reports are outside the
+repository: `~/Claude.assistent/s4b-impl-A-report.md` (A),
+`~/Claude.assistent/s4b-impl-B-report.md` (B) and
+`~/Claude.assistent/wp-0929c-report.md`.
+
+**A's four commits.** `04672b8`: katmate-init applies the AppVM's `/32`,
+on-link default route and resolver from `km.*` (ADR-038), before
+`vm-agent`, with its error exit through `do_shutdown(-1)`. `3b06005`: its
+behavioural tests (`init/tests/`: parser, selection, resolver, the ack
+path; the apply group needs root in a private netns). `d6d0006`:
+`/etc/resolv.conf` as the relative link `../run/resolv.conf` in both layer
+builds, read back; `app-layer.sh` copies into `run/` explicitly and
+refuses a foundation without the link. `647a380`: the resolver helpers
+tested against temp trees (`build/tests/`). On the Acer the apply group
+could not run: `kernel.unprivileged_userns_clone` is `0` (A § 0.2).
+
+**R85–R88 (index; the text is in `s4b-impl-A-brief.md`, and their effect
+in ADR-038's note of 2026-09-29, step 4b).** R85: the NIC is the one
+device-backed entry of `/sys/class/net/`. R86: the parsing details. R87:
+the network step's place in `main()` and its exit. R88: testability
+without a second init (`KATMATE_INIT_NO_MAIN`, tests in `init/tests/` and
+`build/tests/`, never baked). A § 5.1's rulings: the `lib.sh` comment
+reworded to the conditional overwrite, and C4's case 6 rewritten to assert
+the measurement.
+
+**B, in summary.** P1: the unprivileged tests pass on MINIS (coreutils
+9.12); the apply group ran as root — refused outside a private netns, and
+inside `unshare -n` on a `dummy` `km0` every read-back matched, the route
+verdict failing only on iproute2's trailing space (a harness defect).
+P2–P5: the 2026-09-26 layers set aside as `_pre0929`, `make foundation`
+(exit 0, 61 min, ~1.8 M apt `W:` lines) and `make app-web` (exit 0, 21
+packages), both frozen layers read with the link and no `run/resolv.conf`,
+and a new delta. P6: `katmate-app-routed@app_web` on slot 01 printed
+`[katmate-init] net: eth0 10.100.1.17/32 via 10.100.1.1 dns 10.100.1.1`
+and PING answered on the third try. P7–P8: the operator's reading in a
+`foot` window, `g1.txt`, read off the home LV read-only after SHUTDOWN
+(*"Deactivated successfully"*, nothing else): the `/32`, the default route
+on `eth0`, `lo` UP, the link, `nameserver 10.100.1.1`, a DNS answer, and
+**`sit0` present under `ipv6.disable=1`**. P9: slot 01 FREE, netVM MainPID
+49895 throughout.
+
+**The operator's rulings (2026-09-29).** **R89 — ADR-038 G1, positive
+half: PASS**; not read: `/run/resolv.conf`'s mode and owner in the guest,
+and `operstate`; the unknown-parameter zero has no positive control.
+**R90 — ADR-038 G3: PASS**, the positive half on both frozen layers, the
+refusal half at function level only (not in a real build), the host
+control absent → absent. **B's P1, ruling (a):** the apply group accepted
+as observed; `init/tests/run.sh`'s route verdict compares untrimmed
+output, fixed in its own commit on the Acer with a re-run of `--apply` on
+MINIS, not in `wp-0929c`. A's and B's § 4 additions are accepted. **The
+narrowing** of ADR-038's earlier note's *"replaces"*: a clean end is
+*"Deactivated successfully"* with no exit-status line (reasoned, one
+instance observed). The classifier rule is now in `CLAUDE.md`. **On
+`wp-0929c`'s read pass:** the `gai.conf` line stays out of
+`docs/HOST-CONFIG.md` (a dev-host workaround, not a requirement on any
+machine) and is recorded here only; and the host's traffic, IPv4 and
+IPv6, is policy-routed into `proton`, so § *Live state*'s *Host* sentence
+is false for both families (#54).
+
+**The operator's `gai.conf` line (MINIS, 2026-09-29 11:42, during B's
+P3).** `precedence ::ffff:0:0/96  100` appended to `/etc/gai.conf`, so
+host processes prefer IPv4. Detail and limits in #54.
+
+**`wp-0929c`'s commits.** The previous-but-one entry rotated out (§
+*Session archive*, *Closed 2026-09-29 (fourth rotation of that day)*;
+`d0ffdf0`). Revision notes on ADR-038 (step 4b, R89, R90; `c50c55a`) and
+ADR-037 (step 4b done; `91809d5`). `build/foundation.sh` cites
+katmate-init.c by symbol (`831410e`, comment-only). `CLAUDE.md` gains the
+classifier rule (`e9c4bf8`). In this file: the header, § *Current focus*,
+§ *Live state*, #21, #24, #53, #54, step 4 in § *Next steps*, four §
+*Invariants & gotchas* items and a note on the PING entry, and this entry.
+
+**Not done, and not claimed (B § 7).**
+- G1's refusal half (`km.ipx=`) and G2 (both halves) are not run; the
+  unit ending inactive on an init refusal and a silent slot are not
+  observed.
+- G3's refusal half inside a real build is not run.
+- ADR-037 G5 is not taken.
+- The uid QEMU runs as is not read.
+- In the guest: `operstate` and `/run/resolv.conf`'s mode and owner are
+  not read; no ARP, ping or capture; the DNS answer (AAAA) is not tied to
+  IPv4 egress.
+- There is no positive control for *"Unknown kernel command line
+  parameters"*.
+- `ExecStopPost=` at P8 is inferred from `appvm`'s absence.
+- Why apt looped in P3, and why P4 took 57 s against 20 min, are not read.
+- The new foundation's package count is not read.
 
 ## Previous session (2026-09-29, step 4a — s4a-impl A and B) — the host side of the first routed AppVM: implemented, installed, and first run on MINIS; R78–R84
 
@@ -734,6 +837,14 @@ touched.
   (`enp195s0f3u1u1`, MAC `00:e0:4c:39:61:b8`, IP `10.3.1.3` — #7 resolved
   2026-07-06); MINIS is on ProtonVPN with DNS `10.2.0.1`. The uplink config is
   volatile (`ip addr`), not yet a persistent profile.
+  **[Note 2026-09-29 (operator's reading, `wp-0929c`): *"the host's own
+  apt/debootstrap traffic does NOT route through netVM/ProtonVPN"* is false
+  for both families.** `ip route get 151.101.2.132` → `dev proton table
+  51820 src 10.2.0.2`: wg-quick's policy routing sends the host's traffic,
+  IPv4 and IPv6, into `proton`; the main table's `default via 10.3.1.1` is
+  not what is used. IPv4 through `proton` works; IPv6 through it is a black
+  hole. See #54. It does not route through netVM. The text above is left as
+  written.**]**
   **Kernel and boot, 2026-09-26:** running `7.2.7-hardened1-1-hardened`, booted
   **2026-09-25 14:00:27**; the stock `linux 7.2.6.arch2-1` is installed beside
   `linux-hardened` (`appweb-m1-rerun-report.md` § RA, items 6 and A12).
@@ -826,6 +937,11 @@ touched.
   katmate-init, with systemd's binary **diverted to `/usr/sbin/init.systemd`**
   (#36); `foundation.meta` carries **`KERNEL_PROVENANCE=recorded`**
   (`appweb-rebuild-report.md` §§ 5.1, 5.2).
+  **[2026-09-29, s4b-impl-B: rebuilt again, from the tree at `647a380`,
+  `BUILD_DATE=2026-09-29T09:47:21Z`; it carries the resolver link and the
+  step-4b katmate-init. The package count was not read. The 2026-09-26
+  layer is set aside as `vm_tpl_foundation_pre0929`. See *THE FIRST
+  SELF-CONFIGURED APPVM* below. The text above is left as written.]**
 - **netVM** (CID 3 — unchanged by the new map; Debian trixie, q35, **sysVM class
   — ADR-021; driver domain — ADR-022**): two
   artefacts now exist. (a) The old hand-installed **netinst pet**
@@ -1252,6 +1368,44 @@ touched.
   - **A reboot is still due before the next `netvm.sh`**. `jbd2` was not
     re-read.
 
+  **THE FIRST SELF-CONFIGURED APPVM (2026-09-29, 4b-B).** The blocks above
+  are left as published; the 4a-B block's `app_web` delta, its hash and
+  *"LVs as at the start of B"* are superseded by this one. Networking arc
+  step 4b ran on MINIS (`s4b-impl-B-report.md`, outside the repository, §§
+  1, 6, 8; ADR-038's and ADR-037's notes of 2026-09-29, step 4b). As left
+  at 12:09 CEST:
+  - **The new chain:** `vm_tpl_foundation`
+    (`BUILD_DATE=2026-09-29T09:47:21Z`, from `647a380`; `foundation.meta`
+    `8d90e0f5…`) → `vm_app_web` (`APP_BUILT=2026-09-29T09:50:44Z`;
+    `app-web.meta` `54f2f1d6…`) → `instances/app_web.qcow2` (new,
+    `host:host 0644`, 10 GiB virtual, written by one boot). Both layers
+    carry `/etc/resolv.conf -> ../run/resolv.conf` and no `run/resolv.conf`
+    (G3), and `/sbin/init` equal to `out/katmate-init` (`172a28ee…`). Both
+    new LVs stay active after their builds (#37); open counts 0.
+  - **Set aside, standing, the operator's to remove:**
+    `vm_tpl_foundation_pre0929`, `vm_app_web_pre0929`,
+    `instances/app_web.qcow2.pre0929` (rebased `-u` onto
+    `/dev/vg0/vm_app_web_pre0929`), `foundation.meta.pre0929`,
+    `app-web.meta.pre0929`.
+  - **`vm_app_web_home`** holds the operator's `user/g1.txt` (mode `0666`,
+    #53); unmounted, active.
+  - **netVM unchanged:** MainPID `49895`, invocation `1d1b5f66…`,
+    `NRestarts=0`, since 2026-09-28 19:39:06. Link 201 was added and
+    removed.
+  - **Slot 01 is FREE:** `netvm` only, no `owner`, no `appvm`.
+    `katmate-app-routed@app_web` is inactive, on the new chain.
+  - **The stale `appvm` nodes on slots 02 and 05** (inodes 4647, 4655)
+    are still there.
+  - The installed host set still equals the tree at `46f8a26`, 10 of 10
+    (4b changes no host file). Sleep targets unmasked. The host's
+    `/run/resolv.conf` is absent.
+  - **`/etc/gai.conf` carries `precedence ::ffff:0:0/96  100`**, appended
+    by the operator at 11:42 (#54).
+  - **Session files** (scripts, outputs, journals, `g1.txt`, and the
+    203 MB foundation build log `p3-foundation.log`) are in
+    `/home/host/katmate-dev/s4b/`. Fixtures, not live configuration.
+  - **A reboot is still due before the next `netvm.sh`.**
+
   **The uplink is capped by the cable, and that is a condition of the
   environment rather than a defect.** On the boot of 2026-09-12 the link came up
   1 Gbps, went down, and settled at **100 Mbps/Full (downshifted)**, the driver
@@ -1323,6 +1477,11 @@ touched.
   `katmate-app-routed@app_web` (MainPID 361445, 09:35:14–09:36:42 CEST), on
   slot 01, with a routed T1. See *THE FIRST ROUTED APPVM UNIT* above. The
   text is left as written.]**
+  **[2026-09-29, s4b-impl-B: `vm_app_web` is rebuilt on the new foundation
+  (`APP_BUILT=2026-09-29T09:50:44Z`, 21 packages installed by the layer),
+  and `app_web.qcow2` is a new delta on it; the previous delta is
+  `app_web.qcow2.pre0929` on `vm_app_web_pre0929`. See *THE FIRST
+  SELF-CONFIGURED APPVM* above. The text is left as written.]**
 - **app_vault** (build-only): `vm_app_vault` thin snap RO of `vm_tpl_foundation`,
   built via `make app-vault` (2026-06-29; keepassxc/foot/nautilus). NOT yet
   instantiated — no qcow2 delta, no home LV, no CID (will be allocated from 20+),
@@ -1844,6 +2003,15 @@ touched.
    `Exec*` record at `pid=0`). A clean stop and an init refusal (ADR-038
    §9, not yet implemented) would read the same there. The journal is the record: *"Deactivated
    successfully"*, with no *"Main process exited"* line.**]**
+   **[Note 2026-09-29 (s4b-impl-B § P8): the clean-stop journal shape, a
+   second instance.** After SHUTDOWN of the first self-configured
+   `app_web`, the journal read *"Deactivated successfully"* and a
+   *"Consumed … CPU time"* line, with no *"Main process exited, code="*
+   and no *"Failed with result"*. By ADR-038's note of 2026-09-29 (step
+   4b), a numeric exit status appears in the journal only for a non-zero
+   exit, so this shape is the reading for a clean end — reasoned, one
+   instance observed. ADR-038 §9's exit is now implemented and still not
+   executed, so an init refusal's shape is not observed.**]**
 
 22. **Kernel provenance is unverifiable — no image can be tied to a config.**
    Added 2026-08-24, from link-m1 § 3c–§ 3d and link-m2 § B0.1, § B0.4.
@@ -2310,6 +2478,14 @@ touched.
    IPv4-only, the routed template carries `ipv6.disable=1`, and there is no
    `accept_ra` step. It closes when ADR-038's G1 is taken. **#24 stays
    open.**]**
+   **[Note 2026-09-29 (`wp-0929c`, R89): the AppVM half is observed.**
+   ADR-038's G1 positive half passed: the first self-configured AppVM ran
+   with `ipv6.disable=1` in effect (*"IPv6: Loaded, but administratively
+   disabled"*), IPv4-only (s4b-impl-B § P6, § P8). **#24 stays open,
+   not RESOLVED**, because it names more than the AppVM half: whether
+   netVM sends RAs on internal links is still unread, netVM's
+   `accept_ra=1` stands, and the proposed *no RA from netVM* is not
+   taken.**]**
 
 25. **`KERNEL_SRC_DIR` derives from `$HOME`, and both scripts that read it
    require root — so as root it resolves to a directory that does not exist.**
@@ -3153,6 +3329,36 @@ touched.
    config and #22: the config that would say how `netconsole` is built and
    configured is not proven to be the image's.
 
+53. **Files created in the AppVM's user session are mode `0666`.** Added
+   2026-09-29, from s4b-impl-B § P8 (`s4b-impl-B-report.md`, outside the
+   repository). `g1.txt`, written by the operator's shell in a `foot`
+   window as uid 1000, reads `-rw-rw-rw- host host` on the home LV. That
+   suggests umask 0 in the user session. **Cause inferred, not read:**
+   katmate-init runs with `umask(0)` (`main()`'s first statement) and
+   starts `vm-agent`, which starts the applications; that the umask is
+   inherited that far was not read, and no `umask` was run in the guest.
+   Every file an application writes in `/home/user` would be
+   world-writable. Outside ADR-038. Look before the next guest release.
+
+54. **MINIS's IPv6 through `proton` is a black hole.** Added 2026-09-29
+   (the operator, during s4b-impl-B; `wp-0929c`). The host's traffic, IPv4
+   and IPv6, is policy-routed into the `proton` WireGuard tunnel (table
+   `51820`: `ip route get 151.101.2.132` → `dev proton table 51820 src
+   10.2.0.2`). IPv4 through it works (`curl -4`: 0.35 s); IPv6 does not
+   (`curl -6`: connect timeout at 20 s). `wget`, debootstrap's fetcher,
+   tries IPv6 first and waits out a TCP timeout per file. **Workaround:**
+   the operator appended `precedence ::ffff:0:0/96  100` to MINIS's
+   `/etc/gai.conf` on 2026-09-29 at 11:42, during B's `make foundation`,
+   so host processes prefer IPv4. **Its limits:** it applies to host
+   processes only; a chroot's apt reads the chroot's own `/etc/gai.conf`,
+   not the host's. It is a **dev-host workaround**, not part of the
+   shipped host, and is therefore not in `docs/HOST-CONFIG.md` (operator
+   ruling, 2026-09-29). **The real fix is the VPN's IPv6 configuration,
+   which is the operator's.** Beside it, unexplained: B's P3 anomaly —
+   about 1.8 M apt *"Tried to start delayed item … but failed"* warnings
+   inside the chroot in the foundation build, and 61 min against 30 on
+   2026-09-26. Whether the black hole caused them is not read.
+
 ## Next steps
 
 **ADR numbering.** `ADR-030` = *what the launch daemon reads* (2026-08-06).
@@ -3877,6 +4083,14 @@ frozen `vm_home_skel` vs qcow2 branch.
      files: the stale comments of the T1 `app_web.toml` on both machines,
      and `katmate-app-routed@.service:149–152`'s *"UNVERIFIED … 4a-B
      observes it"*. The text above is left as written.**]**
+     **[Note 2026-09-29 (`wp-0929c`): 4b is done** (s4b-impl A and B;
+     ADR-038's and ADR-037's notes of 2026-09-29, step 4b). ADR-038's G1
+     positive half and G3 are passed (R89, R90). What remains of step 4: a
+     ruling on the vehicle for an altered `-append` (G1's refusal half, G2,
+     and G5's refusal half, R71); the `init/tests/run.sh` route-verdict fix
+     with its re-run of `--apply` on MINIS; the guest umask (#53); then G5,
+     then 4c. The two deferred host-install items above still travel with
+     the next host install. The text above is left as written.**]**
   5. **VPN mode** (added 2026-09-27, R30): the WireGuard config, the VPN
      ruleset and the kill-switch, under **its own ADR**, after step 4. R8
      names the config disk as the WireGuard config's channel, and R31 gives
@@ -4279,6 +4493,34 @@ frozen `vm_home_skel` vs qcow2 branch.
   a PING probe polls: every 2 s, up to 30 s, with the try count recorded.
   Observed 2026-09-29, once, on `katmate-app-routed@app_web`: OK on try 3,
   at about 5 s. Source: `s4a-impl-B-report.md` §§ P6, 6.
+  **[2026-09-29, s4b-impl-B § P6: held again — OK on try 3, at about
+  4 s, the first self-configured boot. First try `No such device (os error
+  19)`, second `No route to host`.]**
+- **iproute2 7.2.0 ends each route line with a space — compare route
+  output trimmed.** `ip -4 route show` prints `default via 10.100.1.1 dev
+  km0 onlink ` (trailing space before the newline), and an exact string
+  comparison fails on a correct route. `init/tests/run.sh`'s route verdict
+  failed that way. Observed 2026-09-29 on MINIS, in a netns and in the
+  host's own main table (`od -c`). Source: `s4b-impl-B-report.md` § P1.
+- **`sit0` exists in the AppVM under `ipv6.disable=1`.** The AppVM kernel
+  builds `CONFIG_IPV6_SIT` in; the guest lists `eth0`, `lo` and `sit0`
+  (flags `0x80`, down). Anything that counts the guest's links must not
+  count by *"not loopback"*; katmate-init counts device-backed links
+  (R85). Observed 2026-09-29, one boot. Source: `s4b-impl-B-report.md` §
+  P8.
+- **A file written in the guest is read on the host by mounting the home
+  LV read-only after the guest is down.** Have the operator write the
+  reading to `~/<file>` in a `foot` window, stop the instance, then mount
+  `vg0/vm_app_web_home` with `-o ro,noload` on the host, copy the file,
+  unmount. The reading is verbatim, not transcribed, and the LV is never
+  mounted while the guest holds it. Used 2026-09-29 for `g1.txt`. Source:
+  `s4b-impl-B-report.md` § P8.
+- **The foundation build log can reach ~200 MB of apt `W:` lines.** On
+  2026-09-29 `make foundation` wrote 1,797,989 identical *"Tried to start
+  delayed item … gcc-14 … but failed"* warnings from step 5's `apt-get
+  install` (1.8 M lines, 203 MB) and still exited 0. Count by pattern
+  (`grep -c '^W:'`, `^E:`), never page the log. The cause is not read (#54
+  records what lies beside it). Source: `s4b-impl-B-report.md` § P3.
 - **`RuntimeDirectoryPreserve=yes` is load-bearing, reconfirmed under a live
   peer.** A second, independent restart of `katmate-pool@netvm.service`
   (2026-09-12) left `appvm` inode 7528, its bound `/proc/net/unix` socket
