@@ -8791,3 +8791,113 @@ outside the repository; the rulings are in
 
 The guest ignored the parameters: its image predates this ADR. Nothing
 here is G1.
+
+**Revision note (2026-09-29, step 4b — the guest half, G1's positive half,
+G3):** **Status: still PROPOSED** — G1's refusal half and G2 (both halves)
+are untaken. This note records rulings, the guest half's implementation
+and its first execution; it changes no text above, and each superseded
+statement is named here rather than edited. Sources, all outside the
+repository: `s4b-impl-A-brief.md` (R85–R88), `s4b-impl-A-report.md` (A,
+the code and tests, on the Acer), `s4b-impl-B-report.md` (B, the tests,
+the rebuilt chain and the first self-configured boot, on MINIS).
+
+- **§4, made precise by R85, and now observed in a guest.** *"The one
+  non-loopback link"* is the one entry of `/sys/class/net/` that has a
+  `device` link; `lo` and virtual links are not counted and are left
+  alone; zero or more than one device-backed link is an error. The AppVM
+  kernel builds `CONFIG_IPV6_SIT` in (A § 0.1, the Acer's copy of the
+  config), and **in the guest `sit0` exists under `ipv6.disable=1`**, flags
+  `0x80`, beside `eth0` and `lo` (B § P8). The literal *"exactly one that
+  is not loopback"* would have counted two and refused this boot.
+- **§3, made precise by R86.** Every whitespace-separated token of
+  `/proc/cmdline` is considered, including any after `--`; a token
+  beginning `km.` must be `km.<key>=<value>` with `<key>` one of `ip`,
+  `gw`, `dns`; a value is at most 15 characters and must be accepted by
+  `inet_pton(AF_INET)`; `/proc/cmdline` unreadable is an error. Measured
+  (glibc 2.44, the Acer; the same reading on MINIS): `inet_pton` refuses
+  leading zeros in any octet, fewer than four parts, a leading or trailing
+  dot, an octet above 255, hex, surrounding whitespace, signs, trailing
+  garbage, a bare integer and the empty string (A § 2). An accepted value
+  is therefore canonical.
+- **§ *Context* and §7, corrected.** *"`cp` follows a symlink at its
+  destination"* holds only when the link's target exists: GNU coreutils
+  refuses to write through a dangling destination link (9.11 on the Acer,
+  A § 5.1; 9.12 on MINIS, B § P1 1b; both measured). Through an absolute
+  link, a build's `cp` would therefore overwrite the host's
+  `/run/resolv.conf` **when that file exists**, and otherwise fail the
+  build. The relative link is a defence; the builds do not write through
+  it, but copy explicitly into the image's `run/` and remove the copy
+  before the read-back (`d6d0006`).
+- **§9, implemented by R87.** The network step runs after the pseudo-file
+  systems and the console and before anything else in `main()`; its error
+  exit is `do_shutdown(-1)`, the shutdown tail with no control socket to
+  close (`04672b8`). `fatal()` is not used for these errors. **Not yet
+  executed in a guest** (G1's refusal half).
+- **Superseded statements, named and not edited:**
+  - § *Context*'s line citations of `init/katmate-init.c` — `:122` (the
+    `/proc` mount), `:269–276` (the `envp`), `:91–97` (`fatal()`) — moved
+    with `04672b8` to `:147`, `:792–798` and `:116–122` (A § 5.3);
+  - § *Context*'s *"katmate-init has no network code"* and § *Status*'s
+    *"`init/katmate-init.c` has no network code, no image carries the
+    resolver symlink"*: false of the tree since `04672b8` and `d6d0006`,
+    and of MINIS's layers since B;
+  - the closing line of this ADR's note of 2026-09-29, *"The guest ignored
+    the parameters: its image predates this ADR"*: superseded by B's boot.
+- **R89 — G1, positive half: PASS** (operator, 2026-09-29). Evidence: B §
+  P6, the console line `[katmate-init] net: eth0 10.100.1.17/32 via
+  10.100.1.1 dns 10.100.1.1`, from the unit `katmate-app-routed@app_web`
+  on slot 01; and B § P8, `g1.txt`, written in the guest by uid 1000 in a
+  `foot` window and read off the home LV read-only on the host after the
+  guest was down, quoted in full there. It shows: `/proc/cmdline` with the
+  four tokens; `eth0`, `lo`, `sit0`; `lo` flags `0x9` (UP); `eth0` flags
+  `0x1003`; `fib_trie` with `10.100.1.17/32` and `lo`'s entries as the
+  only host-local addresses; `/proc/net/route`'s one row, `eth0`, default,
+  gateway `10.100.1.1`, flags `0x3`; `readlink /etc/resolv.conf` →
+  `../run/resolv.conf`; `nameserver 10.100.1.1`; and an answer for
+  `deb.debian.org`. **Not read** (the operator's shortened line in the
+  guest): the mode and owner of `/run/resolv.conf` (§7's `root:root
+  0644`), and `operstate`. **The *"Unknown kernel command line
+  parameters"* zero has no positive control**, as in the note of
+  2026-09-29, so § *Context*'s dotted-parameter claim is consistent with
+  this boot and still not shown. The onlink flag does not appear in
+  `/proc/net/route`; it was observed only in the namespace test below.
+- **R90 — G3: PASS**, stated exactly (operator, 2026-09-29). The positive
+  half on both frozen layers: after `make foundation` and after `make
+  app-web`, `readlink` on the frozen layer's `/etc/resolv.conf` returned
+  `../run/resolv.conf` and the layer's `/run` held no `resolv.conf` (B §
+  P3, § P4). The refusal half was executed at **function level** —
+  `resolv_link_check` against fixture trees, on the Acer (A § 2, the run
+  before case 6's rewrite, in which every refusal case passed) and on
+  MINIS (B § P1 1b, the committed script, 21 cases, 0 failed) — **not
+  inside a real build**. The host control read absent → absent across both
+  builds (B R3): it shows that no build created the host's
+  `/run/resolv.conf`, and it cannot show an overwrite, since there was
+  nothing to overwrite.
+- **The apply group on a real kernel** (B § P1 2a/2b, MINIS, as root).
+  Without a private namespace the harness refused (*"this is PID 1's
+  network namespace"*) and the host's tables were unchanged. Under
+  `unshare -n`, with `km0` a `dummy` link: `10.100.1.17/32` on `km0`,
+  `default via 10.100.1.1 dev km0 onlink`, `lo` UP from a fresh `lo`
+  DOWN, the resolver file `nameserver 10.100.1.1`, and a non-existent
+  ifindex refused with the kernel's `No such device` through the ack path.
+  The route verdict failed on iproute2 7.2.0's trailing space alone: a
+  **harness defect** in `init/tests/run.sh` (it compares untrimmed `ip -4
+  route show`), accepted as observed by the operator's ruling on B's P1,
+  and fixed in its own commit with a re-run of `--apply`, not here.
+- **The narrowing of this ADR's note of 2026-09-29.** That note's
+  *"replaces *Carried*'s 'reads the exit status and the unit state'"* is
+  narrowed (operator, 2026-09-29): the journal gives the unit's end state;
+  a numeric exit status appears there only for a non-zero exit (*"Main
+  process exited, code=exited, status=N"* and *"Failed with result"*), so
+  *"Deactivated successfully"* with neither is the reading for a clean
+  end. **Reasoned from systemd's behaviour; one instance observed** (B §
+  P8, the clean stop after SHUTDOWN).
+
+**Outside this ADR, recorded so it is not lost:** a file created in the
+guest's user session is mode `0666` (`g1.txt`, B § P8). The cause is
+inferred, not read: katmate-init's `umask(0)` inherited through
+`vm-agent` to the applications.
+
+**Not taken:** G1's refusal half (`km.ipx=`), G2 (both halves), G3's
+refusal half inside a real build. The vehicle for an altered `-append` is
+the operator's ruling.
