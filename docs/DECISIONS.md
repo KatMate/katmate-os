@@ -6706,6 +6706,24 @@ without a statement of how they relate. The operator's reading, of
 Nothing was implemented; no mode, owner or ACL under `/run/katmate/link/`
 was changed.
 
+**Revision note (2026-09-29, § *Dependencies surfaced* — the first item
+answered by ADR-038):** this note records a decision made elsewhere. It
+changes no text above and takes no gate.
+
+- **The first item of § *Dependencies surfaced*** — *"How the AppVM end
+  learns `10.100.1.(16+k)/32` and its route to `10.100.1.1`"* — **is
+  answered by [ADR-038](DECISIONS.md#adr-038) (PROPOSED)**: katmate-init
+  applies the address, the on-link default route and the resolver from
+  typed `km.*` kernel command-line parameters. The item's text is left as
+  written, and so is the 2026-09-28 note's correction of it (R72).
+- **§3's *"no per-instance network fact ever reaches an AppVM's
+  configuration"* holds for the image.** The address reaches the guest per
+  launch, on the command line, and is never written into the image or the
+  root delta; the gateway and the resolver are ADR-025's constant, written
+  literally in the template (ADR-038 §10).
+
+Nothing is implemented; ADR-038's gates are untaken.
+
 ---
 
 ## ADR-036 — The distributable unit is the enforcing set of the trust model; the host base is a pinned composition, neither a mutable install nor a distribution
