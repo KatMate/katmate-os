@@ -7,26 +7,40 @@
  * Responsibilities (and nothing more):
  *   1. Mount the pseudo-filesystems and the persistent /home rw LV.
  *   2. Set up XDG_RUNTIME_DIR for user 1000.
- *   3. Open a privileged-side control socket for shutdown requests.
- *   4. Launch vm-agent dropped to user 1000 (the agent does all app/waypipe/dbus work).
- *   5. Reap orphans (the inescapable PID 1 duty).
- *   6. On shutdown request (or agent death): kill children, unmount /home cleanly,
+ *   3. Configure the network from the typed km.* kernel parameters (ADR-038):
+ *      lo up on every boot; with km.ip/km.gw/km.dns, the one device-backed
+ *      link up, km.ip/32 on it, an on-link default route via km.gw, and
+ *      /run/resolv.conf naming km.dns. Without km.*, offline: lo only. Any
+ *      error exits the VM through the shutdown path; vm-agent never starts.
+ *   4. Open a privileged-side control socket for shutdown requests.
+ *   5. Launch vm-agent dropped to user 1000 (the agent does all app/waypipe/dbus work).
+ *   6. Reap orphans (the inescapable PID 1 duty).
+ *   7. On shutdown request (or agent death): kill children, unmount /home cleanly,
  *      sync, then reboot(RB_AUTOBOOT) -> triple-fault -> QEMU(-no-reboot) exits.
  *
  * Privilege model: this process is the ONLY root code in the guest. All protocol
- * parsing and application launching lives in vm-agent under uid 1000.
+ * parsing and application launching lives in vm-agent under uid 1000. The
+ * network step (3) runs as this root PID 1 before vm-agent exists.
  *
  * Build (static, in trixie chroot):
  *   gcc -static -O2 -Wall -Wextra -std=gnu11 -o init katmate-init.c
  * (Alternatively musl-gcc for a cleaner static link. We deliberately make NO
  *  NSS calls -- getpwnam/initgroups/etc -- so static glibc is safe here.)
+ * With -DKATMATE_INIT_NO_MAIN, main() is left out so init/tests/ can include
+ * this file and drive the network functions against fixtures. The image build
+ * never defines it.
  *
  * Bake to /sbin/init (kernel default search path; no init= cmdline needed).
  *
  * Host-side requirements (NOT handled here -- go into the launch / .con):
  *   - QEMU:           -no-reboot
  *   - kernel cmdline: reboot=t        (skip the ~5s "try other methods first" delay)
+ *   - kernel cmdline, routed AppVM (ADR-038 §10):
+ *                     km.ip=<addr> km.gw=10.100.1.1 km.dns=10.100.1.1 ipv6.disable=1
+ *                     (all three km.* or none; none = offline)
  *   - -drive order:   vda = qcow2 root delta, vdb = raw /home LV
+ *   - image:          /etc/resolv.conf is the relative symlink ../run/resolv.conf
+ *                     (ADR-038 §7; the layer builds put it there)
  */
 
 #define _GNU_SOURCE
@@ -49,6 +63,11 @@
 #include <sys/socket.h>
 #include <sys/un.h>
 #include <sys/signalfd.h>
+#include <dirent.h>
+#include <arpa/inet.h>
+#include <net/if.h>
+#include <linux/netlink.h>
+#include <linux/rtnetlink.h>
 
 /* ---- compile-time configuration ------------------------------------------ */
 
@@ -71,6 +90,12 @@
 #define SHUTDOWN_CMD   "SHUTDOWN"
 
 #define GRACE_MS       5000                /* SIGTERM -> SIGKILL window            */
+
+/* Network step inputs (ADR-038). Passed to km_net_step() as parameters so the
+ * tests can substitute fixtures; these are the production values. */
+#define KM_CMDLINE_PATH "/proc/cmdline"
+#define KM_SYSFS_NET    "/sys/class/net"
+#define KM_RESOLV_PATH  "/run/resolv.conf"  /* /etc/resolv.conf -> ../run/resolv.conf */
 
 /* ---- diagnostics ---------------------------------------------------------- */
 
@@ -156,6 +181,504 @@ static void reopen_console(void)
 	dup2(fd, 2);
 	if (fd > 2)
 		close(fd);
+}
+
+/* ---- network (ADR-038) ---------------------------------------------------- */
+/*
+ * The guest's address, default route and resolver come from three typed
+ * kernel parameters, km.ip= km.gw= km.dns=. They are dotted, so the kernel
+ * withholds them from PID 1's argv and environment; they are read from
+ * /proc/cmdline. Parsing is syntactic only (ADR-038 §3): the image does not
+ * know the pool layout, and the host's generator is where the address is
+ * derived and checked.
+ *
+ * Every function here takes its inputs as parameters and reports failure as
+ * -1 with a message in err[] -- never through fatal(), and never by exiting.
+ * main() turns a failure into the shutdown exit (ADR-038 §9, R87).
+ */
+
+#define KM_ERR_MAX      256
+#define KM_VALUE_MAX    15                  /* strlen("255.255.255.255") (R86) */
+#define KM_CMDLINE_MAX  4096
+
+enum { KM_NET_OFFLINE = 0, KM_NET_ROUTED = 1 };
+
+struct km_net {
+	int            state;               /* KM_NET_OFFLINE or KM_NET_ROUTED */
+	struct in_addr ip, gw, dns;         /* valid when routed */
+};
+
+struct km_nic {
+	int  ifindex;
+	char name[IFNAMSIZ];
+};
+
+/* Read a whole small file (/proc/cmdline) into buf, NUL-terminated. */
+static int km_read_text(const char *path, char *buf, size_t size,
+                        char *err, size_t errlen)
+{
+	size_t len = 0;
+	ssize_t n;
+	int fd = open(path, O_RDONLY | O_CLOEXEC);
+
+	if (fd < 0) {
+		snprintf(err, errlen, "cannot read %s: %s", path, strerror(errno));
+		return -1;
+	}
+	for (;;) {
+		if (len == size - 1) {
+			close(fd);
+			snprintf(err, errlen, "%s is longer than %zu bytes", path, size - 1);
+			return -1;
+		}
+		n = read(fd, buf + len, size - 1 - len);
+		if (n < 0) {
+			if (errno == EINTR)
+				continue;
+			snprintf(err, errlen, "cannot read %s: %s", path, strerror(errno));
+			close(fd);
+			return -1;
+		}
+		if (n == 0)
+			break;
+		len += (size_t)n;
+	}
+	close(fd);
+	buf[len] = '\0';
+	return 0;
+}
+
+/*
+ * Parse the command line text (R86). Every whitespace-separated token is
+ * considered, including any after "--". A token beginning "km." must be
+ * km.<key>=<value> with <key> one of ip, gw, dns, each at most once, and
+ * <value> at most 15 characters and accepted by inet_pton(AF_INET). The set
+ * is all three (routed) or none (offline); one or two is an error (§3).
+ */
+static int km_net_parse(const char *cmdline, struct km_net *net,
+                        char *err, size_t errlen)
+{
+	static const char *const keys[3] = { "ip", "gw", "dns" };
+	struct in_addr *dst[3];
+	int seen[3] = { 0, 0, 0 };
+	const char *p = cmdline;
+	int i, nseen;
+
+	memset(net, 0, sizeof *net);
+	dst[0] = &net->ip;
+	dst[1] = &net->gw;
+	dst[2] = &net->dns;
+
+	for (;;) {
+		const char *tok, *eq;
+		size_t len, keylen, vlen;
+		char value[KM_VALUE_MAX + 1];
+		int which = -1;
+
+		while (*p == ' ' || *p == '\t' || *p == '\n')
+			p++;
+		if (*p == '\0')
+			break;
+		tok = p;
+		while (*p != '\0' && *p != ' ' && *p != '\t' && *p != '\n')
+			p++;
+		len = (size_t)(p - tok);
+
+		if (len < 3 || strncmp(tok, "km.", 3) != 0)
+			continue;                   /* not ours: ignored */
+
+		eq = memchr(tok, '=', len);
+		if (eq == NULL) {
+			snprintf(err, errlen, "malformed km.* token (no '='): '%.*s'",
+			         (int)len, tok);
+			return -1;
+		}
+		keylen = (size_t)(eq - (tok + 3));
+		for (i = 0; i < 3; i++) {
+			if (keylen == strlen(keys[i]) &&
+			    strncmp(tok + 3, keys[i], keylen) == 0) {
+				which = i;
+				break;
+			}
+		}
+		if (which < 0) {
+			snprintf(err, errlen, "unknown km.* key: '%.*s'", (int)len, tok);
+			return -1;
+		}
+		if (seen[which]) {
+			snprintf(err, errlen, "duplicate km.%s: '%.*s'", keys[which],
+			         (int)len, tok);
+			return -1;
+		}
+		vlen = len - (size_t)(eq + 1 - tok);
+		if (vlen > KM_VALUE_MAX) {
+			snprintf(err, errlen,
+			         "km.%s value longer than %d characters: '%.*s'",
+			         keys[which], KM_VALUE_MAX, (int)len, tok);
+			return -1;
+		}
+		memcpy(value, eq + 1, vlen);
+		value[vlen] = '\0';
+		if (inet_pton(AF_INET, value, dst[which]) != 1) {
+			snprintf(err, errlen,
+			         "km.%s value is not an IPv4 dotted quad: '%.*s'",
+			         keys[which], (int)len, tok);
+			return -1;
+		}
+		seen[which] = 1;
+	}
+
+	nseen = seen[0] + seen[1] + seen[2];
+	if (nseen == 0) {
+		net->state = KM_NET_OFFLINE;
+		return 0;
+	}
+	if (nseen != 3) {
+		snprintf(err, errlen,
+		         "partial km.* set (all three or none): km.ip %s, km.gw %s, km.dns %s",
+		         seen[0] ? "given" : "MISSING", seen[1] ? "given" : "MISSING",
+		         seen[2] ? "given" : "MISSING");
+		return -1;
+	}
+	net->state = KM_NET_ROUTED;
+	return 0;
+}
+
+/*
+ * Select the NIC (R85): the one entry of <netdir> that has a "device" link,
+ * i.e. is backed by a device. lo and virtual links (sit0 from a built-in
+ * CONFIG_IPV6_SIT, dummy, tunnels, bonds) have none, are not counted and are
+ * left alone. Zero or more than one device-backed link is an error. The
+ * ifindex is read from <netdir>/<if>/ifindex.
+ */
+static int km_net_select(const char *netdir, struct km_nic *nic,
+                         char *err, size_t errlen)
+{
+	DIR *d;
+	struct dirent *de;
+	char path[KM_ERR_MAX - 64];         /* bounded so err[] can quote it */
+	char found[KM_ERR_MAX / 2];
+	char text[32];
+	struct stat st;
+	size_t flen = 0;
+	int count = 0;
+	char *end;
+	long idx;
+
+	memset(nic, 0, sizeof *nic);
+	found[0] = '\0';
+
+	d = opendir(netdir);
+	if (d == NULL) {
+		snprintf(err, errlen, "cannot open %s: %s", netdir, strerror(errno));
+		return -1;
+	}
+	while ((errno = 0, de = readdir(d)) != NULL) {
+		if (de->d_name[0] == '.')
+			continue;
+		if ((size_t)snprintf(path, sizeof path, "%s/%s/device", netdir,
+		                     de->d_name) >= sizeof path) {
+			snprintf(err, errlen, "path too long under %s", netdir);
+			closedir(d);
+			return -1;
+		}
+		if (stat(path, &st) != 0) {
+			if (errno == ENOENT || errno == ENOTDIR)
+				continue;           /* not device-backed: not counted */
+			snprintf(err, errlen, "cannot stat %s: %s", path, strerror(errno));
+			closedir(d);
+			return -1;
+		}
+		count++;
+		if (count == 1) {
+			if (strlen(de->d_name) >= sizeof nic->name) {
+				snprintf(err, errlen, "link name too long: '%s'", de->d_name);
+				closedir(d);
+				return -1;
+			}
+			strcpy(nic->name, de->d_name);
+		}
+		if (flen < sizeof found)
+			flen += (size_t)snprintf(found + flen, sizeof found - flen,
+			                         "%s%s", count > 1 ? " " : "", de->d_name);
+	}
+	if (errno != 0) {
+		snprintf(err, errlen, "cannot read %s: %s", netdir, strerror(errno));
+		closedir(d);
+		return -1;
+	}
+	closedir(d);
+
+	if (count != 1) {
+		snprintf(err, errlen,
+		         "expected exactly one device-backed link in %s, counted %d%s%s",
+		         netdir, count, count ? ": " : "", found);
+		return -1;
+	}
+
+	if ((size_t)snprintf(path, sizeof path, "%s/%s/ifindex", netdir,
+	                     nic->name) >= sizeof path) {
+		snprintf(err, errlen, "path too long under %s", netdir);
+		return -1;
+	}
+	if (km_read_text(path, text, sizeof text, err, errlen) != 0)
+		return -1;
+	errno = 0;
+	idx = strtol(text, &end, 10);
+	if (errno != 0 || end == text || (*end != '\n' && *end != '\0') ||
+	    idx <= 0 || idx > 0x7fffffff) {
+		snprintf(err, errlen, "%s: not an ifindex: '%s'", path, text);
+		return -1;
+	}
+	nic->ifindex = (int)idx;
+	return 0;
+}
+
+/* One rtnetlink request; room for the header, the family struct, two attrs. */
+struct km_nlreq {
+	struct nlmsghdr nh;
+	union {
+		struct ifinfomsg ifi;
+		struct ifaddrmsg ifa;
+		struct rtmsg     rtm;
+	} u;
+	char attrs[64];
+};
+
+static void km_nl_attr(struct km_nlreq *req, unsigned short type,
+                       const void *data, size_t len)
+{
+	struct rtattr *rta = (struct rtattr *)((char *)req +
+	                                       NLMSG_ALIGN(req->nh.nlmsg_len));
+	rta->rta_type = type;
+	rta->rta_len = (unsigned short)RTA_LENGTH(len);
+	memcpy(RTA_DATA(rta), data, len);
+	req->nh.nlmsg_len = NLMSG_ALIGN(req->nh.nlmsg_len) + RTA_ALIGN(rta->rta_len);
+}
+
+/* Send one request with NLM_F_ACK and wait for its ack. Only a reply from the
+ * kernel (nl_pid 0) carrying our sequence number counts. A non-zero error in
+ * the ack is the request's failure, reported with its errno. */
+static int km_nl_request(int fd, unsigned int *seq, struct km_nlreq *req,
+                         const char *what, char *err, size_t errlen)
+{
+	struct sockaddr_nl sa;
+	char buf[8192] __attribute__((aligned(NLMSG_ALIGNTO)));
+	ssize_t n;
+
+	req->nh.nlmsg_flags |= NLM_F_REQUEST | NLM_F_ACK;
+	req->nh.nlmsg_seq = ++*seq;
+
+	memset(&sa, 0, sizeof sa);
+	sa.nl_family = AF_NETLINK;
+
+	do
+		n = sendto(fd, req, req->nh.nlmsg_len, 0,
+		           (struct sockaddr *)&sa, sizeof sa);
+	while (n < 0 && errno == EINTR);
+	if (n < 0 || (size_t)n != req->nh.nlmsg_len) {
+		snprintf(err, errlen, "%s: netlink send: %s", what,
+		         n < 0 ? strerror(errno) : "short send");
+		return -1;
+	}
+
+	for (;;) {
+		struct sockaddr_nl from;
+		socklen_t fromlen = sizeof from;
+		struct nlmsghdr *nh;
+		int len;
+
+		n = recvfrom(fd, buf, sizeof buf, 0, (struct sockaddr *)&from, &fromlen);
+		if (n < 0) {
+			if (errno == EINTR)
+				continue;
+			snprintf(err, errlen, "%s: netlink recv: %s", what, strerror(errno));
+			return -1;
+		}
+		if (from.nl_pid != 0)
+			continue;                   /* not from the kernel */
+
+		len = (int)n;
+		for (nh = (struct nlmsghdr *)buf; NLMSG_OK(nh, len);
+		     nh = NLMSG_NEXT(nh, len)) {
+			const struct nlmsgerr *e;
+
+			if (nh->nlmsg_seq != *seq || nh->nlmsg_type != NLMSG_ERROR)
+				continue;
+			if (nh->nlmsg_len < NLMSG_LENGTH(sizeof *e)) {
+				snprintf(err, errlen, "%s: netlink: short ack", what);
+				return -1;
+			}
+			e = NLMSG_DATA(nh);
+			if (e->error == 0)
+				return 0;
+			snprintf(err, errlen, "%s: netlink: %s", what, strerror(-e->error));
+			return -1;
+		}
+	}
+}
+
+/* RTM_NEWLINK setting IFF_UP and nothing else. ifindex 0 selects by name. */
+static int km_nl_link_up(int fd, unsigned int *seq, int ifindex,
+                         const char *name, char *err, size_t errlen)
+{
+	struct km_nlreq req;
+	char what[64];
+
+	memset(&req, 0, sizeof req);
+	req.nh.nlmsg_len = NLMSG_LENGTH(sizeof req.u.ifi);
+	req.nh.nlmsg_type = RTM_NEWLINK;
+	req.u.ifi.ifi_family = AF_UNSPEC;
+	req.u.ifi.ifi_index = ifindex;
+	req.u.ifi.ifi_flags = IFF_UP;
+	req.u.ifi.ifi_change = IFF_UP;
+	if (ifindex == 0)
+		km_nl_attr(&req, IFLA_IFNAME, name, strlen(name) + 1);
+
+	if (ifindex == 0)
+		snprintf(what, sizeof what, "link up %s (by name)", name);
+	else
+		snprintf(what, sizeof what, "link up %s (ifindex %d)", name, ifindex);
+	return km_nl_request(fd, seq, &req, what, err, errlen);
+}
+
+/*
+ * Apply (ADR-038 §5, §6). One NETLINK_ROUTE socket, closed before returning.
+ * In order: lo up (always); routed only: the NIC up, km.ip/32 on it
+ * (IFA_LOCAL = IFA_ADDRESS = km.ip, scope universe), then the default route
+ * (main table, unicast, universe) via km.gw, out of the NIC, RTNH_F_ONLINK --
+ * with a /32 the gateway is not on any prefix, and onlink says it is reachable
+ * on this link anyway. On the offline path the NIC is left down (§2).
+ */
+static int km_net_apply(const struct km_net *net, const struct km_nic *nic,
+                        char *err, size_t errlen)
+{
+	struct km_nlreq req;
+	unsigned int seq = 0;
+	int rc = -1;
+	int fd = socket(AF_NETLINK, SOCK_RAW | SOCK_CLOEXEC, NETLINK_ROUTE);
+
+	if (fd < 0) {
+		snprintf(err, errlen, "netlink socket: %s", strerror(errno));
+		return -1;
+	}
+
+	if (km_nl_link_up(fd, &seq, 0, "lo", err, errlen) != 0)
+		goto out;
+	if (net->state != KM_NET_ROUTED) {
+		rc = 0;
+		goto out;
+	}
+
+	if (km_nl_link_up(fd, &seq, nic->ifindex, nic->name, err, errlen) != 0)
+		goto out;
+
+	memset(&req, 0, sizeof req);
+	req.nh.nlmsg_len = NLMSG_LENGTH(sizeof req.u.ifa);
+	req.nh.nlmsg_type = RTM_NEWADDR;
+	req.nh.nlmsg_flags = NLM_F_CREATE | NLM_F_EXCL;
+	req.u.ifa.ifa_family = AF_INET;
+	req.u.ifa.ifa_prefixlen = 32;
+	req.u.ifa.ifa_scope = RT_SCOPE_UNIVERSE;
+	req.u.ifa.ifa_index = (unsigned int)nic->ifindex;
+	km_nl_attr(&req, IFA_LOCAL, &net->ip, sizeof net->ip);
+	km_nl_attr(&req, IFA_ADDRESS, &net->ip, sizeof net->ip);
+	if (km_nl_request(fd, &seq, &req, "address add", err, errlen) != 0)
+		goto out;
+
+	memset(&req, 0, sizeof req);
+	req.nh.nlmsg_len = NLMSG_LENGTH(sizeof req.u.rtm);
+	req.nh.nlmsg_type = RTM_NEWROUTE;
+	req.nh.nlmsg_flags = NLM_F_CREATE | NLM_F_EXCL;
+	req.u.rtm.rtm_family = AF_INET;
+	req.u.rtm.rtm_dst_len = 0;
+	req.u.rtm.rtm_table = RT_TABLE_MAIN;
+	req.u.rtm.rtm_protocol = RTPROT_BOOT;
+	req.u.rtm.rtm_scope = RT_SCOPE_UNIVERSE;
+	req.u.rtm.rtm_type = RTN_UNICAST;
+	req.u.rtm.rtm_flags = RTNH_F_ONLINK;
+	km_nl_attr(&req, RTA_GATEWAY, &net->gw, sizeof net->gw);
+	km_nl_attr(&req, RTA_OIF, &nic->ifindex, sizeof nic->ifindex);
+	if (km_nl_request(fd, &seq, &req, "default route add", err, errlen) != 0)
+		goto out;
+
+	rc = 0;
+out:
+	close(fd);
+	return rc;
+}
+
+/* The resolver file (ADR-038 §7): one line, root:root 0644 (umask is 0 in
+ * PID 1), created exclusively and never through a link. */
+static int km_net_resolver(const char *path, const struct km_net *net,
+                           char *err, size_t errlen)
+{
+	char line[32 + INET_ADDRSTRLEN];
+	char dns[INET_ADDRSTRLEN];
+	size_t len, off = 0;
+	ssize_t n;
+	int fd;
+
+	inet_ntop(AF_INET, &net->dns, dns, sizeof dns);
+	len = (size_t)snprintf(line, sizeof line, "nameserver %s\n", dns);
+
+	fd = open(path, O_WRONLY | O_CREAT | O_EXCL | O_NOFOLLOW | O_CLOEXEC, 0644);
+	if (fd < 0) {
+		snprintf(err, errlen, "cannot create %s: %s", path, strerror(errno));
+		return -1;
+	}
+	while (off < len) {
+		n = write(fd, line + off, len - off);
+		if (n < 0) {
+			if (errno == EINTR)
+				continue;
+			snprintf(err, errlen, "cannot write %s: %s", path, strerror(errno));
+			close(fd);
+			return -1;
+		}
+		off += (size_t)n;
+	}
+	if (close(fd) != 0) {
+		snprintf(err, errlen, "cannot close %s: %s", path, strerror(errno));
+		return -1;
+	}
+	return 0;
+}
+
+/* The whole step: read, parse, select (routed), apply, resolver (routed), and
+ * the one log line of §11. Returns -1 with err[] set on any error; the caller
+ * owns the exit. */
+static int km_net_step(const char *cmdline_path, const char *netdir,
+                       const char *resolv_path, char *err, size_t errlen)
+{
+	char cmdline[KM_CMDLINE_MAX];
+	struct km_net net;
+	struct km_nic nic;
+	char ip[INET_ADDRSTRLEN], gw[INET_ADDRSTRLEN], dns[INET_ADDRSTRLEN];
+
+	memset(&nic, 0, sizeof nic);
+	if (km_read_text(cmdline_path, cmdline, sizeof cmdline, err, errlen) != 0)
+		return -1;
+	if (km_net_parse(cmdline, &net, err, errlen) != 0)
+		return -1;
+	if (net.state == KM_NET_ROUTED &&
+	    km_net_select(netdir, &nic, err, errlen) != 0)
+		return -1;
+	if (km_net_apply(&net, &nic, err, errlen) != 0)
+		return -1;
+
+	if (net.state != KM_NET_ROUTED) {
+		logmsg("net: offline (no km.ip), lo up");
+		return 0;
+	}
+	if (km_net_resolver(resolv_path, &net, err, errlen) != 0)
+		return -1;
+
+	inet_ntop(AF_INET, &net.ip, ip, sizeof ip);
+	inet_ntop(AF_INET, &net.gw, gw, sizeof gw);
+	inet_ntop(AF_INET, &net.dns, dns, sizeof dns);
+	logmsg("net: %s %s/32 via %s dns %s", nic.name, ip, gw, dns);
+	return 0;
 }
 
 /* ---- control socket ------------------------------------------------------- */
@@ -315,6 +838,9 @@ static void msleep(long ms)
 	nanosleep(&ts, NULL);
 }
 
+/* listen_fd is -1 when the control socket was never opened: the network
+ * step's error exit (ADR-038 §9, R87) takes this same tail before anything
+ * else exists, so there is nothing to close and no node to unlink. */
 static void do_shutdown(int listen_fd)
 {
 	int waited;
@@ -323,8 +849,10 @@ static void do_shutdown(int listen_fd)
 
 	logmsg("shutting down");
 
-	close(listen_fd);
-	unlink(INIT_SOCK);
+	if (listen_fd >= 0) {
+		close(listen_fd);
+		unlink(INIT_SOCK);
+	}
 
 	/* Politely ask everything (except us) to terminate. */
 	kill(-1, SIGTERM);
@@ -373,6 +901,7 @@ static void do_shutdown(int listen_fd)
 
 /* ---- main ----------------------------------------------------------------- */
 
+#ifndef KATMATE_INIT_NO_MAIN
 int main(void)
 {
 	int sfd, listen_fd;
@@ -388,6 +917,21 @@ int main(void)
 
 	setup_filesystems();
 	reopen_console();
+
+	/* Network (ADR-038), before anything else exists (R87): no signal mask,
+	 * no control socket, no agent. An error leaves through the shutdown tail
+	 * -- /home unmounted, reboot, QEMU exits under -no-reboot -- and never
+	 * through fatal(): a halted guest keeps QEMU up with nothing answering. */
+	{
+		char err[KM_ERR_MAX];
+
+		if (km_net_step(KM_CMDLINE_PATH, KM_SYSFS_NET, KM_RESOLV_PATH,
+		                err, sizeof err) != 0) {
+			logmsg("net: ERROR: %s", err);
+			logmsg("net: vm-agent not started; exiting the VM (ADR-038 §9)");
+			do_shutdown(-1);
+		}
+	}
 
 	/* Block the signals we will consume via signalfd. Children reset this
 	 * mask before exec (see spawn_agent), so they are unaffected. */
@@ -453,3 +997,4 @@ int main(void)
 	do_shutdown(listen_fd);
 	return 0; /* unreachable */
 }
+#endif /* KATMATE_INIT_NO_MAIN */
