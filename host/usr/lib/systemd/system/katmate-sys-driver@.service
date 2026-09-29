@@ -9,8 +9,8 @@
 # reason T3 may be derived from T1 without T1 becoming an attack surface: a user
 # cannot select weaker containment.
 #
-# Transcribed from ~/net-sys.con, which was the de facto specification. Seven
-# changes, each required by a decision already taken; they are marked (1)-(7)
+# Transcribed from ~/net-sys.con, which was the de facto specification. Eight
+# changes, each required by a decision already taken; they are marked (1)-(8)
 # below where they occur.
 Description=KatMate sysVM (driver domain): %i
 # No Documentation= : no man page ships. See the comment in
@@ -229,6 +229,24 @@ ExecStart=/usr/bin/qemu-system-x86_64 \
     -netdev dgram,id=link0f,local.type=unix,local.path=/run/katmate/link/%i/0f/netvm,remote.type=unix,remote.path=/run/katmate/link/%i/0f/appvm \
     -device virtio-net-pci,netdev=link0f,mac=52:54:01:00:00:0f \
     -sandbox on,obsolete=deny,elevateprivileges=deny,spawn=deny,resourcecontrol=deny
+
+# (8) The sixteen netvm sockets are unlinked at every stop (ADR-035 §5; ADR-037
+#     R74; open problem #23). QEMU unlinks before bind() but never at exit, not
+#     on a clean SIGTERM and not after a refused start, which has already bound
+#     every backend. A socket file's presence is therefore not authority for
+#     liveness; systemd's unit state is. Between a stop and the next start an
+#     unheld netvm node would stand in each slot directory, and anything able to
+#     bind it there would receive the AppVMs' frames in the gateway's place. A
+#     pre-start sweep runs too late to close that window, and only an unlink at
+#     stop does. Sixteen literal paths in slot order: no shell, no glob, and
+#     nothing crosses (%i only).
+#     It does NOT touch appvm, which is the AppVM's own socket and is unlinked by
+#     the AppVM's unit, or owner, which is the assignment and belongs to whoever
+#     assigns (ADR-035 §5). The slot directories stay: RuntimeDirectoryPreserve=yes
+#     above keeps them across a stop, because a live AppVM's appvm socket is in
+#     them.
+#     UNVERIFIED: first executes at the next stop of this unit.
+ExecStopPost=/usr/bin/rm -f /run/katmate/link/%i/00/netvm /run/katmate/link/%i/01/netvm /run/katmate/link/%i/02/netvm /run/katmate/link/%i/03/netvm /run/katmate/link/%i/04/netvm /run/katmate/link/%i/05/netvm /run/katmate/link/%i/06/netvm /run/katmate/link/%i/07/netvm /run/katmate/link/%i/08/netvm /run/katmate/link/%i/09/netvm /run/katmate/link/%i/0a/netvm /run/katmate/link/%i/0b/netvm /run/katmate/link/%i/0c/netvm /run/katmate/link/%i/0d/netvm /run/katmate/link/%i/0e/netvm /run/katmate/link/%i/0f/netvm
 
 # The serial console goes to the journal, one way. That is the correct end state
 # — open problem #12 becomes unreachable rather than resolved — and it means
