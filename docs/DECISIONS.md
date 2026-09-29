@@ -8747,6 +8747,44 @@ acceptance does not do it.
   11; C1 is its own step), and what makes up `km01`'s +3 and +6 frames in
   G5's two halves.
 
+**Revision note (2026-09-29, networking arc step 4c — rulings R101, R102,
+R108, R109, R111, R112):** this note records the operator's rulings of
+2026-09-29 on the step-4c read pass (`s4c-readpass-report.md`, outside the
+repository, cited as S). It changes no text above, implements nothing and
+takes no gate. **R67's step 4c is now these rulings together with R100 and
+R103–R107, R110 and R113**, which concern [ADR-035](DECISIONS.md#adr-035)
+and are recorded in its note of this date. The operator's instruction with
+them: *"do not over-complicate"*.
+
+- **R101 — a measurement first, `s4c-m0`** (S E-2, E-12). Through netVM's
+  console: the four kernel config symbols (`CONFIG_NF_TABLES_ARP`,
+  `CONFIG_NF_TABLES_NETDEV`, `CONFIG_NF_CONNTRACK_NETLINK`,
+  `CONFIG_NETFILTER_NETLINK`) from `/boot/config-$(uname -r)`, `nft
+  --version`, and one throwaway `table arp` loaded and deleted, with no
+  `flush ruleset`. No `netdev` probe. Then 4c's code, then one netVM
+  rebuild.
+- **R102 — DOWN on REMOVE, and `ipv6.disable=1` on netVM's kernel**
+  (S E-3). netVM uses no IPv6: the uplink is `ipv4only`, and AppVMs are
+  IPv4-only ([ADR-038](DECISIONS.md#adr-038)). This ends both halves of
+  open problem #45 (the link-local after REMOVE, and netVM's IPv6 on an
+  assigned slot) and netVM's own router solicitations (#24). VPN mode, if
+  it needs IPv6, revisits this in its own ADR (R30).
+- **R108 — the order of 4c's commits** (S E-9): the SHUTDOWN comments (#51,
+  R73); §7's count with R104; R103; R105; DOWN on REMOVE, with the
+  `netcfg.rs:331` comment replaced by its reason; R107, the rules and the
+  agent; R100 with its read-back; R102's `ipv6.disable=1`; R111.
+- **R109 — fixtures** (S E-10). `f12peer.py` gains a forged-ARP mode (for
+  #34's refusal gate) and a TCP mode (for a conntrack row that does not race
+  a short expiry).
+- **R111 — open problem #48 is fixed in 4c.** `ip_forward=1` is set by a
+  oneshot unit with `Requires=` and `After=nftables.service`, not by
+  `sysctl.d`, so a ruleset that fails to load leaves forwarding off.
+- **R112 — dev packages on the MINIS host are allowed**, such as
+  `conntrack-tools` and `strace`, as needed for golden fixtures.
+
+**Status is unchanged: Accepted (2026-09-29).** None of this is a condition
+of acceptance.
+
 ---
 
 ## ADR-038 — AppVM guest addressing: katmate-init applies a `/32` from typed `km.*` command-line parameters
