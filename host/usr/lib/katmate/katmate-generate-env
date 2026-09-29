@@ -245,15 +245,6 @@ if [[ "$DERIVED" != "$ASSERTED" ]]; then
     km_die "profile mismatch: the unit asserts '$ASSERTED' (from $UNIT_PREFIX@) and $KM_T1_FILE derives '$DERIVED' from (class=$CLASS, netvm=${KM_T1[netvm]-<absent>}, nic=${KM_T1[nic]-<absent>}). Refusing before QEMU (ADR-032 §6)."
 fi
 
-# app-routed derives from a valid T1 file but does not ship in step 3a: no VM
-# has a network device yet, so no gate could exercise the template, and a
-# signed ISO carrying a template nobody has run would rot (ADR-030 revision
-# note, 2026-08-09). If the assertion matched, the unit exists — so this can
-# only be reached by a template added without its gate.
-if [[ "$DERIVED" == app-routed ]]; then
-    km_die "profile app-routed is derived and asserted, but AppVM link topology is not settled (ADR-029 C2) and no app-routed template ships. Nothing in this projection describes a link."
-fi
-
 # --- T2, per class -----------------------------------------------------------
 KM_KERNEL="" KM_INITRD="" KM_ROOTFS_DEV="" KM_ROOT_DEVICE="" KM_ROOTFSTYPE=""
 KM_DELTA="" KM_HOME_DEV="" KM_VFIO_BDF="" KM_MAC_INT=""
@@ -291,6 +282,105 @@ app)
     fi
     ;;
 esac
+
+# --- app-routed: the slot ----------------------------------------------------
+# An AppVM attached to a netVM takes the slot of that netVM's pool whose `owner`
+# names this instance (ADR-035 §5; ADR-037 R62, R63). No T1 key carries a slot:
+# `owner` is the assignment, written by the launch daemon once it exists and by
+# the operator by hand until then (R63), and it decides which address this VM
+# gets, so it is read as a trust input (R78). It lives on tmpfs, so a host
+# reboot loses it and the next start fails closed here.
+KM_NETVM="" KM_SLOT="" KM_GUEST_ADDR=""
+if [[ "$DERIVED" == app-routed ]]; then
+    # Reported before the slot lookup, so the combination gets its explanation
+    # rather than whatever the lookup would say first — the same shape as the
+    # sys-proxy refusal above (ADR-037 R80).
+    if [[ "${KM_T1[persistence]}" == ephemeral ]]; then
+        km_die "$KM_T1_FILE: persistence=ephemeral on the profile app-routed is NAMED and is NOT shipped. katmate-init mounts /dev/vdb as /home as a fatal condition, so katmate-app-routed@ lists the home drive unconditionally, and an ephemeral /home has no storage mechanism (ADR-030 §7): an explicit error, never a default. Use persistence=persistent."
+    fi
+
+    # Already pattern-checked where T1 was typed above.
+    KM_NETVM="${KM_T1[netvm]}"
+
+    # The pool is the netVM unit's RuntimeDirectory=, created at its start and
+    # kept across its stops (ADR-035 §5). Its absence means that netVM has not
+    # started on this boot, which R68 makes the precondition: the generator
+    # reads no second T1 file to find out.
+    POOL="$KM_RUN_DIR/link/$KM_NETVM"
+    [[ -d "$POOL" ]] \
+        || km_die "netvm='$KM_NETVM': the slot pool $POOL is not a directory. katmate-sys-driver@$KM_NETVM creates it at its start (ADR-035 §5); it does not exist before that netVM has started on this boot."
+
+    # The sixteen slots as a literal list, never a glob over the directory: the
+    # pool's size is a constant of the netVM template, and a directory entry
+    # that is not a slot is not something to iterate. EVERY owner present is
+    # checked, not only the one naming this instance: a malformed or foreign
+    # owner anywhere in the pool is a pool nobody should trust to assign an
+    # address (R78).
+    mine=()
+    for kk in 00 01 02 03 04 05 06 07 08 09 0a 0b 0c 0d 0e 0f; do
+        owner="$POOL/$kk/owner"
+        # -L before -e: a dangling symlink fails -e and would otherwise read as
+        # a free slot.
+        [[ ! -L "$owner" ]] \
+            || km_die "$owner is a symlink. An owner decides which address a VM gets and is read only as a regular file (ADR-037 R78)."
+        [[ -e "$owner" ]] || continue
+        [[ -f "$owner" ]] \
+            || km_die "$owner is not a regular file (ADR-037 R78)"
+
+        st="$(stat -c '%u %a' -- "$owner")"
+        [[ "$st" =~ ^([0-9]+)\ ([0-7]+)$ ]] \
+            || km_die "$owner: cannot read its owner and mode (stat gave '$st')"
+        [[ "${BASH_REMATCH[1]}" == 0 ]] \
+            || km_die "$owner is owned by uid ${BASH_REMATCH[1]}, not 0. An owner is the launch daemon's write (R63), and one any other uid could have written is not an assignment (ADR-037 R78)."
+        (( (8#${BASH_REMATCH[2]} & 8#022) == 0 )) \
+            || km_die "$owner has mode ${BASH_REMATCH[2]}: group- or world-writable, so anyone in that group could reassign the slot (ADR-037 R78)"
+
+        # Flat KEY=VALUE in the nic label file's form, read the same way
+        # (R78).
+        owner_version="$(km_meta_require "$owner" KATMATE_OWNER_VERSION)"
+        [[ "$owner_version" == "1" ]] \
+            || km_die "$owner has KATMATE_OWNER_VERSION=$owner_version; this executable understands version 1 only"
+
+        # km_check_instance's pattern, tested here rather than by calling it:
+        # its diagnostic describes a filename under /etc/katmate/vm, which this
+        # is not.
+        owner_instance="$(km_meta_require "$owner" INSTANCE)"
+        [[ "$owner_instance" =~ ^[a-z][a-z0-9_]*$ ]] \
+            || km_die "$owner: INSTANCE='$owner_instance' is not an instance name [a-z][a-z0-9_]* (ADR-037 R78)"
+
+        # Read and type-checked, never projected: nothing in step 4a consumes
+        # it, because NETCFG is issued by hand (R70, R79). Canonical decimal of
+        # at most ten digits first, so the range test cannot overflow bash's
+        # arithmetic.
+        owner_link_id="$(km_meta_require "$owner" LINK_ID)"
+        [[ "$owner_link_id" =~ ^(0|[1-9][0-9]{0,9})$ ]] \
+            || km_die "$owner: LINK_ID='$owner_link_id' is not a decimal u32, 0-4294967295 (ADR-037 R78)"
+        (( owner_link_id <= 4294967295 )) \
+            || km_die "$owner: LINK_ID=$owner_link_id is above 4294967295, the u32 range (ADR-037 R78)"
+
+        if [[ "$owner_instance" == "$INSTANCE" ]]; then
+            mine+=("$kk")
+        fi
+    done
+
+    case "${#mine[@]}" in
+    1)
+        KM_SLOT="${mine[0]}"
+        ;;
+    0)
+        km_die "no slot in $POOL has an owner naming instance '$INSTANCE'. Until the launch daemon exists the operator writes owner by hand (ADR-037 R63); an owner does not survive a host reboot, and the start then fails closed here."
+        ;;
+    *)
+        km_die "instance '$INSTANCE' is named by the owner of more than one slot in $POOL: ${mine[*]}. An instance holds one link; refusing rather than choosing one."
+        ;;
+    esac
+
+    # Slot k's peer is 10.100.1.(16 + k) (ADR-035 §4). This is the only place
+    # that layout is computed: the image never learns it (ADR-038 §3, R65), and
+    # the template carries the result as km.ip= with the gateway and resolver
+    # written literally beside it (ADR-038 §10).
+    KM_GUEST_ADDR="10.100.1.$(( 16 + 16#$KM_SLOT ))"
+fi
 
 # --- the nic label, resolved for this boot -----------------------------------
 # ADR-030 §5: the label resolves through /run/katmate/nics/<label>, written by
@@ -399,6 +489,9 @@ emit_if_set KM_ROOT_DEVICE "$KM_ROOT_DEVICE"
 emit_if_set KM_ROOTFSTYPE  "$KM_ROOTFSTYPE"
 emit_if_set KM_DELTA       "$KM_DELTA"
 emit_if_set KM_HOME_DEV    "$KM_HOME_DEV"
+emit_if_set KM_NETVM       "$KM_NETVM"
+emit_if_set KM_SLOT        "$KM_SLOT"
+emit_if_set KM_GUEST_ADDR  "$KM_GUEST_ADDR"
 emit_if_set KM_VFIO_BDF    "$KM_VFIO_BDF"
 emit_if_set KM_MAC_INT     "$KM_MAC_INT"
 
@@ -452,6 +545,18 @@ app-offline)
     # AppVM the guest root is a constant of the template, not data; KM_HOME_DEV
     # follows persistence and is likewise not a property of the profile.
     REQ_ENV=("${REQ_ENV_COMMON[@]}" KM_ROOTFSTYPE KM_DELTA)
+    ;;
+app-routed)
+    # Every one of these is an unconditional emission for this profile above.
+    # KM_ROOTFSTYPE and KM_DELTA as for app-offline. KM_HOME_DEV is here and not
+    # in app-offline because app-routed refuses persistence=ephemeral above, so
+    # a home drive always exists, and the template lists it unconditionally
+    # (ADR-037 R80). KM_NETVM and KM_SLOT name the link's socket path (ADR-035
+    # §5), KM_GUEST_ADDR is the slot's address (ADR-038 §10), and KM_MAC_INT is
+    # the link's identity MAC (ADR-035 §9): each is the profile's link, which
+    # exists by construction once netvm is set.
+    REQ_ENV=("${REQ_ENV_COMMON[@]}" KM_ROOTFSTYPE KM_DELTA KM_HOME_DEV \
+             KM_NETVM KM_SLOT KM_GUEST_ADDR KM_MAC_INT)
     ;;
 *)
     km_die "internal: no required-key set for profile '$DERIVED', so the read-back cannot state what it is checking for. A profile reaches this line only if it was accepted above, which makes this a defect in this file and not in any input."
