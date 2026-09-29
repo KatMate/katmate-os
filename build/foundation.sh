@@ -174,11 +174,12 @@ chroot_run "$MNT" apt-get autoremove --purge -y
 rm -rf "$MNT/tmp/waypipe" "$MNT/root/.cargo" "$MNT/root/.cache" 2>/dev/null || true
 
 # ---- 6. bake vm-agent + katmate-init ----------------------------------------
-# Paths from the live code: vm-agent at /usr/local/bin/vm-agent (katmate-init.c
-# line 65). katmate-init replaces /sbin/init — kernel default search path, so
-# no init= cmdline is needed (init header line 24). vm-agent is launched by init
-# dropped to uid 1000; there is NO systemd unit (the old vm-agent.service left
-# with the move to katmate-init; the systemd package itself remains, step 3).
+# Paths from the live code: vm-agent at /usr/local/bin/vm-agent (`VM_AGENT_PATH`
+# in katmate-init.c). katmate-init replaces /sbin/init — kernel default search
+# path, so no init= cmdline is needed (its header, "Bake to /sbin/init").
+# vm-agent is launched by init dropped to uid 1000; there is NO systemd unit
+# (the old vm-agent.service left with the move to katmate-init; the systemd
+# package itself remains, step 3).
 log "Bake vm-agent -> /usr/local/bin/vm-agent"
 install -Dm0755 "$VM_AGENT_BIN" "$MNT/usr/local/bin/vm-agent"
 
