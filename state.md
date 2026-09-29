@@ -6,10 +6,10 @@
 > history and the ADRs — this file references them rather than repeating them.
 
 **Milestone:** v0.2 (in development) · **Last updated:** 2026-09-29
-(`wp-0928d`, a docs-only write pass on the Acer. It recorded networking
-arc step 4.0 (s4-m0), R75's reading and R76 — in ADR-035's, ADR-037's and
-ADR-030's revision notes, `ROADMAP.md` and this file — and rotated the
-2026-09-28 `f12-impl A and B` entry to `docs/SESSIONS.md`).
+(`wp-0929a`, a docs-only write pass on the Acer. It wrote ADR-038
+(PROPOSED) and recorded R77 — in ADR-038, notes on ADR-037 and ADR-035,
+and this file — and rotated the 2026-09-28 `s4-readpass and rulings`
+entry to `docs/SESSIONS.md`).
 
 ## Current focus
 
@@ -36,6 +36,12 @@ is 4.0, a measurement with no code, then ADR-038 (guest addressing), then
 **[Note 2026-09-28, s4-m0 and rulings: step 4.0 is done. Next is ADR-038,
 in its own session, in the direction R76 gives (katmate-init applies the
 guest's address from typed command-line parameters), then 4a.]**
+**[Note 2026-09-29, ADR-038: ADR-038 is written and PROPOSED (R77).** Next
+is **4a**, the host side: `katmate-app-routed@`, the generator's
+`app-routed` arm and `KM_GUEST_ADDR`, the guard of #19, `ExecStopPost=`,
+and the delta rename. Then **4b**: katmate-init per ADR-038, the resolver
+symlink with its read-back in `foundation.sh` and `app-layer.sh`, and the
+rebuild chain. Then ADR-038's G1–G3 and ADR-037's G5.**]**
 
 The **entire build chain remains scripted and proven from nothing**:
 `make foundation` builds the shared systemd-free base
@@ -63,6 +69,49 @@ restartable — and so updatable — without touching running VMs.
 
 Direction unchanged: IOMMU-capable platforms only (VT-d/AMD-Vi).
 MINIS is primary host and merge target.
+
+## This session (2026-09-29, ADR-038) — AppVM guest addressing written as ADR-038, PROPOSED, and R77 recorded
+
+One session, `wp-0929a`, on the Acer only, docs only. MINIS was not
+contacted. Its report is outside the repository:
+`~/Claude.assistent/wp-0929a-report.md`. The ADR text is the operator's
+payload, `~/Claude.assistent/adr038-payload.md`, appended verbatim.
+
+**ADR-038 is written, PROPOSED.** katmate-init applies an AppVM's `/32`,
+its on-link default route and its resolver from typed `km.ip`, `km.gw`
+and `km.dns` kernel parameters. The direction is R76. Nothing is
+implemented and none of its gates G1–G3 is taken.
+
+**R77 (index; the text is in ADR-038 and in ADR-037's note of
+2026-09-29).** The operator's ruling of 2026-09-29 adopts ADR-038 as
+written. It covers the parameter names, the one-non-loopback-NIC rule, the
+rtnetlink mechanism, syntactic parsing, the error path through shutdown,
+the `/run` resolver behind a relative symlink, `lo` on every boot, the
+literal gateway and resolver in the template, and the gates.
+
+**The first run's halt, D1, resolved by the operator (2026-09-29).** The
+read pass found that the payload called the AppVM's MAC undecided by
+ADR-035 §9, while ADR-035 §2 and §9 state it: the instance-derived
+identity MAC. The operator ruled that the payload misstated ADR-035. It
+was corrected in §4, the rejected alternative (b), *Carried* and *Revisit*
+1. The one-NIC rule stands, now on the reason that the image does not know
+its MAC. Every other citation the brief listed held at `14d6b10`.
+
+**wp-0929a's commits.** The previous-but-one entry rotated out (§
+*Session archive*, *Closed 2026-09-29 (second rotation of that day)*;
+`81dfbac`). ADR-038 appended (`60ec98c`); ADR-037 gained a note on R65 and
+R77 (`055048d`); ADR-035 a note on § *Dependencies surfaced* (`e6e652a`).
+In this file: the header, § *Current focus*, step 4 in § *Next steps*,
+#21, #24, and this entry.
+
+**Not done, and not claimed.** No code, no gate, no build. katmate-init
+has no network code, no image carries the resolver symlink, and no
+template passes a `km.*` parameter. ADR-037 stays PROPOSED (G5).
+ADR-038's claims about the kernel's handling of dotted parameters, and
+that QEMU exits 0 when init refuses, are read from source or expected, not
+observed. G1 reads them.
+
+`wp-0929a` ran on the Acer only and observed nothing on MINIS.
 
 ## Previous session (2026-09-28, s4-m0 and rulings) — networking arc step 4.0: the first AppVM on a slot, measured with no code; R75's reading, and R76, ADR-038's direction
 
@@ -1723,6 +1772,12 @@ touched.
    is the word, and **the measurement must be retaken**. This is a pass with a
    stated condition, not a new gate.
 
+   **[Note 2026-09-29 (ADR-038 §9): a case is added.** When katmate-init
+   refuses a `km.*` set, it leaves through its shutdown path, and the unit
+   is **expected (not observed)** to end inactive, not failed. On the host
+   that is indistinguishable from a clean shutdown until this problem's
+   observation of the agent answering exists.**]**
+
 22. **Kernel provenance is unverifiable — no image can be tied to a config.**
    Added 2026-08-24, from link-m1 § 3c–§ 3d and link-m2 § B0.1, § B0.4.
    `~/katmate-kernels/` holds **different bytes under one filename on the two
@@ -2175,6 +2230,11 @@ touched.
    because its fixture sent to `ff02::1`. R49 read +0 on all three 4.0
    boots, with and without the parameter (ADR-035's note of 2026-09-28).
    Whether netVM sends RAs is still unread.**]**
+   **[Note 2026-09-29 (ADR-038, R77): the AppVM half is closed in
+   direction** by [ADR-038](docs/DECISIONS.md#adr-038): AppVMs are
+   IPv4-only, the routed template carries `ipv6.disable=1`, and there is no
+   `accept_ra` step. It closes when ADR-038's G1 is taken. **#24 stays
+   open.**]**
 
 25. **`KERNEL_SRC_DIR` derives from `$HOME`, and both scripts that read it
    require root — so as root it resolves to a directory that does not exist.**
@@ -3722,6 +3782,11 @@ frozen `vm_home_skel` vs qcow2 branch.
      - **4c** — `netvm-agent`, in one netVM rebuild, after G5 and before
        the second networked AppVM, together with #34 (R67); and the
        SHUTDOWN comments in their own commit (R73, #51).**]**
+     **[Note 2026-09-29 (`wp-0929a`, R77): ADR-038 is written, PROPOSED.**
+     4b carries its three build and code items: katmate-init per ADR-038;
+     the resolver symlink `../run/resolv.conf` with its read-back in
+     `foundation.sh` and `app-layer.sh`; and the rebuild chain, foundation →
+     app layer → delta. The text above is left as written.**]**
   5. **VPN mode** (added 2026-09-27, R30): the WireGuard config, the VPN
      ruleset and the kill-switch, under **its own ADR**, after step 4. R8
      names the config disk as the WireGuard config's channel, and R31 gives
