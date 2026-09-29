@@ -115,7 +115,10 @@ APT::Install-Recommends "false";
 APT::Install-Suggests "false";
 EOF
 
-cp /etc/resolv.conf "$MNT/etc/resolv.conf"   # build-time DNS only; removed before freeze
+# Build-time DNS only. A fresh debootstrap has no resolver link yet, so this is
+# a plain file; step 9 replaces it with the relative ../run/resolv.conf link
+# (ADR-038 §7, lib.sh resolv_link_install) and reads the link back.
+cp /etc/resolv.conf "$MNT/etc/resolv.conf"
 
 # ---- 3. base userspace ------------------------------------------------------
 # The minimal GUI runtime every GUI domain shares, and no applications (ADR-014,
@@ -224,9 +227,10 @@ fi
 # there is nothing to extract here.
 
 # ---- 9. finalize: cleanup, unmount, RO-freeze -------------------------------
-log "Cleanup (apt cache, lists, resolv.conf)"
+log "Cleanup (apt cache, lists; /etc/resolv.conf -> ../run/resolv.conf, read back)"
 chroot_run "$MNT" apt-get clean
-rm -f "$MNT/etc/resolv.conf"
+resolv_link_install "$MNT"
+resolv_link_check "$MNT"
 rm -rf "$MNT"/tmp/* "$MNT"/var/lib/apt/lists/* 2>/dev/null || true
 
 log "Unmount + deactivate, then RO-freeze"

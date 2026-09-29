@@ -94,6 +94,39 @@ cleanup() {
   SNAP_CREATED=""
 }
 
+# --- the image's resolver link (ADR-038 §7) -----------------------------------
+# An AppVM's resolver is /run/resolv.conf, written by katmate-init on the tmpfs
+# it mounts; the image carries /etc/resolv.conf as a link to it. The link is
+# RELATIVE, ../run/resolv.conf, as a defence: the build runs `cp` on the host,
+# and through an absolute /run/resolv.conf link that `cp` resolves on the host
+# and overwrites the HOST's /run/resolv.conf when that file exists, and
+# otherwise fails the build (GNU coreutils refuses to write through a dangling
+# link; measured with 9.11). Relative, it resolves inside $mnt. The builds copy
+# explicitly into "$mnt/run/resolv.conf" in any case (never through the link),
+# and the copy is removed here: left in the image, it would sit beneath init's
+# /run tmpfs for good.
+
+# Remove the build-time copy and make /etc/resolv.conf the relative link,
+# replacing whatever is there (a regular file on a fresh debootstrap).
+resolv_link_install() {
+  local mnt="$1"
+  rm -f "$mnt/run/resolv.conf"
+  ln -sfn ../run/resolv.conf "$mnt/etc/resolv.conf"
+}
+
+# Read-back: die unless /etc/resolv.conf is exactly the relative link and no
+# /run/resolv.conf (file or link) exists in the image. Run before freeze, and by
+# app-layer.sh on the foundation it snapshots, so a layer built before this
+# change is refused rather than extended.
+resolv_link_check() {
+  local mnt="$1" got
+  got="$(readlink "$mnt/etc/resolv.conf" || true)"
+  [[ "$got" == "../run/resolv.conf" ]] \
+    || die "$mnt/etc/resolv.conf is not the relative link ../run/resolv.conf (ADR-038 §7): $(ls -ld "$mnt/etc/resolv.conf" 2>&1)"
+  [[ ! -e "$mnt/run/resolv.conf" && ! -L "$mnt/run/resolv.conf" ]] \
+    || die "$mnt/run/resolv.conf exists in the image (ADR-038 §7: the build-time copy must be removed): $(ls -ld "$mnt/run/resolv.conf" 2>&1)"
+}
+
 # Run a command inside the chroot with a sane non-interactive apt env.
 chroot_run() {
   local mnt="$1"; shift

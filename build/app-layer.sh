@@ -54,7 +54,13 @@ log "Activate $APP_LV (-K -ay: clears skip-activation flag) + mount"
 lv_activate "$APP_LV"
 mount_root "$APP_LV" "$MNT"
 
-cp /etc/resolv.conf "$MNT/etc/resolv.conf"   # build-time DNS only
+# Build-time DNS only (ADR-038 §7). The foundation must already carry the
+# relative /etc/resolv.conf -> ../run/resolv.conf link; one built before that
+# change is refused here, loudly, rather than extended. The copy goes
+# explicitly into the image's /run — never through the link — and the chroot's
+# apt reaches it through the link. Cleanup removes it and reads the link back.
+resolv_link_check "$MNT"
+cp /etc/resolv.conf "$MNT/run/resolv.conf"
 
 log "Install manifest: ${PKGS[*]}"
 chroot_run "$MNT" apt-get update
@@ -62,7 +68,8 @@ chroot_run "$MNT" apt-get install -y "${PKGS[@]}"
 
 log "Cleanup inside image"
 chroot_run "$MNT" apt-get clean
-rm -f "$MNT/etc/resolv.conf"
+resolv_link_install "$MNT"
+resolv_link_check "$MNT"
 rm -rf "$MNT"/var/lib/apt/lists/* 2>/dev/null || true
 
 log "Unmount + deactivate, then RO-freeze"
