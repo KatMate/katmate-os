@@ -8740,3 +8740,42 @@ MINIS's screen**, so the operator is at MINIS for them.
    changes; recorded so the question is not reopened.
 3. **IPv6 is wanted in an AppVM** — reopen R66 and #24 together; `km.*` would
    gain typed IPv6 parameters rather than any autoconfiguration.
+
+**Revision note (2026-09-29, the host half of §10):** **Status: still
+PROPOSED.** This note records the implementation of §10's host half and
+what its first run showed. It takes no gate and changes no text above.
+Sources: `s4a-impl-A-report.md` (A) and `s4a-impl-B-report.md` (B), both
+outside the repository; the rulings are in
+[ADR-037](DECISIONS.md#adr-037)'s note of the same date.
+
+- **§10's host half is in `d6feb9c`.** The generator derives
+  `KM_GUEST_ADDR = 10.100.1.(16 + KM_SLOT)` for `app-routed`, from the slot
+  whose `owner` names the instance (R63, R78), and nowhere else. The
+  `katmate-app-routed@` template's `-append` carries
+  `km.ip=${KM_GUEST_ADDR} km.gw=10.100.1.1 km.dns=10.100.1.1
+  ipv6.disable=1`, the gateway and the resolver written literally.
+- **On MINIS (B, 2026-09-29)** `katmate-app-routed@app_web` started on
+  slot 01 with `KM_GUEST_ADDR=10.100.1.17`. The guest kernel's command line
+  carried the four tokens (console lines 16 and 88), and `ipv6.disable=1`
+  took effect. **No *"Unknown kernel command line parameters"* line
+  appeared, and that reading has no positive control** (B § 5.2): no
+  parameter this kernel does not know was passed in that boot, so it is not
+  shown that this kernel prints the line at all. § *Context*'s claim about
+  dotted parameters is therefore **not yet observed**; it is consistent
+  with this boot, and G1 still reads it.
+- **§ *Status*'s *"no template passes a `km.*` parameter"* no longer holds
+  for the tree**, nor on MINIS. The rest of that sentence stands:
+  katmate-init has no network code and no image carries the resolver
+  symlink. The guest half is networking arc step 4b; G1–G3 remain.
+- **§ *Carried*'s *"inactive, exit 0"*, and how G1 reads it.** After a
+  clean SHUTDOWN the journal says *"Deactivated successfully"*, with no
+  *"Main process exited, code=…"* and no *"Failed with result"* line. The
+  unit's `Result` and `ExecMainStatus` could not be read: systemd collects
+  an inactive, non-failed instance, and `systemctl show` then returns
+  defaults (B § 5.1). **G1's refusal half therefore reads the journal, not
+  `systemctl show`**, for the unit's end state; this is the gate's reading
+  method, and it replaces *Carried*'s *"reads the exit status and the unit
+  state"*.
+
+The guest ignored the parameters: its image predates this ADR. Nothing
+here is G1.
