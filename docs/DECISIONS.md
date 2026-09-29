@@ -8545,7 +8545,7 @@ changes no text above. Sources: `s4b-impl-A-report.md` and
 
 ## ADR-038 — AppVM guest addressing: katmate-init applies a `/32` from typed `km.*` command-line parameters
 
-**Status:** PROPOSED (2026-09-29). The direction is the operator's ruling R76
+**Status:** Accepted (2026-09-29). The direction is the operator's ruling R76
 (2026-09-28, [ADR-037](DECISIONS.md#adr-037)'s note of that date); the
 parameter names, the interface rule, the mechanism, the failure mode, the
 resolver file and `lo` are the operator's rulings of 2026-09-29, recorded
@@ -8920,3 +8920,120 @@ inferred, not read: katmate-init's `umask(0)` inherited through
 **Not taken:** G1's refusal half (`km.ipx=`), G2 (both halves), G3's
 refusal half inside a real build. The vehicle for an altered `-append` is
 the operator's ruling.
+
+**Acceptance note (2026-09-29) — what acceptance rests on, gate by gate,
+and what it does not claim:** the status line above was changed from
+`PROPOSED` to `Accepted` in place. That is this file's practice for that
+one line and only that line, on the precedent of ADR-033's acceptance note
+(2026-08-28) and ADR-034's (2026-09-01). The rest of § *Status* is left as
+written. Its *"Acceptance waits on the gates below"* is discharged by this
+note. Its *"`init/katmate-init.c` has no network code, no image carries the
+resolver symlink, and no template passes a `km.*` parameter"* was already
+superseded by the two notes above. The body stays append-only. Acceptance
+is the operator's ruling **R96** (2026-09-29). The gate verdicts it rests
+on are **R89**, **R90** and **R95**. Sources, all outside the repository:
+`s4b-impl-B-report.md`; `s4b2-impl-A-brief.md` (R91–R93) and its report;
+`s4b2-impl-B-report.md` (the image the gates ran on); and
+`s4-gates-report.md` (the gate readings, and R94).
+
+**The image the gates ran on.** It was built on MINIS on 2026-09-29 from
+`a64c13d` (s4b2-impl-B): `vm_tpl_foundation`
+(`BUILD_DATE=2026-09-29T13:07:13Z`) → `vm_app_web`
+(`APP_BUILT=2026-09-29T13:09:27Z`) → a new delta. Both layers carry
+`/sbin/init` equal to `out/katmate-init` (`c3ad714a…`), and an `objdump`
+reading shows R91's `umask(0x12)` in it. G1's positive half and G3 (R89,
+R90) were read on the build before it, from `647a380`. The network step
+did not change between the two: `47c4305` touches `spawn_agent()` and a
+comment in `main()` only. G3's positive half was read again on the new
+layers: the relative link, and no `run/resolv.conf`.
+
+**What acceptance rests on, gate by gate.** All gates were taken on MINIS
+with `katmate-app-routed@app_web` on slot 01, link 201 added by hand, and
+netVM unchanged (MainPID 49895).
+
+- **G1, positive half — R89, PASS**, as the note above records it. The
+  `net:` line, `[katmate-init] net: eth0 10.100.1.17/32 via 10.100.1.1 dns
+  10.100.1.1`, recurred byte for byte on the new image, at s4b2-impl-B's
+  boot and at ADR-037 G5's positive half.
+- **G1, refusal half — R95, PASS.** `km.ip=` became `km.ipx=`, with the same
+  value and nothing else changed: one line of `ExecStart=` differs by
+  `diff`, taken from `systemctl cat`. The console showed `net: ERROR:
+  unknown km.* key: 'km.ipx=10.100.1.17'`, `net: vm-agent not started;
+  exiting the VM (ADR-038 §9)`, `shutting down` and `reboot(RB_AUTOBOOT)
+  -> triple-fault -> QEMU exits`. No *"vm-agent launched"* line appeared.
+  QEMU was gone within 5 s. **No frame from the guest:** netVM's `km01`
+  `rx_packets` read 18 before and 18 after (R94).
+- **G2, refusal half — R95, PASS.** The variant was `km.gw=10.100.1.1
+  ipv6.disable=1` alone. The console showed `net: ERROR: partial km.* set
+  (all three or none): km.ip MISSING, km.gw given, km.dns MISSING`, then
+  the same three exit lines, with no `net: offline` line. QEMU was gone
+  within 5 s. `km01` read 18 → 18. It was refused as a partial set, not
+  taken as offline.
+- **G2, positive half — R95, PASS.** The variant had no `km.*` token, and
+  `ipv6.disable=1` was kept. The console showed `net: offline (no km.ip),
+  lo up`, then `vm-agent launched`. The in-guest reading is `g2p.txt`,
+  written by uid 1000 in `foot` and read off the home LV read-only after
+  shutdown. `fib_trie` holds only `127.0.0.0/8`'s entries.
+  `/proc/net/route` has its header and no row. `lo`'s flags are `0x9`.
+  `readlink /etc/resolv.conf` gives `../run/resolv.conf`, and `cat` gives
+  *No such file or directory*: the dangling link, which is §7's *"no
+  resolver"*. **§2's *"A NIC present on the offline path is left down"* is
+  observed:** `eth0`'s flags are `0x1002`, without `IFF_UP`. `km01` read
+  18 → 18 across 8.5 minutes with the NIC present.
+- **G3 — R90, PASS**, stated exactly in the note above. The positive half
+  holds on both frozen layers, and was read again on the rebuilt ones. The
+  refusal half was run at function level only, not inside a real build.
+  The host control read absent → absent.
+- **R94 — how *"no frame from the guest"* was read** (operator, 2026-09-29).
+  G1's text names *"a capture on the slot's netVM end"*, and the netVM
+  image carries no capture tool by design. The observable is therefore
+  netVM's `km01` `rx_packets`, unchanged across the run. The only sender on
+  slot 01's link is the guest's `appvm` socket, and the interface counter
+  counts every frame, ARP included. Its positive control is ADR-037 G5's
+  positive half on the same link, where the counter rose 18 → 21. G1's text
+  is left as written; this is the reading method that narrows it.
+- **The vehicle — R92** (operator, 2026-09-29). An altered `-append` is
+  carried by a per-session drop-in,
+  `/run/systemd/system/katmate-app-routed@app_web.service.d/90-gate.conf`.
+  It resets `ExecStart=` and restates the installed unit's with only
+  `-append` changed. `diff` shows the change, and the drop-in is removed
+  after each run. It is never under `/etc` (R9). This answers §
+  *Carried*'s *"The vehicle for G2 at 4b"*. G2's refusal variant kept
+  `ipv6.disable=1` (R94).
+
+**§ *Carried*'s first item is observed.** *"The unit is expected to end
+inactive, not failed, when init refuses … expected, not observed"*: after
+G1's and G2's refusal halves, the journal read *"Deactivated
+successfully."*, with no *"Main process exited"* and no *"Failed with
+result"* line. By the narrowing in the note above, that is a clean end.
+There are two instances. Telling an init refusal from a clean shutdown on
+the host is still open problem #21's.
+
+**R91's umask, observed as a by-product.** In G2's positive half,
+`umask` read `0022` in a `foot` shell as uid 1000, and a new file read
+`-rw-r--r--`. `47c4305` sets `umask(022)` in `spawn_agent()`'s child
+before `vm-agent` starts (R91; open problem #53, resolved). The note
+above's paragraph *"Outside this ADR, recorded so it is not lost"* (a file
+mode `0666`) describes the image before R91. It is superseded, and it is
+not edited.
+
+**What acceptance does not claim.**
+
+- **The *"Unknown kernel command line parameters"* zero still has no
+  positive control.** It read 0 in every boot of the gate session. Every
+  `km.*` token is dotted, and no parameter was passed for which this kernel
+  is shown to print the line. § *Context*'s dotted-parameter claim is
+  consistent with every boot and is still not shown.
+- In the guest, `/run/resolv.conf`'s mode and owner (§7's `root:root
+  0644`) and `operstate` are not read (R89).
+- G3's refusal half has not run inside a real build (R90).
+- The uid the AppVM's QEMU runs as is not read.
+- R78's refusal paths ([ADR-037](DECISIONS.md#adr-037)'s note of
+  2026-09-29, step 4a) are unexercised.
+- `ExecStopPost=`'s execution is inferred from `appvm`'s absence after
+  each stop, and it is not recorded.
+
+**Documentation this ADR requires on acceptance.** `docs/ARCHITECTURE.md`
+§ *Networking* and the revision note on
+[ADR-033](DECISIONS.md#adr-033) are written in the same pass as this note.
+`init/katmate-init.c`'s header changed with the code (`04672b8`).
