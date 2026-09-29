@@ -6,12 +6,11 @@
 > history and the ADRs — this file references them rather than repeating them.
 
 **Milestone:** v0.2 (in development) · **Last updated:** 2026-09-29
-(`wp-0929d`, a docs-only write pass on the Acer, with one read-only reading
-on MINIS. It recorded step 4b2 (s4b2-impl A and B), the gate session
-`s4-gates` and the rulings R91–R96. It accepted ADR-038 and ADR-037, each
-with an acceptance note, added a note on ADR-033, and corrected
-`docs/ARCHITECTURE.md` and `docs/HOST-CONFIG.md` §9. It also rotated the
-2026-09-29 `step 4a` entry to `docs/SESSIONS.md`).
+(`wp-0929e`, a docs-only write pass on the Acer, with one read-only reading
+on MINIS. It recorded R97–R99 (#54 resolved, the build procedure after it,
+#55) and the step-4c rulings R100–R113, with notes on ADR-022, ADR-035 and
+ADR-037, and corrected `docs/ARCHITECTURE.md`'s config-disk sentence. No
+rotation; its record is an addendum to the step-4b2 entry).
 
 ## Current focus
 
@@ -211,6 +210,35 @@ Pushed together with A's two commits.
   whether apt in the build chroot saw `ENETUNREACH` from R93's rule.
 - What makes IPv6 through `proton` intermittent is not read.
 - The new foundation's package count is not read.
+
+**Addendum 2026-09-29, `wp-0929e`** (a docs-only write pass on the Acer,
+with one read-only script on MINIS at 18:25 CEST, after the operator's
+push of `16993a7` landed). It is recorded here, and not as its own entry,
+because it adds rulings and no implementation. It rotates with this entry.
+Before it, the step-4c read pass `s4c-readpass` ran on the Acer only
+(`~/Claude.assistent/s4c-readpass-report.md`). Its report is
+`~/Claude.assistent/wp-0929e-report.md`.
+- **R97 — #54's fix applied (the operator, 17:32–17:36).** The pref-100
+  `PostUp`/`PreDown` hooks are in `proton.conf`, and `wg-quick@proton` is
+  the tunnel's one owner. Host IPv6 is off permanently, by decision (#54
+  RESOLVED).
+- **R98 — builds check the rule and no longer add or remove it** (§
+  *Invariants & gotchas*, the IPv6 build entry).
+- **R99 — open problem #55:** an AppVM reaches the host's own LAN address,
+  in the development configuration only.
+- **The P-check** (read only): `100: from all unreachable`;
+  `wg-quick@proton` `enabled`, `active`; `proton.conf:11–12` are exactly
+  R97's two hook lines; `/etc/gai.conf:66` still carries the workaround
+  line; the host's `inet filter input` is quoted in #55. The first attempt
+  was refused by the permission classifier (*"Production Reads"*, auto
+  mode). The same command ran unchanged under Manual mode, with per-command
+  approval.
+- **The step-4c rulings, R100–R113** (§ *Next steps*, step 4; ADR-035's and
+  ADR-037's notes of this date). R112 allows dev packages on the MINIS
+  host.
+- **Commits:** `d905006` ADR-022's note (the v1 default carries no VPN);
+  `f24cd6a` `ARCHITECTURE.md` (the config disk is implemented, VPN mode is
+  not); `0811cb4` ADR-035's note; `8203039` ADR-037's note; and this file.
 
 ## Previous session (2026-09-29, step 4b — s4b-impl A and B) — the guest side: katmate-init configures the AppVM from km.*; G1's positive half and G3 passed; R85–R90
 
@@ -913,6 +941,14 @@ touched.
   intermittent.** Over the day, one IPv6 request through `proton` got HTTP
   200, and five timed out after 20 s (#54). The note is left as
   written.**]**
+  **[Note 2026-09-29, 17:36 (R97; `wp-0929e`): host IPv6 is off
+  permanently, by decision.** `proton.conf`'s `PostUp` installs `ip -6 rule
+  add pref 100 unreachable` and its `PreDown` removes it. `wg-quick@proton`
+  is `enabled` and `active` and is the tunnel's one owner (read at 18:25).
+  #54 is resolved. The `gai.conf` line was still present at 18:25, and its
+  removal is the operator's. **Dev packages on this host are allowed**
+  (R112): `conntrack-tools`, `strace`, as needed for golden fixtures. The
+  notes above are left as written.**]**
   **Kernel and boot, 2026-09-26:** running `7.2.7-hardened1-1-hardened`, booted
   **2026-09-25 14:00:27**; the stock `linux 7.2.6.arch2-1` is installed beside
   `linux-hardened` (`appweb-m1-rerun-report.md` § RA, items 6 and A12).
@@ -3112,6 +3148,14 @@ touched.
    is this entry**, and R54's condition stands: it must land before the
    second networked AppVM.**]**
 
+   **[Note 2026-09-29 (`wp-0929e`; R100, R101, R110): ruled, not
+   resolved.** The mechanism is a `table arp`: sixteen `iifname "kmkk"
+   arp saddr ip 10.100.1.(16+k)` pairs, then a counted drop on `km*`. It
+   binds no device, so it loads before the renames. `table netdev` is not
+   pursued, and P2 is moot, not settled. `s4c-m0` reads whether the
+   kernel has the `arp` family. The pairs get an R48-style read-back.
+   It lands in 4c (ADR-035's note of this date).**]**
+
 35. **Foundation dependency debt.** Added 2026-09-26. The rebuilt foundation
    carries `systemd`, `systemd-sysv`, `dbus` and `dbus-daemon`, none of them
    PID 1 and none requested. They are kept by `systemd-sysv`'s `Protected: yes` and by
@@ -3380,6 +3424,11 @@ touched.
    step 4c, in one netVM rebuild with R55's pairing check and ADR-035 §6
    and §7, after G5 and before the second networked AppVM. G5 does not
    require it.]**
+   **[Note 2026-09-29 (`wp-0929e`; R102): ruled, not resolved.** DOWN on
+   REMOVE, and `ipv6.disable=1` on netVM's kernel. netVM uses no IPv6,
+   since the uplink is `ipv4only` and AppVMs are IPv4-only. This ends both
+   halves of this entry and netVM's own router solicitations (#24). It
+   lands in 4c (ADR-037's note of this date).**]**
 
 46. **Parts of networking arc step 3 have not run as installed.** Added
    2026-09-27, from r8-impl-B § 6 (*not executed*). The gates ran the absent
@@ -3415,6 +3464,11 @@ touched.
    **[Note 2026-09-28, later (f12-impl A and B): R52's preflight exists
    (`56b3c96`) and has executed, on its pass path only. The fail-open case
    itself is still unmeasured.]**
+   **[Note 2026-09-29 (`wp-0929e`; R111): ruled, not resolved.**
+   `ip_forward=1` moves out of `sysctl.d`, into a oneshot unit with
+   `Requires=` and `After=nftables.service`, so a ruleset that fails to
+   load leaves forwarding off. R52's limit is recorded (R110): it checks
+   against the build host's kernel, not netVM's. It lands in 4c.**]**
 
 49. **The agent does not bind a peer address to its slot.** Added
    2026-09-28, from F D20 (`f12-readpass-report.md`, outside the repository).
@@ -3427,6 +3481,12 @@ touched.
    **[Note 2026-09-28 (ADR-037 R67): it lands in step 4c, the netVM rebuild
    after G5 and before the second networked AppVM, not with #19 and #41 in
    4a. G5 does not require it.]**
+   **[Note 2026-09-29 (`wp-0929e`; R103): ruled, not resolved.** The check
+   is a decode-time `Rejected` in the agent's parser. A pool MAC
+   `52:54:01:00:00:kk` requires the peer `10.100.1.(16+k)`, and a non-pool
+   MAC may not name a peer in `.16`–`.31`. On the wire it is a bare ERR, and
+   the reason is in the agent's journal. It lands in 4c (ADR-035's note of
+   this date).**]**
 
 50. **The failure paths of R52's preflight and R48's read-back have not run
    on a real image.** Added 2026-09-28, from `f12-impl-B-report.md` § 6
@@ -3479,7 +3539,26 @@ touched.
    Every file an application writes in `/home/user` would be
    world-writable. Outside ADR-038. Look before the next guest release.
 
-54. **MINIS's IPv6 through `proton` is a black hole.** Added 2026-09-29
+54. **RESOLVED 2026-09-29 — by the operator's R97: `proton.conf` carries
+   the pref-100 hooks, `wg-quick@proton` owns the tunnel, and host IPv6 is
+   off permanently, by decision.** Kept as a closed marker so the number is
+   not reused. `[Interface]` carries `PostUp = ip -6 rule add pref 100
+   unreachable` and `PreDown = ip -6 rule del pref 100 || true` (applied
+   17:32–17:36 CEST). The tunnel had been up outside systemd
+   (`wg-quick@proton` `disabled`, `failed`); the operator ran `wg-quick down
+   proton`, then `systemctl start` and `enable` on the unit. **Evidence
+   (`wp-0929e`'s P-check, MINIS, 18:25:00 CEST, read only):** `ip -6 rule
+   list` shows `100: from all unreachable`; the unit is `enabled` and
+   `active`; `proton.conf:11–12` are exactly the two hook lines. The
+   operator observed `curl -6` failing in 46 ms (*Could not connect to
+   server*) and `curl -4` in 0.28 s. Host IPv6 returns only by removing the
+   hooks, or for a measurement by `ip -6 rule del pref 100` at runtime.
+   **Still on MINIS at the P-check:** the `gai.conf` workaround,
+   `/etc/gai.conf:66` `precedence ::ffff:0:0/96  100`. It is now
+   unnecessary, and its removal is the operator's. Why the chroot's apt
+   flooded (B's P3) is still not read. The published text is left as
+   written:
+   **MINIS's IPv6 through `proton` is a black hole.** Added 2026-09-29
    (the operator, during s4b-impl-B; `wp-0929c`). The host's traffic, IPv4
    and IPv6, is policy-routed into the `proton` WireGuard tunnel (table
    `51820`: `ip route get 151.101.2.132` → `dev proton table 51820 src
@@ -3512,6 +3591,39 @@ touched.
    del pref 100` to the `proton` WireGuard configuration. Once that is
    applied, the `/etc/gai.conf` line becomes unnecessary. The title and the
    text above are left as written.**]**
+
+55. **An AppVM reaches the host's own LAN address (development
+   configuration only).** Added 2026-09-29 (operator ruling R99;
+   `wp-0929e`). **Scope:** the production host has no NIC of its own,
+   because netVM holds the only one. On MINIS the dev NIC (`10.3.1.3`) shares
+   the LAN with netVM's uplink. ADR-037's G5 showed the path: the guest's SYN
+   to `10.3.1.3:8099`, NATed by netVM to `10.3.1.172`, reached MINIS's own
+   dev NIC, and only the host's `inet filter input` decided what got
+   through. **What is open today** (`wp-0929e`'s P-check, 18:25:00 CEST,
+   read only):
+
+   ```
+   table inet filter {
+   	chain input {
+   		type filter hook input priority filter; policy drop;
+   		ct state invalid drop comment "early drop of invalid connections"
+   		ct state { established, related } accept comment "allow tracked connections"
+   		iif "lo" accept comment "allow from loopback"
+   		meta l4proto { icmp, ipv6-icmp } accept comment "allow icmp"
+   		tcp dport 22 accept comment "allow sshd"
+   		meta pkttype host limit rate 5/second burst 5 packets counter packets 14 bytes 840 reject with icmpx admin-prohibited
+   		counter packets 1084 bytes 64280
+   	}
+   }
+   ```
+
+   So an AppVM reaches the host's **ICMP and TCP 22 (sshd, open problem
+   #4)**. Anything else addressed to the host gets the rate-limited
+   `admin-prohibited` reject, which is G5's *"No route to host"* by
+   inference, or the policy drop. **A block is wanted, later, and it is not
+   decided.** The candidates: a drop on the host for netVM's uplink address
+   (a DHCP lease, which may change), or a `forward` drop in netVM for the
+   segment → the host's LAN address.
 
 ## Next steps
 
@@ -4256,6 +4368,20 @@ frozen `vm_home_skel` vs qcow2 branch.
      half. R73's SHUTDOWN comments (#51) go in their own commit. The two
      deferred host-install items still travel with the next host install.
      The text above is left as written.**]**
+     **[Note 2026-09-29 (`wp-0929e`): 4c's read pass is done** (on the
+     Acer, `s4c-readpass-report.md`, outside the repository), and the
+     operator has ruled on it: **R100–R113** (ADR-035's and ADR-037's notes
+     of this date). In short: #34 is a `table arp` (R100); R55 is a
+     decode-time `Rejected` keyed on the MAC (R103); §7 counts, and REMOVE
+     does not absorb a duplicate (R104); records are keyed by `match_mac`
+     (R105); no `RTM_DELNEIGH` (R106); the conntrack flush is by mark
+     (R107); `ipv6.disable=1` on netVM's kernel (R102); `ip_forward` is set
+     after `nftables.service` (R111). The commit order is R108's. **Next is
+     `s4c-m0`** (R101): a console measurement with no code — the four
+     kernel config symbols, `nft --version`, one throwaway `table arp`, and
+     no `flush ruleset`. **Then 4c A** (the code, on the Acer) **and B**
+     (one netVM rebuild, with the reboot before `netvm.sh`, and the gates).
+     The text above is left as written.**]**
   5. **VPN mode** (added 2026-09-27, R30): the WireGuard config, the VPN
      ruleset and the kill-switch, under **its own ADR**, after step 4. R8
      names the config disk as the WireGuard config's channel, and R31 gives
@@ -4706,6 +4832,28 @@ frozen `vm_home_skel` vs qcow2 branch.
   There is one run each, so the cause is inferred. No VPN file is touched.
   Ruled 2026-09-29 (R93, premise restated). Source:
   `s4b2-impl-B-report.md` §§ P2, P4, P6.
+  **[Superseded 2026-09-29, later (R98; `wp-0929e`): a build no longer adds
+  or removes the rule.** Since R97 the pref-100 `unreachable` rule is
+  permanent, installed by `proton.conf`'s `PostUp` (#54). Adding it would
+  fail on the existing rule, and removing it would delete the permanent one.
+  A build now **checks** that `ip -6 rule list` shows `100: from all
+  unreachable`, and stops if it does not. The *"No VPN file is touched"*
+  above describes R93's procedure; R97 is the operator's change to
+  `proton.conf`, not a build's. The entry is left as written.**]**
+- **`wg-quick down` runs the hooks of the config file as it is now, not as
+  it was when the tunnel came up.** A `PreDown` added to a running tunnel's
+  file runs at the next `down`. So it must tolerate the absence of what its
+  `PostUp` never created: `ip -6 rule del pref 100 || true`. On 2026-09-29
+  the hooks were added to `proton.conf` while the tunnel was up, so the
+  first `down` ran a `PreDown` whose rule no `PostUp` had made. Source: the
+  operator's application of R97, 17:32–17:36 CEST; recorded by `wp-0929e`.
+- **`wg-quick@proton` is the one owner of the `proton` tunnel.** Before
+  2026-09-29 the tunnel was brought up by hand, with the unit `disabled`
+  (and `failed`). `restart` on an inactive unit is a `start`, which fails on
+  the existing interface (*"`proton' already exists"*). Bring a hand-made
+  tunnel down with `wg-quick down proton` first, then `systemctl start` and
+  `enable` the unit. Read `enabled` and `active` on 2026-09-29 at 18:25
+  (`wp-0929e`'s P-check). Source: R97, the operator.
 - **A gate's altered `-append` is a per-session `/run` drop-in, one line
   different, removed after.** Write
   `/run/systemd/system/katmate-app-routed@<instance>.service.d/90-gate.conf`
