@@ -4469,6 +4469,19 @@ ADR-017 record for its slot. This is the operator's ruling R62 of
 2026-09-28 ([ADR-037](DECISIONS.md#adr-037)'s note of that date). The text
 above is not edited.
 
+**Revision note (2026-09-29, § *Decision* — who programs the AppVM end of
+a link):** *"NETCFG then programs the `/32` inside each guest exactly as it
+does today"* is superseded **for the AppVM end** by
+[ADR-038](DECISIONS.md#adr-038), accepted on 2026-09-29. katmate-init
+configures the guest from typed `km.*` kernel command-line parameters
+before `vm-agent` starts: its `/32`, an on-link default route via
+`10.100.1.1`, and the resolver `10.100.1.1`. NETCFG programs **netVM's
+end** of the link only, and it stays absent in `vm-agent`. On the AppVM
+side the sentence never had a mechanism
+([ADR-035](DECISIONS.md#adr-035) § *Dependencies surfaced*, first item,
+and its note of 2026-09-28, R72). This note is part of the documentation
+ADR-038 requires on acceptance. The text above is not edited.
+
 ---
 
 ## ADR-034 — Kernel provenance: a sidecar captured at build, carried into T2, checked at install
