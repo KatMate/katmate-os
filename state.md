@@ -70,7 +70,7 @@ restartable — and so updatable — without touching running VMs.
 Direction unchanged: IOMMU-capable platforms only (VT-d/AMD-Vi).
 MINIS is primary host and merge target.
 
-## This session (2026-09-29, ADR-038) — AppVM guest addressing written as ADR-038, PROPOSED, and R77 recorded
+## Previous session (2026-09-29, ADR-038) — AppVM guest addressing written as ADR-038, PROPOSED, and R77 recorded
 
 One session, `wp-0929a`, on the Acer only, docs only. MINIS was not
 contacted. Its report is outside the repository:
@@ -113,80 +113,6 @@ observed. G1 reads them.
 
 `wp-0929a` ran on the Acer only and observed nothing on MINIS.
 
-## Previous session (2026-09-28, s4-m0 and rulings) — networking arc step 4.0: the first AppVM on a slot, measured with no code; R75's reading, and R76, ADR-038's direction
-
-Two sessions and an operator reading. `s4-m0` ran from the Acer against
-MINIS on 2026-09-28, 21:06–22:02 CEST. Its report is outside the
-repository: `~/Claude.assistent/s4-m0-report.md` (cited as M). The
-operator read M's captures with `tcpdump -v` at 22:11 CEST. `wp-0928d`
-wrote the record on the Acer only, across midnight into 2026-09-29.
-
-**Step 4.0, in summary (M).** `app_web`'s image and kernel ran on netVM's
-slot 01 under a fixture launcher outside the repository: `app_web.con`'s
-argv with a `-netdev dgram` on slot 01 and `virtio-net-device` on the
-derived MAC `52:54:00:6f:19:35`, as a transient unit, with NETCFG link
-201 (`10.100.1.17`) added by hand. Three boots, each with a different
-kernel `ip=` tail: A with netmask `255.255.255.255`, B with
-`255.255.255.0`, C as B plus `ipv6.disable=1`. **M1:** kernel `ip=` works
-on the microVM kernel `b34026dd…`, three of three. **M2:** the `/32` was
-replaced by a guessed `/8` (*"Guessing netmask 255.0.0.0"*), gateway
-kept. **M3:** netVM learned the guest's MAC on `km01`. **M4:** eight SYNs
-from `10.3.1.172` reached the LAN in B and C. **M5:** R49 read +0 on all
-three boots; C's serial shows IPv6 administratively disabled. Boot A's
-firefox step, and B's first, were taken on the Acer's firefox by mistake
-(operator's correction), and are void; they became a positive control
-that the capture sees port 8099. netVM was not restarted.
-
-**The TTL reading (operator, 2026-09-28 22:11 CEST).** Every packet in
-cap-B and cap-C is a SYN to `10.3.1.3.8099`. The Acer's three
-(`10.3.1.170`, cap-B) carry **ttl 64**; the eight from `10.3.1.172` (four
-in B, four in C) carry **ttl 63**. The table is in
-`~/Claude.assistent/wp-0928d-brief.md`.
-
-**The rulings (index; the text is in the notes).** Of 2026-09-28, in
-ADR-035's note on step 4.0: **M4 settled** — the ttl-63 SYNs are the
-guest's traffic, forwarded and NATed, the first AppVM traffic to leave
-through `uplink0`; **M3 settled functionally**, `IFF_PROMISC` unread, an
-inference that bears on finding 1 of 2026-09-14 and does not close it;
-**boot C's window was the guest's** (firefox restored boot B's session
-from the persistent `/home`, 1.3 s after RUN); **M5 not settled and not
-needed**, with the R49 hypothesis recorded unverified. In ADR-035's note
-on R75: **R75 supersedes the 2026-09-07 ruling's mechanism and keeps its
-timing; `RuntimeDirectory=` stays**; how the ACL survives its reset is
-C1's. In ADR-037's note on 4.0: **A' not run; M3 and M4 are settled
-without it**; M4 is not G5; **R76**, ADR-038's direction, katmate-init
-(candidate B), kernel `ip=` not taken. Of 2026-09-29, on `wp-0928d`'s
-read-pass halt: M's off-by-four citation of `ping-client` is recorded in
-the report, not a halt; *"a real AppVM"* in R71 means one started by
-`katmate-app-routed@`, and the fixture launcher does not count (ADR-037's
-note); the rotation of this pass is dated 2026-09-29.
-
-**`wp-0928d`'s commits.** The previous-but-one entry rotated out (§
-*Session archive*, *Closed 2026-09-29*). ADR-035 gained two notes (step
-4.0; R75), ADR-037 one (step 4.0 and R76), and ADR-030 one (R61's
-template order), and `ROADMAP.md` step 3a a dated note. In this file: §
-*Current focus*, *THE FIRST APPVM ON A SLOT* in § *Live state*, #22,
-#24, new #52, and three § *Invariants & gotchas* entries.
-
-**Where M's brief was wrong (M § 8).** Its recall that kernel ipconfig
-refuses a gateway outside the netmask did not hold: the mask was replaced
-and the gateway kept. B was planned as R49's positive control and read
-+0, so C's +0 has no control. Its after-read timing (*"~20 s"*) could not
-hold a conntrack reading inside the `SYN_SENT` window; the operator steps
-took minutes. It did not say that RUN opens the window on MINIS's screen,
-so A's and B's first firefox steps were taken on the Acer.
-
-**Not done, and not claimed.** G5 is untaken, and ADR-037 stays PROPOSED
-(G5). ADR-038 is not written. From M § 5, still not read: a conntrack
-entry inside its expiry window; `IFF_PROMISC` on `km01` or on the guest's
-`eth0`; any capture on the slot, so the ARP exchange was not seen; a
-positive control for R49; why ipconfig guessed `255.0.0.0`; the guest's
-own view of its routes, neighbours, resolver or IPv6 state; a `/32` by
-other means than `ip=`'s netmask field; `netconsole`'s targets (#52). The
-fixture's refusal paths are **UNVERIFIED**. A' was not run, by ruling.
-
-`wp-0928d` ran on the Acer only and observed nothing on MINIS.
-
 ## Session archive
 
 Rotated sessions are enumerated in `docs/SESSIONS.md`, newest first; that
@@ -219,6 +145,23 @@ extracted block against the pre-move blob.
 *second of two* entry (3a part 1) rotated out as the 2026-08-17 entry arrived. Two
 rotations in one day is not a defect — it is what keeping two sessions costs when
 two sessions close on the same day.
+
+**Closed 2026-09-29 (third rotation of that day).** The 2026-09-28
+*s4-m0 and rulings* entry (networking arc step 4.0, the first AppVM on a
+slot measured with no code, R75's reading, and R76) rotated to the
+archive as the 2026-09-29 *step 4a* entry arrived. **The block moved
+verbatim, heading included**, and *Previous session* stays *Previous
+session*. Verified three ways. The whole block, heading line included,
+hashed **identical before and after, `bd0303df117a62ce…`**. The pre-move
+block diffed clean against the `HEAD` blob. The block re-extracted from
+`docs/SESSIONS.md` at its new home diffed clean against the pre-move
+block. `docs/SESSIONS.md` gained 74 lines, the 73-line block and one blank
+separator, and lost none. The block was inserted at the head of the entry
+list, above the 2026-09-28 *s4-readpass and rulings* entry, newest first.
+The 2026-09-29 *ADR-038* entry's prefix changed from *This session* to
+*Previous session*, and its body is untouched. **No ordinal changed.**
+The rotation and the new entry are separate commits, so between them this
+file held one session, never three.
 
 **Closed 2026-09-29 (second rotation of that day).** The 2026-09-28
 *s4-readpass and rulings* entry (networking arc step 4 read against the
