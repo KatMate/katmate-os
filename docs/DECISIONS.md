@@ -3652,6 +3652,18 @@ before, since a template nobody runs would rot. The 2026-08-09 note's
 `app-offline`"* stands as written, qualified by this note: that was the
 plan for 3a, and 3a shipped one of the two.
 
+**Revision note (2026-09-29, `app-routed` shipped):** this note records a
+shipment. It changes no text above and takes no gate.
+`katmate-app-routed@.service` shipped in `d6feb9c` (networking arc step
+4a, [ADR-037](DECISIONS.md#adr-037) R61, together with the removal of the
+generator's guard and the `REQ_ENV` arm), and it first ran on MINIS on
+2026-09-29 as `katmate-app-routed@app_web` (`s4a-impl-B-report.md`,
+outside the repository; ADR-037's note of the same date). Two templates
+now ship, `sys-driver` and `app-routed`. **`app-offline` still ships with
+the vault instance** (R61). **The deletion of the `.con` files (G3) is
+still not in step 4**; `app_web.con` and `katmate-app-routed@app_web` must
+never run at once.
+
 ---
 
 ## ADR-032 — Where each tier lives: the path is the tier, and T4 is more than the template
