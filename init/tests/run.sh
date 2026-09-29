@@ -69,7 +69,10 @@ verdict() {  # name, got, want
 }
 
 addr="$(ip -4 -o addr show dev km0 | awk '{print $4}')"
-route="$(ip -4 route show)"
+# iproute2 7.2.0 ends each route line with a space ("... onlink "), so the
+# verdict compares each line with trailing whitespace stripped; the raw
+# listing below is printed untrimmed (s4b-impl-B § P1).
+route="$(ip -4 route show | sed 's/[[:space:]]*$//')"
 lo_flags="$(ip link show lo | sed -n '1s/^[0-9]*: lo: \(<[^>]*>\).*/\1/p')"
 resolv="$(cat "$T/app/resolv.conf" 2>&1 || true)"
 
