@@ -373,7 +373,7 @@ configuration of netVM — T1, the user's and never the image's
 configuration, where the uplink is not configured by DHCP, and the **WireGuard
 config** the user supplies to enable a VPN. The host assembles a read-only
 config disk from it, which netVM attaches as an extra `virtio-blk`
-([ADR-037](DECISIONS.md#adr-037), R7 and R8; PROPOSED).
+([ADR-037](DECISIONS.md#adr-037), R7 and R8; Accepted).
 
 **Failure mode: none yet, because the mechanism is not implemented.** No
 config disk is built, attached or read today, so nothing can fail for the
