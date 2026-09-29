@@ -75,7 +75,7 @@ restartable — and so updatable — without touching running VMs.
 Direction unchanged: IOMMU-capable platforms only (VT-d/AMD-Vi).
 MINIS is primary host and merge target.
 
-## This session (2026-09-29, step 4a — s4a-impl A and B) — the host side of the first routed AppVM: implemented, installed, and first run on MINIS; R78–R84
+## Previous session (2026-09-29, step 4a — s4a-impl A and B) — the host side of the first routed AppVM: implemented, installed, and first run on MINIS; R78–R84
 
 Three sessions. `s4a-impl-A` wrote the code on the Acer, halted once at
 its read pass (D1, D2), and after the operator's rulings made four
@@ -158,49 +158,6 @@ entry.
 - `app_web.con` was not run.
 - The delta's hash was not taken across P8's move aside and back.
 
-## Previous session (2026-09-29, ADR-038) — AppVM guest addressing written as ADR-038, PROPOSED, and R77 recorded
-
-One session, `wp-0929a`, on the Acer only, docs only. MINIS was not
-contacted. Its report is outside the repository:
-`~/Claude.assistent/wp-0929a-report.md`. The ADR text is the operator's
-payload, `~/Claude.assistent/adr038-payload.md`, appended verbatim.
-
-**ADR-038 is written, PROPOSED.** katmate-init applies an AppVM's `/32`,
-its on-link default route and its resolver from typed `km.ip`, `km.gw`
-and `km.dns` kernel parameters. The direction is R76. Nothing is
-implemented and none of its gates G1–G3 is taken.
-
-**R77 (index; the text is in ADR-038 and in ADR-037's note of
-2026-09-29).** The operator's ruling of 2026-09-29 adopts ADR-038 as
-written. It covers the parameter names, the one-non-loopback-NIC rule, the
-rtnetlink mechanism, syntactic parsing, the error path through shutdown,
-the `/run` resolver behind a relative symlink, `lo` on every boot, the
-literal gateway and resolver in the template, and the gates.
-
-**The first run's halt, D1, resolved by the operator (2026-09-29).** The
-read pass found that the payload called the AppVM's MAC undecided by
-ADR-035 §9, while ADR-035 §2 and §9 state it: the instance-derived
-identity MAC. The operator ruled that the payload misstated ADR-035. It
-was corrected in §4, the rejected alternative (b), *Carried* and *Revisit*
-1. The one-NIC rule stands, now on the reason that the image does not know
-its MAC. Every other citation the brief listed held at `14d6b10`.
-
-**wp-0929a's commits.** The previous-but-one entry rotated out (§
-*Session archive*, *Closed 2026-09-29 (second rotation of that day)*;
-`81dfbac`). ADR-038 appended (`60ec98c`); ADR-037 gained a note on R65 and
-R77 (`055048d`); ADR-035 a note on § *Dependencies surfaced* (`e6e652a`).
-In this file: the header, § *Current focus*, step 4 in § *Next steps*,
-#21, #24, and this entry.
-
-**Not done, and not claimed.** No code, no gate, no build. katmate-init
-has no network code, no image carries the resolver symlink, and no
-template passes a `km.*` parameter. ADR-037 stays PROPOSED (G5).
-ADR-038's claims about the kernel's handling of dotted parameters, and
-that QEMU exits 0 when init refuses, are read from source or expected, not
-observed. G1 reads them.
-
-`wp-0929a` ran on the Acer only and observed nothing on MINIS.
-
 ## Session archive
 
 Rotated sessions are enumerated in `docs/SESSIONS.md`, newest first; that
@@ -233,6 +190,23 @@ extracted block against the pre-move blob.
 *second of two* entry (3a part 1) rotated out as the 2026-08-17 entry arrived. Two
 rotations in one day is not a defect — it is what keeping two sessions costs when
 two sessions close on the same day.
+
+**Closed 2026-09-29 (fourth rotation of that day).** The 2026-09-29
+*ADR-038* entry (AppVM guest addressing written as ADR-038, PROPOSED, and
+R77 recorded) rotated to the archive as the 2026-09-29 *step 4b* entry
+arrived. **The block moved verbatim, heading included**, and *Previous
+session* stays *Previous session*. Verified three ways. The whole block,
+heading line included, hashed **identical before and after,
+`fdf3a49d2615fd13…`**. The pre-move block diffed clean against the `HEAD`
+blob. The block re-extracted from `docs/SESSIONS.md` at its new home
+diffed clean against the pre-move block. `docs/SESSIONS.md` gained 43
+lines, the 42-line block and one blank separator, and lost none. The block
+was inserted at the head of the entry list, above the 2026-09-28 *s4-m0
+and rulings* entry, newest first. The 2026-09-29 *step 4a* entry's prefix
+changed from *This session* to *Previous session*, and its body is
+untouched. **No ordinal changed.** The rotation and the new entry are
+separate commits, so between them this file held one session, never
+three.
 
 **Closed 2026-09-29 (third rotation of that day).** The 2026-09-28
 *s4-m0 and rulings* entry (networking arc step 4.0, the first AppVM on a
