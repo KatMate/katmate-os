@@ -7507,7 +7507,7 @@ reader may legitimately reopen it.*
 
 ## ADR-037 — netVM's vanilla network stack: direct uplink egress, dnsmasq, dhcpcd, and a read-only config disk
 
-**Status:** PROPOSED (2026-09-26). The decisions are the operator's rulings of
+**Status:** Accepted (2026-09-29). The decisions are the operator's rulings of
 2026-09-26 (R2–R8, recorded in `state.md`); acceptance waits on the gates
 below. Taken on two in-guest reading sessions of 2026-09-26 (`net-up`,
 `net-m1`, reports outside the repository). **Proposed is a decision and not an
@@ -8540,6 +8540,102 @@ changes no text above. Sources: `s4b-impl-A-report.md` and
   address) needs a `-append` the template cannot produce, because the
   address is derived from the slot. **The vehicle is the operator's ruling
   in the next session.**
+
+**Acceptance note (2026-09-29) — what acceptance rests on, gate by gate,
+and what stays carried:** the status line above was changed from
+`PROPOSED (2026-09-26)` to `Accepted (2026-09-29)` in place. That is this
+file's practice for that one line and only that line, on the precedent of
+[ADR-033](DECISIONS.md#adr-033)'s acceptance note (2026-08-28) and
+[ADR-034](DECISIONS.md#adr-034)'s (2026-09-01). The rest of § *Status* is
+left as written. Its *"acceptance waits on the gates below"* is discharged
+by this note, and its implementation sentence was already superseded by
+the notes above. The body stays append-only. Acceptance is the operator's
+ruling **R96** (2026-09-29). G5's verdicts are **R95**. Sources, outside
+the repository: `s4-gates-report.md` (G5's readings) and this pass's
+report, `wp-0929d-report.md` (the P-check below).
+
+**What acceptance rests on, gate by gate.** Every gate below was taken on
+MINIS.
+
+| Gate | Verdict | Where recorded |
+|---|---|---|
+| G1 | PASS, 2026-09-27; does not discriminate cause (R11, R40) | the implementation note |
+| G2 | PASS, 2026-09-27 | the implementation note |
+| G3, DHCP half | PASS, 2026-09-27; its refusal half PASS as ruled, scoped to dhcpcd-originated state | the implementation note |
+| G3, static half | PASS, 2026-09-27, pass and refusal (R39), with a positive control | the step-3 gates note |
+| G4 | PASS, 2026-09-27; its refusal half PASS, and it does not discriminate cause | the implementation note |
+| G6 | PASS, 2026-09-27, the pass half and R-a to R-d | the step-3 gates note |
+| G5 | **PASS, both halves, 2026-09-29 (R95)** | below |
+
+R21's condition, that the finding-12 guard lands before the first AppVM
+on a slot, is met: F12a and F12b passed on 2026-09-28 (the step-3a note;
+[ADR-035](DECISIONS.md#adr-035)'s note of that date).
+
+- **G5, positive half — R95, PASS.** The AppVM was started by the shipped
+  template, `katmate-app-routed@app_web`, with no drop-in, so it is a real
+  AppVM in the sense of R71's ruling of 2026-09-29. It configured itself
+  from `km.*` (`net: eth0 10.100.1.17/32 via 10.100.1.1 dns 10.100.1.1`).
+  A host capture on the LAN interface, filtered on `tcp port 8099`, held
+  one SYN from **`10.3.1.172`**, netVM's uplink address, to
+  `10.3.1.3:8099`, with **ttl 63**. That is R71's *"NATed"* observable:
+  forwarded one hop and masqueraded, not originated by netVM. **R50's
+  counter read 25 → 25.** `km01`'s `rx_packets` read 18 → 21.
+- **G5, refusal half — R95, PASS.** The same guest on the same slot carried
+  `km.ip=10.100.1.18`, slot 02's address, through [ADR-038](DECISIONS.md#adr-038)'s
+  R92 vehicle. **One parameter differs:** `diff` of the effective
+  `ExecStart=` shows one line, `km.ip=${KM_GUEST_ADDR}` → `km.ip=10.100.1.18`.
+  The console read `net: eth0 10.100.1.18/32 via 10.100.1.1 dns
+  10.100.1.1`. **R50's counter read 25 → 30 (+5 packets, +300 bytes)**, and
+  R49 and rule 18 were unchanged. **The host capture held 0 packets** of any
+  kind across 15:56:00–16:00:01 CEST, a window that contains the guest's
+  attempt at 15:58:36. The guest's `connect` ended at the 5 s `timeout`
+  (`rc=124`).
+- **G5's positive half, and what the guest saw.** The guest's `connect`
+  failed at once with *"No route to host"* (`rc=1`), in the same second as
+  the captured SYN, and the capture holds no answer. **The P-check**
+  (MINIS, 2026-09-29, read only) found exactly one `reject` in the host's
+  live ruleset. It is in `inet filter input`: `meta pkttype host limit rate
+  5/second burst 5 packets counter … reject with icmpx admin-prohibited`
+  (`/etc/nftables.conf:18`). **This confirms the mechanism on the host's
+  side:** the host answers a packet addressed to it on a port it does not
+  accept with ICMP administratively-prohibited. That netVM's conntrack
+  carried the answer back through the NAT to the guest is the inference,
+  and it is not observed. Attribution is not shown either: the rule's
+  counter (14 packets) was not read before and after G5's positive half,
+  and no ICMP was captured on either side. That Linux reports this ICMP to a
+  connecting socket as `EHOSTUNREACH` is recall, not read here. G5 names
+  egress, and the SYN shows it. The return path is not part of G5.
+
+**Due on implementation, and where each stands.** § *Decision* 2's
+cross-reference and the D2 extension in the note of 2026-09-27 (§
+*Status*, § *Decision* and § *Gates*) are recorded where they point:
+[ADR-021](DECISIONS.md#adr-021)'s two notes of 2026-09-27 (the bake-list
+bullet retired, and *"both retirements landed"*),
+[ADR-025](DECISIONS.md#adr-025)'s note of 2026-09-27 (Path B's load-bearing
+fact), [ADR-035](DECISIONS.md#adr-035)'s note of 2026-09-27 (the rename
+build gate), and dated notes in `state.md`. ADR-021's note of 2026-09-26
+records § *Supersedes, in part*. `20-uplink.network` is not in the tree.
+`docs/ARCHITECTURE.md` and `docs/HOST-CONFIG.md` §9 are brought into line
+with this ADR in the same pass as this note.
+
+**What stays carried.** None of this is a condition of acceptance, and
+acceptance does not do it.
+
+- **Networking arc step 4c (R67)**, in one netVM rebuild: R55's pairing
+  check (open problem #49), [ADR-035](DECISIONS.md#adr-035) §7's count and
+  §6 (supersession, neighbour delete, conntrack flush), DOWN on REMOVE
+  (#45), and the ARP half of finding 12 (#34, R54). It lands **before the
+  second networked AppVM**. R73's SHUTDOWN comments (#51) go in their own
+  commit.
+- **VPN mode** is networking arc step 5, under its own ADR (R30).
+- **UNVERIFIED, carried:** R29's premise; `ipv4only` and router
+  solicitation on the uplink; the refusal half of the
+  `NETVM_UPLINK_PCI_ADDR` preflight; the failure paths of R52's preflight
+  and R48's read-back (#50); step 3's paths not run as installed (#46);
+  and the fail-open case of a failed `nftables.service` (#48).
+- **Not read:** the uid the AppVM's QEMU runs as (R64, SECURITY-MODEL gap
+  11; C1 is its own step), and what makes up `km01`'s +3 and +6 frames in
+  G5's two halves.
 
 ---
 
