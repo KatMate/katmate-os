@@ -6724,6 +6724,61 @@ changes no text above and takes no gate.
 
 Nothing is implemented; ADR-038's gates are untaken.
 
+**Revision note (2026-09-29, §5 implemented — both `ExecStopPost=` halves,
+and the `owner` format):** this note records an implementation and its
+first observation. It changes no text above and takes no gate. Sources:
+`s4a-impl-A-report.md` (A, the code, on the Acer) and
+`s4a-impl-B-report.md` (B, install and first start, on MINIS), both
+outside the repository; the rulings are in
+[ADR-037](DECISIONS.md#adr-037)'s note of the same date.
+
+- **§5's `ExecStopPost=` pair is in the tree.** netVM's half is one
+  `ExecStopPost=/usr/bin/rm -f` with the sixteen literal paths
+  `/run/katmate/link/%i/00/netvm` … `/run/katmate/link/%i/0f/netvm`, in slot
+  order, in `katmate-sys-driver@.service` (`1597445`, ADR-037 R74). The
+  AppVM's half is one `rm -f` of the one path
+  `/run/katmate/link/${KM_NETVM}/${KM_SLOT}/appvm`, in the new
+  `katmate-app-routed@.service` (`d6feb9c`, R81). No shell and no glob in
+  either, as §5 requires; both scalars are typed by the generator.
+- **The `owner` file's format is R78's.** §5 gives its content (the
+  instance name and the `link_id`), not its format. It is a flat
+  `KEY=VALUE` file in the form of the nic label file:
+  `KATMATE_OWNER_VERSION=1`, `INSTANCE=<name>`, `LINK_ID=<u32>`, read with
+  `km_meta_require`. Every `owner` in the netVM's tree, not only the one
+  naming the instance being started, must be a regular file (not a
+  symlink), owned by uid 0, not group- or world-writable, version 1, with
+  an `INSTANCE` matching the instance-name pattern and a decimal `LINK_ID`
+  of at most 4294967295, or the start is refused. `owner` decides which
+  address a VM gets, so it is a trust input.
+- **R84 (A's D1), and why.** The AppVM's path is built from projected
+  scalars, and a projection survives stops and failed starts (ADR-032's
+  note of 2026-08-22). A start refused before the generator ran would have
+  left the previous start's projection standing, and `ExecStopPost=` would
+  then have unlinked the `appvm` of a slot this instance may no longer
+  hold, possibly a live AppVM's. So the template's first `ExecStartPre=`
+  is `+/usr/bin/rm -f /run/katmate/vm/%i.env`: after any refused start
+  there is no projection, both scalars expand empty, and the path names
+  nothing. `katmate-sys-driver@` does not get the line; its paths are
+  literal.
+- **Observed on MINIS, 2026-09-29 (B), for the AppVM's half.** After a
+  clean SHUTDOWN of `katmate-app-routed@app_web`, slot 01's `appvm` was
+  absent while `owner` and the projection stayed (B, P7). That is
+  attributed to `ExecStopPost=` **by inference**: systemd collected the
+  inactive instance, and its execution record with it. After a start
+  refused at `katmate-check-image` with the previous projection present
+  (B, P8), the projection was gone, `ExecStopPost=` ran (a record, status
+  0), systemd logged *"Referenced but unset environment variable evaluates
+  to an empty string: KM_NETVM, KM_SLOT"*, and a sentinel file at slot 01's
+  `appvm` path survived on its inode. **R84 is observed by record.** The
+  same start without R84's line was not run.
+- **Not observed: netVM's half.** It is installed on MINIS and loaded by
+  the running netVM's unit, and it has not executed, because netVM has not
+  been stopped since. It is settled by reading the sixteen `netvm` paths
+  before and after netVM's next stop.
+
+**Status is unchanged: PROPOSED.** No gate of this ADR is taken by this
+note.
+
 ---
 
 ## ADR-036 — The distributable unit is the enforcing set of the trust model; the host base is a pinned composition, neither a mutable install nor a distribution
