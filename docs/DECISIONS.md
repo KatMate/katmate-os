@@ -6819,6 +6819,88 @@ outside the repository; the rulings are in
 **Status is unchanged: PROPOSED.** No gate of this ADR is taken by this
 note.
 
+**Revision note (2026-09-29, step-4c rulings — §6, §7, § *Alternatives
+rejected* and § *Gates*):** this note records the operator's rulings of
+2026-09-29 on the step-4c read pass (`s4c-readpass-report.md`, outside the
+repository, cited as S, whose items are D-1…D-7 and E-1…E-13). It changes no
+text above, implements nothing and takes no gate. The rulings of the same
+date that concern the build and the order of work (R101, R102, R108, R109,
+R111, R112) are in [ADR-037](DECISIONS.md#adr-037)'s note of this date. The
+operator's instruction with them: *"do not over-complicate"*.
+
+- **R100 — the ARP half of finding 12 (open problem #34) is a `table arp`**
+  (S E-1). Sixteen static pairs on `slot_guard`'s model, `iifname "kmkk" arp
+  saddr ip 10.100.1.(16+k)` accept, then a counted drop for any other ARP
+  arriving on a `km*`. It binds no device, by construction, so it loads
+  before the renames, as the measured boot order requires (S § C:
+  `nftables.service` finished before the first `kmkk` rename on the boot of
+  2026-09-27). The sender MAC is not pinned: the AppVM side's MAC is not a
+  pool constant. **`table netdev` is not pursued, so P2 of the 2026-09-20
+  note is not measured.** P2 is moot, not settled.
+- **R103 — §4 and R55's pairing check is a decode-time `Rejected` in the
+  agent's parser** (S E-4). A pool MAC `52:54:01:00:00:kk` (`k` < 16)
+  requires the peer `10.100.1.(16+k)`. A non-pool MAC may not name a peer in
+  `.16`–`.31`. **§ *Alternatives rejected* is not contradicted** (S D-4):
+  that bullet rejects encoding the slot in `link_id`. By §1 the MAC is a view
+  of `k`, so a check on the MAC agrees with §1 rather than adding a second
+  carrier.
+- **R104 — §7: `ifindex_by_mac` counts, and a duplicate is a distinct error
+  class that REMOVE does not absorb** (S E-5). A REMOVE that meets a
+  duplicate returns ERR and keeps the record. Today REMOVE absorbs any
+  mechanism `Rejected` as a vanished device (`netcfg.rs:395–403`), and a
+  duplicate absorbed that way would delete the record and leave the kernel
+  state, the shape [ADR-025](DECISIONS.md#adr-025) forbids.
+- **R105 — §6 convergence: records are keyed by `match_mac`** (S E-6).
+  Supersession is one atomic rename over the slot's record. REMOVE finds its
+  `link_id` by scanning the records, and an unknown `link_id` is absorbed,
+  which is §6's late-REMOVE argument. A superseding ADD withdraws only what
+  the new payload does not carry, such as a route with another metric, so
+  the address the old and the new record share on a slot is not withdrawn
+  (the 2026-09-12 note, finding 1). ADR-025's per-id rules are not changed
+  by this: its text specifies idempotence per id and records as payload
+  bytes, not the record's key.
+- **R106 — §6's neighbour delete: no `RTM_DELNEIGH`** (S E-7). DOWN on
+  REMOVE flushes the slot's own neighbour entries. Cross-slot entries (the
+  2026-09-14 note, finding 4) cannot be planted once R100 is loaded.
+- **R107 — §6's conntrack flush, by mark** (S E-8). Sixteen static rules,
+  `ct state new iifname "kmkk" ct mark set (k+1)`. REMOVE sends **one**
+  ctnetlink `IPCTNL_MSG_CT_DELETE` with `CTA_MARK` and `CTA_MARK_MASK`. There
+  is no dump, so the agent's no-multipart limit (`netlink.rs:32–35`) stands.
+  **The criterion is the original source**, not §6's *"source or
+  reply-destination"*: under masquerade a forwarded flow's reply
+  destination is the uplink address, not peer `k` (S E-8). That the kernel
+  flushes by mark is recall until 4c's gate shows it.
+- **R110 — R100's and R107's pairs get a read-back in `build/netvm.sh`**, on
+  R48's model (S E-11). The limit of ADR-037 R52's preflight is recorded:
+  it checks the ruleset against the build host's kernel, not netVM's.
+- **R113 — two corrections of this ADR's record** (S E-13):
+  - **D-3.** §6 cites `netcfg.rs:401` for the absorbed unknown-`link_id`
+    REMOVE. The absorption is at `netcfg.rs:382–386` (`None => return
+    Ok(())`). `:401` absorbs a mechanism `Rejected` from `drive_remove`. The
+    file has had one commit since 2026-07-23, so the line was never right.
+    §6's claim holds of the tree; only the citation is wrong.
+  - **D-6.** G6b is recorded *"blocked until §9 lands"* (the 2026-09-12 note,
+    finding 5). §9's `KM_NETVM` and `KM_SLOT` landed in networking arc step
+    4a (`d6feb9c`, this ADR's note of 2026-09-29, §5 implemented). **G6b is
+    no longer blocked, and it is untaken.**
+
+**What the rulings do to § *Gates*.** Nothing here is taken; the gates are
+4c's, after its rebuild.
+- **G3** becomes performable when R104 lands: a `dummy` with a slot MAC,
+  ADD → ERR and nothing programmed; with the duplicate removed, the same
+  ADD → OK.
+- **G4, confirmation:** the `IFF_UP` row by DOWN on REMOVE. The neighbour
+  row reads `ip neigh show dev kmkk` empty after REMOVE (R106). The
+  conntrack row reads `/proc/net/nf_conntrack` for the slot's mark inside
+  the flow's expiry window (the 2026-09-12 note, findings 2 and 11). **The
+  cross-interface neighbour row is superseded by #34's refusal gate** (R106).
+- **G4, refusal, redesigned form** (supersession): a REMOVE with the
+  previous `link_id` after a new ADD on the same slot changes nothing the
+  new ADD programmed (R105).
+- **G6b:** untaken, no longer blocked (R113).
+
+**Status is unchanged: PROPOSED.**
+
 ---
 
 ## ADR-036 — The distributable unit is the enforcing set of the trust model; the host base is a pinned composition, neither a mutable install nor a distribution
