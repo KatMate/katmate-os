@@ -21,7 +21,7 @@
 
 # ---- parameters (edit per instance) ---------------------------------------
 
-set INSTANCE   test_web                 # delta basename in INSTANCES_DIR
+set INSTANCE   app_web                  # delta basename in INSTANCES_DIR
 set CID        21                       # guest VSOCK CID (20-99, fixed AppVM range, ADR-022)
 set MEM        4G
 set SMP        2
