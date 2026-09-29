@@ -96,6 +96,13 @@ step 3a found ADR-030's gate G2 misnamed because `app_web.con` carries no
 network device at all. The tree is not automatically right either. The operator
 rules; the session records the ruling and moves on.
 
+**The permission classifier stops a session the same way** (operator ruling,
+2026-09-29). A **refusal** stops the session at once, and the report names the
+exact command that was refused. A **no-verdict (error)** is an outage, not a
+refusal: wait about 30 s and retry the **same** action, up to 5 times, then stop
+and report. Neither is ever retried in another form — a different form of a
+refused command is evasion, not a workaround.
+
 ## What a session may not decide
 
 - **The content of an ADR.** Propose a revision note in the report; do not write
