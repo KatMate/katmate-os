@@ -8315,3 +8315,234 @@ operator's TTL reading over M's captures, whose table is in
 **Not done, and not claimed.** G5 is untaken. Nothing was implemented or
 built. ADR-038 is not written. No conntrack entry was read inside its
 expiry window in 4.0, and `IFF_PROMISC` was not read (ADR-035's note).
+
+---
+
+## ADR-038 — AppVM guest addressing: katmate-init applies a `/32` from typed `km.*` command-line parameters
+
+**Status:** PROPOSED (2026-09-29). The direction is the operator's ruling R76
+(2026-09-28, [ADR-037](DECISIONS.md#adr-037)'s note of that date); the
+parameter names, the interface rule, the mechanism, the failure mode, the
+resolver file and `lo` are the operator's rulings of 2026-09-29, recorded
+here. Acceptance waits on the gates below. **Proposed is a decision and not an
+implementation:** `init/katmate-init.c` has no network code, no image carries
+the resolver symlink, and no template passes a `km.*` parameter.
+
+**Depends on:** [ADR-025](DECISIONS.md#adr-025) (`10.100.1.1` as the gateway
+constant; rtnetlink as the configuration path, Path B),
+[ADR-032](DECISIONS.md#adr-032) (one path to the profile; the generator's
+projection), [ADR-035](DECISIONS.md#adr-035) (§3: every slot's netVM end is
+`10.100.1.1/32`; §4: slot `k`'s peer is `10.100.1.(16 + k)`),
+[ADR-037](DECISIONS.md#adr-037) (R5: dnsmasq answers on `10.100.1.1`; R60:
+this ADR precedes 4a; R63: `KM_SLOT` comes from `owner`; R66; R76).
+**Closes:** ADR-035 § *Dependencies surfaced*, first item — *"How the AppVM
+end learns `10.100.1.(16+k)/32` and its route to `10.100.1.1`"* — and ADR-037
+R65, whose candidate this ADR decides.
+
+**Numbering:** `ADR-038` is the next free number; `ADR-031` stays reserved.
+
+**Context, measured or read:**
+
+- **Kernel `ip=` cannot express a `/32`.** A netmask field of
+  `255.255.255.255` was replaced: *"Guessing netmask 255.0.0.0"*; the gateway
+  was kept. Observed 2026-09-28 on the AppVM kernel, boot A of step 4.0
+  (`s4-m0-report.md`, M2; ADR-035's note of 2026-09-28).
+- **`ipv6.disable=1` works on this kernel** (`CONFIG_IPV6=y`, built in):
+  *"IPv6: Loaded, but administratively disabled, reboot required to enable"*
+  (M, boot C; ADR-037's note of 2026-09-28).
+- **An AppVM on slot 01 with `10.100.1.17` egresses through netVM**: ttl 63
+  against a LAN host's 64 in the same host capture (M4). The guest was
+  configured by the fixture's kernel `ip=`; the path, not the mechanism, is
+  what 4.0 showed.
+- **katmate-init has no network code.** It mounts `/proc` first
+  (`init/katmate-init.c:122`), is the only root code in the guest (its
+  header, *"Privilege model"*), and starts `vm-agent` with an explicit
+  `envp` of five entries (`:269–276`), so nothing from PID 1's own
+  environment reaches the agent or the applications. On an error it calls
+  `fatal()` (`:91–97`), which logs and then `pause()`s forever: the guest
+  stays up and QEMU keeps running.
+- **Every layer build writes `/etc/resolv.conf` through the image path.**
+  `build/foundation.sh:118` and `build/app-layer.sh:57` run
+  `cp /etc/resolv.conf "$MNT/etc/resolv.conf"` (*"build-time DNS only"*) and
+  remove it afterwards (`foundation.sh:229`, `app-layer.sh:65`). `cp` follows
+  a symlink at its destination, and that resolution happens on the host, not
+  in the chroot.
+- **The kernel withholds dotted parameters from PID 1.** In `init/main.c`
+  (`unknown_bootoption`), a parameter whose name contains a `.` is taken as
+  an unused module parameter and is passed neither to init's environment nor
+  to its argv; it remains in `/proc/cmdline`. An undotted `key=value` is put
+  into init's environment and logged as *"Unknown kernel command line
+  parameters … will be passed to user space"*. **Read from the kernel source,
+  not observed on this kernel** (G1 observes it).
+
+**Decision:**
+
+1. **Three parameters, dotted, on the kernel command line.**
+
+   | Parameter | Example (slot 01) | Meaning |
+   |---|---|---|
+   | `km.ip=` | `10.100.1.17` | the guest's address; the prefix is always `/32` and is not a parameter |
+   | `km.gw=` | `10.100.1.1` | the next hop of the on-link default route |
+   | `km.dns=` | `10.100.1.1` | the only `nameserver` line of the resolver file |
+
+   The `km.` prefix matches the host's `KM_*` projection names. katmate-init
+   reads them from `/proc/cmdline`; the kernel does not hand them to PID 1
+   (§ *Context*), and katmate-init does not take them from its environment.
+2. **Presence of `km.ip` selects the routed path; absence of all three is the
+   offline path.** With no `km.*` parameter, init configures no address and
+   no route and writes no resolver file (R76). A NIC present on the offline
+   path is left down.
+3. **Parsing is strict and syntactic only.** Each of the three appears at
+   most once; a set is all three or none; each value is a dotted quad as
+   `inet_pton(AF_INET)` accepts it; any other `km.*` key is an error. **init
+   does not check meaning** — not that `km.ip` lies in `10.100.1.16/28`, not
+   that `km.gw` is `.1`. The image never learns the pool's layout (R65); the
+   generator is where the address is derived and where it is checked.
+4. **The interface is the one non-loopback link (the operator's (a)).** On
+   the routed path init enumerates links and requires exactly one that is
+   not loopback; zero or more than one is an error. No MAC is matched: the
+   NIC carries the instance-derived identity MAC (ADR-035 §2 and §9), which
+   is decided but which the image does not know; matching on it would need a
+   fourth parameter for a guest that has one NIC. *Revisit* item 1 names when
+   this changes.
+5. **Mechanism: rtnetlink from katmate-init, in C, with no library** — the
+   same path `netvm-agent` uses (ADR-025, Path B). In this order: the NIC up;
+   `km.ip/32` on it; a default route via `km.gw` with `RTNH_F_ONLINK` on that
+   NIC. One netlink socket, opened and closed before `vm-agent` starts. The
+   ioctl path is not taken: with a `/32`, `SIOCADDRT` rejects the gateway as
+   unreachable unless a host route to it is added first, which is two routes
+   where one suffices.
+6. **`lo` is brought up on every boot, routed and offline alike.** It carries
+   no external traffic, and applications assume it. This changes the offline
+   path, where nothing in init brings `lo` up today.
+7. **The resolver file lives in `/run`.** The image carries `/etc/resolv.conf`
+   as a **relative** symlink, `../run/resolv.conf`; on the routed path init
+   writes `/run/resolv.conf` (`root:root 0644`, one line,
+   `nameserver <km.dns>`) on the tmpfs it mounts. Nothing is written into the
+   root delta, nothing survives a boot, and on the offline path the symlink
+   dangles, which is *"no resolver"*. **Relative, because of the build
+   scripts' `cp`** (§ *Context*): through an absolute `/run/resolv.conf`
+   link, a build's `cp` would write the **host's** `/run/resolv.conf`;
+   through a relative one it lands inside the image. **Every layer build ends
+   with `/etc/resolv.conf` as that symlink, checked by read-back**: a build
+   step that writes a build-time copy through the link removes that copy
+   (`$MNT/run/resolv.conf`, which would otherwise stay in the image beneath
+   init's `/run` tmpfs) and leaves the link in place; a layer whose read-back
+   differs is refused before freeze.
+8. **Everything happens before `vm-agent` starts**, after the pseudo-file
+   systems, as the root PID 1. An application started by RUN finds the
+   network already configured; there is no window in which the agent runs on
+   a half-configured guest.
+9. **An error exits the VM; it does not halt it.** A parse error, a wrong
+   interface count or a netlink error is logged on the serial console with
+   the reason and the offending token, and init leaves through its shutdown
+   path (`/home` unmounted, `reboot(RB_AUTOBOOT)`, QEMU exits under
+   `-no-reboot`). `vm-agent` is never started. `fatal()`'s halt is not used
+   for these errors: a halted guest keeps QEMU running with nothing
+   answering, and looks like a slow boot.
+10. **What the host passes, and from where.** The generator derives
+    `KM_GUEST_ADDR` = `10.100.1.(16 + KM_SLOT)` for `app-routed` (R63 supplies
+    `KM_SLOT`). The `katmate-app-routed@` template's `-append` carries
+    `km.ip=${KM_GUEST_ADDR} km.gw=10.100.1.1 km.dns=10.100.1.1
+    ipv6.disable=1`. The gateway and the resolver are ADR-025's constant and
+    are **written literally in the template**, never projected — the same
+    rule ADR-035 §2 applies to the slot MAC. Only the address is projected.
+11. **init logs what it applied**, one line on the console, e.g.
+    `net: eth0 10.100.1.17/32 via 10.100.1.1 dns 10.100.1.1`, and on the
+    offline path `net: offline (no km.ip), lo up`.
+
+**Alternatives rejected:**
+
+- **Kernel `ip=` (candidate A of R65).** Its netmask field cannot carry a
+  `/32` (M2), and a `/24` contradicts ADR-035's `/32` peer model. It also
+  writes no resolver file, so init would need network code anyway.
+- **A privileged NETCFG in `vm-agent`.** It revises the opcode table and puts
+  `CAP_NET_ADMIN` into the unprivileged half of the guest, the half that
+  parses protocol input.
+- **A config disk read by init** (netVM's R8 pattern). A device and a file
+  format to carry three scalars; justified for netVM's per-installation
+  secrets, not here.
+- **Undotted names (`km_ip=`).** They arrive in PID 1's environment, and the
+  kernel logs every one of them as unknown on every boot.
+- **The gateway and resolver as constants inside init.** Shorter command
+  line, but it puts a network constant into the image; with parameters the
+  generator and the template stay the only place addressing lives.
+- **Matching the interface by MAC (the operator's (b)).** Consistent with the
+  project's other `.link` matches. The MAC is decided — the instance-derived
+  identity MAC (ADR-035 §2) — but the image does not know it, so a `km.mac=`
+  would have to carry it: a fourth parameter to select among one NIC. One NIC
+  per AppVM is the model.
+- **`/etc/resolv.conf` written by init into the root delta.** It persists into
+  the next boot, including an offline one; and root being writable is not
+  something this ADR should depend on.
+
+**Consequences:**
+
+- **AppVMs are IPv4-only.** R66 made it conditional on 4.0's reading, the
+  reading held, and R76 carries `ipv6.disable=1` on the routed path. There is
+  therefore no `accept_ra` step (open problem #24, AppVM half).
+- katmate-init's *Responsibilities* grow by one item, still before the agent,
+  still root-only; its header changes with the code (4b).
+- The foundation build and the app-layer build each gain the symlink and its
+  read-back; the instance delta is not built by a script that touches
+  `/etc/resolv.conf`.
+- The kernel's `CONFIG_IP_PNP` is no longer used by any path. Whether it is
+  removed from the AppVM kernel stays undecided (R76).
+
+**Gates — none taken; each has a refusal half.** Taken on MINIS with an AppVM
+started by `katmate-app-routed@` on slot 01. In-guest readings are made in a
+`foot` window as uid 1000 (`cat /proc/net/fib_trie`, `/proc/net/route`,
+`/etc/resolv.conf`, `readlink /etc/resolv.conf`); **that window opens on
+MINIS's screen**, so the operator is at MINIS for them.
+
+- **G1 — the routed path.** The console shows init's `net:` line; the guest
+  holds exactly `10.100.1.17/32` on its one NIC, a default route via
+  `10.100.1.1` on that NIC, and `nameserver 10.100.1.1` in the resolver file;
+  `lo` is up; the serial log has no *"Unknown kernel command line
+  parameters"* line naming a `km.` key. *Refusal half:* the
+  same unit with one parameter changed to an unknown key (`km.ipx=`) — the
+  console shows the error and the token, `vm-agent` never starts, QEMU exits,
+  and a capture on the slot's netVM end shows no frame from the guest.
+- **G2 — the offline path.** An AppVM started with no `km.*` parameter: no
+  address on any interface but `lo`, no route but `lo`'s, the resolver
+  symlink dangling, `lo` up, and init's `net: offline` line. *Refusal half:*
+  `km.gw=10.100.1.1` alone — refused as a partial set, not taken as offline.
+- **G3 — the symlink survives the layer chain.** After the foundation build
+  and after the app-layer build, `readlink` on the frozen layer's
+  `/etc/resolv.conf` returns `../run/resolv.conf`, the layer's `/run` holds
+  no `resolv.conf`, and the host's
+  `/run/resolv.conf` is unchanged across both builds (sha256 before and
+  after). *Refusal half:* a layer whose build leaves a regular file there is
+  refused by the build's read-back before freeze.
+
+**Carried, not decided here:**
+
+- **The unit is expected to end inactive, not failed, when init refuses**
+  (§9): under `-no-reboot` QEMU is expected to exit 0 whichever way the guest
+  reboots — **expected, not observed**; G1's refusal half reads the exit
+  status and the unit state. Telling an init
+  refusal from a clean shutdown on the host is open problem #21's (the host
+  observing the agent answer), not this ADR's.
+- The vehicle for G2 at 4b (whichever offline start exists then).
+- Re-issue of NETCFG after a netVM restart (3b; R64).
+
+**Documentation this ADR requires on acceptance:**
+
+- `docs/ARCHITECTURE.md` § *Networking*: the AppVM end is configured by
+  katmate-init from `km.*`, not by NETCFG; NETCFG programs netVM's end only.
+  The opcode table is unchanged (NETCFG stays absent in `vm-agent`).
+- A revision note on [ADR-033](DECISIONS.md#adr-033): *"NETCFG then programs
+  the `/32` inside each guest exactly as it does today"* is superseded for the
+  AppVM end by this ADR.
+- `init/katmate-init.c`'s header (*Responsibilities*, *Host-side
+  requirements*), with the code.
+
+**Revisit when:**
+
+1. **An AppVM needs a second NIC** — then §4's one-NIC rule gives way to a
+   match on the identity MAC (ADR-035 §2), passed as a typed `km.mac=`.
+2. **The AppVM root becomes read-only** — §7 already writes nothing there;
+   the symlink is the only root-side artefact and is baked, so nothing
+   changes; recorded so the question is not reopened.
+3. **IPv6 is wanted in an AppVM** — reopen R66 and #24 together; `km.*` would
+   gain typed IPv6 parameters rather than any autoconfiguration.
