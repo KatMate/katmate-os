@@ -6,10 +6,10 @@
 > history and the ADRs — this file references them rather than repeating them.
 
 **Milestone:** v0.2 (in development) · **Last updated:** 2026-09-29
-(`wp-0929a`, a docs-only write pass on the Acer. It wrote ADR-038
-(PROPOSED) and recorded R77 — in ADR-038, notes on ADR-037 and ADR-035,
-and this file — and rotated the 2026-09-28 `s4-readpass and rulings`
-entry to `docs/SESSIONS.md`).
+(`wp-0929b`, a docs-only write pass on the Acer. It recorded networking
+arc step 4a, s4a-impl A and B, and the rulings R78–R84 — in notes on
+ADR-035, ADR-037, ADR-038 and ADR-030, and this file — and rotated the
+2026-09-28 `s4-m0 and rulings` entry to `docs/SESSIONS.md`).
 
 ## Current focus
 
@@ -42,6 +42,11 @@ is **4a**, the host side: `katmate-app-routed@`, the generator's
 and the delta rename. Then **4b**: katmate-init per ADR-038, the resolver
 symlink with its read-back in `foundation.sh` and `app-layer.sh`, and the
 rebuild chain. Then ADR-038's G1–G3 and ADR-037's G5.**]**
+**[Note 2026-09-29, step 4a: 4a is done** — implemented on the Acer
+(s4a-impl A, four commits) and installed and first run on MINIS (s4a-impl
+B); no gate taken. Next is **4b**: katmate-init per ADR-038, the resolver
+symlink with its read-back in `foundation.sh` and `app-layer.sh`, and the
+rebuild chain. Then ADR-038's G1–G3 and ADR-037's G5.**]**
 
 The **entire build chain remains scripted and proven from nothing**:
 `make foundation` builds the shared systemd-free base
@@ -69,6 +74,89 @@ restartable — and so updatable — without touching running VMs.
 
 Direction unchanged: IOMMU-capable platforms only (VT-d/AMD-Vi).
 MINIS is primary host and merge target.
+
+## This session (2026-09-29, step 4a — s4a-impl A and B) — the host side of the first routed AppVM: implemented, installed, and first run on MINIS; R78–R84
+
+Three sessions. `s4a-impl-A` wrote the code on the Acer, halted once at
+its read pass (D1, D2), and after the operator's rulings made four
+commits, unpushed. `s4a-impl-B` installed them on MINIS and ran
+`katmate-app-routed@app_web` for the first time, 09:31–09:39 CEST, with
+no commit, build or reboot. `wp-0929b` wrote the record on the Acer only.
+Their reports are outside the repository:
+`~/Claude.assistent/s4a-impl-A-report.md` (A),
+`~/Claude.assistent/s4a-impl-B-report.md` (B) and
+`~/Claude.assistent/wp-0929b-report.md`.
+
+**A's four commits.** `bb6801d`: the generator emits `KM_MAC_INT` for an
+attached AppVM only (#41). `1597445`: `katmate-sys-driver@`'s
+`ExecStopPost=` unlinks the sixteen `netvm` nodes (R74). `d6feb9c`:
+`app-routed` ships (R61). The guard is gone, the generator gains the
+slot lookup, `KM_GUEST_ADDR` and the `REQ_ENV` arm, and the commit adds
+`katmate-app-routed@.service` and extends SECURITY-MODEL gap 11 to AppVMs
+(R64). `46f8a26`: `app_web.con`'s instance is `app_web` (R69).
+
+**R78–R84 (index; the text is in ADR-037's note of 2026-09-29).** R78 is
+the `owner` file's format and its checks. R79: `LINK_ID` is checked, not
+projected. R80: `/home` is required for `app-routed`, and ephemeral is
+refused as not shipped. R81: the AppVM's one-path `ExecStopPost=`. R82:
+no dependency on the netVM unit. R83: the A/B split, the memory backend
+carried over, and the console to the journal. R84 (A's D1): the
+template's first `ExecStartPre=` removes the projection. A's D2 is
+accepted: R80's refusal is reachable only by calling the generator
+directly, because `katmate-activate-lvs` refuses ephemeral first.
+
+**B, in summary.** The installed set now equals the tree at `46f8a26`, 10
+of 10 by sha256. The delta is renamed `app_web.qcow2`, and `app_web`'s T1
+is routed (`netvm = "netvm"`). With no `owner` the generator refused
+before QEMU (P4). With an `owner` on slot 01 and link 201 added by hand
+the unit started (P6). The projection carried `KM_SLOT=01`,
+`KM_GUEST_ADDR=10.100.1.17` and `KM_MAC_INT=52:54:00:6f:19:35`, QEMU held
+`…/01/appvm`, the guest kernel received the four ADR-038 tokens, and PING
+answered after about 5 s. After SHUTDOWN, `appvm` was gone, attributed to
+`ExecStopPost=` by inference (P7). A start refused at check-image left no
+projection, and a sentinel at `appvm` survived: R84 observed by record
+(P8). R80 refused by direct call (P9). Slot 01 was returned to FREE
+(P10). netVM kept MainPID 49895 throughout. **No gate is taken:** the
+guest has no address, because its image predates ADR-038.
+
+**The operator's rulings on B (2026-09-29).** B § 4's additions are
+accepted: the extra P0 reads, the in-script guards, root-installed
+staged files, gated restores, the probe comment and the console copy. B
+§ 5.1 (after a clean stop, `systemctl show` returns defaults) and § 5.2
+(the unknown-parameter negative has no positive control) are accepted as
+findings. B § 6's three observations are in § *Invariants & gotchas*.
+**Deferred, not fixed in this pass:** the stale comments of the T1
+`app_web.toml` on both machines (B N2), and
+`katmate-app-routed@.service:149–152`'s *"UNVERIFIED … 4a-B observes
+it"*. Both touch installed files, and the hash-first invariant wants the
+tree to equal the installed set, so both are done at the next host install
+(4b or later), in the same session as their reinstall. Open problems #19
+and #41 are resolved.
+
+**`wp-0929b`'s commits.** The previous-but-one entry rotated out (§
+*Session archive*, *Closed 2026-09-29 (third rotation of that day)*;
+`61a900e`). There are revision notes on ADR-035 (§5 implemented;
+`d64d7c5`), ADR-037 (step 4a, R78–R84; `9fe6e8d`), ADR-038 (the host half
+of §10; `2410e3d`) and ADR-030 (`app-routed` shipped; `23c80be`). In this
+file: the header, § *Current focus*, § *Live state*, #19, #21, #23, #41,
+step 4 in § *Next steps*, four § *Invariants & gotchas* items, and this
+entry.
+
+**Not done, and not claimed (B § 7).**
+- netVM's `ExecStopPost=` has not executed, because netVM was not stopped.
+- No guest networking was exercised: no address, and no ARP, ping,
+  capture or route read. NETCFG ADD and REMOVE are claimed only as `OK`.
+- ADR-038 G1–G3 and ADR-037 G5 are not taken.
+- R84's refusal half, the same start without R84, was not run.
+- R78's refusal paths and the absent-pool refusal were not exercised.
+- The uid QEMU runs as was not read.
+- There is no positive control for *"Unknown kernel command line
+  parameters"*.
+- `ExecStopPost=`'s execution at P7 has no record, and P7's exit status
+  was read from the journal only.
+- The validator's cross-file rules were not read from its source.
+- `app_web.con` was not run.
+- The delta's hash was not taken across P8's move aside and back.
 
 ## Previous session (2026-09-29, ADR-038) — AppVM guest addressing written as ADR-038, PROPOSED, and R77 recorded
 
@@ -1104,6 +1192,9 @@ touched.
   **`NETVM_BUILT=2026-09-28T17:38:12Z`**, kernel `6.12.107+deb13-amd64`,
   `UPLINK_PCI_ADDR=0000:00:04.0`. The installed host set equals the tree at
   `81e0736` (9 of 9 by sha256, before and after the reboot).
+  **[2026-09-29, s4a-impl-B: the installed set now equals the tree at
+  `46f8a26`, 10 of 10 by sha256. See *THE FIRST ROUTED APPVM UNIT* below.
+  The sentence is left as written.]**
   - **`katmate-sys-driver@netvm.service`: MainPID `49895`**, invocation
     `1d1b5f667cb34f958e7ce6f682968db5`, `NRestarts=0`, since 19:39:06 CEST.
   - **The guard is in the ruleset:** chain `slot_guard` in `table inet
@@ -1151,6 +1242,41 @@ touched.
     configuration. The pcaps and dumps were not copied to the Acer.
   - **A reboot is still due before the next `netvm.sh`** (`jbd2/dm-9-8`,
     not re-read by s4-m0).
+
+  **THE FIRST ROUTED APPVM UNIT (2026-09-29, 4a-B).** The blocks above are
+  left as published. Networking arc step 4a is installed, and
+  `katmate-app-routed@app_web` ran for the first time
+  (`s4a-impl-B-report.md`, outside the repository, § 6; ADR-037's note of
+  2026-09-29). As left at 09:39 CEST:
+  - **netVM unchanged:** `katmate-sys-driver@netvm`, MainPID `49895`,
+    invocation `1d1b5f66…`, `NRestarts=0`, since 2026-09-28 19:39:06, not
+    restarted. **Its loaded unit carries the new sixteen-path
+    `ExecStopPost=`** (`systemctl show` lists it for the running
+    instance). It first runs at netVM's next stop.
+  - **The installed set equals the tree at `46f8a26`, 10 of 10 by
+    sha256**: the seven `/usr/lib/katmate/*` and three units, including
+    the new `katmate-app-routed@.service`. The hash-first check expects
+    these values, not `81e0736`'s.
+  - **`app_web`:** T1 **routed** (`netvm = "netvm"`, `be542506…`); the
+    previous T1 is saved as `/home/host/katmate-dev/s4a/app_web.toml.pre`.
+    Delta **`app_web.qcow2`** (`test_web.qcow2` no longer exists), backing
+    `/dev/vg0/vm_app_web`, written by the unit's boot of 09:35–09:36
+    (`0e42839e…`). The unit is `inactive` and its projection is absent. A
+    new `start` refuses at the generator until an `owner` naming `app_web`
+    is written again.
+  - **`app_web.con`** now names `app_web` and finds its delta. It must not
+    run beside `katmate-app-routed@app_web` (R61), and with this T1 the two
+    no longer boot the same machine: the `.con`'s argv has no network
+    device.
+  - **Slot 01 is FREE:** `netvm` only, no `owner`, no `appvm`, link 201
+    removed.
+  - **The stale `appvm` nodes on slots 02 and 05** (inodes 4647, 4655)
+    are still there.
+  - LVs as at the start of B. B did not touch the console holder or the
+    `/run` drop-in. Session files (ten scripts, their outputs, four
+    journal copies) are in `/home/host/katmate-dev/s4a/`.
+  - **A reboot is still due before the next `netvm.sh`**. `jbd2` was not
+    re-read.
 
   **The uplink is capped by the cable, and that is a condition of the
   environment rather than a defect.** On the boot of 2026-09-12 the link came up
@@ -1217,6 +1343,12 @@ touched.
   `app-offline` (operator, 2026-09-26).
   **[Operator statement, 2026-09-28: that boot was by `app_web.con`, run as
   `host`.]**
+  **[2026-09-29, s4a-impl-B: the delta is now
+  `/var/lib/katmate/instances/app_web.qcow2`, renamed from `test_web.qcow2`
+  (R69), and the instance has also been booted by
+  `katmate-app-routed@app_web` (MainPID 361445, 09:35:14–09:36:42 CEST), on
+  slot 01, with a routed T1. See *THE FIRST ROUTED APPVM UNIT* above. The
+  text is left as written.]**
 - **app_vault** (build-only): `vm_app_vault` thin snap RO of `vm_tpl_foundation`,
   built via `make app-vault` (2026-06-29; keepassxc/foot/nautilus). NOT yet
   instantiated — no qcow2 delta, no home LV, no CID (will be allocated from 20+),
@@ -1487,7 +1619,18 @@ touched.
    **(netns, CID)**, not CID (ADR-026). C6 and ADR-026 are revisited together.
    SECURITY-MODEL gap #12; mechanism in ADR-028.
 
-19. **`katmate-generate-env`'s read-back has no required-key set for
+19. **RESOLVED 2026-09-29 — by `d6feb9c`: the guard removed, the
+   `app-routed` `REQ_ENV` arm written, and `katmate-app-routed@.service`
+   shipped, in one commit (R61).** Kept as a closed marker so the number is
+   not reused. **Evidence (s4a-impl-B, MINIS, 2026-09-29):** the first start
+   of `katmate-app-routed@app_web` passed the read-back, and the generator
+   logged *"projection written: /run/katmate/vm/app_web.env (profile
+   app-routed asserted and derived, 13 keys)"*. **The standing risk below
+   still holds, and now covers three arms** (`sys-driver`, `app-offline`,
+   `app-routed`): per-profile truth is stated in the emissions and again in
+   the required-key sets, and nothing measures that they agree. The
+   published text is left as written:
+   **`katmate-generate-env`'s read-back has no required-key set for
    `app-routed`.** Added 2026-08-19 with the read-back itself. The executable
    accepts three profiles — `in_list "$ASSERTED" sys-driver app-offline
    app-routed` — but the read-back's `case "$DERIVED"` carries arms for only two.
@@ -1720,6 +1863,13 @@ touched.
    is **expected (not observed)** to end inactive, not failed. On the host
    that is indistinguishable from a clean shutdown until this problem's
    observation of the agent answering exists.**]**
+   **[Note 2026-09-29 (s4a-impl-B § 5.1): `systemctl show` cannot tell them
+   apart either.** After a clean stop of `katmate-app-routed@app_web`,
+   systemd collected the inactive instance, and its fields read as defaults
+   (`Result=success`, `ExecMainStatus=0`, empty `InvocationID=`, every
+   `Exec*` record at `pid=0`). A clean stop and an init refusal (ADR-038
+   §9, not yet implemented) would read the same there. The journal is the record: *"Deactivated
+   successfully"*, with no *"Main process exited"* line.**]**
 
 22. **Kernel provenance is unverifiable — no image can be tied to a config.**
    Added 2026-08-24, from link-m1 § 3c–§ 3d and link-m2 § B0.1, § B0.4.
@@ -2132,6 +2282,14 @@ touched.
    unlinking all sixteen `netvm` nodes, for the hijack window — lands in
    networking arc step 4a; the AppVM side (`appvm`) in the `app-routed`
    template.]**
+   **[Note 2026-09-29 (step 4a): both halves are written** — netVM's
+   sixteen literal `netvm` paths (`1597445`, R74) and the AppVM's one
+   `appvm` path (`d6feb9c`, R81, with R84). **The AppVM half is observed**
+   on MINIS (s4a-impl-B): after a clean stop the slot's `appvm` was absent,
+   attributed to `ExecStopPost=` by inference; after a refused start with a
+   stale projection, a sentinel at `appvm` survived, by record (ADR-035's
+   note of 2026-09-29). **netVM's half is installed and has not executed**:
+   netVM has not been stopped since.**]**
 
 24. **AppVM guests emit IPv6 router solicitations unprompted.** Added
    2026-08-24, from link-m2 § B2.4. Two 70-byte frames to `33:33:00:00:00:02`
@@ -2765,7 +2923,15 @@ touched.
    G1 stays non-discriminating (R40). VPN mode is arc step 5 (R30). The text
    above is left as written.**]**
 
-41. **`KM_MAC_INT` is emitted for `sys` with no consumer.** Added 2026-09-27.
+41. **RESOLVED 2026-09-29 — by `bb6801d`: the `sys` branch is removed, and
+   the generator emits `KM_MAC_INT` for an AppVM attached to a netVM
+   only.** Kept as a closed marker so the number is not reused. The `app`
+   branch stays, per ADR-035 §9. **Evidence (s4a-impl-B, MINIS,
+   2026-09-29):** the `app-routed` projection carried
+   `KM_MAC_INT=52:54:00:6f:19:35`. That netVM's projection no longer
+   carries the key is **not read**, because netVM was not restarted and its
+   `netvm.env` is the 2026-09-28 one. The published text is left as written:
+   **`KM_MAC_INT` is emitted for `sys` with no consumer.** Added 2026-09-27.
    `katmate-generate-env:360-364` derives it when `CLASS == sys` and
    `provides_network == true` (and for an `app` with `netvm` set), and `:403`
    emits it. Its only consumer in `host/` was
@@ -3730,6 +3896,13 @@ frozen `vm_home_skel` vs qcow2 branch.
      the resolver symlink `../run/resolv.conf` with its read-back in
      `foundation.sh` and `app-layer.sh`; and the rebuild chain, foundation →
      app layer → delta. The text above is left as written.**]**
+     **[Note 2026-09-29 (`wp-0929b`): 4a is done** (s4a-impl A and B;
+     ADR-037's note of 2026-09-29). No gate was taken. Next is 4b. Two
+     deferred items travel with the next host install (4b or later), in
+     the same session as their reinstall, because both touch installed
+     files: the stale comments of the T1 `app_web.toml` on both machines,
+     and `katmate-app-routed@.service:149–152`'s *"UNVERIFIED … 4a-B
+     observes it"*. The text above is left as written.**]**
   5. **VPN mode** (added 2026-09-27, R30): the WireGuard config, the VPN
      ruleset and the kill-switch, under **its own ADR**, after step 4. R8
      names the config disk as the WireGuard config's channel, and R31 gives
@@ -4089,6 +4262,11 @@ frozen `vm_home_skel` vs qcow2 branch.
   **unimplemented** (ADR-035's 2026-09-12 revision note, finding 7).
   **[2026-09-27: this applies to the folded `katmate-sys-driver@.service`
   exactly as it did to the pool unit. It carries no `ExecStopPost=` either.]**
+  **[2026-09-29: *"remains unimplemented"* and the bracket above are false
+  of the tree since `1597445` (R74) and of MINIS since s4a-impl-B installed
+  it. The running netVM's loaded unit carries the sixteen-path
+  `ExecStopPost=`. It is **unexecuted**, because netVM has not been stopped
+  since.]**
 - **`Type=simple` returns from `systemctl start` as soon as QEMU forks —
   before QEMU has bound its netdevs — so the slot bindings are read after the
   guest answers PING, not after `start`.** Measured 2026-09-27: a binding check
@@ -4100,6 +4278,33 @@ frozen `vm_home_skel` vs qcow2 branch.
   **Same family as *"a check that cannot fire…"*:** the first reading was
   confident, well-formed and wrong. Source: `pool-fold-report.md` §§ 2.6,
   2.7.
+- **After a clean stop, `systemctl show` on a template instance returns
+  defaults; the journal is the record.** systemd garbage-collects an
+  inactive, non-failed instance, and the query then loads it fresh:
+  `Result=success`, `ExecMainStatus=0`, empty `InvocationID=` and
+  `ExecMainExitTimestamp=`, and every `Exec*` record at `start_time=[n/a] …
+  pid=0 … code=(null)`. A check of `Result` or `ExecMainStatus` after a
+  clean stop cannot fire. What shows the clean exit is the journal:
+  *"Deactivated successfully."*, with no *"Main process exited, code=…"*
+  and no *"Failed with result"*. A failed unit is not collected, so its
+  records are real. **Same family as *"a check that cannot fire"*.**
+  Measured 2026-09-29 on `katmate-app-routed@app_web` (P7 against P4 and
+  P8). Source: `s4a-impl-B-report.md` §§ 5.1, 6.
+- **systemd names the unset variables an `Exec*` line expanded empty.** It
+  logs *"Referenced but unset environment variable evaluates to an empty
+  string: KM_NETVM, KM_SLOT"*, under `(rm)`, when `ExecStopPost=` runs with
+  no projection loaded. It is a free, positive signal that an expansion was
+  empty. Its absence after a successful run is consistent with the
+  projection having been read, and it does not prove it. systemd does not
+  print the expanded argv. Observed 2026-09-29 on
+  `katmate-app-routed@app_web` (P4, P8; absent in P7). Source:
+  `s4a-impl-B-report.md` §§ P4, P8, 6.
+- **`vm-agent` answers PING about 5 s after `systemctl start` of an AppVM
+  unit.** Before that, `ping-client` gets *"connect: No route to host (os
+  error 113)"*. That error is the not-yet-listening state, not a fault, so
+  a PING probe polls: every 2 s, up to 30 s, with the try count recorded.
+  Observed 2026-09-29, once, on `katmate-app-routed@app_web`: OK on try 3,
+  at about 5 s. Source: `s4a-impl-B-report.md` §§ P6, 6.
 - **`RuntimeDirectoryPreserve=yes` is load-bearing, reconfirmed under a live
   peer.** A second, independent restart of `katmate-pool@netvm.service`
   (2026-09-12) left `appvm` inode 7528, its bound `/proc/net/unix` socket
