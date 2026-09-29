@@ -64,7 +64,7 @@ restartable — and so updatable — without touching running VMs.
 Direction unchanged: IOMMU-capable platforms only (VT-d/AMD-Vi).
 MINIS is primary host and merge target.
 
-## This session (2026-09-28, s4-m0 and rulings) — networking arc step 4.0: the first AppVM on a slot, measured with no code; R75's reading, and R76, ADR-038's direction
+## Previous session (2026-09-28, s4-m0 and rulings) — networking arc step 4.0: the first AppVM on a slot, measured with no code; R75's reading, and R76, ADR-038's direction
 
 Two sessions and an operator reading. `s4-m0` ran from the Acer against
 MINIS on 2026-09-28, 21:06–22:02 CEST. Its report is outside the
@@ -138,70 +138,6 @@ fixture's refusal paths are **UNVERIFIED**. A' was not run, by ruling.
 
 `wp-0928d` ran on the Acer only and observed nothing on MINIS.
 
-## Previous session (2026-09-28, s4-readpass and rulings) — networking arc step 4 read against the tree, and the step-4 rulings R60–R75 recorded before any code
-
-Two sessions, both on the Acer only. MINIS was not contacted.
-`s4-readpass` read the tree against networking arc step 4, the AppVM side.
-Its report is outside the repository:
-`~/Claude.assistent/s4-readpass-report.md` (cited as S). `wp-0928c` wrote
-the operator's rulings into `docs/DECISIONS.md` and this file.
-
-**The read pass (S), in summary.** It found **nine divergences, D1–D9**
-(S § 2), and posed **fourteen questions, Q-S4-1…Q-S4-14** (S § 4). S's
-D-numbers are its own. D1: the only launcher that can start an AppVM is
-`app_web.con`, which ADR-030's G3 deletes, and no AppVM unit template
-exists in any commit. D2: `KM_HOME_DEV` is not a name mismatch; only
-`KM_DELTA` is (`app_web.qcow2` against the live `test_web.qcow2`). D3: no
-record of a 2026-09-15 ruling on per-slot ACLs was found. D4: ADR-033,
-ADR-017 and ADR-035 give the slot allocation three shapes. D5: ADR-035's
-*"configures its address by hand through the console"* has no mechanism.
-D6: stale SHUTDOWN comments in `opcode.rs` and `vm-agent`'s `op.rs`. D7:
-two step lists for the same work disagree. D8: G5 says an AppVM is
-required, while F12b's PC-1 and PC-2 already matched its observable with
-fixtures. D9 (minor): the ruleset header, already ruled. Also read:
-katmate-init has no network code and reads no configuration; the Acer's
-microVM config copy has `CONFIG_IP_PNP=y`; and the 63 `ip=dhcp` boots of
-2026-09-14 ran the Debian netVM kernel, not the microVM kernel.
-
-**The rulings, R60–R75 (index; the text is ADR-037's note of 2026-09-28).**
-R60: step 4 splits into 4.0, ADR-038, 4a, 4b, G5 and 4c (§ *Next steps*).
-R61: `katmate-app-routed@` only, with #19's guard removal and the `REQ_ENV`
-arm in one commit; `app-offline@` ships with the vault instance; the `.con`
-deletion is not in step 4. R62: the slot is ADR-035 §5's `owner` tree,
-lowest free, and ADR-033's wording is superseded (notes on ADR-033 and
-ADR-035). R63: `owner` written by hand until 3b; no T1 key carries a slot.
-R64: the AppVM's QEMU runs as root at step 4, recorded as debt (gap #11 in
-4a); C1 is its own step. R65: guest addressing is ADR-038, after 4.0. R66:
-IPv6 is decided by 4.0's `ipv6.disable=1` reading. R67: the `netvm-agent`
-items land in 4c, one rebuild. R68: the `netvm` cross-file check goes in the
-validator. R69: the delta rename, in 4a. R70: NETCFG by hand; re-issue is
-3b's. R71: G5 only with a real AppVM, "NATed" observed in a host capture,
-and a refusal half. R72: D5 corrected by a note on ADR-035. R73: the
-SHUTDOWN comments in 4c (#51). R74: `ExecStopPost=`, netVM side in 4a,
-AppVM side in the template. **R75: the operator's ruling of 2026-09-15,
-recorded now for the first time** — per-slot POSIX ACLs keyed to per-VM
-local users, not plain `chown`; its implementation belongs to C1.
-**Recorded, not ruled:** D2 and D9.
-
-**Operator statement (2026-09-28):** the 2026-09-26 boot of `app_web` was
-by `app_web.con`, run as `host` (§ *Live state*, `app_web`).
-
-**wp-0928c's commits.** The previous-but-one entry rotated out (§ *Session
-archive*, *Closed 2026-09-28 (third rotation of that day)*). ADR-037 gained
-the rulings note, ADR-035 the step-4 reading note, and ADR-033 a note on
-R62. In this file: § *Current focus*, the step-4 note in § *Next steps*,
-#19, #23, #24, #41, #45, #49, new #51, and `app_web` in § *Live state*.
-
-**Not done, and not claimed.** Nothing was implemented, built or run. G5 is
-untaken, and ADR-037 stays PROPOSED (G5). S's **[recall, unverified]**
-statements are still unverified. The MINIS readings S § 5 lists (the
-image's kernel config, the image's packages, `app-web.meta`, the instances
-directory, the `netvm` node modes, `cid-pool`) were not taken by these two
-sessions. No ADR body was changed.
-
-`s4-readpass` and `wp-0928c` ran on the Acer only and observed nothing on
-MINIS.
-
 ## Session archive
 
 Rotated sessions are enumerated in `docs/SESSIONS.md`, newest first; that
@@ -234,6 +170,23 @@ extracted block against the pre-move blob.
 *second of two* entry (3a part 1) rotated out as the 2026-08-17 entry arrived. Two
 rotations in one day is not a defect — it is what keeping two sessions costs when
 two sessions close on the same day.
+
+**Closed 2026-09-29 (second rotation of that day).** The 2026-09-28
+*s4-readpass and rulings* entry (networking arc step 4 read against the
+tree, and the step-4 rulings R60–R75 recorded before any code) rotated to
+the archive as the 2026-09-29 *ADR-038* entry arrived. **The block moved
+verbatim, heading included**, and *Previous session* stays *Previous
+session*. Verified three ways. The whole block, heading line included,
+hashed **identical before and after, `65fb66182fdc970f…`**. The pre-move
+block diffed clean against the `HEAD` blob. The block re-extracted from
+`docs/SESSIONS.md` at its new home diffed clean against the pre-move
+block. `docs/SESSIONS.md` gained 64 lines, the 63-line block and one blank
+separator, and lost none. The block was inserted at the head of the entry
+list, above the 2026-09-28 *f12-impl A and B* entry, newest first. The
+2026-09-28 *s4-m0 and rulings* entry's prefix changed from *This session*
+to *Previous session*, and its body is untouched. **No ordinal changed.**
+The rotation and the new entry are separate commits, so between them this
+file held one session, never three.
 
 **Closed 2026-09-29.** The 2026-09-28 *f12-impl A and B* entry (networking
 arc step 3a implemented, netVM rebuilt on it, and F12a and F12b taken)
