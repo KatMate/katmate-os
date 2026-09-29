@@ -8316,6 +8316,31 @@ operator's TTL reading over M's captures, whose table is in
 built. ADR-038 is not written. No conntrack entry was read inside its
 expiry window in 4.0, and `IFF_PROMISC` was not read (ADR-035's note).
 
+**Revision note (2026-09-29, R65 decided, and R77):** **Status: still
+PROPOSED (G5).** This note records a ruling. It implements nothing, takes
+no gate, and changes no text above.
+
+- **R65's candidate is decided by [ADR-038](DECISIONS.md#adr-038)**
+  (PROPOSED), in R76's direction: katmate-init applies the guest's address
+  from typed command-line parameters. Two things differ from R65's
+  candidate as written above. The parameter names are `km.ip`, `km.gw` and
+  `km.dns`, not `katmate.addr` and `katmate.gw`. There is no `accept_ra`
+  step, because IPv6 is disabled (`ipv6.disable=1`, R66 and R76).
+- **R77 — ADR-038 as written** (operator, 2026-09-29): the `km.ip`,
+  `km.gw`, `km.dns` parameters, dotted and read from `/proc/cmdline`; the
+  one-non-loopback-NIC rule (the operator's (a)); rtnetlink from
+  katmate-init in C with no library; strict syntactic parsing, no semantic
+  check in the image; an error exits the VM through the shutdown path,
+  never `fatal()`'s halt; `/etc/resolv.conf` as the relative symlink
+  `../run/resolv.conf`, written by init in `/run`; `lo` up on every boot,
+  offline included; gateway and resolver written literally in the
+  template, only `KM_GUEST_ADDR` projected; gates G1–G3. ADR-038 is
+  **PROPOSED**; no gate is taken.
+
+**Not done, and not claimed.** Nothing is implemented: katmate-init has no
+network code, no image carries the resolver symlink, and no template
+passes a `km.*` parameter. G5 is untaken.
+
 ---
 
 ## ADR-038 — AppVM guest addressing: katmate-init applies a `/32` from typed `km.*` command-line parameters
