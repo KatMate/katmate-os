@@ -8522,6 +8522,25 @@ as; SECURITY-MODEL gap 11's *"as root"* is a reading of the unit.
 [ADR-038](DECISIONS.md#adr-038), and katmate-init ignores `km.*`. G5
 follows 4b.
 
+**Revision note (2026-09-29, step 4b done):** **Status: still PROPOSED
+(G5).** This note records a step's completion; it takes no gate and
+changes no text above. Sources: `s4b-impl-A-report.md` and
+`s4b-impl-B-report.md`, outside the repository; the detail is in
+[ADR-038](DECISIONS.md#adr-038)'s note of the same date.
+
+- **Step 4b is done.** katmate-init applies ADR-038 (`04672b8`, with tests
+  in `3b06005`), and the layer builds carry the resolver link with its
+  read-back (`d6d0006`, tests in `647a380`). On MINIS the chain was rebuilt
+  — foundation → app layer → delta — and `app_web`, started by
+  `katmate-app-routed@` on slot 01, configured its own `/32`, route and
+  resolver from `km.*`. A DNS query through `10.100.1.1` was answered: an
+  AAAA record, which is **not tied to IPv4 egress**. ADR-038's G1
+  (positive half) and G3 are passed (R89, R90).
+- **G5 is untaken.** Its refusal half (R71: the neighbouring slot's
+  address) needs a `-append` the template cannot produce, because the
+  address is derived from the slot. **The vehicle is the operator's ruling
+  in the next session.**
+
 ---
 
 ## ADR-038 — AppVM guest addressing: katmate-init applies a `/32` from typed `km.*` command-line parameters
