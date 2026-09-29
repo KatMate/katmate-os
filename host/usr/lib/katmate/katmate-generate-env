@@ -348,18 +348,18 @@ fi
 # the instance name with NO trailing newline; any reimplementation must hash the
 # same bytes or the two disagree silently.
 #
-# Emitted only where an internal link exists: a sysVM that provides network to
-# others, or an AppVM attached to a netVM. An offline AppVM has no link, and
-# absent is not the same as unused.
+# Emitted only for an AppVM attached to a netVM: its one link, on its identity
+# MAC (ADR-035 §2, §9). An offline AppVM has no link, and absent is not the same
+# as unused. A sysVM gets none: netVM's side of every link is an ADR-035 slot
+# on a pool-constant MAC written literally in its template, and the sys branch
+# that derived one here lost its only consumer with tap-int0 (open problem #41).
 derive_mac() {
     local name="$1" h
     h="$(printf '%s' "$name" | sha256sum | cut -c1-6)"
     printf '52:54:00:%s:%s:%s' "${h:0:2}" "${h:2:2}" "${h:4:2}"
 }
 
-if [[ "$CLASS" == sys && "${KM_T1[provides_network]}" == true ]]; then
-    KM_MAC_INT="$(derive_mac "$INSTANCE")"
-elif [[ "$CLASS" == app && -n "${KM_T1[netvm]}" ]]; then
+if [[ "$CLASS" == app && -n "${KM_T1[netvm]}" ]]; then
     KM_MAC_INT="$(derive_mac "$INSTANCE")"
 fi
 
@@ -441,9 +441,9 @@ sys-driver)
     # Every one of these is an unconditional emission for this profile above:
     # class=sys reads all four T2 values through km_meta_require, and sys-driver
     # has a nic by construction, so KM_VFIO_BDF is resolved. Their absence here
-    # is a defect, not a profile variation. KM_MAC_INT is deliberately NOT in the
-    # set: it follows provides_network, which is a property of the T1 file rather
-    # than of the profile.
+    # is a defect, not a profile variation. KM_MAC_INT is not in the set because
+    # it is never emitted for class=sys: netVM's slot MACs are constants of its
+    # template, and nothing crosses for them (ADR-035 §9, open problem #41).
     REQ_ENV=("${REQ_ENV_COMMON[@]}" KM_INITRD KM_ROOTFS_DEV KM_ROOT_DEVICE \
              KM_ROOTFSTYPE KM_VFIO_BDF)
     ;;
