@@ -7,7 +7,7 @@
                              │
                     ┌────────┴────────┐
                     │  NetVM (sysVM)  │  q35 · RTL8125 vfio passthrough
-                    │  CID 3          │  WireGuard/ProtonVPN · nftables
+                    │  CID 3          │  uplink0 · dnsmasq · nftables
                     └────────┬────────┘
                              │  per-AppVM /32 p2p links
 ┌──────────────────── Host — Arch Linux (linux-hardened) ────────────────────┐
@@ -66,8 +66,10 @@ The entire topology is two fields on `Vm`: `netvm` (whom do I route through) and
   NETCFG on each node of the path at launch and teardown, and refuses to tear
   down a `provides_network` VM while dependents run. Agents stay dumb executors.
 - **v1 instantiates the simplest graph:** one driver domain terminating the
-  uplink and carrying the VPN — exactly the netVM running today. The split
-  driver/VPN chain is a post-v1 *paranoid profile*, not a v1 blocker.
+  uplink — exactly the netVM running today. VPN mode is a post-install
+  option, not implemented ([ADR-037](DECISIONS.md#adr-037)); when enabled it
+  runs in that same domain. The split driver/VPN chain is a post-v1
+  *paranoid profile*, not a v1 blocker.
 
 ## Host
 
@@ -364,9 +366,14 @@ netVM topology:
   DNS server the uplink receives. **VPN** is a post-install option: the user
   supplies a WireGuard config through netVM's read-only config disk (R8), which
   is **not implemented** ([ADR-037](DECISIONS.md#adr-037)).
-- **Internal segment:** `10.100.1.0/24`. Each AppVM gets its own p2p `Link` with
-  a link-scoped `/32` route, delivered by **NETCFG at launch** and withdrawn at
-  teardown. **Nothing is baked** — on a clean boot netVM has no internal route,
+- **Internal segment:** `10.100.1.0/24`. Each AppVM gets its own p2p `Link`.
+  **netVM's end** — its address on the slot and the link-scoped `/32` route to
+  the AppVM — is delivered by **NETCFG at launch** and withdrawn at teardown.
+  **The AppVM's end** is configured by katmate-init from typed `km.*` kernel
+  parameters, not by NETCFG ([ADR-038](DECISIONS.md#adr-038)): a `/32`, an
+  on-link default route via `10.100.1.1`, and the resolver `10.100.1.1`,
+  IPv4 only (`ipv6.disable=1`). NETCFG stays absent in `vm-agent`.
+  **Nothing is baked** — on a clean boot netVM has no internal route,
   which is correct: with no AppVMs running there is nowhere to route.
 - **What carries a link** ([ADR-033](DECISIONS.md#adr-033)): a link is a pair of
   **AF_UNIX datagram sockets**, one end opened by each QEMU by path at start.
@@ -381,16 +388,23 @@ netVM topology:
   `SECURITY-MODEL.md`). The `Link` row in § *Object model* now states the same
   mechanism; the two disagreed while the ADR was proposed, deliberately, and no
   longer do.
-- **nft:** static, AppVM-agnostic. Input drop; forward limited to
-  segment ↔ `proton`, referencing only the aggregate `10.100.1.0/24`, never a
-  per-AppVM rule. Per-`/32` isolation is **topology**, not firewall.
+- **nft:** static, AppVM-agnostic. Input drop; forward and NAT masquerade out
+  `uplink0`, with the return path by conntrack. Its per-slot rules are
+  `slot_guard`'s: sixteen static slot↔address pairs (`km<kk>` ↔
+  `10.100.1.(16+k)`) and the drops behind them
+  ([ADR-037](DECISIONS.md#adr-037) R48–R50). They are pool constants,
+  identical in every installation, and they do not change as AppVMs come
+  and go: **a per-slot rule is not a per-AppVM rule**
+  ([ADR-035](DECISIONS.md#adr-035)'s note of 2026-09-20). Per-`/32`
+  isolation is **topology**, not firewall.
 
 AppVMs have no direct host network access and no guest-to-guest path.
 
-**Known v1 co-location** ([ADR-022](DECISIONS.md#adr-022)): the WireGuard key and
-the `r8169` driver + Realtek firmware blob share one address space. Resolved
-post-v1 by splitting into a driver domain (hardware, no secrets) and a proxy
-netVM (secrets, no hardware).
+**Known v1 co-location** ([ADR-022](DECISIONS.md#adr-022)): when VPN mode is
+enabled, the WireGuard key and the `r8169` driver + Realtek firmware blob share
+one address space. Today there is no key: vanilla netVM carries no VPN
+([ADR-037](DECISIONS.md#adr-037)). Resolved post-v1 by splitting into a driver
+domain (hardware, no secrets) and a proxy netVM (secrets, no hardware).
 
 ## Disposable VMs (planned, v0.3)
 
