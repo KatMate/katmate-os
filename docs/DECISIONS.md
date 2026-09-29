@@ -1589,6 +1589,21 @@ scopes them to the driver-domain class. Constrains the NETCFG payload, which is
 specified in [ADR-023](DECISIONS.md#adr-023). The launch daemon it presupposes
 remains a future ADR.
 
+**Revision note (2026-09-29, § *Decision*, *v1 instantiates the simplest
+graph* — the v1 default carries no VPN):** *"The shipped default is one driver
+domain terminating the uplink and carrying the VPN — i.e. exactly the netVM
+that runs today, unchanged"* no longer describes the target or the running
+system. Under [ADR-037](DECISIONS.md#adr-037) (Accepted 2026-09-29), vanilla
+egress is direct through `uplink0` with no VPN (R2). VPN mode is a
+post-install option: networking arc step 5, under its own ADR (R30). When
+enabled, it runs in the same driver domain. The v1 default is therefore one
+driver domain terminating the uplink, with no key in it. The driver/secret
+co-location this ADR names arises only when VPN mode is enabled. The rest of
+the decision is unchanged: the graph, and the split chain as a post-v1
+paranoid profile. `docs/ARCHITECTURE.md` § *Object model* and *Known v1
+co-location* were brought into line on 2026-09-29 (`bfb47d0`). The text above
+is not edited.
+
 ## ADR-023 — NETCFG describes a link, never an AppVM
 
 **Status:** Accepted (2026-07-14) — wire format and semantics normative;
