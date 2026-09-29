@@ -785,6 +785,11 @@ static pid_t spawn_agent(void)
 	if (setuid(0) == 0 || geteuid() != UID_USER || getuid() != UID_USER)
 		_exit(127);
 
+	/* PID 1 runs with umask 0 (main). Without this, vm-agent and every
+	 * application it starts inherit it: a file created in foot in the
+	 * user session was 0666 (open problem #53; s4b-impl-B § P8). */
+	umask(022);
+
 	if (chdir(USER_HOME) != 0)
 		_exit(127);
 
@@ -909,7 +914,7 @@ int main(void)
 	pid_t agent_pid;
 	int want_shutdown = 0;
 
-	umask(0);
+	umask(0);   /* PID 1 only; spawn_agent() sets 022 for vm-agent (#53) */
 
 	logmsg("starting (pid %ld)", (long)getpid());
 	if (getpid() != 1)
