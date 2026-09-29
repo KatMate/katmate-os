@@ -8414,6 +8414,102 @@ no gate, and changes no text above.
 network code, no image carries the resolver symlink, and no template
 passes a `km.*` parameter. G5 is untaken.
 
+**Revision note (2026-09-29, step 4a done — R78–R84):** **Status: still
+PROPOSED (G5).** This note records rulings, an implementation and its
+first execution. It takes no gate and changes no text above. Sources:
+`s4a-impl-A-brief.md` and `s4a-impl-A-report.md` (A, the code, on the
+Acer), `s4a-impl-B-report.md` (B, install and first start, on MINIS), all
+outside the repository.
+
+**The rulings (operator, 2026-09-29).**
+
+- **R78 — the `owner` file's format.**
+  [ADR-035](DECISIONS.md#adr-035) §5 gives its content (the instance name
+  and the `link_id`), not its format. It is a flat `KEY=VALUE` file in the
+  form of the nic label file: `KATMATE_OWNER_VERSION=1`,
+  `INSTANCE=<name>`, `LINK_ID=<u32>`. It is read with `km_meta_require`.
+  **Every** `owner` present in the netVM's tree, not only the one naming
+  this instance, must be a regular file (not a symlink), owned by uid 0,
+  not group- or world-writable, version 1, with an `INSTANCE` passing
+  `km_check_instance`'s pattern and a decimal `LINK_ID` ≤ 4294967295; any
+  failure refuses the start. `owner` decides which address a VM gets: it
+  is a trust input.
+- **R79 — `LINK_ID`** is read and type-checked, **not projected**: nothing
+  in 4a consumes it (NETCFG is issued by hand, R70).
+- **R80 — `/home` is required for `app-routed`.** katmate-init mounts
+  `/dev/vdb` as a fatal condition, so the template lists the home drive
+  unconditionally. The generator refuses `app-routed` with
+  `persistence = ephemeral` by an explicit *"not shipped"* diagnostic, in
+  the form of the sys-proxy refusal, and `KM_HOME_DEV` is in the
+  `app-routed` `REQ_ENV` set.
+- **R81 — the AppVM's `ExecStopPost=`** is one `rm -f` of
+  `/run/katmate/link/${KM_NETVM}/${KM_SLOT}/appvm`: one path, no shell, no
+  glob; both scalars are typed by the generator. netVM's is one
+  `ExecStopPost=` with sixteen literal paths.
+- **R82 — no `Requires=`/`After=` on the netVM unit.** A unit file cannot
+  name the netVM from T1; the `owner` lookup is the precondition (R68),
+  and a netVM restart requires the AppVM to be restarted (R64).
+- **R83 — step 4a is split** into A (code, on the Acer) and B (on MINIS:
+  install, rename, T1, `owner`, NETCFG, start and stop observed). The
+  memory backend (hugepages, from `app_web.con`) is carried unchanged; it
+  belongs to the memory session. The serial console goes to the journal,
+  as in `katmate-sys-driver@`.
+- **R84 — the projection is removed first** (A's D1). The template's first
+  `ExecStartPre=` is `+/usr/bin/rm -f /run/katmate/vm/%i.env`. A start
+  refused before the generator (by `katmate-check-image`,
+  `katmate-check-waypipe` or `katmate-activate-lvs`) would otherwise leave
+  the previous start's projection standing, since it survives stops and
+  failed starts ([ADR-032](DECISIONS.md#adr-032)'s note of 2026-08-22), and
+  R81's `rm -f` would unlink the `appvm` of a slot this instance may no
+  longer hold, possibly a live AppVM's. `katmate-sys-driver@` does not get
+  the line.
+
+**On A's halt.** D1 is R84. D2 is accepted: R80's generator refusal cannot
+be reached through the unit, because `katmate-activate-lvs` refuses
+`persistence = ephemeral` first. It is written as ruled and reached only
+by calling the generator directly.
+
+**The four commits (A).** `bb6801d` — the generator emits `KM_MAC_INT` for
+an attached AppVM only (open problem #41). `1597445` —
+`katmate-sys-driver@`'s sixteen-path `ExecStopPost=` (R74). `d6feb9c` —
+`app-routed` ships (R61): the guard removed, the slot lookup and the
+`REQ_ENV` arm in the generator, `katmate-app-routed@.service`, and
+SECURITY-MODEL gap 11 extended to AppVMs (R64). `46f8a26` —
+`app_web.con`'s instance is `app_web` (R69).
+
+**The first execution (B, MINIS, 2026-09-29).** The installed set equals
+the tree at `46f8a26`, and the delta is renamed `app_web.qcow2` (R69).
+
+- **P4, no `owner`:** the generator refused at the owner lookup (*"no slot
+  in /run/katmate/link/netvm has an owner naming instance 'app_web'"*),
+  before QEMU; no projection was written.
+- **P6, the start:** with an `owner` naming `app_web` on slot 01 and link
+  201 added by hand, the unit started. The projection carried
+  `KM_NETVM=netvm`, `KM_SLOT=01`, `KM_GUEST_ADDR=10.100.1.17` and
+  `KM_MAC_INT=52:54:00:6f:19:35`. QEMU's MainPID was bound to
+  `/run/katmate/link/netvm/01/appvm`, and the agent answered PING about
+  5 s after the start.
+- **P7, a clean stop:** after SHUTDOWN, slot 01's `appvm` was absent;
+  attributed to `ExecStopPost=` by inference, since its execution record
+  was not retained.
+- **P8, R84 observed:** a start refused at `katmate-check-image` with the
+  previous projection present left no projection; `ExecStopPost=`
+  expanded `KM_NETVM` and `KM_SLOT` empty (systemd logged both as unset),
+  and a sentinel at slot 01's `appvm` path survived.
+- **P9, R80 by direct call:** `katmate-generate-env katmate-app-routed`
+  on a probe T1 with `persistence = ephemeral` refused with R80's
+  diagnostic, exit 1, no projection.
+
+**Not exercised:** R78's refusal paths (a symlinked, non-root, group- or
+world-writable `owner`; a wrong version, `INSTANCE` or `LINK_ID`; two
+`owner` files naming one instance) and the absent-pool refusal. Only the
+zero- and one-owner cases ran. **Not read:** the uid the AppVM's QEMU runs
+as; SECURITY-MODEL gap 11's *"as root"* is a reading of the unit.
+
+**This is not G5.** The guest has no address: its image predates
+[ADR-038](DECISIONS.md#adr-038), and katmate-init ignores `km.*`. G5
+follows 4b.
+
 ---
 
 ## ADR-038 — AppVM guest addressing: katmate-init applies a `/32` from typed `km.*` command-line parameters
