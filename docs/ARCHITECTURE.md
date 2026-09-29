@@ -363,9 +363,13 @@ netVM topology:
 - **Egress and DNS:** forward from the internal segment out `uplink0`, with the
   return path by conntrack; NAT masquerade out `uplink0`; `ip_forward=1`. AppVM
   DNS is `dnsmasq` in netVM, answering on the slots only and forwarding to the
-  DNS server the uplink receives. **VPN** is a post-install option: the user
-  supplies a WireGuard config through netVM's read-only config disk (R8), which
-  is **not implemented** ([ADR-037](DECISIONS.md#adr-037)).
+  DNS server the uplink receives. **VPN** is a post-install option, and **VPN
+  mode is not implemented** (networking arc step 5, under its own ADR). The
+  user will supply the WireGuard config through netVM's read-only config disk
+  (R8). **The config disk itself is implemented** and gated at networking arc
+  step 3: it carries the uplink's static configuration today
+  ([ADR-037](DECISIONS.md#adr-037)'s step-3 gates note, G6; `state.md` open
+  problem #40).
 - **Internal segment:** `10.100.1.0/24`. Each AppVM gets its own p2p `Link`.
   **netVM's end** — its address on the slot and the link-scoped `/32` route to
   the AppVM — is delivered by **NETCFG at launch** and withdrawn at teardown.
