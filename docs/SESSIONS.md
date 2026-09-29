@@ -51,6 +51,89 @@
 
 ---
 
+## Previous session (2026-09-29, step 4a — s4a-impl A and B) — the host side of the first routed AppVM: implemented, installed, and first run on MINIS; R78–R84
+
+Three sessions. `s4a-impl-A` wrote the code on the Acer, halted once at
+its read pass (D1, D2), and after the operator's rulings made four
+commits, unpushed. `s4a-impl-B` installed them on MINIS and ran
+`katmate-app-routed@app_web` for the first time, 09:31–09:39 CEST, with
+no commit, build or reboot. `wp-0929b` wrote the record on the Acer only.
+Their reports are outside the repository:
+`~/Claude.assistent/s4a-impl-A-report.md` (A),
+`~/Claude.assistent/s4a-impl-B-report.md` (B) and
+`~/Claude.assistent/wp-0929b-report.md`.
+
+**A's four commits.** `bb6801d`: the generator emits `KM_MAC_INT` for an
+attached AppVM only (#41). `1597445`: `katmate-sys-driver@`'s
+`ExecStopPost=` unlinks the sixteen `netvm` nodes (R74). `d6feb9c`:
+`app-routed` ships (R61). The guard is gone, the generator gains the
+slot lookup, `KM_GUEST_ADDR` and the `REQ_ENV` arm, and the commit adds
+`katmate-app-routed@.service` and extends SECURITY-MODEL gap 11 to AppVMs
+(R64). `46f8a26`: `app_web.con`'s instance is `app_web` (R69).
+
+**R78–R84 (index; the text is in ADR-037's note of 2026-09-29).** R78 is
+the `owner` file's format and its checks. R79: `LINK_ID` is checked, not
+projected. R80: `/home` is required for `app-routed`, and ephemeral is
+refused as not shipped. R81: the AppVM's one-path `ExecStopPost=`. R82:
+no dependency on the netVM unit. R83: the A/B split, the memory backend
+carried over, and the console to the journal. R84 (A's D1): the
+template's first `ExecStartPre=` removes the projection. A's D2 is
+accepted: R80's refusal is reachable only by calling the generator
+directly, because `katmate-activate-lvs` refuses ephemeral first.
+
+**B, in summary.** The installed set now equals the tree at `46f8a26`, 10
+of 10 by sha256. The delta is renamed `app_web.qcow2`, and `app_web`'s T1
+is routed (`netvm = "netvm"`). With no `owner` the generator refused
+before QEMU (P4). With an `owner` on slot 01 and link 201 added by hand
+the unit started (P6). The projection carried `KM_SLOT=01`,
+`KM_GUEST_ADDR=10.100.1.17` and `KM_MAC_INT=52:54:00:6f:19:35`, QEMU held
+`…/01/appvm`, the guest kernel received the four ADR-038 tokens, and PING
+answered after about 5 s. After SHUTDOWN, `appvm` was gone, attributed to
+`ExecStopPost=` by inference (P7). A start refused at check-image left no
+projection, and a sentinel at `appvm` survived: R84 observed by record
+(P8). R80 refused by direct call (P9). Slot 01 was returned to FREE
+(P10). netVM kept MainPID 49895 throughout. **No gate is taken:** the
+guest has no address, because its image predates ADR-038.
+
+**The operator's rulings on B (2026-09-29).** B § 4's additions are
+accepted: the extra P0 reads, the in-script guards, root-installed
+staged files, gated restores, the probe comment and the console copy. B
+§ 5.1 (after a clean stop, `systemctl show` returns defaults) and § 5.2
+(the unknown-parameter negative has no positive control) are accepted as
+findings. B § 6's three observations are in § *Invariants & gotchas*.
+**Deferred, not fixed in this pass:** the stale comments of the T1
+`app_web.toml` on both machines (B N2), and
+`katmate-app-routed@.service:149–152`'s *"UNVERIFIED … 4a-B observes
+it"*. Both touch installed files, and the hash-first invariant wants the
+tree to equal the installed set, so both are done at the next host install
+(4b or later), in the same session as their reinstall. Open problems #19
+and #41 are resolved.
+
+**`wp-0929b`'s commits.** The previous-but-one entry rotated out (§
+*Session archive*, *Closed 2026-09-29 (third rotation of that day)*;
+`61a900e`). There are revision notes on ADR-035 (§5 implemented;
+`d64d7c5`), ADR-037 (step 4a, R78–R84; `9fe6e8d`), ADR-038 (the host half
+of §10; `2410e3d`) and ADR-030 (`app-routed` shipped; `23c80be`). In this
+file: the header, § *Current focus*, § *Live state*, #19, #21, #23, #41,
+step 4 in § *Next steps*, four § *Invariants & gotchas* items, and this
+entry.
+
+**Not done, and not claimed (B § 7).**
+- netVM's `ExecStopPost=` has not executed, because netVM was not stopped.
+- No guest networking was exercised: no address, and no ARP, ping,
+  capture or route read. NETCFG ADD and REMOVE are claimed only as `OK`.
+- ADR-038 G1–G3 and ADR-037 G5 are not taken.
+- R84's refusal half, the same start without R84, was not run.
+- R78's refusal paths and the absent-pool refusal were not exercised.
+- The uid QEMU runs as was not read.
+- There is no positive control for *"Unknown kernel command line
+  parameters"*.
+- `ExecStopPost=`'s execution at P7 has no record, and P7's exit status
+  was read from the journal only.
+- The validator's cross-file rules were not read from its source.
+- `app_web.con` was not run.
+- The delta's hash was not taken across P8's move aside and back.
+
 ## Previous session (2026-09-29, ADR-038) — AppVM guest addressing written as ADR-038, PROPOSED, and R77 recorded
 
 One session, `wp-0929a`, on the Acer only, docs only. MINIS was not
