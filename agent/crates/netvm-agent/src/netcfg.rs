@@ -50,14 +50,22 @@
 //!
 //! STATE (ADR-025: "state is the filesystem; the process is stateless")
 //!
-//! One record per link, named `link-<id:08x>` under `RUNTIME_DIR`, containing
-//! the validated ADD payload VERBATIM. Consequences that fall out of that
-//! choice rather than being coded for: identical-ADD is a byte comparison;
-//! REMOVE reconstructs what to withdraw by re-parsing the record (the 5-byte
-//! REMOVE payload does not carry it); an agent restart loses nothing. The
-//! directory is `/run` — volatile by design, because the launch daemon must
-//! re-issue every link after a netVM restart anyway (a hotplugged appVM netdev
-//! does not survive one either).
+//! One record per INTERFACE, named `mac-<12 lowercase hex>` after the
+//! `match_mac` that selects it (ADR-035 §6, R105), under `RUNTIME_DIR`,
+//! containing the validated ADD payload VERBATIM. An interface has one link:
+//! an ADD with a new `link_id` on a recorded MAC supersedes the old record by
+//! one rename over it, and a late REMOVE of the old id then finds nothing and
+//! is absorbed. An id is found by scanning the records' contents (R114): a
+//! recorded id with a byte-identical payload is re-driven, and with any other
+//! payload, on its own interface or another, is ERR (ADR-025, ADR-023 no
+//! `modify`). Consequences that fall out of that choice rather than being
+//! coded for: identical-ADD is a byte comparison; REMOVE reconstructs what to
+//! withdraw by re-parsing the record (the 5-byte REMOVE payload does not carry
+//! it); an agent restart loses nothing. The directory is `/run` — volatile by
+//! design, because the launch daemon must re-issue every link after a netVM
+//! restart anyway (a hotplugged appVM netdev does not survive one either). The
+//! `link-<id>` records of earlier builds are not read: they are on tmpfs and do
+//! not survive the reboot that installs this build.
 //!
 //! CONVERGENCE, NOT ROLLBACK. Every operation is a full idempotent pass. ERR
 //! means "re-issue or escalate", never "nothing was touched" — there is no
@@ -294,12 +302,21 @@ fn ensure_dir() -> Result<()> {
     }
 }
 
-fn record_path(link_id: u32) -> PathBuf {
-    PathBuf::from(RUNTIME_DIR).join(format!("link-{link_id:08x}"))
+const RECORD_PREFIX: &str = "mac-";
+
+/// `mac-<12 lowercase hex>`: one record per interface, keyed by the MAC the
+/// payload selects it by (R105).
+fn record_name(mac: &[u8; 6]) -> String {
+    let hex: String = mac.iter().map(|b| format!("{b:02x}")).collect();
+    format!("{RECORD_PREFIX}{hex}")
 }
 
-fn read_record(link_id: u32) -> Result<Option<Vec<u8>>> {
-    match fs::read(record_path(link_id)) {
+fn record_path(mac: &[u8; 6]) -> PathBuf {
+    PathBuf::from(RUNTIME_DIR).join(record_name(mac))
+}
+
+fn read_record(mac: &[u8; 6]) -> Result<Option<Vec<u8>>> {
+    match fs::read(record_path(mac)) {
         Ok(b) => Ok(Some(b)),
         Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(None),
         Err(e) => Err(AgentError::Io(e)),
@@ -309,40 +326,77 @@ fn read_record(link_id: u32) -> Result<Option<Vec<u8>>> {
 /// Write atomically: a temp file plus rename, so no reader (including a
 /// restarted agent) can ever observe a half-written record. No fsync — the
 /// directory is tmpfs and the whole record set is boot-scoped by design.
-/// The temp name deliberately does NOT start with `link-`, so it is invisible
-/// to `count_links`.
-fn write_record(link_id: u32, bytes: &[u8]) -> Result<()> {
-    let tmp = PathBuf::from(RUNTIME_DIR).join(format!(".tmp-{link_id:08x}"));
+/// The temp name deliberately does NOT start with `mac-`, so it is invisible
+/// to the scans below. The rename is also what makes a supersession one step:
+/// it replaces the interface's previous record in place (R105).
+fn write_record(mac: &[u8; 6], bytes: &[u8]) -> Result<()> {
+    let tmp = PathBuf::from(RUNTIME_DIR).join(format!(".tmp-{}", record_name(mac)));
     {
         let mut f = fs::File::create(&tmp).map_err(AgentError::Io)?;
         f.write_all(bytes).map_err(AgentError::Io)?;
     }
-    fs::rename(&tmp, record_path(link_id)).map_err(AgentError::Io)
+    fs::rename(&tmp, record_path(mac)).map_err(AgentError::Io)
 }
 
-fn remove_record(link_id: u32) -> Result<()> {
-    match fs::remove_file(record_path(link_id)) {
+fn remove_record(mac: &[u8; 6]) -> Result<()> {
+    match fs::remove_file(record_path(mac)) {
         Ok(()) => Ok(()),
         Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(()),
         Err(e) => Err(AgentError::Io(e)),
     }
 }
 
-/// Count installed links by scanning the directory rather than caching.
-/// ADR-025 makes the filesystem the state; an in-memory counter would be a
-/// second source of truth that diverges on restart. 128 dirents is nothing.
-fn count_links() -> Result<usize> {
-    let mut n = 0usize;
+/// Parse a stored record back into the link it describes. Only ADD payloads
+/// are ever written, under the name of their own MAC; anything else means the
+/// record set was tampered with, which is not something to converge on.
+fn parse_record(name: &str, bytes: &[u8]) -> Result<Link> {
+    match parse(bytes) {
+        Ok(Cmd::Add(l)) if record_name(&l.mac) == name => Ok(l),
+        _ => Err(AgentError::Rejected("netcfg: corrupt record")),
+    }
+}
+
+/// Every record in the set, as (payload bytes, parsed link). A scan, not a
+/// cache: ADR-025 makes the filesystem the state, and an index kept in memory
+/// or in a second file would be a second source of truth that diverges on
+/// restart. At most one record per interface, and 128 at most: nothing.
+fn scan_records() -> Result<Vec<(Vec<u8>, Link)>> {
+    let mut out = Vec::new();
     for entry in fs::read_dir(RUNTIME_DIR).map_err(AgentError::Io)? {
         let entry = match entry {
             Ok(e) => e,
             Err(_) => continue,
         };
-        if entry.file_name().to_string_lossy().starts_with("link-") {
-            n += 1;
+        let name = entry.file_name().to_string_lossy().into_owned();
+        if !name.starts_with(RECORD_PREFIX) {
+            continue;
         }
+        let bytes = match fs::read(entry.path()) {
+            Ok(b) => b,
+            // Removed between the listing and the read: not a record now.
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => continue,
+            Err(e) => return Err(AgentError::Io(e)),
+        };
+        let link = parse_record(&name, &bytes)?;
+        out.push((bytes, link));
     }
-    Ok(n)
+    Ok(out)
+}
+
+/// The record holding `link_id`, wherever it sits (R114). The key is the MAC,
+/// so an id is found by content; two records naming one id cannot arise from
+/// the flows below and is treated as corruption.
+fn find_link_id(link_id: u32) -> Result<Option<(Vec<u8>, Link)>> {
+    let mut hits = scan_records()?
+        .into_iter()
+        .filter(|(_, l)| l.link_id == link_id);
+    let first = hits.next();
+    if hits.next().is_some() {
+        return Err(AgentError::Rejected(
+            "netcfg: corrupt record set: link_id recorded twice",
+        ));
+    }
+    Ok(first)
 }
 
 // --- mechanism drivers ----------------------------------------------
@@ -354,24 +408,68 @@ const NO_INTERFACE: &str = "netcfg: no interface matches the requested MAC";
 const DUPLICATE_MAC: &str =
     "netcfg: more than one interface carries the requested MAC (ADR-035 §7), refusing to choose";
 
+/// ADD refuses both non-unique lookup outcomes before anything is programmed:
+/// no interface (the device is not there yet; retryable) and a duplicate
+/// (ADR-035 §7, R104).
+fn ifindex_for_add(mac: &[u8; 6]) -> Result<u32> {
+    match netlink::ifindex_by_mac(mac)? {
+        netlink::MacMatch::One(i) => Ok(i),
+        netlink::MacMatch::None => Err(AgentError::Rejected(NO_INTERFACE)),
+        netlink::MacMatch::Many(_) => Err(AgentError::Rejected(DUPLICATE_MAC)),
+    }
+}
+
 /// Bring the link up, install the p2p address, then every route.
 /// Order matters: a route on a down interface does not take.
-///
-/// ADD refuses both non-unique outcomes before anything is programmed: no
-/// interface (the device is not there yet; retryable) and a duplicate (ADR-035
-/// §7, R104).
-fn drive_add(link: &Link) -> Result<()> {
-    let ifindex = match netlink::ifindex_by_mac(&link.mac)? {
-        netlink::MacMatch::One(i) => i,
-        netlink::MacMatch::None => return Err(AgentError::Rejected(NO_INTERFACE)),
-        netlink::MacMatch::Many(_) => return Err(AgentError::Rejected(DUPLICATE_MAC)),
-    };
+fn drive_add(link: &Link, ifindex: u32) -> Result<()> {
     let mut sock = netlink::NlSocket::open()?;
 
     netlink::link_up(&mut sock, ifindex)?;
     netlink::addr_add(&mut sock, ifindex, &link.local, &link.peer, link.peer_prefix)?;
     for r in &link.routes {
         netlink::route_add(&mut sock, ifindex, &r.dest, r.prefix, r.metric)?;
+    }
+    Ok(())
+}
+
+/// What a superseded record carried that its successor does not (R105): each
+/// route the new payload does not carry, and the address only if the new
+/// payload's differs. Nothing the successor carries is touched, so the
+/// address the two share stays (ADR-035's 2026-09-12 note, finding 1: the
+/// withdrawal of an old record took the new link's address with it).
+///
+/// What this can contain in practice. Both records name the same interface.
+/// For a pool MAC, R103 fixes the peer, and `local` is the v1 constant, so the
+/// address is identical and never withdrawn: the set is at most routes to
+/// that peer at metrics the new payload does not list. Only a non-pool MAC
+/// could change its peer, and the image carries no locally-administered
+/// interface but the sixteen slots.
+fn superseded_leftovers(old: &Link, new: &Link) -> (Vec<Route>, bool) {
+    let routes = old
+        .routes
+        .iter()
+        .filter(|r| !new.routes.contains(r))
+        .map(|r| Route {
+            dest: r.dest,
+            prefix: r.prefix,
+            metric: r.metric,
+        })
+        .collect();
+    let address = (old.local, old.peer, old.peer_prefix) != (new.local, new.peer, new.peer_prefix);
+    (routes, address)
+}
+
+fn withdraw_superseded(old: &Link, new: &Link, ifindex: u32) -> Result<()> {
+    let (routes, address) = superseded_leftovers(old, new);
+    if routes.is_empty() && !address {
+        return Ok(());
+    }
+    let mut sock = netlink::NlSocket::open()?;
+    for r in &routes {
+        netlink::route_del(&mut sock, ifindex, &r.dest, r.prefix, r.metric)?;
+    }
+    if address {
+        netlink::addr_del(&mut sock, ifindex, &old.local, &old.peer, old.peer_prefix)?;
     }
     Ok(())
 }
@@ -403,45 +501,69 @@ fn drive_remove(link: &Link, ifindex: u32) -> Result<()> {
 fn do_add(payload: &[u8], link: &Link) -> Result<()> {
     ensure_dir()?;
 
-    match read_record(link.link_id)? {
+    // The id first, wherever it is recorded (R114): the key is the MAC, so an
+    // id is found by scanning.
+    match find_link_id(link.link_id)? {
         // Identical re-ADD: OK, and the mechanism is still re-driven — the
         // record proves intent, not that the kernel currently agrees.
-        Some(prev) if prev == payload => {}
-        // A live id may not be redefined in place: a mutable link is a
-        // boundary that moves without anyone deciding to move it (ADR-023,
-        // no `modify`). Withdraw it explicitly, then add the new one.
+        Some((prev, _)) if prev == payload => {
+            return drive_add(link, ifindex_for_add(&link.mac)?);
+        }
+        // A live id may not be redefined in place, on its own interface or on
+        // another: a mutable link is a boundary that moves without anyone
+        // deciding to move it (ADR-023, no `modify`; ADR-025 "ADD, id present,
+        // different -> ERR"). Nothing is programmed and the record stays.
         Some(_) => {
             return Err(AgentError::Rejected(
-                "netcfg: link_id already installed with a different payload",
+                "netcfg: link_id already installed with a different payload (R114)",
             ))
         }
-        None => {
-            if count_links()? >= MAX_LINKS {
-                return Err(AgentError::Rejected("netcfg: link table full"));
-            }
-            // Record BEFORE mechanism: a crash here leaves a record that the
-            // retry completes, never live state nobody knows about.
-            write_record(link.link_id, payload)?;
-        }
+        None => {}
     }
 
-    drive_add(link)
+    // A new id. Record BEFORE mechanism: a crash here leaves a record that the
+    // retry completes, never live state nobody knows about.
+    let superseded = match read_record(&link.mac)? {
+        None => {
+            if scan_records()?.len() >= MAX_LINKS {
+                return Err(AgentError::Rejected("netcfg: link table full"));
+            }
+            write_record(&link.mac, payload)?;
+            None
+        }
+        // The interface already carries a link under another id: the newer
+        // assignment is the truth, and it SUPERSEDES the old record (ADR-035
+        // §6, R105) in one rename over the interface's record. A late REMOVE
+        // of the old id then finds nothing and is absorbed (`do_remove`).
+        Some(old_bytes) => {
+            let old = parse_record(&record_name(&link.mac), &old_bytes)?;
+            write_record(&link.mac, payload)?;
+            Some(old)
+        }
+    };
+
+    let ifindex = ifindex_for_add(&link.mac)?;
+    drive_add(link, ifindex)?;
+    // Only after the new link is programmed, and only what the new payload
+    // does not carry. A crash between the rename and this step leaves that
+    // remainder in the kernel with no record naming it; an ERR from
+    // drive_add above leaves it too, and an identical retry of the new ADD
+    // does not come back here. Both are recorded in s4c-a's report, not
+    // designed for here.
+    match superseded {
+        Some(old) => withdraw_superseded(&old, link, ifindex),
+        None => Ok(()),
+    }
 }
 
 fn do_remove(link_id: u32) -> Result<()> {
     ensure_dir()?;
 
-    let bytes = match read_record(link_id)? {
-        Some(b) => b,
-        // Absent id: the postcondition already holds.
+    let link = match find_link_id(link_id)? {
+        Some((_, l)) => l,
+        // Absent id: the postcondition already holds. This is also where a
+        // late REMOVE from a superseded tenant lands (ADR-035 §6).
         None => return Ok(()),
-    };
-
-    let link = match parse(&bytes)? {
-        Cmd::Add(l) => l,
-        // Only ADD payloads are ever written; anything else means the record
-        // set was tampered with, which is not something to converge on.
-        Cmd::Remove(_) => return Err(AgentError::Rejected("netcfg: corrupt record")),
     };
 
     match netlink::ifindex_by_mac(&link.mac)? {
@@ -459,8 +581,10 @@ fn do_remove(link_id: u32) -> Result<()> {
         netlink::MacMatch::Many(_) => return Err(AgentError::Rejected(DUPLICATE_MAC)),
     }
 
-    // Mechanism BEFORE record deletion.
-    remove_record(link_id)
+    // Mechanism BEFORE record deletion. The record is the one just found by
+    // its id; the agent serves one request at a time, so nothing replaced it
+    // in between.
+    remove_record(&link.mac)
 }
 
 // --- entry point ----------------------------------------------------
@@ -673,6 +797,76 @@ mod tests {
                 );
             }
         }
+    }
+
+    #[test]
+    fn record_is_named_after_its_mac() {
+        assert_eq!(record_name(&pool_mac(0x0b)), "mac-52540100000b");
+        assert_eq!(record_name(&MAC), "mac-52540a640101");
+    }
+
+    /// A record whose name is not its own payload's MAC, or that is not an
+    /// ADD, is corrupt and is not converged on.
+    #[test]
+    fn a_record_under_another_name_is_corrupt() {
+        let p = with_peer(pool_mac(3), 19);
+        assert!(parse_record("mac-525401000003", &p).is_ok());
+        assert!(parse_record("mac-525401000004", &p).is_err());
+        let mut rm = vec![OP_REMOVE];
+        rm.extend_from_slice(&7u32.to_le_bytes());
+        assert!(parse_record("mac-525401000003", &rm).is_err());
+    }
+
+    fn link_with_metrics(mac: [u8; 6], last: u8, metrics: &[u32]) -> Link {
+        let peer = [10, 100, 1, last];
+        let routes: Vec<([u8; 4], u8, u32)> = metrics.iter().map(|m| (peer, 32, *m)).collect();
+        match parse(&add(mac, INTERNAL_LOCAL, peer, 32, &routes)).unwrap() {
+            Cmd::Add(l) => l,
+            other => panic!("expected Add, got {other:?}"),
+        }
+    }
+
+    /// R105 on a pool slot: the superseding payload names the same peer (R103),
+    /// so the address is never in the withdrawal set, and only routes the new
+    /// payload does not carry are.
+    #[test]
+    fn supersession_on_a_slot_withdraws_only_missing_routes() {
+        let old = link_with_metrics(pool_mac(2), 18, &[100, 200]);
+        let new = link_with_metrics(pool_mac(2), 18, &[200, 300]);
+        let (routes, address) = superseded_leftovers(&old, &new);
+        assert!(!address, "the shared address must not be withdrawn");
+        assert_eq!(
+            routes,
+            vec![Route {
+                dest: [10, 100, 1, 18],
+                prefix: 32,
+                metric: 100
+            }]
+        );
+
+        let (routes, address) = superseded_leftovers(&old, &old);
+        assert!(
+            routes.is_empty() && !address,
+            "an identical successor withdraws nothing"
+        );
+    }
+
+    /// Only a non-pool MAC can change its peer across a supersession; then the
+    /// old address and all its routes are in the set.
+    #[test]
+    fn supersession_with_a_new_peer_withdraws_the_old_address() {
+        let old = link_with_metrics(MAC, 2, &[100]);
+        let new = link_with_metrics(MAC, 3, &[100]);
+        let (routes, address) = superseded_leftovers(&old, &new);
+        assert!(address);
+        assert_eq!(
+            routes,
+            vec![Route {
+                dest: [10, 100, 1, 2],
+                prefix: 32,
+                metric: 100
+            }]
+        );
     }
 
     #[test]
