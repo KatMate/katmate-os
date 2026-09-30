@@ -6901,6 +6901,14 @@ operator's instruction with them: *"do not over-complicate"*.
 
 **Status is unchanged: PROPOSED.**
 
+**Revision note (2026-09-30, R114 — an ADD whose `link_id` is recorded on
+another MAC):** under R105 the record is keyed by `match_mac`, so an ADD
+finds its `link_id` by scanning the records: present with a byte-identical
+payload → OK, re-driven; present with any other payload, on the same MAC or
+another → ERR, nothing programmed, the existing record kept. This is
+[ADR-025](DECISIONS.md#adr-025)'s *"ADD, id present, different → ERR"*,
+which R105's key leaves unchanged. Status unchanged: PROPOSED.
+
 ---
 
 ## ADR-036 — The distributable unit is the enforcing set of the trust model; the host base is a pinned composition, neither a mutable install nor a distribution
@@ -8784,6 +8792,16 @@ them: *"do not over-complicate"*.
 
 **Status is unchanged: Accepted (2026-09-29).** None of this is a condition
 of acceptance.
+
+**Revision note (2026-09-30, s4c-m0 and rulings R115–R116):** R101 names
+`CONFIG_NF_CONNTRACK_NETLINK`, which is not a Kconfig symbol. ctnetlink is
+`CONFIG_NF_CT_NETLINK`, read `=m` in netVM's 6.12.107 config on 2026-09-30
+(`s4c-m0`, outside the repository), with `nf_conntrack_netlink.ko.xz`
+present in the image and not loaded. **R115:** the module is loaded at boot
+by a baked `modules-load.d` file with a read-back, not left to autoload on
+the first REMOVE. **R116:** R107's mark rules sit in a `prerouting` chain
+`slot_mark` in `table inet filter`, so flows to netVM itself are marked as
+well as forwarded ones. Status unchanged.
 
 ---
 
