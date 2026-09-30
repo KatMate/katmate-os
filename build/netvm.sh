@@ -62,11 +62,19 @@ GUEST_KERNEL_PKG="${GUEST_KERNEL_PKG:-linux-image-${ARCH}}"
 DEBIAN_MIRROR="${DEBIAN_MIRROR:-http://deb.debian.org/debian}"
 SECURITY_MIRROR="${SECURITY_MIRROR:-http://security.debian.org/debian-security}"
 
-# netvm-agent binary (produced by the agent Cargo workspace, ADR-021). May not
-# exist yet — the agent workspace split is a separate step. If absent, the build
-# still completes and prints a clear notice; the image simply lacks its control
-# agent until the binary is provided.
+# netvm-agent binary (produced by the agent Cargo workspace, ADR-021). This
+# script does NOT build it: it runs as root, and the toolchain is the build
+# user's. The preflight refuses a missing binary, and a stale one: any file of
+# the agent's sources (NETVM_AGENT_SRCS) newer than the binary (R120). A stale
+# binary is baked silently otherwise: open problem #14 cost a boot cycle on
+# 2026-07-23, and on 2026-09-30 out/ still held that day's binary until step 4c
+# rebuilt it by hand.
 NETVM_AGENT_BIN="${NETVM_AGENT_BIN:-$OUT/netvm-agent}"
+NETVM_AGENT_SRCS=(
+  "$ROOT_DIR/agent/crates/netvm-agent"
+  "$ROOT_DIR/agent/crates/katmate-protocol"
+  "$ROOT_DIR/agent/Cargo.lock"
+)
 
 DEV="/dev/$VG/$NETVM_LV"
 
@@ -126,6 +134,23 @@ command -v debootstrap >/dev/null || die "debootstrap not installed"
 # the step-5a gate as an expected Path= that no file could carry; say so here.
 [[ "${NETVM_UPLINK_PCI_ADDR:-}" =~ ^[0-9a-f]{4}:[0-9a-f]{2}:[0-9a-f]{2}\.[0-7]$ ]] \
   || die "NETVM_UPLINK_PCI_ADDR is '${NETVM_UPLINK_PCI_ADDR:-}', expected a PCI address such as 0000:00:04.0 (build/config.sh)"
+
+# netvm-agent: present, and not older than any of its sources (R120). Here, not
+# in step 7, so the refusal comes before the LV exists. -newer compares mtimes,
+# which rsync preserves from the Acer, so a source edited after the last build
+# reads newer after the sync.
+[[ -f "$NETVM_AGENT_BIN" ]] || die "Missing netvm-agent binary: $NETVM_AGENT_BIN
+  Build it as the build user (not root) and copy it here (ADR-021, R120):
+    (cd agent && cargo build --release -p netvm-agent && cp target/release/netvm-agent $NETVM_AGENT_BIN)"
+for src in "${NETVM_AGENT_SRCS[@]}"; do
+  [[ -e "$src" ]] || die "netvm-agent source not found: $src (R120 checks the binary against it)"
+done
+NETVM_AGENT_NEWER="$(find "${NETVM_AGENT_SRCS[@]}" -type f -newer "$NETVM_AGENT_BIN" -print)"
+[[ -z "$NETVM_AGENT_NEWER" ]] || die "Stale netvm-agent binary: $NETVM_AGENT_BIN is older than its sources (R120):
+$NETVM_AGENT_NEWER
+  Rebuild it as the build user and copy it here:
+    (cd agent && cargo build --release -p netvm-agent && cp target/release/netvm-agent $NETVM_AGENT_BIN)"
+log "netvm-agent: $NETVM_AGENT_BIN; no file of its sources is newer (R120)"
 
 if lvs "$DEV" >/dev/null 2>&1; then
   die "$DEV already exists — refusing to clobber. Remove deliberately first: lvremove -f $DEV"
@@ -659,26 +684,19 @@ esac
 
 # --- 7. netvm-agent: bake binary, enable the unit ------------------------------
 # The privileged control agent (NETCFG/PING/SHUTDOWN) runs under systemd with
-# CAP_NET_ADMIN. The binary comes from the agent Cargo workspace (separate
-# step). If it is not yet built, warn and continue — the image is otherwise
-# complete and bootable; it just lacks host control until the binary lands.
-# (The unit file is then present, baked in step 5, but not enabled.)
-if [[ -f "$NETVM_AGENT_BIN" ]]; then
-  log "Baking netvm-agent + systemd unit"
-  install -D -m 0755 "$NETVM_AGENT_BIN" "$NETVM_MNT/usr/local/bin/netvm-agent"
-  # The unit has one author: manifests/netvm.conf.d/etc/systemd/system/
-  # netvm-agent.service, baked in step 5 (open problem #27, ruling R24). This
-  # step used to carry a second copy as a heredoc, written only when the conf
-  # tree supplied none. Missing here means the conf tree is wrong, not that a
-  # fallback is due.
-  [[ -f "$NETVM_MNT/etc/systemd/system/netvm-agent.service" ]] \
-    || die "netvm-agent.service missing from the image: step 5 should have baked it from $NETVM_CONFD"
-  chroot_run "$NETVM_MNT" systemctl enable netvm-agent
-else
-  log "NOTICE: netvm-agent binary not found at $NETVM_AGENT_BIN"
-  log "        Image built WITHOUT its control agent. Provide the binary"
-  log "        (agent workspace, ADR-021) and re-run, or bake it separately."
-fi
+# CAP_NET_ADMIN. The binary comes from the agent Cargo workspace. The preflight
+# has already refused a missing or stale one (R120); an image without its
+# control agent is no longer a build outcome.
+log "Baking netvm-agent + systemd unit"
+install -D -m 0755 "$NETVM_AGENT_BIN" "$NETVM_MNT/usr/local/bin/netvm-agent"
+# The unit has one author: manifests/netvm.conf.d/etc/systemd/system/
+# netvm-agent.service, baked in step 5 (open problem #27, ruling R24). This
+# step used to carry a second copy as a heredoc, written only when the conf
+# tree supplied none. Missing here means the conf tree is wrong, not that a
+# fallback is due.
+[[ -f "$NETVM_MNT/etc/systemd/system/netvm-agent.service" ]] \
+  || die "netvm-agent.service missing from the image: step 5 should have baked it from $NETVM_CONFD"
+chroot_run "$NETVM_MNT" systemctl enable netvm-agent
 
 # --- 8. export kernel + initrd host-side (no in-guest bootloader) -------------
 # linux-image-amd64's postinst already generated the initramfs in /boot with the
