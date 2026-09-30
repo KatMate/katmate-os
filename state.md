@@ -248,154 +248,6 @@ does not come back to withdraw them.
 - R52's host-kernel `nft -c` has not seen the `arp` table or `ct mark`.
 - The flows `do_add`/`do_remove` have no unit test and run only live.
 
-## Earlier session, not yet rotated (2026-09-29, step 4b2 and the gates) — R91 in the image, the fixed harness, ADR-038's G1 refusal half and G2 and ADR-037's G5 taken; both ADRs Accepted; R91–R96
-
-Four sessions. `s4b2-impl-A` wrote R91 and the harness fix on the Acer and
-made two commits, unpushed. `s4b2-impl-B` re-ran the fixed harness on
-MINIS, rebuilt the chain with host IPv6 held off, and booted it once,
-14:45–15:12 CEST; it halted once, at P0. `s4-gates` took ADR-038's G1
-refusal half and G2 and ADR-037's G5, 15:25–16:01 CEST; it halted once, at
-its read pass. `wp-0929d` wrote the record on the Acer, took one read-only
-reading on MINIS, and pushed. There was no commit on MINIS and no reboot,
-and netVM was not touched. The reports are outside the repository:
-`~/Claude.assistent/s4b2-impl-A-report.md` (A),
-`~/Claude.assistent/s4b2-impl-B-report.md` (B),
-`~/Claude.assistent/s4-gates-report.md` (G) and
-`~/Claude.assistent/wp-0929d-report.md`.
-
-**A's two commits.** `47c4305`: katmate-init sets `umask(022)` in
-`spawn_agent()`'s child, after the privilege drop and before `execve` of
-`vm-agent`. PID 1 keeps `umask(0)` (R91, #53). `a64c13d`:
-`init/tests/run.sh` compares the route read-back with trailing whitespace
-stripped from each line. The raw listing is still printed untrimmed.
-
-**B, in summary.**
-- **P0 halted (H1).** The baseline `curl -6` returned HTTP 200 in 1.8 s
-  where #54 said it would time out. The ruled readings (P0b) then timed out
-  three times, 12 minutes later, over the same `proton` path. The operator
-  ruled it intermittent.
-- **P1:** the fixed `--apply` under `unshare -n` read 7 PASS and 0 FAIL.
-  The route verdict passes, while the raw line still ends `onlink $`.
-- **P2:** `ip -6 rule add pref 100 unreachable` (R93). After it, `curl -6`
-  failed in 0.09 s.
-- **P3:** 4b-B's layers were set aside as `_pre0929b`.
-- **P4:** `make foundation` exited 0 in **5 min 16 s with 0 apt `W:`
-  lines**, against 4b-B's 61 min and 1,797,989. That puts the difference
-  beside the rule, but there is one run each and the log has no timestamps,
-  so the cause is an **inference**. `/sbin/init` equals `out/katmate-init`
-  (`c3ad714a…`). `objdump -d` shows `mov $0x12,%edi` immediately before a
-  `__umask` call, after the uid-1000 check: R91 is in the baked init, read
-  statically.
-- **P5:** `make app-web` exited 0 in 63 s, with 21 packages and the same
-  init.
-- **P6:** the rule was removed, and `curl -6` timed out again.
-- **P7:** one routed boot. The `net:` line matched 4b-B's byte for byte,
-  PING answered on try 3, and the stop was clean.
-
-**G, the gates.** Each variant `-append` was carried by R92's `/run`
-drop-in. Its `ExecStart=` differed from the installed unit's by one line
-in a `diff` of `systemctl cat`, and it was removed after the run. netVM
-was read through the dev console before and after each run, after the
-operator's login (R94 (2)).
-
-| Half | Observable | Reading |
-|---|---|---|
-| ADR-038 G1− (`km.ipx=`) | the error names the token; `vm-agent` never starts; QEMU exits; no frame from the guest | `net: ERROR: unknown km.* key: 'km.ipx=10.100.1.17'`, then `vm-agent not started; exiting the VM`. QEMU was gone at 5 s. The journal read *"Deactivated successfully"*, with no *"Failed with result"*. `km01` `rx_packets` 18 → 18 |
-| ADR-038 G2− (`km.gw=` alone) | refused as a partial set, not taken as offline | `partial km.* set … km.ip MISSING, km.gw given, km.dns MISSING`, then the same exit. `km01` 18 → 18 |
-| ADR-038 G2+ (no `km.*`) | offline: `lo` only, no route, a dangling resolver link, the NIC down | `net: offline (no km.ip), lo up`. In `g2p.txt`: `fib_trie` holds only `127/8`, the route table has its header only, `eth0` is `0x1002`, `lo` is `0x9`, the link is `../run/resolv.conf`, and `cat` gives *No such file*. `km01` 18 → 18 over 8.5 min. **`umask` read `0022`, and a new file read `-rw-r--r--`** (R91) |
-| ADR-037 G5+ (the shipped template) | a SYN from `10.3.1.172` with ttl 63; R50 unchanged | one SYN, `10.3.1.172 → 10.3.1.3:8099`, ttl 63. R50 25 → 25. `km01` 18 → 21. The guest's connect got *No route to host*, `rc=1` |
-| ADR-037 G5− (`km.ip=10.100.1.18` on slot 01) | R50 +N; 0 packets on the LAN | `net: eth0 10.100.1.18/32 …`. R50 25 → 30. The capture held 0 packets. The guest's connect timed out, `rc=124` |
-
-**The P-check (`wp-0929d`, MINIS, 16:22, read only).** The host's live
-ruleset carries one `reject`, in `inet filter input`: `meta pkttype host
-limit rate 5/second … reject with icmpx admin-prohibited`
-(`/etc/nftables.conf:18`). On the host's side, that confirms the mechanism
-behind G5+'s *No route to host*. That the ICMP came back through netVM's
-NAT is an inference, and attribution is not shown: the rule's counter (14)
-was not read before and after G5+.
-
-**The operator's rulings (2026-09-29).**
-- **R91 — the guest umask:** as in A's commit above.
-- **R92 — the vehicle for an altered `-append`:** a per-session drop-in in
-  `/run` for `katmate-app-routed@app_web`. It resets `ExecStart=` and
-  restates it with only `-append` changed. `diff` shows the change, the
-  drop-in is removed after, and it never goes under `/etc` (R9).
-- **R93 — the gates are taken on the image carrying R91.** During every
-  image build, host IPv6 is held off by `ip -6 rule add pref 100
-  unreachable`, and the rule is removed after. No VPN file is touched.
-  **Its premise is restated** (operator, during B): *"IPv6 through `proton`
-  cannot be relied on for the duration of a build"*. It is intermittent,
-  not a black hole.
-- **R94 — the gate session's rulings.** (1) *"No frame from the guest"* is
-  read as netVM's `km01` `rx_packets`, unchanged across the run. This
-  narrows ADR-038 G1's *"a capture on the slot's netVM end"*, because the
-  netVM image carries no capture tool by design. (2) The netVM console
-  login is the operator's, and the console is logged out at the end. (3)
-  G2−'s `-append` keeps `ipv6.disable=1`.
-- **R95 — verdicts: PASS** for ADR-038 G1's refusal half, G2's refusal
-  half and G2's positive half, and for ADR-037 G5's positive and refusal
-  halves, on G's readings.
-- **R96 — ADR-038 and ADR-037 are Accepted.**
-- **On B's H1:** (c), then (a). The read-only readings were taken, then B
-  proceeded with R93's rule regardless.
-- **On `wp-0929d`'s read pass:** `ARCHITECTURE.md` is brought into line
-  with ADR-037 and ADR-038 beyond § *Networking*, bounded to factual
-  correction. ADR-022's matching sentence gets a note in a later pass.
-  `HOST-CONFIG.md` §9's *"PROPOSED"* is fixed in its own commit.
-
-**`wp-0929d`'s commits.** The previous-but-one entry rotated out (§
-*Session archive*, *Closed 2026-09-29 (fifth rotation of that day)*;
-`1b260a4`). ADR-038 is accepted with an acceptance note (`187357b`), and
-so is ADR-037 (`98d8b3b`). A note on ADR-033 (`c0c79e4`),
-`ARCHITECTURE.md` (`bfb47d0`) and `HOST-CONFIG.md` §9 (`f3061a8`). In
-this file: the header, § *Current focus*, § *Live state*, #53 closed, #54,
-§ *Invariants & gotchas*, step 4 in § *Next steps*, and this entry.
-Pushed together with A's two commits.
-
-**Not done, and not claimed.**
-- The *"Unknown kernel command line parameters"* zero has no positive
-  control. It read 0 in every boot.
-- In the guest, `/run/resolv.conf`'s mode and owner and `operstate` are
-  not read.
-- G3's refusal half has not run inside a real build.
-- The uid QEMU runs as is not read.
-- R78's refusal paths are not exercised.
-- `ExecStopPost=` is inferred from `appvm`'s absence each time.
-- Not read: which frames make up `km01`'s +3 (G5+) and +6 (G5−); where
-  G5+'s *No route to host* came from beyond the host's reject rule; and
-  whether apt in the build chroot saw `ENETUNREACH` from R93's rule.
-- What makes IPv6 through `proton` intermittent is not read.
-- The new foundation's package count is not read.
-
-**Addendum 2026-09-29, `wp-0929e`** (a docs-only write pass on the Acer,
-with one read-only script on MINIS at 18:25 CEST, after the operator's
-push of `16993a7` landed). It is recorded here, and not as its own entry,
-because it adds rulings and no implementation. It rotates with this entry.
-Before it, the step-4c read pass `s4c-readpass` ran on the Acer only
-(`~/Claude.assistent/s4c-readpass-report.md`). Its report is
-`~/Claude.assistent/wp-0929e-report.md`.
-- **R97 — #54's fix applied (the operator, 17:32–17:36).** The pref-100
-  `PostUp`/`PreDown` hooks are in `proton.conf`, and `wg-quick@proton` is
-  the tunnel's one owner. Host IPv6 is off permanently, by decision (#54
-  RESOLVED).
-- **R98 — builds check the rule and no longer add or remove it** (§
-  *Invariants & gotchas*, the IPv6 build entry).
-- **R99 — open problem #55:** an AppVM reaches the host's own LAN address,
-  in the development configuration only.
-- **The P-check** (read only): `100: from all unreachable`;
-  `wg-quick@proton` `enabled`, `active`; `proton.conf:11–12` are exactly
-  R97's two hook lines; `/etc/gai.conf:66` still carries the workaround
-  line; the host's `inet filter input` is quoted in #55. The first attempt
-  was refused by the permission classifier (*"Production Reads"*, auto
-  mode). The same command ran unchanged under Manual mode, with per-command
-  approval.
-- **The step-4c rulings, R100–R113** (§ *Next steps*, step 4; ADR-035's and
-  ADR-037's notes of this date). R112 allows dev packages on the MINIS
-  host.
-- **Commits:** `d905006` ADR-022's note (the v1 default carries no VPN);
-  `f24cd6a` `ARCHITECTURE.md` (the config disk is implemented, VPN mode is
-  not); `0811cb4` ADR-035's note; `8203039` ADR-037's note; and this file.
-
 ## Session archive
 
 Rotated sessions are enumerated in `docs/SESSIONS.md`, newest first; that
@@ -428,6 +280,24 @@ extracted block against the pre-move blob.
 *second of two* entry (3a part 1) rotated out as the 2026-08-17 entry arrived. Two
 rotations in one day is not a defect — it is what keeping two sessions costs when
 two sessions close on the same day.
+
+**Closed 2026-09-30 (second rotation of that day).** The 2026-09-29 *step
+4b2 and the gates* entry (R91 in the image, ADR-038's G1 refusal half and G2
+and ADR-037's G5 taken, both ADRs Accepted, R91–R96, with its `wp-0929e`
+addendum) rotated to the archive in `wp-0930`, one session later than the
+2026-09-30 *step 4c B* entry arrived: `s4c-b`'s brief allowed one commit, so
+it marked the entry *Earlier session, not yet rotated* instead. **The body
+moved verbatim; the heading did not.** The heading's prefix went back from
+*Earlier session, not yet rotated* to *Previous session*, the prefix it
+carried before `s4c-b` marked it, because the mark describes this file and
+is false in the archive. Verified by hash. The 147-line body below the
+heading hashed `57aada2b9c012f7c…` from the `HEAD` blob before the move, and
+the same 147 lines re-extracted from `docs/SESSIONS.md` at the new home
+hashed the same. The block was inserted at the head of the entry list,
+above the 2026-09-29 *step 4b* entry, newest first. **No ordinal changed.**
+After this rotation the file holds the two step-4c entries. `wp-0930`'s own
+entry arrives in the next commit, so the file then holds three again, with
+*step 4c A* marked *Earlier session, not yet rotated*, as `s4c-b` did.
 
 **Closed 2026-09-30.** The 2026-09-29 *step 4b* entry (the guest side:
 katmate-init configures the AppVM from `km.*`, G1's positive half and G3,
