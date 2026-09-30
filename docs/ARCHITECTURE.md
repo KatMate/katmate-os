@@ -367,9 +367,12 @@ netVM topology:
   mode is not implemented** (networking arc step 5, under its own ADR). The
   user will supply the WireGuard config through netVM's read-only config disk
   (R8). **The config disk itself is implemented** and gated at networking arc
-  step 3: it carries the uplink's static configuration today
-  ([ADR-037](DECISIONS.md#adr-037)'s step-3 gates note, G6; `state.md` open
-  problem #40).
+  step 3: it carries the uplink's static configuration when the installation
+  supplies one (on the reference host, MINIS, it does), in a canonical form
+  the host re-emits from T1 (R35); with none, it carries only its version and
+  dhcpcd leases (R36). The guest writes dhcpcd's configuration from it under
+  `/run` ([ADR-037](DECISIONS.md#adr-037)'s step-3 gates note, G6; `state.md`
+  open problem #40).
 - **Internal segment:** `10.100.1.0/24`. Each AppVM gets its own p2p `Link`.
   **netVM's end** — its address on the slot and the link-scoped `/32` route to
   the AppVM — is delivered by **NETCFG at launch** and withdrawn at teardown.
