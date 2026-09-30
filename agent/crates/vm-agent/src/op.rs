@@ -19,8 +19,8 @@ pub enum Op {
     FilePut,
     /// appVMs are microvm: no ACPI, so the host has no power-button to press.
     /// The agent (uid 1000, cannot call reboot(2)) asks katmate-init — PID 1,
-    /// the single root process in the guest — over its unix socket. netVM does
-    /// NOT have this opcode; it is q35, so the host uses QMP instead.
+    /// the single root process in the guest — over its unix socket. netvm-agent
+    /// handles SHUTDOWN too, by signalling its own PID 1, systemd (ADR-024).
     Shutdown,
 }
 

@@ -11,7 +11,7 @@
 //! renumbered: a foundation image and a host client can be updated
 //! independently, so these bytes are a compatibility surface.
 //!
-//! Who handles what (ADR-021):
+//! Who handles what (ADR-021; the SHUTDOWN row as ADR-024 changed it):
 //!
 //! | opcode   | vm-agent (appVM, uid 1000) | netvm-agent (CAP_NET_ADMIN) |
 //! |----------|----------------------------|-----------------------------|
@@ -19,14 +19,15 @@
 //! | RUN      | handler (whitelist)        | absent                      |
 //! | FILEGET  | handler (HOME_PREFIX)      | absent                      |
 //! | FILEPUT  | handler (HOME_PREFIX)      | absent                      |
-//! | SHUTDOWN | handler (-> katmate-init)  | absent — host QMP/ACPI      |
+//! | SHUTDOWN | handler (-> katmate-init)  | handler (-> systemd, PID 1) |
 //! | NETCFG   | absent                     | handler (privileged)        |
 //!
-//! SHUTDOWN is absent from netvm-agent by design: netVM is q35, hence has ACPI,
-//! so the host powers it down with QMP `system_powerdown` (-> logind) and the
-//! agent needs no shutdown privilege at all. appVMs are microvm — no ACPI — so
-//! they must carry an in-guest SHUTDOWN. The asymmetry follows from the machine
-//! type, not from inconsistency.
+//! SHUTDOWN is handled by both agents, each asking its own PID 1 (ADR-024).
+//! vm-agent asks katmate-init over its unix socket; netvm-agent signals
+//! systemd with SIGRTMIN+4 under CAP_KILL. ADR-021 had left SHUTDOWN out of
+//! netvm-agent on the premise that the host powers q35 down over QMP
+//! `system_powerdown` -> ACPI -> logind; logind needs dbus, which netVM does not
+//! carry, so that path was proven inert and ADR-024 reversed the rule.
 
 /// Liveness check. The only opcode BOTH agents handle.
 pub const OP_PING: u8 = 0x01;
@@ -40,9 +41,9 @@ pub const OP_FILEGET: u8 = 0x03;
 /// Write a file into the guest's confined home subtree. appVM only.
 pub const OP_FILEPUT: u8 = 0x04;
 
-/// Power the guest off from inside. appVM only (microvm has no ACPI; the agent
-/// asks katmate-init, PID 1, to call `reboot(2)`). netVM does NOT handle this —
-/// the host uses QMP `system_powerdown` instead.
+/// Power the guest off from inside. Both agents handle it (ADR-024): vm-agent
+/// asks katmate-init, PID 1, to call `reboot(2)` (microvm has no ACPI);
+/// netvm-agent signals systemd, PID 1, with SIGRTMIN+4.
 pub const OP_SHUTDOWN: u8 = 0x05;
 
 /// Install / withdraw the per-appVM internal `/32` route in netVM. netVM only,
