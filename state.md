@@ -5,12 +5,11 @@
 > each working session. Detailed proofs and command sequences live in git
 > history and the ADRs — this file references them rather than repeating them.
 
-**Milestone:** v0.2 (in development) · **Last updated:** 2026-09-29
-(`wp-0929e`, a docs-only write pass on the Acer, with one read-only reading
-on MINIS. It recorded R97–R99 (#54 resolved, the build procedure after it,
-#55) and the step-4c rulings R100–R113, with notes on ADR-022, ADR-035 and
-ADR-037, and corrected `docs/ARCHITECTURE.md`'s config-disk sentence. No
-rotation; its record is an addendum to the step-4b2 entry).
+**Milestone:** v0.2 (in development) · **Last updated:** 2026-09-30
+(`s4c-a`, networking arc step 4c part A, on the Acer: 4c's code and
+configuration, R114–R116, and the carried write pass; one capture in
+throwaway namespaces on the MINIS host. Nothing is built or gated; every
+behaviour is UNVERIFIED until 4c B).
 
 ## Current focus
 
@@ -64,6 +63,11 @@ pairing check #49, ADR-035 §7's count and §6, and DOWN on REMOVE #45) and
 #34's ARP half. R73's SHUTDOWN comments (#51) go in their own commit. Two
 items are the operator's: the IPv6 change to `proton` on MINIS (#54), and
 removing the `_pre0929` and `_pre0929b` sets.**]**
+**[Note 2026-09-30, `s4c-a`: 4c's part A is done** — its code and
+configuration are committed on the Acer and pushed, and nothing is built
+or gated. **Next is 4c B:** one netVM rebuild (reboot before `netvm.sh`,
+suspend masked), the host unit reinstalled, and the gates, with
+`f12peer.py`'s ARP and TCP modes (R109). See § *This session*.**]**
 
 The **entire build chain remains scripted and proven from nothing**:
 `make foundation` builds the shared systemd-free base
@@ -91,6 +95,81 @@ restartable — and so updatable — without touching running VMs.
 
 Direction unchanged: IOMMU-capable platforms only (VT-d/AMD-Vi).
 MINIS is primary host and merge target.
+
+## This session (2026-09-30, step 4c A — s4c-a) — netvm-agent's 4c items, the ARP table, the mark flush, forwarding after the ruleset, and IPv6 off in netVM, committed and not built; R114–R116
+
+One session, `s4c-a`, on the Acer, with one capture on the MINIS host.
+It halted at its read pass on five divergences. The operator ruled, and
+it resumed in Manual mode. Nothing was built, no VM was started, netVM was
+not touched, and no gate was taken. The report is outside the repository:
+`~/Claude.assistent/s4c-a-report.md`.
+
+**W0, the golden fixtures (MINIS host, 15:26 CEST, in throwaway `unshare
+-n` namespaces only).** `conntrack -D -f ipv4 --mark N` (1 and 16), each
+against one planted entry. **conntrack-tools 1.4.9 dumps by mark (CT_GET
+with `CTA_MARK`/`CTA_MARK_MASK`) and then deletes each entry by its full
+tuple. It sends no tuple-less DELETE.** And `ip link set dev lo down`
+(`RTM_NEWLINK`, 32 bytes, `ifi_flags=0`, `ifi_change=IFF_UP`). The script
+and its output are in `~/Claude.assistent/s4ca/`. Whether these calls
+autoloaded conntrack modules on the host was not read.
+
+**The commits.**
+- The write pass: `f7efba1` notes on ADR-037 (R101's symbol, R115, R116)
+  and ADR-035 (R114); `4e8a314` ADR-022's *"status quo"* bullet;
+  `3d31c84` `ARCHITECTURE.md`, what the config disk carries (the ruled
+  wording); `0f943c5` `CLAUDE.md`, a MINIS brief starts in Manual mode.
+- `c8950b6` the SHUTDOWN comments (#51, R73).
+- `5c2e5fd` `ifindex_by_mac` counts. ADD refuses none and many. REMOVE
+  absorbs only none, a vanished device, and no mechanism error (R104).
+- `4bdfb0f` R103's pairing check in `parse()` (#49).
+- `ceae69f` records `mac-<hex>`. An id is found by scanning (R114), and a
+  new id on a recorded MAC supersedes by one rename, then withdraws only
+  what the new payload lacks (R105).
+- `66937fa` DOWN on REMOVE, pinned by `fixture_06` against W0 (R102,
+  R106, #45).
+- `ae7c300` chain `slot_mark` (prerouting, `ct mark set k+1`), REMOVE's one
+  ctnetlink delete by mark, `modules-load.d/katmate-ctnetlink.conf`, and
+  their read-backs in `build/netvm.sh` (R107, R116, R115, R110).
+- `1e882d3` `table arp filter`, sixteen pairs and a counted `km*` drop,
+  with its read-back (R100, R110, #34).
+- `2eed9c8` `ipv6.disable=1` in `katmate-sys-driver@.service`'s `-append`
+  (R102).
+- `9010130` `katmate-ip-forward.service` after `nftables.service`,
+  `ip_forward` out of sysctl.d, and a build refusal of any sysctl file that
+  sets forwarding (R111, #48).
+- `2e97854` rotation, and this entry.
+
+On the Acer: `cargo test -p netvm-agent` 30 passed; clippy 13 warnings, the
+same as at `ee5915b`; `cargo fmt --check` 21 hunks, against 22 at
+`ee5915b`, and none in new code; `bash -n` and `shellcheck -S warning` on
+`build/netvm.sh` clean. Each new read-back ran as an extracted block
+against the tracked file and mutations, which is not the executable.
+
+**The operator's rulings (2026-09-30).**
+- **R114** — an ADD whose `link_id` is recorded on another MAC → ERR
+  (ADR-035's note).
+- **R115** — `nf_conntrack_netlink` is loaded at boot (ADR-037's note).
+- **R116** — the mark rules are a prerouting chain `slot_mark` (ADR-037's
+  note).
+- **On the read pass:** Manual mode; the config-disk wording; a W0 capture
+  for DOWN; conntrack captured against a planted entry, and if it
+  dumps-then-deletes (it did), the agent's message stays R107's with spec
+  bytes, and the capture checks only the encoding; `katmate-ip-forward`
+  keeps default dependencies under `multi-user.target`; local error types
+  in `netvm-agent`.
+
+**Findings recorded, not designed for (report § 5).** A superseding ADD
+that crashes after its rename, or whose mechanism returns ERR, leaves the
+old record's extra routes with no record naming them. For a slot, these
+are `peer/32` routes at metrics the new payload lacks. The identical retry
+does not come back to withdraw them.
+
+**Not done, and not claimed.**
+- No build, no boot, no gate.
+- That the kernel flushes by a tuple-less, mark-filtered DELETE is
+  **recall**. It is 4c B's gate.
+- R52's host-kernel `nft -c` has not seen the `arp` table or `ct mark`.
+- The flows `do_add`/`do_remove` have no unit test and run only live.
 
 ## Previous session (2026-09-29, step 4b2 and the gates) — R91 in the image, the fixed harness, ADR-038's G1 refusal half and G2 and ADR-037's G5 taken; both ADRs Accepted; R91–R96
 
@@ -870,6 +949,11 @@ touched.
   removal is the operator's. **Dev packages on this host are allowed**
   (R112): `conntrack-tools`, `strace`, as needed for golden fixtures. The
   notes above are left as written.**]**
+  **[Note 2026-09-30 (`s4c-m0`, `s4c-a`): installed on the host:
+  `conntrack-tools 1.4.9-1`** (with `libnetfilter_cthelper`,
+  `libnetfilter_cttimeout` and `libnetfilter_queue`, installed by `s4c-m0`)
+  **and `strace 7.2-1`** (already present). `s4c-a`'s W0 used both, in
+  throwaway namespaces only.**]**
   **Kernel and boot, 2026-09-26:** running `7.2.7-hardened1-1-hardened`, booted
   **2026-09-25 14:00:27**; the stock `linux 7.2.6.arch2-1` is installed beside
   `linux-hardened` (`appweb-m1-rerun-report.md` § RA, items 6 and A12).
@@ -3076,6 +3160,11 @@ touched.
    pursued, and P2 is moot, not settled. `s4c-m0` reads whether the
    kernel has the `arp` family. The pairs get an R48-style read-back.
    It lands in 4c (ADR-035's note of this date).**]**
+   **[Note 2026-09-30 (`s4c-a`, `1e882d3`): implemented, UNVERIFIED.**
+   `table arp filter` in the baked `nftables.conf`, with a build read-back.
+   Closing is 4c B's, by gate (a forged ARP from slot `b` claiming slot
+   `a`'s peer is dropped and counted, and no neighbour entry is
+   planted).**]**
 
 35. **Foundation dependency debt.** Added 2026-09-26. The rebuilt foundation
    carries `systemd`, `systemd-sysv`, `dbus` and `dbus-daemon`, none of them
@@ -3350,6 +3439,11 @@ touched.
    since the uplink is `ipv4only` and AppVMs are IPv4-only. This ends both
    halves of this entry and netVM's own router solicitations (#24). It
    lands in 4c (ADR-037's note of this date).**]**
+   **[Note 2026-09-30 (`s4c-a`, `66937fa`, `2eed9c8`): implemented,
+   UNVERIFIED.** REMOVE clears `IFF_UP` after the routes and the address,
+   and `katmate-sys-driver@.service` passes `ipv6.disable=1`. Closing is 4c
+   B's: after REMOVE the slot is DOWN with no neighbour entry, and netVM
+   has no IPv6 on any link.**]**
 
 46. **Parts of networking arc step 3 have not run as installed.** Added
    2026-09-27, from r8-impl-B § 6 (*not executed*). The gates ran the absent
@@ -3390,6 +3484,12 @@ touched.
    `Requires=` and `After=nftables.service`, so a ruleset that fails to
    load leaves forwarding off. R52's limit is recorded (R110): it checks
    against the build host's kernel, not netVM's. It lands in 4c.**]**
+   **[Note 2026-09-30 (`s4c-a`, `9010130`): implemented, UNVERIFIED.**
+   `katmate-ip-forward.service` (`Requires=`/`After=nftables.service`,
+   oneshot, `WantedBy=multi-user.target`) writes `ip_forward`, and
+   `30-netvm-forward.conf` no longer does. The build refuses any sysctl
+   file that sets IPv4 forwarding. Closing is 4c B's: `ip_forward` reads 1
+   on a normal boot, and 0 with the ruleset made to fail.**]**
 
 49. **The agent does not bind a peer address to its slot.** Added
    2026-09-28, from F D20 (`f12-readpass-report.md`, outside the repository).
@@ -3408,6 +3508,10 @@ touched.
    MAC may not name a peer in `.16`–`.31`. On the wire it is a bare ERR, and
    the reason is in the agent's journal. It lands in 4c (ADR-035's note of
    this date).**]**
+   **[Note 2026-09-30 (`s4c-a`, `4bdfb0f`): implemented in `parse()`,
+   unit-tested on the Acer, UNVERIFIED in a guest.** Closing is 4c B's
+   (a mis-paired ADD → ERR, nothing programmed, the reason in the
+   journal).**]**
 
 50. **The failure paths of R52's preflight and R48's read-back have not run
    on a real image.** Added 2026-09-28, from `f12-impl-B-report.md` § 6
@@ -3431,6 +3535,9 @@ touched.
    SHUTDOWN (ADR-024; `agent/crates/netvm-agent/src/op.rs`). Comments only,
    and nothing behaves wrongly. **Ruled (ADR-037 R73):** fixed in their own
    commit, in networking arc step 4c.
+   **[Note 2026-09-30 (`s4c-a`, `c8950b6`): the four comments are
+   corrected to ADR-024.** They are comments only, with nothing behavioural
+   to gate; whether this entry is closed is the operator's.**]**
 
 52. **The AppVM kernel starts `netconsole`, and where it sends is unread.**
    Added 2026-09-28, from s4-m0 (`s4-m0-report.md` § 6 item 6, outside the
@@ -4303,6 +4410,14 @@ frozen `vm_home_skel` vs qcow2 branch.
      no `flush ruleset`. **Then 4c A** (the code, on the Acer) **and B**
      (one netVM rebuild, with the reboot before `netvm.sh`, and the gates).
      The text above is left as written.**]**
+     **[Note 2026-09-30 (`s4c-a`): `s4c-m0` and 4c A are done.** 4c's code
+     and configuration are committed and pushed (`c8950b6`…`9010130`), with
+     R114–R116 in ADR-035's and ADR-037's notes of 2026-09-30. **Next is 4c
+     B:** rsync; reinstall `katmate-sys-driver@.service`
+     (`ipv6.disable=1`); build `netvm-agent`; reboot before `netvm.sh`, with
+     suspend masked; rebuild; then the gates on the new image, with R109's
+     `f12peer.py` modes. The UNVERIFIED list is § *This session* and
+     `s4c-a-report.md` § 6. The text above is left as written.**]**
   5. **VPN mode** (added 2026-09-27, R30): the WireGuard config, the VPN
      ruleset and the kill-switch, under **its own ADR**, after step 4. R8
      names the config disk as the WireGuard config's channel, and R31 gives
