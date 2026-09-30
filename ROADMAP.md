@@ -166,6 +166,26 @@ depends on that daemon staying alive.
 6. **Installer integration** — provision the whole set so a fresh install runs,
    including the Sway desktop profile (needs `kms` in mkinitcpio HOOKS).
 
+**Alpha integration** (operator ruling, 2026-09-21). A pre-loaded desktop —
+web, office/work, vault and personal AppVMs plus netVM — launched from a
+menu, built by feeding hand-written static parameters into the existing
+architecture: no static branch, no ISO, no change of direction. The
+hand-written configuration doubles as the launch daemon's output
+specification. It is a reproducible integration gate: it tests composition,
+complementing the per-mechanism gates.
+- **Frozen:** slot, MAC, CID and socket path; not RAM or vCPU.
+- **Order:** the existing netVM's slots 1–4 (no second netVM; the NIC is PCI
+  passthrough), then one AppVM at a time, vault last as the negative test;
+  MINIS first, so failures are attributable, then the MSI Cubi as the
+  reproducibility gate.
+- **`docs/PARAMETERS.md`** (parameter · alpha source · target source · ADR ·
+  gate) is filled during integration, not written up front. The first
+  integration session creates it with its first row.
+- **Stopping rule:** engineering ends when the table is complete and four
+  AppVMs launch from the menu.
+- **Framing:** it demonstrates a wider isolation framework, and shows which
+  parameters are still hand-set, why, and where in the path they sit.
+
 **Parallel (off critical path, before releasing step 6):** remove installer
 secrets + rotate burned WG key + drop `Hidden=true` (SECURITY-MODEL #1–2);
 remove dev sshd (#4); remove the `usermod -p` dev-root line from `netvm.sh`
