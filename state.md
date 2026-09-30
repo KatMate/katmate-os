@@ -6,10 +6,9 @@
 > history and the ADRs — this file references them rather than repeating them.
 
 **Milestone:** v0.2 (in development) · **Last updated:** 2026-09-30
-(`s4c-a`, networking arc step 4c part A, on the Acer: 4c's code and
-configuration, R114–R116, and the carried write pass; one capture in
-throwaway namespaces on the MINIS host. Nothing is built or gated; every
-behaviour is UNVERIFIED until 4c B).
+(`s4c-b`, networking arc step 4c part B, on MINIS: the host unit
+reinstalled, `netvm-agent` rebuilt, one netVM rebuild after a reboot, and
+4c's gates taken on the new image; verdicts are the operator's).
 
 ## Current focus
 
@@ -68,6 +67,10 @@ configuration are committed on the Acer and pushed, and nothing is built
 or gated. **Next is 4c B:** one netVM rebuild (reboot before `netvm.sh`,
 suspend masked), the host unit reinstalled, and the gates, with
 `f12peer.py`'s ARP and TCP modes (R109). See § *This session*.**]**
+**[Note 2026-09-30, `s4c-b`: 4c's part B is done.** netVM is rebuilt on
+4c's code and running on it, and every row of 4c's gate list except G6b
+and #48's fail-closed half was observed and quoted. Verdicts, and closing
+#34, #45, #48 and #49, are the operator's. See § *This session*.**]**
 
 The **entire build chain remains scripted and proven from nothing**:
 `make foundation` builds the shared systemd-free base
@@ -96,7 +99,81 @@ restartable — and so updatable — without touching running VMs.
 Direction unchanged: IOMMU-capable platforms only (VT-d/AMD-Vi).
 MINIS is primary host and merge target.
 
-## This session (2026-09-30, step 4c A — s4c-a) — netvm-agent's 4c items, the ARP table, the mark flush, forwarding after the ruleset, and IPv6 off in netVM, committed and not built; R114–R116
+## This session (2026-09-30, step 4c B — s4c-b) — installed, rebuilt and gated: the pairing check, the duplicate count, records by MAC, DOWN on REMOVE, the mark flush and the ARP table observed on netVM
+
+One session, `s4c-b`, on MINIS (Manual mode, operator ruling). It halted
+once, at its read pass, on six divergences. The operator ruled: the guarded
+`lvremove`, how `netvm-agent` is built, the fixture's path, netVM stopped
+before the reboot, and B6 by operator window. No commit on MINIS. The
+report is outside the repository: `~/Claude.assistent/s4c-b-report.md`,
+with every script and output in `~/Claude.assistent/s4cb/` and
+`/home/host/katmate-dev/s4cb/`.
+
+**What ran, in order (CEST).**
+- **Host modules before anything**, 16:14: `nf_conntrack_netlink` is loaded
+  on the MINIS host (refcount 0). Whether s4c-a's W0 loaded it is not
+  settled, because no earlier reading exists.
+- **Install.** rsync (form of record, no deletion). Hash-first 9 of 10, and
+  the tenth, `katmate-sys-driver@.service`, equal to `46f8a26`'s blob.
+  Reinstalled from the tree (`0aa40135…`; the diff is exactly block (9) and
+  `ipv6.disable=1`). `cargo build --release -p netvm-agent` on MINIS,
+  copied to `out/netvm-agent` (`4a4e0715…`, 335168 B, replacing the
+  2026-07-23 binary), and confirmed with `strings`.
+- **netVM stopped before the reboot (16:15:28): netVM's half of
+  `ExecStopPost=` executed for the first time.** The 16 `netvm` nodes → 0.
+  The two stale `appvm` nodes (02, 05) and the 16 slot directories stayed.
+  Attributed by the paths: systemd collects the instance's record after a
+  clean stop.
+- **Reboot** (boot 16:16:21). netVM `inactive`, as every record since
+  2026-09-20 says (nothing starts it at boot). No `jbd2/dm-9-8`.
+- **Rebuild.** f12-impl-B's guarded `lvremove` (all guards held,
+  16:22:46), then `build/netvm.sh` in the transient-unit form,
+  16:22:57–16:37:22, `rc=0`. **Every read-back passed**, and R52's `nft -c`
+  accepted `table arp` and `ct mark set` on the host kernel.
+  **`NETVM_BUILT=2026-09-30T14:37:22Z`, guest kernel `6.12.111+deb13-amd64`**
+  (6.12.107 before; trixie moved).
+- **Start** 16:40:17 on the static T1, with the console per session: MainPID
+  46612, PING on try 4, 16 of 16 bindings.
+- **Boot readings (console):** `ipv6.disable=1` in `/proc/cmdline`, no
+  `/proc/sys/net/ipv6`, `ip -6 addr` empty; `inet filter` with `slot_guard`,
+  `slot_mark` (prerouting, 16 marks), `input`, `forward` and `output`; `ip
+  nat`; `arp filter`/`slot_arp`; `nf_conntrack_netlink` loaded (*"Inserted
+  module"*); `ip_forward` 1 and `katmate-ip-forward` active; **`Finished
+  nftables.service` at 2.884 s, before the first `kmkk` rename at 3.216
+  s**; dnsmasq and dhcpcd running under `ipv6.disable=1`. On 6.12.111:
+  `NF_TABLES_ARP=y`, `NF_TABLES_NETDEV=y`, `NF_CT_NETLINK=m`,
+  `NF_CONNTRACK=m`, `NETFILTER_NETLINK=m`, `NF_CONNTRACK_MARK=y`, `NFT_CT=m`.
+
+**The gates (slot 01; slot 02 where two are needed). Readings, no
+verdicts.**
+
+| Row | Reading |
+|---|---|
+| R103 (#49) | `:01` with peer `.18` → ERR, journal `… requires the peer 10.100.1.(16+k) (R103)`, nothing programmed; the true pair → OK |
+| G3 (§7, R104) | `dummy` `g3dup` with `52:54:01:00:00:01`: ADD → ERR (*"more than one interface carries the requested MAC"*), nothing programmed, and a record written (record-before-mechanism); REMOVE → ERR, record kept; dummy deleted → the same ADD OK |
+| R114, records | `mac-525401000001`; `link_id` 103 with another payload, same slot and other slot → ERR (R114) twice, record `f7295851…` unchanged |
+| G4 refusal (R105) | ADD A (metric 100), ADD B (metric 200) → one record with B's bytes, route at 200 only, address present in each read; REMOVE A → OK, nothing changed |
+| DOWN (R102, R106, #45) | After REMOVE: `km01` DOWN, `ip neigh` empty (a `.17` entry before), no link-local. **A hand-added `peer/32 metric 300` route did not survive the DOWN** (s4c-a's supersession leftover) |
+| Mark flush (R107, R116) | TCP to `1.1.1.1:443`: `ESTABLISHED … mark=2` (timeout 431995); REMOVE → OK; 0.2 s later gone. TCP to `10.100.1.1:53`: `ESTABLISHED … mark=2`; REMOVE → OK; gone. **The kernel accepts the tuple-less, mark-filtered delete** |
+| #34 (R100) | 3 forged requests and 3 forged replies from slot 02 claiming `.17`: 0 answers, drop counter 0 → 3 → 6, no `.17` neighbour. Control on slot 01: 3 of 3 answered, counter unchanged, `.17` on `km01` |
+| G6b | not taken: no procedure is in the record |
+| B6, app_web | `katmate-app-routed@app_web` on slot 01 (owner and ADD by hand, as s4-gates). An operator-typed connection from `foot`: `ESTABLISHED src=10.100.1.17 dst=1.1.1.1 … mark=2`. After SHUTDOWN, two `mark=2` entries (`LAST_ACK` 27 s left, `CLOSE` 7 s); REMOVE → OK; 2.7 s later `count=0`, `km01` DOWN, no neighbour |
+
+**Found, recorded and not designed for.** `build/netvm.sh` does not build
+`netvm-agent`, and no method of record existed. Ruled for this session:
+`cargo build --release -p netvm-agent`, copied to `out/`. Whether
+`netvm.sh` should build it is for the next write pass.
+
+**Not done, and not claimed.**
+- G6b; #48's fail-closed half (it needs a boot with a broken ruleset); the
+  failure paths of the new read-backs (#50's shape).
+- The one extra conntrack entry seen in row 6 was never identified.
+- The first B6 attempt produced no flow: the operator did not know the
+  window was up. Only the second attempt is a reading.
+- The session's rotation of the step-4b2 entry to `SESSIONS.md` is not
+  done. The brief allowed one commit.
+
+## Previous session (2026-09-30, step 4c A — s4c-a) — netvm-agent's 4c items, the ARP table, the mark flush, forwarding after the ruleset, and IPv6 off in netVM, committed and not built; R114–R116
 
 One session, `s4c-a`, on the Acer, with one capture on the MINIS host.
 It halted at its read pass on five divergences. The operator ruled, and
@@ -171,7 +248,7 @@ does not come back to withdraw them.
 - R52's host-kernel `nft -c` has not seen the `arp` table or `ct mark`.
 - The flows `do_add`/`do_remove` have no unit test and run only live.
 
-## Previous session (2026-09-29, step 4b2 and the gates) — R91 in the image, the fixed harness, ADR-038's G1 refusal half and G2 and ADR-037's G5 taken; both ADRs Accepted; R91–R96
+## Earlier session, not yet rotated (2026-09-29, step 4b2 and the gates) — R91 in the image, the fixed harness, ADR-038's G1 refusal half and G2 and ADR-037's G5 taken; both ADRs Accepted; R91–R96
 
 Four sessions. `s4b2-impl-A` wrote R91 and the harness fix on the Acer and
 made two commits, unpushed. `s4b2-impl-B` re-ran the fixed harness on
@@ -1572,6 +1649,40 @@ touched.
 
     They are fixtures, not live configuration.
   - **A reboot is still due before the next `netvm.sh`.**
+
+  **NETVM ON THE STEP-4C IMAGE (2026-09-30, s4c-b).** The blocks above are
+  left as published. This block supersedes their netVM MainPID, image,
+  console holder, stale `appvm` nodes and installed-set hashes. As left at
+  17:03:36 CEST (`s4c-b-report.md`, outside the repository):
+  - **Host boot 2026-09-30 16:16:21.** The `/run` state of every block above
+    is gone with it.
+  - **Installed host set equals the tree at `6023a86`, 10 of 10**:
+    `katmate-sys-driver@.service` is `0aa40135…` (with `ipv6.disable=1`),
+    and the other nine are unchanged.
+  - **`vm_sys_netvm`: `NETVM_BUILT=2026-09-30T14:37:22Z`, guest kernel
+    `6.12.111+deb13-amd64`**, `UPLINK_PCI_ADDR=0000:00:04.0`, dev build
+    (root unlocked). It bakes `out/netvm-agent` `4a4e0715…` (335168 B,
+    built on MINIS from `6023a86`).
+  - **`katmate-sys-driver@netvm.service`: MainPID `46612`**, invocation
+    `b9475ec3051142ff9200a16b42b912d7`, `NRestarts=0`, since 16:40:17. Static
+    uplink `10.3.1.172/24` from the unchanged T1 (`6cf06c02…`), config disk
+    `e960fadc…`. The link came up `1Gbps/Full` at boot; a later downshift
+    was not read.
+  - **The console is logged out** (`localhost login:`). The drop-in
+    `b44de3a9…`, the FIFO and `km-console-holder` (MainPID 46330) stay in
+    `/run` until the next reboot.
+  - **The pool:** 16 `netvm` nodes, and one stale `appvm` on slot 02
+    (inode 5354, this session's ARP fixture; a reboot removes it). Slot 01
+    holds `netvm` only, with no owner. `/run/netvm-agent/` is empty, and
+    every `km*` is DOWN.
+  - `katmate-app-routed@app_web` is inactive, on the unchanged chain
+    (`app_web.qcow2` written by one more boot).
+  - **`jbd2/dm-9-8` is held** (Open count 2 with netVM running). **A reboot
+    is due before the next `netvm.sh`.** Suspend is unmasked.
+  - **Session files:** `/home/host/katmate-dev/s4cb/` (scripts, the build
+    log `3c0a1ab4…`, and fixture logs). They are fixtures, not live
+    configuration. `out/netvm-agent` was replaced, and the 2026-07-23
+    binary (`0a155800…`) is not kept.
 
   **The uplink is capped by the cable, and that is a condition of the
   environment rather than a defect.** On the boot of 2026-09-12 the link came up
@@ -3165,6 +3276,12 @@ touched.
    Closing is 4c B's, by gate (a forged ARP from slot `b` claiming slot
    `a`'s peer is dropped and counted, and no neighbour entry is
    planted).**]**
+   **[Note 2026-09-30 (`s4c-b`): observed on the rebuilt netVM.** `table
+   arp filter` loaded before the `kmkk` renames (2.884 s against 3.216 s).
+   Six forged ARP frames from slot 02 claiming `10.100.1.17` (3 requests, 3
+   replies): 0 answered, `slot_arp`'s drop counter 0 → 6, and no `.17`
+   neighbour anywhere. The control on slot 01 was answered 3 of 3 with the
+   counter unchanged. Closing is the operator's.**]**
 
 35. **Foundation dependency debt.** Added 2026-09-26. The rebuilt foundation
    carries `systemd`, `systemd-sysv`, `dbus` and `dbus-daemon`, none of them
@@ -3444,6 +3561,12 @@ touched.
    and `katmate-sys-driver@.service` passes `ipv6.disable=1`. Closing is 4c
    B's: after REMOVE the slot is DOWN with no neighbour entry, and netVM
    has no IPv6 on any link.**]**
+   **[Note 2026-09-30 (`s4c-b`): observed.** `/proc/cmdline` carries
+   `ipv6.disable=1`, there is no `/proc/sys/net/ipv6`, `ip -6 addr` is
+   empty, and link-local reads 0 on `km01` after every ADD and REMOVE.
+   After REMOVE, `km01` is DOWN and `ip neigh show dev km01` is empty (a
+   `.17` entry before). A hand-added `peer/32 metric 300` route was gone
+   after the DOWN. Closing is the operator's.**]**
 
 46. **Parts of networking arc step 3 have not run as installed.** Added
    2026-09-27, from r8-impl-B § 6 (*not executed*). The gates ran the absent
@@ -3490,6 +3613,12 @@ touched.
    `30-netvm-forward.conf` no longer does. The build refuses any sysctl
    file that sets IPv4 forwarding. Closing is 4c B's: `ip_forward` reads 1
    on a normal boot, and 0 with the ruleset made to fail.**]**
+   **[Note 2026-09-30 (`s4c-b`): half observed.** On a normal boot of the
+   rebuilt image, `katmate-ip-forward` starts after `Finished
+   nftables.service`, is `active`, and `ip_forward` reads 1. The build's
+   no-forwarding-sysctl read-back passed. **The fail-closed half (0 with
+   `nftables.service` failed) is not taken.** It needs a boot with a broken
+   ruleset, which the operator has not asked for.**]**
 
 49. **The agent does not bind a peer address to its slot.** Added
    2026-09-28, from F D20 (`f12-readpass-report.md`, outside the repository).
@@ -3512,6 +3641,11 @@ touched.
    unit-tested on the Acer, UNVERIFIED in a guest.** Closing is 4c B's
    (a mis-paired ADD → ERR, nothing programmed, the reason in the
    journal).**]**
+   **[Note 2026-09-30 (`s4c-b`): observed in the guest.** ADD `:01` with
+   peer `10.100.1.18` → ERR, no record, `km01` DOWN with no address, and
+   the journal reads *"a pool MAC 52:54:01:00:00:kk requires the peer
+   10.100.1.(16+k) (R103)"*. The true pair → OK. Closing is the
+   operator's.**]**
 
 50. **The failure paths of R52's preflight and R48's read-back have not run
    on a real image.** Added 2026-09-28, from `f12-impl-B-report.md` § 6
@@ -4418,6 +4552,14 @@ frozen `vm_home_skel` vs qcow2 branch.
      suspend masked; rebuild; then the gates on the new image, with R109's
      `f12peer.py` modes. The UNVERIFIED list is § *This session* and
      `s4c-a-report.md` § 6. The text above is left as written.**]**
+     **[Note 2026-09-30 (`s4c-b`): 4c B is done** (§ *This session*). The
+     gates are observed, and the verdicts are the operator's. Still open
+     from 4c: G6b (no procedure in the record) and #48's fail-closed half.
+     For the next write pass: whether `build/netvm.sh` builds
+     `netvm-agent`, and s4c-a's proposed notes (ADR-021's bake list; the
+     supersession windows: a leftover `peer/32` route of the shape tested
+     is cleared by the DOWN at the slot's next REMOVE).
+     The text above is left as written.**]**
   5. **VPN mode** (added 2026-09-27, R30): the WireGuard config, the VPN
      ruleset and the kill-switch, under **its own ADR**, after step 4. R8
      names the config disk as the WireGuard config's channel, and R31 gives
