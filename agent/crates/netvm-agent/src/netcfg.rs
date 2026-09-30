@@ -136,7 +136,41 @@ enum Cmd {
     Remove(u32),
 }
 
+/// The pool's slot MAC prefix and size (ADR-035 §2): slot `k` carries
+/// `52:54:01:00:00:kk`, `k` < 16. The two middle octets are reserved zero.
+const POOL_MAC_PREFIX: [u8; 5] = [0x52, 0x54, 0x01, 0x00, 0x00];
+const POOL_SLOTS: u8 = 16;
+/// The pool's peer block, `10.100.1.16/28` (ADR-035 §4): slot `k`'s peer is
+/// `10.100.1.(16 + k)`.
+const POOL_PEER_BASE: u8 = 16;
+
 // --- parsing --------------------------------------------------------
+
+/// The pool slot a MAC names, if it is a pool MAC at all.
+fn pool_slot(mac: &[u8; 6]) -> Option<u8> {
+    (mac[0..5] == POOL_MAC_PREFIX && mac[5] < POOL_SLOTS).then_some(mac[5])
+}
+
+/// R103 (ADR-035's note of 2026-09-29; open problem #49): a pool MAC pairs
+/// with exactly its own slot's peer, and no other MAC may name a peer in the
+/// pool's block. Without it an ADD pairing slot `k` with another slot's peer
+/// is accepted here and its traffic then dropped by the ruleset's slot_guard
+/// silently. MAC and peer are both views of `k` (§1), so this relates two
+/// views of one index; it adds no carrier. Decode-time and pure, like every
+/// rule above; the wire answer is a bare ERR, and the reason is this text in
+/// the journal.
+fn check_pool_pairing(mac: &[u8; 6], peer: &[u8; 4]) -> Result<()> {
+    let in_block = (POOL_PEER_BASE..POOL_PEER_BASE + POOL_SLOTS).contains(&peer[3]);
+    match pool_slot(mac) {
+        Some(k) if peer[3] != POOL_PEER_BASE + k => Err(AgentError::Rejected(
+            "netcfg: a pool MAC 52:54:01:00:00:kk requires the peer 10.100.1.(16+k) (R103)",
+        )),
+        None if in_block => Err(AgentError::Rejected(
+            "netcfg: a non-pool MAC may not name a peer in the pool block .16-.31 (R103)",
+        )),
+        _ => Ok(()),
+    }
+}
 
 fn u32_le(b: &[u8]) -> u32 {
     u32::from_le_bytes([b[0], b[1], b[2], b[3]])
@@ -212,6 +246,7 @@ fn parse(p: &[u8]) -> Result<Cmd> {
             if peer == INTERNAL_LOCAL {
                 return Err(AgentError::Rejected("netcfg: peer_addr equals local_addr"));
             }
+            check_pool_pairing(&mac, &peer)?;
 
             let peer_prefix = p[19];
             if peer_prefix != PEER_PREFIX {
@@ -570,6 +605,74 @@ mod tests {
     fn v1_admits_only_the_peer_route() {
         let default_route = add(MAC, INTERNAL_LOCAL, PEER, 32, &[([0, 0, 0, 0], 0, 100)]);
         assert!(parse(&default_route).is_err());
+    }
+
+    fn pool_mac(k: u8) -> [u8; 6] {
+        [0x52, 0x54, 0x01, 0x00, 0x00, k]
+    }
+
+    fn with_peer(mac: [u8; 6], last: u8) -> Vec<u8> {
+        let peer = [10, 100, 1, last];
+        add(mac, INTERNAL_LOCAL, peer, 32, &[(peer, 32, 100)])
+    }
+
+    /// R103: every pool slot with its own peer is accepted.
+    #[test]
+    fn pool_mac_with_its_peer_is_accepted() {
+        for k in 0..16u8 {
+            assert!(
+                parse(&with_peer(pool_mac(k), 16 + k)).is_ok(),
+                "slot {k:02x} with 10.100.1.{} must be accepted",
+                16 + k
+            );
+        }
+    }
+
+    /// R103: a pool MAC with any other peer is rejected, another slot's peer
+    /// and a non-pool peer alike.
+    #[test]
+    fn pool_mac_with_a_wrong_peer_is_rejected() {
+        for k in 0..16u8 {
+            for last in [2u8, 15, 32, 254] {
+                assert!(parse(&with_peer(pool_mac(k), last)).is_err());
+            }
+            for j in 0..16u8 {
+                if j != k {
+                    assert!(
+                        parse(&with_peer(pool_mac(k), 16 + j)).is_err(),
+                        "slot {k:02x} with slot {j:02x}'s peer must be rejected"
+                    );
+                }
+            }
+        }
+    }
+
+    /// R103: a non-pool MAC may not name a peer in .16-.31. `52:54:01:00:00:10`
+    /// is outside the pool (k < 16), so it counts as non-pool here.
+    #[test]
+    fn non_pool_mac_may_not_name_a_pool_peer() {
+        for mac in [MAC, pool_mac(0x10), [0x52, 0x54, 0x00, 0x21, 0xb2, 0x08]] {
+            for last in 16u8..32 {
+                assert!(
+                    parse(&with_peer(mac, last)).is_err(),
+                    "{mac:02x?} with 10.100.1.{last} must be rejected"
+                );
+            }
+        }
+    }
+
+    /// R103: a non-pool MAC naming a peer outside the block stays admissible
+    /// (ADR-035 §4: .2-.15 are for links that are not pool slots).
+    #[test]
+    fn non_pool_mac_with_another_peer_is_accepted() {
+        for mac in [MAC, pool_mac(0x10)] {
+            for last in [2u8, 15, 32, 254] {
+                assert!(
+                    parse(&with_peer(mac, last)).is_ok(),
+                    "{mac:02x?} with 10.100.1.{last} must be accepted"
+                );
+            }
+        }
     }
 
     #[test]
