@@ -6,9 +6,10 @@
 > history and the ADRs — this file references them rather than repeating them.
 
 **Milestone:** v0.2 (in development) · **Last updated:** 2026-09-30
-(`s4c-b`, networking arc step 4c part B, on MINIS: the host unit
-reinstalled, `netvm-agent` rebuilt, one netVM rebuild after a reboot, and
-4c's gates taken on the new image; verdicts are the operator's).
+(`wp-0930`, the write pass after networking arc step 4c, on the Acer: 4c's
+verdict PASS (R117), four open problems closed (R118), ADR-035 still
+PROPOSED (R119), `netvm.sh` refuses a stale agent (R120); step 4 is done,
+and next is the alpha integration).
 
 ## Current focus
 
@@ -71,6 +72,13 @@ suspend masked), the host unit reinstalled, and the gates, with
 4c's code and running on it, and every row of 4c's gate list except G6b
 and #48's fail-closed half was observed and quoted. Verdicts, and closing
 #34, #45, #48 and #49, are the operator's. See § *This session*.**]**
+**[Note 2026-09-30, `wp-0930`: networking arc step 4 is done.** 4c's verdict
+is PASS (R117). #34, #45, #49 and #51 are closed, and #48 is open for its
+fail-closed half only (R118). ADR-035 stays PROPOSED until G6b is taken or
+deferred (R119). **Next is the alpha integration** (`ROADMAP.md` § *Build
+order*, *Alpha integration*): the remaining AppVMs on netVM's slots, one at
+a time, with `docs/PARAMETERS.md` filled as they land. See § *This
+session*.**]**
 
 The **entire build chain remains scripted and proven from nothing**:
 `make foundation` builds the shared systemd-free base
@@ -99,7 +107,65 @@ restartable — and so updatable — without touching running VMs.
 Direction unchanged: IOMMU-capable platforms only (VT-d/AMD-Vi).
 MINIS is primary host and merge target.
 
-## This session (2026-09-30, step 4c B — s4c-b) — installed, rebuilt and gated: the pairing check, the duplicate count, records by MAC, DOWN on REMOVE, the mark flush and the ARP table observed on netVM
+## This session (2026-09-30, write pass — wp-0930) — step 4c's verdict and step 4 closed: R117–R120 recorded, the ADR-035 gate ledger, R120 in `netvm.sh`, the alpha integration in the roadmap
+
+One session, `wp-0930`, on the Acer only. No MINIS command. It halted
+once at its read pass, which a session limit also interrupted. There were
+three divergences. `docs/PARAMETERS.md` and *"alpha integration"* existed
+nowhere in the tree. The brief's downshift sentence matched no record. And
+one line range was cited wrongly. The operator ruled through the orchestrator:
+the roadmap entry as its own commit, `PARAMETERS.md` not created, and the
+downshift sentence as the operator's statement. The report is outside the
+repository: `~/Claude.assistent/wp-0930-report.md`.
+
+**The operator's rulings (2026-09-30).**
+- **R117 — step 4c's verdict: PASS**, on every row of `s4c-b-report.md`
+  § B5 (rows 1–7) and § B6. G6b is untaken, because no procedure exists,
+  and #48's fail-closed half is unmeasured.
+- **R118 — open problems #34, #45, #49 and #51 are closed**, each by the
+  observation that settles it. **#48 stays open** for its fail-closed half
+  only.
+- **R119 — ADR-035 stays PROPOSED.** Acceptance waits until G6b is taken
+  or explicitly deferred by the operator.
+- **R120 — `build/netvm.sh` refuses a missing or stale `netvm-agent`**, on
+  `foundation.sh`'s model for `vm-agent`, and does not run cargo itself.
+- **On the read pass:** the alpha integration goes into `ROADMAP.md` (the
+  ruling of 2026-09-21, relayed with its content); `docs/PARAMETERS.md` is
+  created by the first integration session with its first row; the
+  downshift sentence is the operator's statement.
+
+**The commits.**
+- `ff68306` ADR-035's note of 2026-09-30: the mark flush observed; the
+  leftover supersession route removed at the slot's next REMOVE; netVM's
+  `ExecStopPost=` half executed; R117; R119; and **a gate ledger**, G1–G6
+  with every split half, taken or not, and where.
+- `0e2e22d` ADR-037's note: the guest kernel is 6.12.111 under the
+  unchanged manifest, s4c-m0's readings are identical on it, and R115's
+  load and R111's normal-boot half are observed.
+- `17479cf` ADR-021's revision note: the `30-netvm-forward.conf` bake-list
+  line is stale since R111.
+- `06ab509` R120 in `build/netvm.sh`. The preflight refuses a missing
+  binary, and a binary older than any file of `netvm-agent`,
+  `katmate-protocol` or `Cargo.lock`. Step 7's NOTICE path is gone.
+- `45973a4` four entries in § *Invariants & gotchas*, the downshift
+  sentence, and a dated bracket on the `ExecStopPost=` invariant.
+- `7f822c7` `ROADMAP.md`: *Alpha integration*.
+- `210cc31` the step-4b2 entry rotated to `docs/SESSIONS.md`.
+- This entry, with § *Current focus*, § *Live state*, the open problems and
+  step 4 in § *Next steps*.
+
+On the Acer: `bash -n` and `shellcheck -S warning` on `build/netvm.sh`
+clean, and R120's block run as an extract against a fake tree (fresh,
+absent, a newer protocol file, a newer `Cargo.lock`, and an absent source
+path). That is not the executable.
+
+**Not done, and not claimed.**
+- R120 has not run in a build. Its first execution is the next netVM build.
+- G6b and #48's fail-closed half, as before.
+- `Cargo.toml` at the workspace root is not in R120's source list, as
+  ruled. A change to it alone does not mark the binary stale.
+
+## Previous session (2026-09-30, step 4c B — s4c-b) — installed, rebuilt and gated: the pairing check, the duplicate count, records by MAC, DOWN on REMOVE, the mark flush and the ARP table observed on netVM
 
 One session, `s4c-b`, on MINIS (Manual mode, operator ruling). It halted
 once, at its read pass, on six divergences. The operator ruled: the guarded
@@ -173,7 +239,7 @@ verdicts.**
 - The session's rotation of the step-4b2 entry to `SESSIONS.md` is not
   done. The brief allowed one commit.
 
-## Previous session (2026-09-30, step 4c A — s4c-a) — netvm-agent's 4c items, the ARP table, the mark flush, forwarding after the ruleset, and IPv6 off in netVM, committed and not built; R114–R116
+## Earlier session, not yet rotated (2026-09-30, step 4c A — s4c-a) — netvm-agent's 4c items, the ARP table, the mark flush, forwarding after the ruleset, and IPv6 off in netVM, committed and not built; R114–R116
 
 One session, `s4c-a`, on the Acer, with one capture on the MINIS host.
 It halted at its read pass on five divergences. The operator ruled, and
@@ -901,6 +967,9 @@ touched.
   `libnetfilter_cttimeout` and `libnetfilter_queue`, installed by `s4c-m0`)
   **and `strace 7.2-1`** (already present). `s4c-a`'s W0 used both, in
   throwaway namespaces only.**]**
+  **[Note 2026-09-30 (`s4c-b`, P0 at 16:14): `nf_conntrack_netlink` is
+  loaded on this host (refcount 0), cause unknown.** No earlier reading
+  exists, so whether `s4c-a`'s W0 loaded it is not settled.**]**
   **Kernel and boot, 2026-09-26:** running `7.2.7-hardened1-1-hardened`, booted
   **2026-09-25 14:00:27**; the stock `linux 7.2.6.arch2-1` is installed beside
   `linux-hardened` (`appweb-m1-rerun-report.md` § RA, items 6 and A12).
@@ -1839,6 +1908,14 @@ touched.
    **Update 2026-08-09:** `netvm.meta` now exists **host-side** at
    `/var/lib/katmate/netvm/netvm.meta`, so the natural home for the checksum
    exists. Deliberately not added in 3a part 1 — out of that brief's scope.
+
+   **[Note 2026-09-30 (`wp-0930`, `06ab509`; R120): the `die` half is
+   implemented, UNVERIFIED.** The preflight dies on a missing binary, and on
+   one older than any file of `agent/crates/netvm-agent/`,
+   `agent/crates/katmate-protocol/` or `agent/Cargo.lock`. It first runs in
+   the next netVM build. The `sha256sum` in `netvm.meta` is not done, and
+   R120 does not ask for it. The *"line 263"* above no longer names this
+   code.**]**
 
 15. ~~**Executable bit on `build/netvm.sh` flipped** `100755 → 100644`~~ —
    **Resolved.** `git ls-files -s` reports `100755` (verified 2026-08-09). The
@@ -3107,7 +3184,16 @@ touched.
    this ordering as open.** ADR-036 is not edited: the operator ruled that it
    is not touched, and the divergence is recorded here only.**]**
 
-34. **The pool's ARP surface is uncovered, and the finding-12 candidate does not
+34. **RESOLVED 2026-09-30 (R118) — by `1e882d3` (R100): `table arp filter`
+   in netVM's ruleset, observed on the step-4c image.** Kept as a closed
+   marker so the number is not reused. **Evidence** (`s4c-b-report.md` § B5
+   row 7, outside the repository; R117 PASS): six forged ARP frames from
+   slot 02 claiming `10.100.1.17`, three requests and three replies, got 0
+   answers; `slot_arp`'s drop counter went 0 → 6, and no `.17` neighbour was
+   planted anywhere. The control on slot 01 was answered 3 of 3, with the
+   counter unchanged. The table loaded before the `kmkk` renames. The
+   published text is left as written:
+   **The pool's ARP surface is uncovered, and the finding-12 candidate does not
    reach it.** Added 2026-09-20, **named as open at the moment the IPv4 half of
    finding 12 was ruled, deliberately, so the ruling is not read as closing
    finding 12**. **Nothing was run** — this entry names an absence and rests on
@@ -3407,7 +3493,15 @@ touched.
    argv carries `addr=0x4`. **There is still no automated check.** The
    agreement was read by hand, and G2 confirmed it at runtime.**]**
 
-45. **IPv6 on the slots: a raised slot autoconfigures a link-local, and REMOVE
+45. **RESOLVED 2026-09-30 (R118) — by `66937fa` (DOWN on REMOVE) and
+   `2eed9c8` (`ipv6.disable=1`), R102, observed on the step-4c image.** Kept
+   as a closed marker so the number is not reused. **Evidence**
+   (`s4c-b-report.md` §§ B4 and B5 row 5, outside the repository; R117
+   PASS): `/proc/cmdline` carries `ipv6.disable=1`, there is no
+   `/proc/sys/net/ipv6`, and `ip -6 addr` is empty (B4). After REMOVE,
+   `km01` is DOWN with no address, no route, an empty `ip neigh show dev
+   km01` and no link-local (row 5). The published text is left as written:
+   **IPv6 on the slots: a raised slot autoconfigures a link-local, and REMOVE
    leaves it.** Added 2026-09-27, from `adr037-impl-B` (G3's refusal half and
    G4). After NETCFG ADD, the kernel autoconfigures an IPv6 link-local address
    on the slot (`km02 UP … fe80::5054:1ff:fe00:2/64`, plus `fe80::/64 dev
@@ -3493,8 +3587,19 @@ touched.
    no-forwarding-sysctl read-back passed. **The fail-closed half (0 with
    `nftables.service` failed) is not taken.** It needs a boot with a broken
    ruleset, which the operator has not asked for.**]**
+   **[Note 2026-09-30 (`wp-0930`; R118): narrowed to the fail-closed half.**
+   The normal-boot half is observed and is no longer open. What remains is
+   the pair of observations that settles the rest: on a boot with
+   `nftables.service` failed, `katmate-ip-forward` does not run and
+   `ip_forward` reads `0`.**]**
 
-49. **The agent does not bind a peer address to its slot.** Added
+49. **RESOLVED 2026-09-30 (R118) — by `4bdfb0f` (R103): the pairing check
+   in `netvm-agent`'s parser, observed in the guest.** Kept as a closed
+   marker so the number is not reused. **Evidence** (`s4c-b-report.md` § B5
+   row 1, outside the repository; R117 PASS): ADD `:01` with peer
+   `10.100.1.18` → ERR, no record, nothing programmed, and the journal names
+   R103; the true pair → OK. The published text is left as written:
+   **The agent does not bind a peer address to its slot.** Added
    2026-09-28, from F D20 (`f12-readpass-report.md`, outside the repository).
    `netvm-agent` accepts any peer in the `/24` on any slot (F § 1.7). Under
    the finding-12 guard, a NETCFG ADD that pairs slot `kk` with a peer other
@@ -3532,7 +3637,12 @@ touched.
    mutations on the Acer in f12-impl-A's driver, which is not the
    executable.
 
-51. **Stale SHUTDOWN comments contradict ADR-024 and the netVM agent.**
+51. **RESOLVED 2026-09-30 (R118) — by `c8950b6` (R73): the four comments are
+   corrected to ADR-024.** Kept as a closed marker so the number is not
+   reused. **Evidence:** the commit, in `s4c-a-report.md` W5 (outside the
+   repository). Comments only, so there is nothing behavioural to observe.
+   The published text is left as written:
+   **Stale SHUTDOWN comments contradict ADR-024 and the netVM agent.**
    Added 2026-09-28, from S D6 (`s4-readpass-report.md`, outside the
    repository). `agent/crates/katmate-protocol/src/opcode.rs:22` gives
    SHUTDOWN in netvm-agent as *"absent — host QMP/ACPI"*, `:25–29` says it
@@ -4434,6 +4544,19 @@ frozen `vm_home_skel` vs qcow2 branch.
      supersession windows: a leftover `peer/32` route of the shape tested
      is cleared by the DOWN at the slot's next REMOVE).
      The text above is left as written.**]**
+     **[DONE 2026-09-30 (`wp-0930`): networking arc step 4 is done.** 4c's
+     verdict is PASS (R117), on every row of s4c-b's B5 and B6. #34, #45,
+     #49 and #51 are closed, and #48 is open for its fail-closed half only
+     (R118). ADR-035 stays PROPOSED until G6b is taken or deferred (R119).
+     The write pass's items are done: `netvm.sh` refuses a missing or stale
+     agent and does not build it (R120, `06ab509`), and both of s4c-a's
+     proposed notes are written (ADR-021's in `17479cf`, ADR-035's in
+     `ff68306`). **Next is the alpha integration** (`ROADMAP.md` § *Build
+     order*, *Alpha integration*, the operator's ruling of 2026-09-21): the
+     remaining AppVMs on the existing netVM's slots, one at a time and vault
+     last, MINIS first. `docs/PARAMETERS.md` is created by the first
+     integration session with its first row, and filled as each AppVM
+     lands. Still open from 4c: G6b and #48's fail-closed half.**]**
   5. **VPN mode** (added 2026-09-27, R30): the WireGuard config, the VPN
      ruleset and the kill-switch, under **its own ADR**, after step 4. R8
      names the config disk as the WireGuard config's channel, and R31 gives
