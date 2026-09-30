@@ -1604,6 +1604,14 @@ paranoid profile. `docs/ARCHITECTURE.md` § *Object model* and *Known v1
 co-location* were brought into line on 2026-09-29 (`bfb47d0`). The text above
 is not edited.
 
+**Revision note (2026-09-30, § *Alternatives considered* — the bullet
+*"Keeping the VPN key in the driver domain (status quo)"*):** the bullet is
+out of date in the same way as the sentence the 2026-09-29 note corrects:
+since [ADR-037](DECISIONS.md#adr-037), v1 bakes no VPN and no key, so there
+is no status quo to keep. If VPN mode is enabled (networking arc step 5, its
+own ADR), the key would sit in the driver domain, and that co-location is
+for that ADR to record. The bullet is not edited.
+
 ## ADR-023 — NETCFG describes a link, never an AppVM
 
 **Status:** Accepted (2026-07-14) — wire format and semantics normative;
