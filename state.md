@@ -1695,7 +1695,11 @@ touched.
   needs the cable replaced; nothing in configuration reaches it. This entry
   publishes `Link is Up 1Gbps/Full` from the 2026-08-19 reading above; that
   value is left as written, because it is what that link negotiated before the
-  downshift, and the 100 Mbps figure is what it settles at. The same records
+  downshift, and the 100 Mbps figure is what it settles at. **The driver
+  reports 1 Gbps/Full at carrier and downshifts to 100 Mbps within
+  milliseconds, so a speed read right after *"Link is Up"* shows 1 Gbps**,
+  as s4c-b's B3.3 did at 6.75 s. Read the speed a few seconds after carrier
+  (operator's statement, 2026-09-30). The same records
   carry **the one place in that session where a name and a MAC were read
   together and agreed**: `enp0s4` carries **38:05:25:34:7c:47**, and the sixteen
   `.link` files correctly do not glob onto it — the uplink keeps its stage-one
@@ -4647,6 +4651,14 @@ frozen `vm_home_skel` vs qcow2 branch.
   journal logs no connections**, not even the RUN of boot B, so it cannot
   attribute a window: its silence is a check that cannot fire. Observed
   2026-09-28. Source: `s4-m0-report.md` §§ 3, 8.
+- **A step that opens a window on MINIS's screen is announced first, and RUN
+  waits until the operator confirms he is at MINIS's screen.** *"Ready"* is
+  not that confirmation. In s4c-b's B6, the first RUN `foot` went out after
+  the operator answered *"ready"*. He was not at MINIS and did not know the
+  window was up, so the 2-minute poll window saw no flow and measured
+  nothing. The second attempt, sent after he confirmed he was at the
+  screen, produced the flow. Ask where the operator is, not whether he is
+  ready. Observed 2026-09-30. Source: `s4c-b-report.md` § B6, § 4 item 9.
 - **`nft -c` run unprivileged is a check that cannot fire — any `nft -c`
   preflight must run as root.** Unprivileged it returns **exit 1 with
   *"netlink: Error: cache initialization failed: Operation not permitted"* on
@@ -4674,6 +4686,14 @@ frozen `vm_home_skel` vs qcow2 branch.
   on the Acer is **UNVERIFIED** until an `nft -c` as root on MINIS (the
   build preflight) or in the guest. Measured 2026-09-28. Source:
   `f12-impl-A-report.md` §§ 2, 5 item 2, 6.
+- **R48's extraction strips `#` to the end of the line, so a `#` inside an
+  nft comment string cuts the rule.** `build/netvm.sh` reads chains out of
+  the baked `nftables.conf` on R48's model, which drops everything from `#`
+  onward. A drop rule whose comment read `#34` lost its tail, and the
+  read-back failed the good case. **An nft comment in an extracted chain
+  carries no `#`.** Making the stripping quote-aware was rejected, because
+  it would change R48's proven extraction too. Found 2026-09-30 while
+  testing `table arp filter`'s read-back. Source: `s4c-a-report.md` W11.
 - **A packet whose source is one of the receiving host's own addresses is
   dropped as a martian source at the input route lookup, before any nft
   hook**, so a counter rule written for that source can never fire.
@@ -4924,6 +4944,11 @@ frozen `vm_home_skel` vs qcow2 branch.
   it. The running netVM's loaded unit carries the sixteen-path
   `ExecStopPost=`. It is **unexecuted**, because netVM has not been stopped
   since.]**
+  **[2026-09-30 (s4c-b, ruling 5): *"unexecuted"* above is superseded.** At
+  netVM's stop of 16:15:28 CEST the sixteen `netvm` nodes went from 16 to 0,
+  and the `appvm` nodes it does not name stayed. The record is collected
+  after a clean stop, so this is by inference from the paths (ADR-035's note
+  of 2026-09-30).**]**
 - **`Type=simple` returns from `systemctl start` as soon as QEMU forks —
   before QEMU has bound its netdevs — so the slot bindings are read after the
   guest answers PING, not after `start`.** Measured 2026-09-27: a binding check
@@ -5145,6 +5170,14 @@ frozen `vm_home_skel` vs qcow2 branch.
   creates parent dir + mode + content atomically. Always `bash -n` a build
   script after editing — a stray deleted `)` will only surface at runtime
   otherwise.
+- **`-e` on a symlink inside a mounted image resolves on the build host when
+  the link is absolute.** `-e` follows the link, and outside the chroot an
+  absolute target such as `/usr/lib/systemd/system/…` is the build host's
+  path. The check then passes or fails on the host's files, not the
+  image's. **Test an image entry with `-L || -f`.** Found 2026-09-30 in the
+  first form of R115's read-back of
+  `sysinit.target.wants/systemd-modules-load.service`. Source:
+  `s4c-a-report.md` W10.
 - **Mask suspend before a netVM build.** hypridle/logind can put the build host
   to sleep mid-build (twice on 2026-07-09), killing the build and leaving a stuck
   jbd2 (→ reboot). `systemctl mask sleep.target suspend.target hibernate.target
@@ -5587,6 +5620,13 @@ frozen `vm_home_skel` vs qcow2 branch.
   `…/00/appvm` while that path did not exist — it reports the path recorded in
   the bound socket, not presence in the filesystem. Split path from fd: `ls -i`
   answers the path, `/proc/<pid>/fd` answers the binding.
+- **A `connect()` probe on a root-owned socket node must run as root.** Run
+  unprivileged, it gets `EACCES`, which says nothing about whether anything
+  is bound there. In s4c-b's B6 the stale-node guard probed slot 01's
+  `appvm` as `host`, got `EACCES`, and refused, correctly. Re-run as root,
+  the probe answered `ECONNREFUSED` (nothing bound), and only then was the
+  node unlinked. Same family as *"a check that cannot fire"*. Observed
+  2026-09-30. Source: `s4c-b-report.md` § B6, § 4 item 7.
 - **After a push, reading back `origin/main` is not server confirmation.** The
   push writes that remote-tracking ref itself as bookkeeping, and a following
   `fetch` has nothing to fetch. `git ls-remote origin refs/heads/main` asks the
