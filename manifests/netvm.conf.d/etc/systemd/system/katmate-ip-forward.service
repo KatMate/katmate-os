@@ -1,0 +1,29 @@
+# IPv4 forwarding in netVM, switched on only once the ruleset is loaded
+# (ADR-037 R111; open problem #48). netVM routes the internal segment out
+# through the uplink, NATed (R2), so forwarding is on in normal operation.
+#
+# It used to be set by sysctl.d, early in boot and independently of the
+# firewall. If nftables.service then failed, netVM was left forwarding with no
+# ruleset: fail-open. Here Requires= plus After= on nftables.service means a
+# ruleset that fails to load leaves this unit unstarted and forwarding at the
+# kernel default, 0: fail-closed.
+#
+# Default dependencies are kept (operator ruling, 2026-09-30): nftables.service
+# is in sysinit.target, this unit runs after sysinit under multi-user.target,
+# the target netvm-agent.service is wanted by, so no ordering cycle arises.
+# Forwarding comes on a few hundred milliseconds later in boot, before any
+# AppVM can exist: no AppVM starts before netVM is up.
+#
+# Baked by build/netvm.sh step 5 and enabled there, with a read-back.
+[Unit]
+Description=KatMate netVM: enable IPv4 forwarding after the ruleset loads
+Requires=nftables.service
+After=nftables.service
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+ExecStart=/bin/sh -c 'echo 1 > /proc/sys/net/ipv4/ip_forward'
+
+[Install]
+WantedBy=multi-user.target

@@ -288,17 +288,24 @@ log "proton check OK: ${#NETVM_CONFD_FILES[@]} baked conf-tree files, none names
 # katmate-cfgdisk.service is the config disk's consumer (ADR-037 R38): a
 # oneshot before dhcpcd that writes /run/katmate-cfg/dhcpcd.conf, which
 # dhcpcd reads through the baked drop-in. It is enabled with the others.
-log "Enabling systemd services (dhcpcd, dnsmasq, nftables, katmate-cfgdisk); disabling systemd-networkd"
+#
+# katmate-ip-forward.service switches IPv4 forwarding on, and only after
+# nftables.service has loaded the ruleset (ADR-037 R111; open problem #48):
+# Requires= and After= on it, so a ruleset that fails to load leaves netVM
+# not forwarding. sysctl.d no longer sets ip_forward; the check after the
+# enablement read-back refuses an image in which it still does.
+log "Enabling systemd services (dhcpcd, dnsmasq, nftables, katmate-cfgdisk, katmate-ip-forward); disabling systemd-networkd"
 chroot_run "$NETVM_MNT" systemctl enable dhcpcd
 chroot_run "$NETVM_MNT" systemctl enable dnsmasq
 chroot_run "$NETVM_MNT" systemctl enable nftables
 chroot_run "$NETVM_MNT" systemctl enable katmate-cfgdisk
+chroot_run "$NETVM_MNT" systemctl enable katmate-ip-forward
 NETVM_NETWORKD_UNITS=(systemd-networkd.service systemd-networkd.socket systemd-networkd-wait-online.service)
 chroot_run "$NETVM_MNT" systemctl disable "${NETVM_NETWORKD_UNITS[@]}"
 
 # Read back the enablement state, not the commands' exit codes.
 netvm_unit_state() { chroot_run "$NETVM_MNT" systemctl is-enabled "$1" 2>/dev/null || true; }
-for u in dhcpcd.service dnsmasq.service nftables.service katmate-cfgdisk.service; do
+for u in dhcpcd.service dnsmasq.service nftables.service katmate-cfgdisk.service katmate-ip-forward.service; do
   st="$(netvm_unit_state "$u")"
   [[ "$st" == enabled ]] || die "step 5 read-back: $u is '$st' in the image, expected enabled"
 done
@@ -306,7 +313,21 @@ for u in "${NETVM_NETWORKD_UNITS[@]}"; do
   st="$(netvm_unit_state "$u")"
   [[ "$st" == disabled ]] || die "step 5 read-back: $u is '$st' in the image, expected disabled (ADR-037 R15)"
 done
-log "Read-back OK: dhcpcd, dnsmasq, nftables, katmate-cfgdisk enabled; ${#NETVM_NETWORKD_UNITS[@]} networkd units disabled"
+log "Read-back OK: dhcpcd, dnsmasq, nftables, katmate-cfgdisk, katmate-ip-forward enabled; ${#NETVM_NETWORKD_UNITS[@]} networkd units disabled"
+
+# R111's other half: nothing that systemd-sysctl reads may turn forwarding on
+# at boot behind the ruleset's back. Every sysctl.d directory in the image,
+# the conf tree's own file included. `net.ipv4.conf.*.forwarding` is the
+# per-interface form of the same switch.
+NETVM_SYSCTL_DIRS=()
+for d in etc/sysctl.d run/sysctl.d usr/local/lib/sysctl.d usr/lib/sysctl.d; do
+  [[ -d "$NETVM_MNT/$d" ]] && NETVM_SYSCTL_DIRS+=("$NETVM_MNT/$d")
+done
+[[ ${#NETVM_SYSCTL_DIRS[@]} -gt 0 ]] || die "step 5 read-back: no sysctl.d directory in the image (the conf tree bakes etc/sysctl.d)"
+if grep -rnE '^[[:space:]]*-?net[./]ipv4[./](ip_forward|conf[./][^[:space:]=]+[./]forwarding)[[:space:]]*=' -- "${NETVM_SYSCTL_DIRS[@]}" "$NETVM_MNT/etc/sysctl.conf" 2>/dev/null; then
+  die "step 5 read-back: a sysctl file in the image sets IPv4 forwarding (above); only katmate-ip-forward.service may, after nftables.service (ADR-037 R111)"
+fi
+log "Read-back OK: no sysctl file in the image sets IPv4 forwarding (${#NETVM_SYSCTL_DIRS[@]} sysctl.d directories and /etc/sysctl.conf searched)"
 
 # The config disk's consumer, read back as the image holds it (ADR-037 R38).
 # Without the drop-in, dhcpcd would read the baked /etc/dhcpcd.conf and ignore a
