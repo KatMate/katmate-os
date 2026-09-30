@@ -1418,6 +1418,16 @@ landed in the ADR-037 implementation, and the image built from it
   image: NETCFG ADD and REMOVE returned OK with `/etc/systemd/network`
   read-only.
 
+**Revision note (2026-09-30, § *Decision* — the `30-netvm-forward.conf`
+bake-list line):** the text proposed in `s4c-a-report.md` § 6 (outside the
+repository), verbatim: The bake-list line for `30-netvm-forward.conf` is
+stale since 2026-09-30 (ADR-037 R111): the file sets reverse-path filtering
+only, and IPv4 forwarding is switched on by `katmate-ip-forward.service`
+after `nftables.service`, so a ruleset that fails to load leaves forwarding
+off. *(Added by the write pass: forwarding after the ruleset is observed on
+a normal boot. That a failed ruleset leaves it off is not yet observed;
+see [ADR-037](DECISIONS.md#adr-037)'s note of 2026-09-30.)*
+
 ## ADR-022 — Network topology is a graph; the physical NIC is an assignable object
 
 **Status:** Accepted (2026-07-14)
