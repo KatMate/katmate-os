@@ -103,6 +103,12 @@ refusal: wait about 30 s and retry the **same** action, up to 5 times, then stop
 and report. Neither is ever retried in another form — a different form of a
 refused command is evasion, not a workaround.
 
+A session whose brief reads or writes MINIS is started in Manual mode
+(operator ruling, 2026-09-29): in auto mode the classifier refuses MINIS
+reads as *Production Reads*. The mode is the operator's to set; a session
+that finds itself in auto mode on such a brief says so before its first
+MINIS command.
+
 ## What a session may not decide
 
 - **The content of an ADR.** Propose a revision note in the report; do not write
