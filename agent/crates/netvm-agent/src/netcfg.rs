@@ -474,7 +474,8 @@ fn withdraw_superseded(old: &Link, new: &Link, ifindex: u32) -> Result<()> {
     Ok(())
 }
 
-/// Exact reverse: routes first, then the address, then the link down.
+/// Exact reverse: routes first, then the address, then the link down, then
+/// the slot's conntrack entries.
 ///
 /// Then `IFF_UP` is cleared (ADR-035 §6: FREE is DOWN; R102, R106). It used
 /// to be left set, on the grounds that "down" was not state the payload
@@ -500,6 +501,17 @@ fn drive_remove(link: &Link, ifindex: u32) -> Result<()> {
     }
     netlink::addr_del(&mut sock, ifindex, &link.local, &link.peer, link.peer_prefix)?;
     netlink::link_down(&mut sock, ifindex)?;
+
+    // Last, once the slot is down and no new flow can start on it: flush the
+    // slot's conntrack entries with ONE ctnetlink delete by mark (ADR-035 §6;
+    // R107). The ruleset's slot_mark chain marks every new flow arriving on
+    // slot k with k+1 (R116). A NON-POOL MAC has no slot, hence no mark and
+    // no flush: nothing in the ruleset marks its flows, and a flush by any
+    // mark would reach another slot's entries.
+    if let Some(k) = pool_slot(&link.mac) {
+        let mut ct = netlink::NlSocket::open_netfilter()?;
+        netlink::ct_flush_mark(&mut ct, u32::from(k) + 1)?;
+    }
     Ok(())
 }
 

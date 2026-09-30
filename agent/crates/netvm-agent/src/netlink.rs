@@ -1,6 +1,7 @@
 //! netlink.rs — the NETCFG mechanism: direct `AF_NETLINK` / `NETLINK_ROUTE`
 //! programming of address, route and `IFF_UP` (set on ADD, cleared on
-//! REMOVE). Path B of ADR-025, resolved by
+//! REMOVE), and one `NETLINK_NETFILTER` message, REMOVE's conntrack delete by
+//! mark (ADR-035 §6, R107). Path B of ADR-025, resolved by
 //! the E1-E5 gate of 2026-07-21 (no dbus-less networkd reload trigger exists:
 //! bus call inert, varlink surface carries no mutator, `SIGRTMIN+1` kills
 //! networkd rather than reloading it).
@@ -21,13 +22,21 @@
 //!
 //! WHAT MAKES THAT SAFE: GOLDEN FIXTURES
 //!
-//! Every message shape below was captured from iproute2 under
+//! Every rtnetlink message shape below was captured from iproute2 under
 //! `strace -e trace=sendmsg` on a dummy interface (2026-07-23; the link-down
-//! message on `lo` in an empty namespace, 2026-09-30) and is pinned by
-//! a unit test comparing this module's output byte-for-byte against the decoded
+//! message on `lo` in an empty namespace, 2026-09-30) and is pinned by a unit
+//! test comparing this module's output byte-for-byte against the decoded
 //! capture. "Did I build the message correctly" is therefore PROVEN against a
 //! reference implementation, not remembered from a header. This is the ADR-024
 //! empirics-before-commitment method applied to code.
+//!
+//! The ONE exception is the ctnetlink delete by mark. conntrack(8), the
+//! reference tool, never sends that message: it dumps, then deletes by tuple
+//! (captured 2026-09-30). Its test therefore pins bytes written from the spec
+//! and checks them against conntrack's captured dump request, which carries
+//! the same header layout and the same two attributes (operator ruling,
+//! 2026-09-30). That the kernel accepts it as a filtered flush is not proven
+//! here.
 //!
 //! WHAT IS DELIBERATELY ABSENT
 //!
@@ -102,6 +111,13 @@ const RTN_UNSPEC: u8 = 0;
 const RTN_UNICAST: u8 = 1;
 
 const IFF_UP: u32 = 0x1;
+
+// From linux/netfilter/nfnetlink.h, nfnetlink_conntrack.h.
+const NFNL_SUBSYS_CTNETLINK: u16 = 1;
+const IPCTNL_MSG_CT_DELETE: u16 = 2;
+const NFNETLINK_V0: u8 = 0;
+const CTA_MARK: u16 = 8;
+const CTA_MARK_MASK: u16 = 21;
 
 const NLMSG_HDRLEN: usize = 16;
 
@@ -234,6 +250,34 @@ fn msg_route(msg_type: u16, flags: u16, ifindex: u32, dest: &[u8; 4], prefix: u8
     finish(b)
 }
 
+/// ctnetlink: delete every conntrack entry whose mark is `mark` (R107), IPv4.
+///
+/// ONE request, and NOT the shape `conntrack -D --mark N` sends. conntrack
+/// 1.4.9 dumps the table filtered by mark and then deletes each entry by its
+/// full tuple (captured 2026-09-30, s4c-a W0); that needs multipart parsing,
+/// which this module excludes. This is the tuple-less form: a DELETE carrying
+/// only `CTA_MARK` and `CTA_MARK_MASK`, which the kernel treats as a flush
+/// filtered by mark. That the kernel does so is recall, not measured; it is
+/// part B's gate. What the capture does fix is the encoding: the message type
+/// `NFNL_SUBSYS_CTNETLINK << 8 | msg`, the 4-byte `nfgenmsg` (family,
+/// `NFNETLINK_V0`, `res_id` 0 big-endian), and both attributes as 4-byte
+/// BIG-endian values with plain type numbers (no `NLA_F_NET_BYTEORDER` bit).
+/// The capture's dump request carries exactly these two attributes, so this
+/// message is that request with only the type and flags changed.
+fn msg_ct_delete_by_mark(mark: u32) -> Vec<u8> {
+    let mut b = hdr(
+        (NFNL_SUBSYS_CTNETLINK << 8) | IPCTNL_MSG_CT_DELETE,
+        NLM_F_REQUEST | NLM_F_ACK,
+    );
+    // struct nfgenmsg
+    b.push(libc::AF_INET as u8); // nfgen_family
+    b.push(NFNETLINK_V0); // version
+    b.extend_from_slice(&0u16.to_be_bytes()); // res_id, network order
+    put_attr(&mut b, CTA_MARK, &mark.to_be_bytes());
+    put_attr(&mut b, CTA_MARK_MASK, &u32::MAX.to_be_bytes());
+    finish(b)
+}
+
 // --- socket ---------------------------------------------------------
 
 /// An `AF_NETLINK` / `NETLINK_ROUTE` socket with its own sequence counter.
@@ -249,13 +293,24 @@ pub struct NlSocket {
 }
 
 impl NlSocket {
+    /// `NETLINK_ROUTE`: address, route, link.
     pub fn open() -> Result<NlSocket> {
+        NlSocket::open_family(libc::NETLINK_ROUTE)
+    }
+
+    /// `NETLINK_NETFILTER`: the one ctnetlink delete of REMOVE (R107). Same
+    /// ACK discipline; nothing is ever dumped on it.
+    pub fn open_netfilter() -> Result<NlSocket> {
+        NlSocket::open_family(libc::NETLINK_NETFILTER)
+    }
+
+    fn open_family(protocol: libc::c_int) -> Result<NlSocket> {
         // SAFETY: plain socket(2) with constant arguments.
         let fd = unsafe {
             libc::socket(
                 libc::AF_NETLINK,
                 libc::SOCK_RAW | libc::SOCK_CLOEXEC,
-                libc::NETLINK_ROUTE,
+                protocol,
             )
         };
         if fd < 0 {
@@ -414,6 +469,16 @@ pub fn link_up(sock: &mut NlSocket, ifindex: u32) -> Result<()> {
 pub fn link_down(sock: &mut NlSocket, ifindex: u32) -> Result<()> {
     let e = sock.send_and_ack(msg_link_down(ifindex))?;
     settle(e, &[libc::ENODEV], "link down")
+}
+
+/// Flush the conntrack entries of one slot, by its mark (R107, R116). No errno
+/// is tolerated: a filtered flush that matches nothing succeeds (recall; B
+/// reads it), and a missing ctnetlink subsystem must be an ERR that keeps the
+/// record, not a silent success (R115 loads the module at boot for that
+/// reason).
+pub fn ct_flush_mark(sock: &mut NlSocket, mark: u32) -> Result<()> {
+    let e = sock.send_and_ack(msg_ct_delete_by_mark(mark))?;
+    settle(e, &[], "conntrack flush by mark")
 }
 
 /// Install the p2p address. `EEXIST` means an identical address is already
@@ -635,6 +700,65 @@ mod tests {
             0x01, 0x00, 0x00, 0x00,             // ifi_change = IFF_UP
         ];
         assert_eq!(got, want);
+    }
+
+    /// R107's DELETE, spec bytes (ruling 4 of 2026-09-30: conntrack(8) sent no
+    /// tuple-less DELETE to capture, so the test pins the spec).
+    fn ct_delete_spec(mark: u8) -> [u8; 36] {
+        #[rustfmt::skip]
+        let want: [u8; 36] = [
+            0x24, 0x00, 0x00, 0x00,             // nlmsg_len = 36
+            0x02, 0x01,                         // CTNETLINK << 8 | CT_DELETE
+            0x05, 0x00,                         // REQUEST|ACK
+            0x00, 0x00, 0x00, 0x00,             // seq
+            0x00, 0x00, 0x00, 0x00,             // pid
+            0x02, 0x00, 0x00, 0x00,             // AF_INET, V0, res_id 0 (BE)
+            0x08, 0x00, 0x08, 0x00,             // CTA_MARK
+            0x00, 0x00, 0x00, mark,             // mark, big-endian
+            0x08, 0x00, 0x15, 0x00,             // CTA_MARK_MASK
+            0xff, 0xff, 0xff, 0xff,             // mask
+        ];
+        want
+    }
+
+    /// The dump request conntrack 1.4.9 sent for `-D -f ipv4 --mark N`,
+    /// captured 2026-09-30 (s4c-a W0, strace -xx), seq and pid zeroed:
+    /// `{nlmsg_len=36, nlmsg_type=NFNL_SUBSYS_CTNETLINK<<8|IPCTNL_MSG_CT_GET,
+    /// nlmsg_flags=NLM_F_REQUEST|NLM_F_DUMP}, {nfgen_family=AF_INET,
+    /// version=NFNETLINK_V0, res_id=htons(0)}, [{nla_len=8, nla_type=0x8},
+    /// "\x00\x00\x00\x01"], [{nla_len=8, nla_type=0x15}, "\xff\xff\xff\xff"]`
+    /// (and `\x00\x00\x00\x10` for mark 16).
+    fn ct_get_captured(mark: u8) -> [u8; 36] {
+        #[rustfmt::skip]
+        let got: [u8; 36] = [
+            0x24, 0x00, 0x00, 0x00,
+            0x01, 0x01,                         // CTNETLINK << 8 | CT_GET
+            0x01, 0x03,                         // REQUEST|DUMP
+            0x00, 0x00, 0x00, 0x00,
+            0x00, 0x00, 0x00, 0x00,
+            0x02, 0x00, 0x00, 0x00,
+            0x08, 0x00, 0x08, 0x00,
+            0x00, 0x00, 0x00, mark,
+            0x08, 0x00, 0x15, 0x00,
+            0xff, 0xff, 0xff, 0xff,
+        ];
+        got
+    }
+
+    #[test]
+    fn fixture_07_ct_delete_by_mark() {
+        for mark in [1u8, 16] {
+            let got = msg_ct_delete_by_mark(mark as u32);
+            assert_eq!(got, ct_delete_spec(mark), "mark {mark}");
+
+            // Against the capture: identical but for the message type and
+            // the flags (bytes 4..8) — same length, same nfgenmsg, same two
+            // attributes in the same encoding.
+            let cap = ct_get_captured(mark);
+            assert_eq!(got.len(), cap.len());
+            assert_eq!(got[0..4], cap[0..4], "nlmsg_len, mark {mark}");
+            assert_eq!(got[8..], cap[8..], "nfgenmsg and attributes, mark {mark}");
+        }
     }
 
     #[test]

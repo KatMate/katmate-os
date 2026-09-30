@@ -14,8 +14,10 @@ RuntimeDirectory=netvm-agent
 RuntimeDirectoryMode=0700
 ExecStart=/usr/local/bin/netvm-agent
 # CAP_NET_ADMIN: NETCFG programs address, /32 route and IFF_UP on the slot links
-# directly over AF_NETLINK/NETLINK_ROUTE (ADR-025 Path B). It writes no networkd
-# fragment and calls no networkctl.
+# directly over AF_NETLINK/NETLINK_ROUTE (ADR-025 Path B), and REMOVE ends with
+# one conntrack delete by mark over NETLINK_NETFILTER (ADR-035 §6, R107). It
+# writes no networkd fragment and calls no networkctl. No RestrictAddressFamilies=
+# here, so neither netlink family is filtered by the unit.
 # CAP_KILL: signal PID 1 (systemd) with SIGRTMIN+4 for graceful poweroff (SHUTDOWN, ADR-024).
 AmbientCapabilities=CAP_NET_ADMIN CAP_KILL
 CapabilityBoundingSet=CAP_NET_ADMIN CAP_KILL

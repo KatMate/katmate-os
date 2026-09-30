@@ -345,6 +345,28 @@ for p in usr/sbin/resolvconf usr/bin/resolvconf sbin/resolvconf; do
     || die "/$p exists in the image: a resolvconf implementation would take /etc/resolv.conf away from dhcpcd (ADR-037 R18)"
 done
 log "dnsmasq config OK: slots only, no DHCP/RA/D-Bus, DNSMASQ_EXCEPT=lo; no resolvconf in the image"
+
+# ctnetlink is loaded at boot (R115), because netvm-agent's REMOVE ends with a
+# conntrack delete by mark (R107) and a missing subsystem would make it ERR.
+# Read back all three things the load depends on: the baked file names the
+# module and nothing else, the module is in the image's kernel tree, and
+# systemd-modules-load is pulled in at boot. That it is LOADED is part B's
+# reading (lsmod in the guest), not a build's.
+NETVM_MODLOAD="$NETVM_MNT/etc/modules-load.d/katmate-ctnetlink.conf"
+[[ -f "$NETVM_MODLOAD" ]] \
+  || die "step 5 read-back: ${NETVM_MODLOAD#"$NETVM_MNT"} is missing from the image (R115)"
+NETVM_MODLOAD_BODY="$(grep -vE '^[[:space:]]*([#;]|$)' -- "$NETVM_MODLOAD" || true)"
+[[ "$NETVM_MODLOAD_BODY" == nf_conntrack_netlink ]] \
+  || die "step 5 read-back: ${NETVM_MODLOAD#"$NETVM_MNT"} must name exactly nf_conntrack_netlink, found: '${NETVM_MODLOAD_BODY}' (R115)"
+mapfile -d '' NETVM_CTNL_KO < <(find "$NETVM_MNT/usr/lib/modules" -name 'nf_conntrack_netlink.ko*' -print0 2>/dev/null)
+[[ ${#NETVM_CTNL_KO[@]} -ge 1 ]] \
+  || die "step 5 read-back: no nf_conntrack_netlink.ko* under /usr/lib/modules in the image; the kernel must carry ctnetlink as a module (CONFIG_NF_CT_NETLINK=m, R115)"
+# The wants entry is a symlink; test the entry itself, not its target: from
+# outside the chroot an absolute target would resolve on the BUILD host.
+NETVM_MODLOAD_WANTS="$NETVM_MNT/usr/lib/systemd/system/sysinit.target.wants/systemd-modules-load.service"
+[[ -L "$NETVM_MODLOAD_WANTS" || -f "$NETVM_MODLOAD_WANTS" ]] \
+  || die "step 5 read-back: /usr/lib/systemd/system/sysinit.target.wants/systemd-modules-load.service is missing from the image; nothing would read modules-load.d at boot (R115)"
+log "Read-back OK: modules-load.d names nf_conntrack_netlink; module present (${NETVM_CTNL_KO[0]#"$NETVM_MNT"}); systemd-modules-load wanted by sysinit.target"
 # networking.service (ifupdown) stays present but inert: interfaces is reduced
 # to lo+source in the conf tree, so it does nothing on the uplink. Not disabled.
 
@@ -407,6 +429,37 @@ NETVM_GUARD_RETURNS="$(sed -e 's/"[^"]*"//g' <<< "$NETVM_GUARD" | { grep -ow ret
 [[ "$NETVM_GUARD_RETURNS" -eq 16 ]] \
   || die "build gate: slot_guard in /etc/nftables.conf carries $NETVM_GUARD_RETURNS returns, expected exactly the 16 slot pairs (ADR-037 R48)"
 log "Build gate OK: slot_guard carries 16 slot pairs, km00..km0f <-> 10.100.1.16..31, and no other return"
+
+# The same sixteen slots as the BAKED ruleset marks them (ADR-035 §6; R107,
+# R116; read-back ruled by R110, on R48's model above). NETCFG REMOVE flushes
+# slot k's conntrack entries by mark k+1, so a wrong or missing pair here would
+# flush another slot's flows or none, with nothing reporting it. Chain
+# slot_mark must be a prerouting base chain and carry exactly one
+# `iifname "kmkk" ct state new ct mark set (k+1)` per slot, and no other mark.
+NETVM_MARK_CHAINS="$(grep -cE '^[[:space:]]*chain[[:space:]]+slot_mark[[:space:]]*\{' -- "$NETVM_NFT" || true)"
+[[ "$NETVM_MARK_CHAINS" == 1 ]] \
+  || die "build gate: /etc/nftables.conf carries $NETVM_MARK_CHAINS 'chain slot_mark {' lines, expected 1 (R116)"
+NETVM_MARK="$(awk '/^[[:space:]]*chain[[:space:]]+slot_mark[[:space:]]*\{/ {g=1; next}
+                   g && /^[[:space:]]*\}/ {exit}
+                   g' "$NETVM_NFT" \
+              | sed -e 's/#.*//' -e 's/[[:space:]]\{1,\}/ /g' -e 's/^ //' -e 's/ $//')"
+n="$(grep -cxF -- 'type filter hook prerouting priority filter;' <<< "$NETVM_MARK" || true)"
+[[ "$n" == 1 ]] \
+  || die "build gate: slot_mark in /etc/nftables.conf is not a 'type filter hook prerouting priority filter;' chain (found $n such lines, expected 1; R116)"
+for i in $(seq 0 15); do
+  kk="$(printf '%02x' "$i")"
+  pair="iifname \"km$kk\" ct state new ct mark set $((i + 1))"
+  n="$(grep -cxF -- "$pair" <<< "$NETVM_MARK" || true)"
+  [[ "$n" == 1 ]] \
+    || die "build gate: slot $kk: slot_mark in /etc/nftables.conf carries '$pair' $n times, expected once (R107, R110)"
+done
+# Every `mark set` in the chain, quoted strings removed first (as for the
+# returns above). Sixteen, and each is a pair above.
+# shellcheck disable=SC2001
+NETVM_MARK_SETS="$(sed -e 's/"[^"]*"//g' <<< "$NETVM_MARK" | { grep -o 'mark set' || true; } | wc -l)"
+[[ "$NETVM_MARK_SETS" -eq 16 ]] \
+  || die "build gate: slot_mark in /etc/nftables.conf carries $NETVM_MARK_SETS 'mark set' statements, expected exactly the 16 slot pairs (R107, R110)"
+log "Build gate OK: slot_mark is a prerouting chain carrying 16 slot pairs, km00..km0f -> ct mark 1..16, and no other mark"
 f="$NETVM_LINK_DIR/60-katmate-uplink.link"
 [[ -f "$f" ]] || die "build gate: uplink: $f missing"
 [[ "$(netvm_link_body "$f")" == $'[Match]\nPath=pci-'"$NETVM_UPLINK_PCI_ADDR"$'\n[Link]\nName=uplink0' ]] \
