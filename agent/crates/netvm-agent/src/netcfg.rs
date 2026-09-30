@@ -474,11 +474,17 @@ fn withdraw_superseded(old: &Link, new: &Link, ifindex: u32) -> Result<()> {
     Ok(())
 }
 
-/// Exact reverse: routes first, then the address.
+/// Exact reverse: routes first, then the address, then the link down.
 ///
-/// `IFF_UP` is deliberately NOT cleared. "Down" is not part of the state the
-/// payload describes, a shared netdev would be broken by it, and ADD raises it
-/// again idempotently anyway.
+/// Then `IFF_UP` is cleared (ADR-035 §6: FREE is DOWN; R102, R106). It used
+/// to be left set, on the grounds that "down" was not state the payload
+/// described and that a shared netdev would be broken by it. Under the pool a
+/// slot interface is one link's alone (R105), and DOWN is what empties it:
+/// taking the link down flushes the slot's own neighbour entries, so no
+/// `RTM_DELNEIGH` is sent (R106), and with IPv6 disabled on netVM's kernel
+/// (R102) there is no link-local left behind to clear (open problem #45). A
+/// late or hostile frame into a released slot is then dropped by the kernel.
+/// The next ADD raises it again.
 ///
 /// Removing the address also removes the kernel's own implicit `proto kernel`
 /// route to the peer — the one the peer address installs by itself (verified
@@ -493,6 +499,7 @@ fn drive_remove(link: &Link, ifindex: u32) -> Result<()> {
         netlink::route_del(&mut sock, ifindex, &r.dest, r.prefix, r.metric)?;
     }
     netlink::addr_del(&mut sock, ifindex, &link.local, &link.peer, link.peer_prefix)?;
+    netlink::link_down(&mut sock, ifindex)?;
     Ok(())
 }
 

@@ -1,5 +1,6 @@
 //! netlink.rs — the NETCFG mechanism: direct `AF_NETLINK` / `NETLINK_ROUTE`
-//! programming of address, route and `IFF_UP`. Path B of ADR-025, resolved by
+//! programming of address, route and `IFF_UP` (set on ADD, cleared on
+//! REMOVE). Path B of ADR-025, resolved by
 //! the E1-E5 gate of 2026-07-21 (no dbus-less networkd reload trigger exists:
 //! bus call inert, varlink surface carries no mutator, `SIGRTMIN+1` kills
 //! networkd rather than reloading it).
@@ -21,7 +22,8 @@
 //! WHAT MAKES THAT SAFE: GOLDEN FIXTURES
 //!
 //! Every message shape below was captured from iproute2 under
-//! `strace -e trace=sendmsg` on a dummy interface (2026-07-23) and is pinned by
+//! `strace -e trace=sendmsg` on a dummy interface (2026-07-23; the link-down
+//! message on `lo` in an empty namespace, 2026-09-30) and is pinned by
 //! a unit test comparing this module's output byte-for-byte against the decoded
 //! capture. "Did I build the message correctly" is therefore PROVEN against a
 //! reference implementation, not remembered from a header. This is the ADR-024
@@ -33,8 +35,8 @@
 //!     (parsing an `RTM_GETLINK` dump to map MAC -> ifindex) is replaced by
 //!     read-only sysfs — see `ifindex_by_mac`. iproute2 does the dump on a
 //!     second socket; we do not need to.
-//!   * No generic "netlink layer". Five functions, each building one concrete
-//!     message. Nothing to grow.
+//!   * No generic "netlink layer". One function per concrete message, each
+//!     with its golden fixture. Nothing to grow.
 //!   * No state. The kernel is driven, never read back: idempotence is decided
 //!     against the record set in `RuntimeDirectory=`, per ADR-025.
 //!
@@ -189,6 +191,21 @@ fn msg_link_up(ifindex: u32) -> Vec<u8> {
     put_u16(&mut b, 0); // ifi_type
     put_u32(&mut b, ifindex); // ifi_index
     put_u32(&mut b, IFF_UP); // ifi_flags
+    put_u32(&mut b, IFF_UP); // ifi_change: only IFF_UP is in scope
+    finish(b)
+}
+
+/// `ip link set <if> down`: the same message with `IFF_UP` cleared in
+/// `ifi_flags` and still the only bit in `ifi_change`. Captured 2026-09-30
+/// (s4c-a W0, iproute2 7.2.0, in an empty network namespace).
+fn msg_link_down(ifindex: u32) -> Vec<u8> {
+    let mut b = hdr(RTM_NEWLINK, NLM_F_REQUEST | NLM_F_ACK);
+    // struct ifinfomsg
+    b.push(libc::AF_UNSPEC as u8); // ifi_family
+    b.push(0); // padding
+    put_u16(&mut b, 0); // ifi_type
+    put_u32(&mut b, ifindex); // ifi_index
+    put_u32(&mut b, 0); // ifi_flags: IFF_UP clear
     put_u32(&mut b, IFF_UP); // ifi_change: only IFF_UP is in scope
     finish(b)
 }
@@ -391,6 +408,14 @@ pub fn link_up(sock: &mut NlSocket, ifindex: u32) -> Result<()> {
     settle(e, &[], "link up")
 }
 
+/// Take the interface down (REMOVE, ADR-035 §6: FREE is DOWN; R102, R106).
+/// Clearing `IFF_UP` on a down link returns 0; `ENODEV` is tolerated here,
+/// because a device that is gone is down, and REMOVE converges on absence.
+pub fn link_down(sock: &mut NlSocket, ifindex: u32) -> Result<()> {
+    let e = sock.send_and_ack(msg_link_down(ifindex))?;
+    settle(e, &[libc::ENODEV], "link down")
+}
+
 /// Install the p2p address. `EEXIST` means an identical address is already
 /// present — the postcondition, reached by an earlier pass (ADR-025: identical
 /// ADD is OK and the mechanism is still re-driven).
@@ -583,6 +608,30 @@ mod tests {
             0x00, 0x00, 0x00, 0x00,             // AF_UNSPEC, pad, ifi_type
             0x0b, 0x00, 0x00, 0x00,             // ifi_index
             0x01, 0x00, 0x00, 0x00,             // ifi_flags = IFF_UP
+            0x01, 0x00, 0x00, 0x00,             // ifi_change = IFF_UP
+        ];
+        assert_eq!(got, want);
+    }
+
+    /// Captured 2026-09-30 (s4c-a W0): `strace -f -e trace=sendmsg,sendto -xx
+    /// -s 256 ip link set dev lo down` under `unshare -n`, iproute2 7.2.0:
+    /// `{nlmsg_len=32, nlmsg_type=RTM_NEWLINK, nlmsg_flags=NLM_F_REQUEST|
+    /// NLM_F_ACK, …}, {ifi_family=AF_UNSPEC, ifi_type=ARPHRD_NETROM (0),
+    /// ifi_index=if_nametoindex("lo"), ifi_flags=0, ifi_change=0x1}`. strace
+    /// prints the index by name; `lo` is ifindex 1 in a fresh namespace.
+    #[test]
+    fn fixture_06_link_down() {
+        let got = msg_link_down(1);
+        #[rustfmt::skip]
+        let want: [u8; 32] = [
+            0x20, 0x00, 0x00, 0x00,             // nlmsg_len = 32
+            0x10, 0x00,                         // RTM_NEWLINK
+            0x05, 0x00,                         // REQUEST|ACK
+            0x00, 0x00, 0x00, 0x00,             // seq
+            0x00, 0x00, 0x00, 0x00,             // pid
+            0x00, 0x00, 0x00, 0x00,             // AF_UNSPEC, pad, ifi_type
+            0x01, 0x00, 0x00, 0x00,             // ifi_index (lo)
+            0x00, 0x00, 0x00, 0x00,             // ifi_flags = 0 (IFF_UP clear)
             0x01, 0x00, 0x00, 0x00,             // ifi_change = IFF_UP
         ];
         assert_eq!(got, want);
