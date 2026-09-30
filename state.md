@@ -92,7 +92,7 @@ restartable — and so updatable — without touching running VMs.
 Direction unchanged: IOMMU-capable platforms only (VT-d/AMD-Vi).
 MINIS is primary host and merge target.
 
-## This session (2026-09-29, step 4b2 and the gates) — R91 in the image, the fixed harness, ADR-038's G1 refusal half and G2 and ADR-037's G5 taken; both ADRs Accepted; R91–R96
+## Previous session (2026-09-29, step 4b2 and the gates) — R91 in the image, the fixed harness, ADR-038's G1 refusal half and G2 and ADR-037's G5 taken; both ADRs Accepted; R91–R96
 
 Four sessions. `s4b2-impl-A` wrote R91 and the harness fix on the Acer and
 made two commits, unpushed. `s4b2-impl-B` re-ran the fixed harness on
@@ -240,101 +240,6 @@ Before it, the step-4c read pass `s4c-readpass` ran on the Acer only
   `f24cd6a` `ARCHITECTURE.md` (the config disk is implemented, VPN mode is
   not); `0811cb4` ADR-035's note; `8203039` ADR-037's note; and this file.
 
-## Previous session (2026-09-29, step 4b — s4b-impl A and B) — the guest side: katmate-init configures the AppVM from km.*; G1's positive half and G3 passed; R85–R90
-
-Three sessions. `s4b-impl-A` wrote the code and its tests on the Acer,
-halted once on a measurement (`cp` through a dangling link, A § 5.1), and
-after the operator's rulings made four commits, unpushed. `s4b-impl-B` ran
-the tests on MINIS, rebuilt the chain and booted the first self-configured
-AppVM, 10:40–12:09 CEST, with no commit, no reboot, and netVM untouched.
-`wp-0929c` wrote the record on the Acer. Their reports are outside the
-repository: `~/Claude.assistent/s4b-impl-A-report.md` (A),
-`~/Claude.assistent/s4b-impl-B-report.md` (B) and
-`~/Claude.assistent/wp-0929c-report.md`.
-
-**A's four commits.** `04672b8`: katmate-init applies the AppVM's `/32`,
-on-link default route and resolver from `km.*` (ADR-038), before
-`vm-agent`, with its error exit through `do_shutdown(-1)`. `3b06005`: its
-behavioural tests (`init/tests/`: parser, selection, resolver, the ack
-path; the apply group needs root in a private netns). `d6d0006`:
-`/etc/resolv.conf` as the relative link `../run/resolv.conf` in both layer
-builds, read back; `app-layer.sh` copies into `run/` explicitly and
-refuses a foundation without the link. `647a380`: the resolver helpers
-tested against temp trees (`build/tests/`). On the Acer the apply group
-could not run: `kernel.unprivileged_userns_clone` is `0` (A § 0.2).
-
-**R85–R88 (index; the text is in `s4b-impl-A-brief.md`, and their effect
-in ADR-038's note of 2026-09-29, step 4b).** R85: the NIC is the one
-device-backed entry of `/sys/class/net/`. R86: the parsing details. R87:
-the network step's place in `main()` and its exit. R88: testability
-without a second init (`KATMATE_INIT_NO_MAIN`, tests in `init/tests/` and
-`build/tests/`, never baked). A § 5.1's rulings: the `lib.sh` comment
-reworded to the conditional overwrite, and C4's case 6 rewritten to assert
-the measurement.
-
-**B, in summary.** P1: the unprivileged tests pass on MINIS (coreutils
-9.12); the apply group ran as root — refused outside a private netns, and
-inside `unshare -n` on a `dummy` `km0` every read-back matched, the route
-verdict failing only on iproute2's trailing space (a harness defect).
-P2–P5: the 2026-09-26 layers set aside as `_pre0929`, `make foundation`
-(exit 0, 61 min, ~1.8 M apt `W:` lines) and `make app-web` (exit 0, 21
-packages), both frozen layers read with the link and no `run/resolv.conf`,
-and a new delta. P6: `katmate-app-routed@app_web` on slot 01 printed
-`[katmate-init] net: eth0 10.100.1.17/32 via 10.100.1.1 dns 10.100.1.1`
-and PING answered on the third try. P7–P8: the operator's reading in a
-`foot` window, `g1.txt`, read off the home LV read-only after SHUTDOWN
-(*"Deactivated successfully"*, nothing else): the `/32`, the default route
-on `eth0`, `lo` UP, the link, `nameserver 10.100.1.1`, a DNS answer, and
-**`sit0` present under `ipv6.disable=1`**. P9: slot 01 FREE, netVM MainPID
-49895 throughout.
-
-**The operator's rulings (2026-09-29).** **R89 — ADR-038 G1, positive
-half: PASS**; not read: `/run/resolv.conf`'s mode and owner in the guest,
-and `operstate`; the unknown-parameter zero has no positive control.
-**R90 — ADR-038 G3: PASS**, the positive half on both frozen layers, the
-refusal half at function level only (not in a real build), the host
-control absent → absent. **B's P1, ruling (a):** the apply group accepted
-as observed; `init/tests/run.sh`'s route verdict compares untrimmed
-output, fixed in its own commit on the Acer with a re-run of `--apply` on
-MINIS, not in `wp-0929c`. A's and B's § 4 additions are accepted. **The
-narrowing** of ADR-038's earlier note's *"replaces"*: a clean end is
-*"Deactivated successfully"* with no exit-status line (reasoned, one
-instance observed). The classifier rule is now in `CLAUDE.md`. **On
-`wp-0929c`'s read pass:** the `gai.conf` line stays out of
-`docs/HOST-CONFIG.md` (a dev-host workaround, not a requirement on any
-machine) and is recorded here only; and the host's traffic, IPv4 and
-IPv6, is policy-routed into `proton`, so § *Live state*'s *Host* sentence
-is false for both families (#54).
-
-**The operator's `gai.conf` line (MINIS, 2026-09-29 11:42, during B's
-P3).** `precedence ::ffff:0:0/96  100` appended to `/etc/gai.conf`, so
-host processes prefer IPv4. Detail and limits in #54.
-
-**`wp-0929c`'s commits.** The previous-but-one entry rotated out (§
-*Session archive*, *Closed 2026-09-29 (fourth rotation of that day)*;
-`d0ffdf0`). Revision notes on ADR-038 (step 4b, R89, R90; `c50c55a`) and
-ADR-037 (step 4b done; `91809d5`). `build/foundation.sh` cites
-katmate-init.c by symbol (`831410e`, comment-only). `CLAUDE.md` gains the
-classifier rule (`e9c4bf8`). In this file: the header, § *Current focus*,
-§ *Live state*, #21, #24, #53, #54, step 4 in § *Next steps*, four §
-*Invariants & gotchas* items and a note on the PING entry, and this entry.
-
-**Not done, and not claimed (B § 7).**
-- G1's refusal half (`km.ipx=`) and G2 (both halves) are not run; the
-  unit ending inactive on an init refusal and a silent slot are not
-  observed.
-- G3's refusal half inside a real build is not run.
-- ADR-037 G5 is not taken.
-- The uid QEMU runs as is not read.
-- In the guest: `operstate` and `/run/resolv.conf`'s mode and owner are
-  not read; no ARP, ping or capture; the DNS answer (AAAA) is not tied to
-  IPv4 egress.
-- There is no positive control for *"Unknown kernel command line
-  parameters"*.
-- `ExecStopPost=` at P8 is inferred from `appvm`'s absence.
-- Why apt looped in P3, and why P4 took 57 s against 20 min, are not read.
-- The new foundation's package count is not read.
-
 ## Session archive
 
 Rotated sessions are enumerated in `docs/SESSIONS.md`, newest first; that
@@ -367,6 +272,22 @@ extracted block against the pre-move blob.
 *second of two* entry (3a part 1) rotated out as the 2026-08-17 entry arrived. Two
 rotations in one day is not a defect — it is what keeping two sessions costs when
 two sessions close on the same day.
+
+**Closed 2026-09-30.** The 2026-09-29 *step 4b* entry (the guest side:
+katmate-init configures the AppVM from `km.*`, G1's positive half and G3,
+R85–R90) rotated to the archive as the 2026-09-30 *step 4c A* entry
+arrived. **The block moved verbatim, heading included**, and *Previous
+session* stays *Previous session*. Verified three ways. The 94-line block,
+heading line included, hashed `128e1871b14c7e47…` before the move. The
+pre-move block `cmp`-matched the `HEAD` blob. The block re-extracted from
+`docs/SESSIONS.md` at its new home `cmp`-matched the pre-move block.
+`docs/SESSIONS.md` gained 95 lines, the block and one blank separator, and
+lost none. The block was inserted at the head of the entry list, above the
+2026-09-29 *step 4a* entry, newest first. The 2026-09-29 *step 4b2 and the
+gates* entry's prefix changed from *This session* to *Previous session*,
+and its body is untouched. **No ordinal changed.** The rotation and the
+new entry are separate commits, so between them this file held one
+session, never three.
 
 **Closed 2026-09-29 (fifth rotation of that day).** The 2026-09-29
 *step 4a* entry (the host side of the first routed AppVM implemented,
