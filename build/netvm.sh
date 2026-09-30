@@ -460,6 +460,54 @@ NETVM_MARK_SETS="$(sed -e 's/"[^"]*"//g' <<< "$NETVM_MARK" | { grep -o 'mark set
 [[ "$NETVM_MARK_SETS" -eq 16 ]] \
   || die "build gate: slot_mark in /etc/nftables.conf carries $NETVM_MARK_SETS 'mark set' statements, expected exactly the 16 slot pairs (R107, R110)"
 log "Build gate OK: slot_mark is a prerouting chain carrying 16 slot pairs, km00..km0f -> ct mark 1..16, and no other mark"
+
+# The ARP half of finding 12 (open problem #34; R100, read-back R110): the
+# BAKED file's `table arp filter` must hold one input chain slot_arp with one
+# `iifname "kmkk" arp saddr ip 10.100.1.(16+k) accept` per slot, no other
+# accept, and exactly one `iifname "km*" counter drop` after them. The table
+# block is the lines after `table arp filter {` up to the first line that
+# begins with `}`; the chain inside it closes indented, so that line is the
+# table's own close.
+NETVM_ARP_TABLES="$(grep -cE '^[[:space:]]*table[[:space:]]+arp[[:space:]]' -- "$NETVM_NFT" || true)"
+[[ "$NETVM_ARP_TABLES" == 1 ]] \
+  || die "build gate: /etc/nftables.conf carries $NETVM_ARP_TABLES 'table arp' lines, expected 1 (R100)"
+grep -qE '^table[[:space:]]+arp[[:space:]]+filter[[:space:]]*\{' -- "$NETVM_NFT" \
+  || die "build gate: /etc/nftables.conf's arp table is not 'table arp filter {' at the start of a line (R100)"
+NETVM_ARP="$(awk '/^table[[:space:]]+arp[[:space:]]+filter[[:space:]]*\{/ {g=1; next}
+                  g && /^\}/ {exit}
+                  g' "$NETVM_NFT" \
+             | sed -e 's/#.*//' -e 's/[[:space:]]\{1,\}/ /g' -e 's/^ //' -e 's/ $//')"
+for want in 'chain slot_arp {' 'type filter hook input priority filter;' 'policy accept;'; do
+  n="$(grep -cxF -- "$want" <<< "$NETVM_ARP" || true)"
+  [[ "$n" == 1 ]] \
+    || die "build gate: table arp filter carries '$want' $n times, expected once (R100)"
+done
+for i in $(seq 0 15); do
+  kk="$(printf '%02x' "$i")"
+  pair="iifname \"km$kk\" arp saddr ip 10.100.1.$((16 + i)) accept"
+  n="$(grep -cxF -- "$pair" <<< "$NETVM_ARP" || true)"
+  [[ "$n" == 1 ]] \
+    || die "build gate: slot $kk: table arp filter carries '$pair' $n times, expected once (R100, R110)"
+done
+# (No '#' in the rule's comment string: the extraction above strips '#' to end
+# of line as a file comment.)
+NETVM_ARP_DROP='iifname "km*" counter drop comment "ARP on a slot claiming another address (R100)"'
+n="$(grep -cxF -- "$NETVM_ARP_DROP" <<< "$NETVM_ARP" || true)"
+[[ "$n" == 1 ]] \
+  || die "build gate: table arp filter carries the km* drop $n times, expected once (R100, R110)"
+# The drop comes after every pair: the last accept precedes it.
+NETVM_ARP_LAST_ACCEPT="$(grep -nw accept <<< "$NETVM_ARP" | tail -n1 | cut -d: -f1)"
+NETVM_ARP_DROP_LINE="$(grep -nxF -- "$NETVM_ARP_DROP" <<< "$NETVM_ARP" | cut -d: -f1)"
+(( NETVM_ARP_LAST_ACCEPT < NETVM_ARP_DROP_LINE )) \
+  || die "build gate: table arp filter's km* drop precedes a slot pair; every pair must come first (R100)"
+# Every accept and every drop in the table's rules, quoted strings removed
+# first; the policy line, checked once above, is not a rule.
+NETVM_ARP_RULES="$(grep -vxF 'policy accept;' <<< "$NETVM_ARP" | sed -e 's/"[^"]*"//g')"
+NETVM_ARP_ACCEPTS="$({ grep -ow accept <<< "$NETVM_ARP_RULES" || true; } | wc -l)"
+NETVM_ARP_DROPS="$({ grep -ow drop <<< "$NETVM_ARP_RULES" || true; } | wc -l)"
+[[ "$NETVM_ARP_ACCEPTS" -eq 16 && "$NETVM_ARP_DROPS" -eq 1 ]] \
+  || die "build gate: table arp filter carries $NETVM_ARP_ACCEPTS accepts and $NETVM_ARP_DROPS drops, expected exactly the 16 slot pairs and the one km* drop (R100, R110)"
+log "Build gate OK: table arp filter carries 16 slot pairs, km00..km0f <-> arp saddr 10.100.1.16..31, then one counted km* drop"
 f="$NETVM_LINK_DIR/60-katmate-uplink.link"
 [[ -f "$f" ]] || die "build gate: uplink: $f missing"
 [[ "$(netvm_link_body "$f")" == $'[Match]\nPath=pci-'"$NETVM_UPLINK_PCI_ADDR"$'\n[Link]\nName=uplink0' ]] \
