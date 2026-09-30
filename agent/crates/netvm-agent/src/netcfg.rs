@@ -312,10 +312,25 @@ fn count_links() -> Result<usize> {
 
 // --- mechanism drivers ----------------------------------------------
 
+/// The two lookup outcomes that are not one interface, as refusals. Kept
+/// distinct from each other and from every other `Rejected` by their text,
+/// which is what reaches the journal (the wire answer is a bare ERR).
+const NO_INTERFACE: &str = "netcfg: no interface matches the requested MAC";
+const DUPLICATE_MAC: &str =
+    "netcfg: more than one interface carries the requested MAC (ADR-035 §7), refusing to choose";
+
 /// Bring the link up, install the p2p address, then every route.
 /// Order matters: a route on a down interface does not take.
+///
+/// ADD refuses both non-unique outcomes before anything is programmed: no
+/// interface (the device is not there yet; retryable) and a duplicate (ADR-035
+/// §7, R104).
 fn drive_add(link: &Link) -> Result<()> {
-    let ifindex = netlink::ifindex_by_mac(&link.mac)?;
+    let ifindex = match netlink::ifindex_by_mac(&link.mac)? {
+        netlink::MacMatch::One(i) => i,
+        netlink::MacMatch::None => return Err(AgentError::Rejected(NO_INTERFACE)),
+        netlink::MacMatch::Many(_) => return Err(AgentError::Rejected(DUPLICATE_MAC)),
+    };
     let mut sock = netlink::NlSocket::open()?;
 
     netlink::link_up(&mut sock, ifindex)?;
@@ -335,8 +350,10 @@ fn drive_add(link: &Link) -> Result<()> {
 /// Removing the address also removes the kernel's own implicit `proto kernel`
 /// route to the peer — the one the peer address installs by itself (verified
 /// 2026-07-23). Teardown is therefore complete without asking for it.
-fn drive_remove(link: &Link) -> Result<()> {
-    let ifindex = netlink::ifindex_by_mac(&link.mac)?;
+///
+/// Takes the ifindex its caller resolved: what a REMOVE does with each lookup
+/// outcome is the flow's decision (`do_remove`), not the mechanism's.
+fn drive_remove(link: &Link, ifindex: u32) -> Result<()> {
     let mut sock = netlink::NlSocket::open()?;
 
     for r in &link.routes {
@@ -392,14 +409,19 @@ fn do_remove(link_id: u32) -> Result<()> {
         Cmd::Remove(_) => return Err(AgentError::Rejected("netcfg: corrupt record")),
     };
 
-    match drive_remove(&link) {
-        Ok(()) => {}
+    match netlink::ifindex_by_mac(&link.mac)? {
+        netlink::MacMatch::One(ifindex) => drive_remove(&link, ifindex)?,
         // The netdev is gone (hot-unplug, or the launcher changed): its kernel
         // state went with it, so the postcondition IS reached. Converge —
         // dropping the record is what keeps a vanished device from leaving an
-        // id that can never be removed.
-        Err(AgentError::Rejected(_)) => {}
-        Err(e) => return Err(e),
+        // id that can never be removed. This is the ONLY lookup outcome a
+        // REMOVE absorbs, and no mechanism error is absorbed at all.
+        netlink::MacMatch::None => {}
+        // A duplicate is not a vanished device (ADR-035 §7, R104). Absorbing
+        // it would delete the record and leave whatever the ADD programmed in
+        // the kernel with no record naming it, the shape ADR-025 forbids. ERR,
+        // and the record stays for a retry once the duplicate is gone.
+        netlink::MacMatch::Many(_) => return Err(AgentError::Rejected(DUPLICATE_MAC)),
     }
 
     // Mechanism BEFORE record deletion.

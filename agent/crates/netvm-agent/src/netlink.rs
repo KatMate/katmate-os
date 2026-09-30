@@ -462,15 +462,40 @@ pub fn route_del(sock: &mut NlSocket, ifindex: u32, dest: &[u8; 4], prefix: u8, 
 /// here and the first message the kernel answers `ENODEV`, which ADR-025
 /// already classifies as a retryable ERR. That is the whole TOCTOU story.
 ///
+/// It COUNTS (ADR-035 §7, R104). Two interfaces carrying the requested MAC is
+/// not resolved by directory order: G3 measured a first-match lookup program a
+/// dummy carrying a slot's MAC while the slot itself stayed down. The three
+/// outcomes are distinct values, not one error, because the caller treats them
+/// differently: none on a REMOVE is a vanished device and converges; more than
+/// one is refused in both directions.
+///
 /// A MAC that matches nothing is not an error of the payload (ADR-025: device
-/// presence is not payload validity); it is a failed operation.
-pub fn ifindex_by_mac(mac: &[u8; 6]) -> Result<u32> {
+/// presence is not payload validity); it is a failed operation on ADD.
+#[derive(Debug, PartialEq, Eq)]
+pub enum MacMatch {
+    /// Exactly one interface carries the MAC.
+    One(u32),
+    /// No interface carries it.
+    None,
+    /// This many interfaces (two or more) carry it.
+    Many(usize),
+}
+
+pub fn ifindex_by_mac(mac: &[u8; 6]) -> Result<MacMatch> {
+    ifindex_by_mac_in("/sys/class/net", mac)
+}
+
+/// The lookup over any directory laid out like `/sys/class/net`, so the count
+/// is testable against a temporary tree without a second interface.
+fn ifindex_by_mac_in(root: &str, mac: &[u8; 6]) -> Result<MacMatch> {
     let want = format!(
         "{:02x}:{:02x}:{:02x}:{:02x}:{:02x}:{:02x}",
         mac[0], mac[1], mac[2], mac[3], mac[4], mac[5]
     );
 
-    let dir = fs::read_dir("/sys/class/net").map_err(AgentError::Io)?;
+    let mut found: Option<u32> = None;
+    let mut count = 0usize;
+    let dir = fs::read_dir(root).map_err(AgentError::Io)?;
     for entry in dir {
         let path = match entry {
             Ok(e) => e.path(),
@@ -490,10 +515,15 @@ pub fn ifindex_by_mac(mac: &[u8; 6]) -> Result<u32> {
             Err(_) => continue,
         };
         if let Ok(n) = idx.trim().parse::<u32>() {
-            return Ok(n);
+            count += 1;
+            found = Some(n);
         }
     }
-    Err(AgentError::Rejected("netcfg: no interface matches the requested MAC"))
+    Ok(match (count, found) {
+        (1, Some(n)) => MacMatch::One(n),
+        (0, _) => MacMatch::None,
+        (n, _) => MacMatch::Many(n),
+    })
 }
 
 // --- golden fixture tests -------------------------------------------
@@ -653,6 +683,66 @@ mod tests {
     /// needs no privilege and no fixture.
     #[test]
     fn ifindex_by_mac_finds_loopback() {
-        assert_eq!(ifindex_by_mac(&[0, 0, 0, 0, 0, 0]).unwrap(), 1);
+        assert_eq!(
+            ifindex_by_mac(&[0, 0, 0, 0, 0, 0]).unwrap(),
+            MacMatch::One(1)
+        );
+    }
+
+    /// A temporary tree shaped like /sys/class/net: one directory per
+    /// interface with `address` and `ifindex`. Removed on drop.
+    struct FakeSysNet(std::path::PathBuf);
+
+    impl FakeSysNet {
+        fn new(tag: &str, ifaces: &[(&str, &str, u32)]) -> FakeSysNet {
+            let root =
+                std::env::temp_dir().join(format!("netvm-agent-test-{}-{tag}", std::process::id()));
+            let _ = fs::remove_dir_all(&root);
+            for (name, addr, idx) in ifaces {
+                let d = root.join(name);
+                fs::create_dir_all(&d).unwrap();
+                fs::write(d.join("address"), format!("{addr}\n")).unwrap();
+                fs::write(d.join("ifindex"), format!("{idx}\n")).unwrap();
+            }
+            fs::create_dir_all(&root).unwrap();
+            FakeSysNet(root)
+        }
+        fn lookup(&self, mac: &[u8; 6]) -> MacMatch {
+            ifindex_by_mac_in(self.0.to_str().unwrap(), mac).unwrap()
+        }
+    }
+
+    impl Drop for FakeSysNet {
+        fn drop(&mut self) {
+            let _ = fs::remove_dir_all(&self.0);
+        }
+    }
+
+    const SLOT3: [u8; 6] = [0x52, 0x54, 0x01, 0x00, 0x00, 0x03];
+
+    /// ADR-035 §7 / G3's shape: a second interface carrying a slot's MAC is
+    /// counted, not tie-broken by directory order.
+    #[test]
+    fn ifindex_by_mac_counts() {
+        let one = FakeSysNet::new(
+            "one",
+            &[
+                ("lo", "00:00:00:00:00:00", 1),
+                ("km03", "52:54:01:00:00:03", 7),
+            ],
+        );
+        assert_eq!(one.lookup(&SLOT3), MacMatch::One(7));
+
+        let none = FakeSysNet::new("none", &[("lo", "00:00:00:00:00:00", 1)]);
+        assert_eq!(none.lookup(&SLOT3), MacMatch::None);
+
+        let dup = FakeSysNet::new(
+            "dup",
+            &[
+                ("km03", "52:54:01:00:00:03", 7),
+                ("g3dup", "52:54:01:00:00:03", 30),
+            ],
+        );
+        assert_eq!(dup.lookup(&SLOT3), MacMatch::Many(2));
     }
 }
