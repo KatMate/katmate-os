@@ -8897,6 +8897,22 @@ the first REMOVE. **R116:** R107's mark rules sit in a `prerouting` chain
 `slot_mark` in `table inet filter`, so flows to netVM itself are marked as
 well as forwarded ones. Status unchanged.
 
+**Revision note (2026-09-30, step 4c B — the guest kernel moved, and R115
+and R111 observed):** netVM's guest kernel moved from `6.12.107` to
+`6.12.111+deb13-amd64` under the unchanged manifest (`linux-image-amd64`,
+unpinned), when trixie moved between builds. s4c-m0's config readings were
+re-taken on it and are identical: `CONFIG_NF_TABLES_ARP=y`,
+`CONFIG_NF_TABLES_NETDEV=y`, `CONFIG_NF_CT_NETLINK=m`,
+`CONFIG_NF_CONNTRACK=m`, `CONFIG_NETFILTER_NETLINK=m`,
+`CONFIG_NF_CONNTRACK_MARK=y` and `CONFIG_NFT_CT=m`, with
+`nf_conntrack_netlink.ko.xz` present (`s4c-b-report.md` § B4, outside the
+repository). **R115's load is observed:** the boot journal reads
+*"Inserted module 'nf_conntrack_netlink'"*, and `lsmod` lists it. **R111's
+normal-boot half is observed:** `katmate-ip-forward` started after
+*"Finished nftables.service"*, is `active`, and `ip_forward` reads `1`.
+Its fail-closed half (`0` with `nftables.service` failed) is not taken.
+Status unchanged.
+
 ---
 
 ## ADR-038 — AppVM guest addressing: katmate-init applies a `/32` from typed `km.*` command-line parameters
