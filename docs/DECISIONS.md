@@ -6917,6 +6917,92 @@ another → ERR, nothing programmed, the existing record kept. This is
 [ADR-025](DECISIONS.md#adr-025)'s *"ADD, id present, different → ERR"*,
 which R105's key leaves unchanged. Status unchanged: PROPOSED.
 
+**Revision note (2026-09-30, step 4c B — §6 and §7 observed, R117 and R119,
+and a gate ledger):** this note records the observations of the session
+s4c-b on MINIS (`s4c-b-report.md`, outside the repository, cited as B) and
+the operator's rulings of 2026-09-30 on them. It changes no text above.
+s4c-a's report (`s4c-a-report.md`, outside the repository) is cited as A.
+The image is `NETVM_BUILT=2026-09-30T14:37:22Z`, guest kernel
+`6.12.111+deb13-amd64`. The gates were taken on slot 01, and on slot 02
+where a second slot was needed.
+
+- **§6's conntrack flush by mark is observed.** netVM's 6.12.111 kernel
+  accepts R107's tuple-less `IPCTNL_MSG_CT_DELETE`, filtered by `CTA_MARK`
+  and `CTA_MARK_MASK`, and it flushes both forwarded flows and flows to
+  netVM itself. A TCP flow from slot 01's peer to `1.1.1.1:443` read
+  `ESTABLISHED … mark=2` with 431995 s left; REMOVE returned OK, and 0.2 s
+  later the entry was gone. A flow to `10.100.1.1:53` read the same way and
+  was gone after REMOVE (B § B5 row 6). In B6, two `mark=2` entries of
+  app_web's (`LAST_ACK` with 27 s left, `CLOSE` with 7 s) were gone 2.7 s
+  after REMOVE. **R107's *"That the kernel flushes by mark is recall until
+  4c's gate shows it"* is superseded by these observations.** The one other
+  entry in row 6's count was never identified (B, *Not executed*).
+- **Supersession's leftover route is removed at the slot's next REMOVE**
+  (A § 5 item 2). Supersession withdraws only on the call that renames. A
+  crash after the rename, or an ERR from the new link's mechanism followed
+  by an identical retry, leaves the superseded record's `peer/32` routes at
+  metrics the new payload lacks, with no record naming them. By A's
+  reading, such a route is harmless to traffic, because the implicit route
+  wins on metric. **It stands until the slot's next REMOVE, which removes
+  it** with the DOWN, not with a route delete: a hand-added `10.100.1.17/32
+  dev km01 metric 300` did not survive REMOVE's DOWN, and `ip -4 route show
+  table all` held nothing for `km01` or `10.100.1.17` afterwards (B § B5
+  row 5). A's proposed wording, *"not removed by any later REMOVE"*, is not
+  adopted. The observation covers one route of that shape, added by `ip
+  route` (`proto boot`), which is also how the agent's `route_add` is pinned
+  (`fixture_03`). Neither the crash nor the ERR-and-retry path was run.
+- **netVM's half of `ExecStopPost=` executed.** At netVM's stop of
+  2026-09-30 16:15:28 CEST, the sixteen `netvm` nodes went from 16 to 0. The
+  two `appvm` nodes on slots 02 and 05, which the line does not name, and
+  the sixteen slot directories stayed (B, ruling 5). The execution record
+  cannot be read after a clean stop, because systemd collects the instance.
+  So the attribution is **by inference from the paths**, the same standing
+  as the AppVM half in the note of 2026-09-29 (*§5 implemented*). That
+  note's *"Not observed: netVM's half"* is superseded.
+- **R117 — step 4c's verdict: PASS**, on every row of B § B5 (rows 1–7) and
+  on B6:
+
+  | Row | What was observed |
+  |---|---|
+  | 1, R103 (#49) | a mis-paired ADD → ERR, nothing programmed, the reason in the journal; the true pair → OK |
+  | 2, G3 (§7, R104) | a `dummy` with slot 01's MAC: ADD → ERR, nothing programmed; REMOVE → ERR, record kept; with the dummy deleted, the same ADD → OK |
+  | 3, R114 | a recorded `link_id` with another payload, on the same slot and on another → ERR twice, record unchanged |
+  | 4, G4 refusal, redesigned (R105) | ADD A, then ADD B on the same slot → one record with B's bytes, B's route only; REMOVE A → OK, nothing changed |
+  | 5, DOWN on REMOVE (R102, R106, #45) | after REMOVE: DOWN, no address, no route, no neighbour, no link-local |
+  | 6, the mark flush (R107, R116) | as the first bullet |
+  | 7, #34 (R100) | six forged ARP frames from slot 02 claiming slot 01's peer: none answered, `slot_arp`'s drop counter +6, no neighbour planted; the control on slot 01 answered 3 of 3 |
+  | B6 | `katmate-app-routed@app_web` on slot 01: its flow past the uplink carried `mark=2`, and REMOVE after SHUTDOWN flushed it |
+
+  Not covered by R117: **G6b**, which was not taken (B § B5 row 8), and the
+  fail-closed half of `state.md`'s open problem #48, which is
+  [ADR-037](DECISIONS.md#adr-037)'s and is unmeasured.
+- **R119 — this ADR stays PROPOSED.** Acceptance waits until G6b is taken,
+  or until the operator explicitly defers it.
+
+**The gate ledger, as of 2026-09-30.** It is built from this ADR's notes
+and from A and B. Where the record does not say, the cell reads *not
+recorded*.
+
+| Gate | State | Where | What is missing |
+|---|---|---|---|
+| **G1**, confirmation (G1a) | taken | the note of 2026-09-05 (`adr035-g1a-report.md`, 2026-09-04) | its RSS reading, not performable as worded (finding 4). The `kmkk` names were absent then; sixteen were observed under ADR-037's G2 (this ADR's note of 2026-09-27, *the rename build gate*) |
+| **G1**, refusal (G1b) | taken | the note of 2026-09-05 (`adr035-g1b-report.md`) | nothing for the gate. The unit's ceiling of 26 rests on 26 accepted and 27 refused; `N` = 17 to 25 were never run |
+| **G2**, confirmation | taken | the note of 2026-09-12, finding 8's table | — |
+| **G2**, refusal | taken in two forms on 2026-09-12, and both showed the refusal absent: the IPv4 form was accepted and acted on in another tenant's name, and the ARP form planted a cross-slot neighbour. The slot-02 control was added on 2026-09-14 | the notes of 2026-09-12 (finding 6) and 2026-09-14 (finding 5) | the guard's refusals were taken as F12b row 1 (IPv4, the notes of 2026-09-28) and as B § B5 row 7 (ARP, this note). Whether those retake G2's refusal half is *not recorded* |
+| **G3** | taken, **PASS** (R117) | B § B5 row 2 | — (not performable on 2026-09-12, before §7 landed) |
+| **G4**, confirmation | taken, **PASS** (R117) | address, route and record: B § B5 rows 1 and 5; `IFF_UP` and the neighbour on the slot: row 5; conntrack by mark, read inside the flow's expiry: row 6 and B6 | the rows were read across several REMOVEs on slot 01. That all six were read at one REMOVE is *not recorded*. The cross-interface neighbour row is superseded by #34's refusal gate (R106) |
+| **G4**, refusal | the literal form held on 2026-09-12. The redesigned form failed on 2026-09-12 and was taken on 2026-09-30, **PASS** (R117) | the note of 2026-09-12 (findings 1 and 10); B § B5 row 4 | *"present throughout"* is three point samples, not a continuous reading |
+| **G5a** | taken, both halves | the note of 2026-09-07 | — |
+| **G5b** | partly taken | the notes of 2026-09-12 (finding 8's table), 2026-09-14 (findings 1 and 5) and 2026-09-28 (step 4.0, M3); B, ruling 5 | the restart clauses were observed on 2026-09-12. *"No `netvm` file exists between stop and start"*: 0 `netvm` nodes were read once, 0.5 s after the stop of 2026-09-30, and the host then rebooted before the start, so the stop–start sequence G5 describes was not run. **The traffic clause, as rewritten on 2026-09-14, is not taken**: a directed frame from the measurer's emitter, at both ends, in both directions, under one ADD, with the flags read. M3 settled addressed delivery functionally, not by measurement |
+| **G6a** | taken | the note of 2026-09-12 (finding 5) | — |
+| **G6b** | **untaken**; no longer blocked since R113 | the note of 2026-09-29 (step-4c rulings); B § B5 row 8 | a procedure. B names the two open questions: how a `KM_SLOT` value reaches the projection when R84's first `ExecStartPre=` deletes it and the generator rewrites it at every start, and which input a malformed `KM_SLOT=1g` comes from |
+
+The gates this ADR's notes define beside § *Gates*: **F12a and F12b**,
+taken, **PASS** (the notes of 2026-09-28); and step 4c's rows for R103,
+R114 and #34, **PASS** (R117, above).
+
+**Status is unchanged: PROPOSED (R119).**
+
 ---
 
 ## ADR-036 — The distributable unit is the enforcing set of the trust model; the host base is a pinned composition, neither a mutable install nor a distribution
