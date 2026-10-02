@@ -33,7 +33,8 @@ memory and vCPUs.
 ## The table
 
 Instances: `app_web` and `app_personal`, on the primary netVM `netvm`, on MINIS.
-Read back on 2026-10-02 (session `ai1`).
+Read back on 2026-10-02 (session `ai1`). The hostname row, and the pool size
+in the memory row, were read back the same day by session `ai2`.
 
 | Parameter | Alpha source | Target source | ADR | Gate |
 |---|---|---|---|---|
@@ -46,4 +47,5 @@ Read back on 2026-10-02 (session `ai1`).
 | **Home LV** | `vm_<instance>_home` in `vg0`, made by hand. `vm_app_web_home`: 10G **linear** (2026-06-27). `vm_app_personal_home`: 10G **thin in `vm_pool`** (2026-10-02). The form of record is in `state.md` § *Live state* | Not assigned by any ADR | [ADR-010](DECISIONS.md#adr-010), [ADR-014](DECISIONS.md#adr-014) | `katmate-activate-lvs` at start (both). `vm_app_web_home` being linear disagrees with ADR-010 |
 | **Instance delta** | `/var/lib/katmate/instances/<instance>.qcow2`, `host:host 0644`, made by hand: `qemu-img create -f qcow2 -F raw -b /dev/vg0/vm_app_web <delta> 10G` | Not assigned by any ADR; `katmate-update` recreates deltas at a re-bake | ADR-010, ADR-014, ADR-032 §7 | `katmate-check-image` at start |
 | **Owner file** | `/run/katmate/link/<netvm>/<kk>/owner`, `root:root 0644`, `KATMATE_OWNER_VERSION=1`, `INSTANCE=`, `LINK_ID=`, written by hand. On tmpfs, so **a host reboot loses it** and the next start fails closed | The launch daemon (build order step 3b) | ADR-037 R63, R78 | **None observed.** `katmate-generate-env` refuses a missing, foreign-owned, writable or malformed owner, but that is code, read, not a recorded observation |
-| **Memory, vCPUs** (not frozen) | T1 `mem`, `vcpus`. `app_web` → `4G`, `2`. `app_personal` → `2G`, `2`. **Why 2G:** each AppVM's memory comes from the host's hugepage pool, which on MINIS is 4096 × 2 MiB = 8 GiB, set by `/etc/sysctl.d/hugepages.conf`. Two AppVMs at 4G would fill it exactly, with no margin (ruling of 2026-10-02) | T1 | ADR-030 | None |
+| **Hostname** | `km.name=%i` on the kernel command line, in the `katmate-app-routed@` template's `-append`. katmate-init sets it with `sethostname(2)` before the network step. `app_web` → `app_web`, `app_personal` → `app_personal`. **Routed AppVMs only today:** no offline template exists, and when it is created (the vault step) it must carry `km.name=%i` too, or an offline guest stays `(none)` | The launch daemon, which passes the instance name it starts | [ADR-038](DECISIONS.md#adr-038) (revision note, R125) | ai2, observed: `[katmate-init] hostname: app_web` and `hostname: app_personal` on the consoles, and the operator read `user@app_web:~$` and `user@app_personal:~$` in `foot`. Unit tests: `init/tests/run.sh`, group `name` |
+| **Memory, vCPUs** (not frozen) | T1 `mem`, `vcpus`. `app_web` → `4G`, `2`. `app_personal` → `2G`, `2`. **Why 2G:** each AppVM's memory comes from the host's hugepage pool, which on MINIS is 4096 × 2 MiB = 8 GiB, set by `/etc/sysctl.d/hugepages.conf`. Two AppVMs at 4G would fill it exactly, with no margin (ruling of 2026-10-02). **Since `ai2` the pool is 6144 × 2 MiB = 12 GiB** (R126, [HOST-CONFIG.md](HOST-CONFIG.md) § 6), which holds `web` 4G plus three AppVMs at 2G | T1 | ADR-030 | None |
