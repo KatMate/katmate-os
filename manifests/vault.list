@@ -1,7 +1,8 @@
 # vault domain (ADR-014)
-# Offline (no network), persistent secret store. NOTE: keepassxc is not yet on
-# the vm-agent RUN whitelist (firefox-esr/foot/pcmanfm) — whitelist must become
-# per-manifest before this domain is wired up (Faza 4).
+# Offline (no network), persistent secret store. keepassxc is on the vm-agent
+# RUN whitelist, a compile-time constant shared by every AppVM for the alpha
+# (R130; ADR-021's revision note). A per-manifest whitelist is post-alpha and
+# is not a vault blocker.
 keepassxc
 foot
 pcmanfm

@@ -72,7 +72,7 @@ pub const DEFAULT_WAYPIPE_PORT: u32 = 1024;
 pub const DEFAULT_HOST_CID: u32 = 2;
 
 /// Apps that RUN may launch via waypipe.
-pub const WHITELIST: &[&str] = &["firefox-esr", "foot", "pcmanfm"];
+pub const WHITELIST: &[&str] = &["firefox-esr", "foot", "pcmanfm", "libreoffice", "keepassxc"];
 
 /// Path prefix that FILEGET / FILEPUT are confined to. Note: a prefix
 /// test alone is not traversal-safe; the handler additionally rejects
@@ -615,5 +615,15 @@ mod tests {
         // Traversal, even though the prefix matches.
         assert!(!path_is_allowed("/home/user/../../etc/passwd"));
         assert!(!path_is_allowed("/home/user/sub/../../../etc/passwd"));
+    }
+
+    /// RUN's whitelist is a compile-time constant for the alpha, so the set
+    /// is pinned here: a change to it is a foundation rebuild (ADR-021).
+    #[test]
+    fn run_whitelist() {
+        assert_eq!(
+            WHITELIST,
+            &["firefox-esr", "foot", "pcmanfm", "libreoffice", "keepassxc"]
+        );
     }
 }

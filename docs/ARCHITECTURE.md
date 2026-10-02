@@ -317,7 +317,7 @@ runtime gate.
 | Opcode | `vm-agent` (AppVM, uid 1000) | `netvm-agent` (sysVM, `CAP_NET_ADMIN`) |
 |---|---|---|
 | `PING` | handler | handler |
-| `RUN` (whitelist: `firefox-esr`, `foot`, `pcmanfm`) | handler | **absent** |
+| `RUN` (whitelist: `firefox-esr`, `foot`, `pcmanfm`, `libreoffice`, `keepassxc`) | handler | **absent** |
 | `FILEGET` / `FILEPUT` (path-whitelisted, size-limited) | handler | **absent** |
 | `SHUTDOWN` | handler (microvm has no ACPI) | handler — `kill(1, SIGRTMIN+4)` under `CAP_KILL` ([ADR-024](DECISIONS.md#adr-024)); the QMP `system_powerdown` path is inert without dbus |
 | `NETCFG` | **absent** | handler (privileged) |
