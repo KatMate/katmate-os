@@ -96,18 +96,21 @@ step 3a found ADR-030's gate G2 misnamed because `app_web.con` carries no
 network device at all. The tree is not automatically right either. The operator
 rules; the session records the ruling and moves on.
 
-**The permission classifier stops a session the same way** (operator ruling,
-2026-09-29). A **refusal** stops the session at once, and the report names the
-exact command that was refused. A **no-verdict (error)** is an outage, not a
-refusal: wait about 30 s and retry the **same** action, up to 5 times, then stop
-and report. Neither is ever retried in another form — a different form of a
-refused command is evasion, not a workaround.
+**Permission-classifier refusals** (operator rulings, 2026-09-29 and
+2026-10-02). A **refusal** stops *that action*: it is never retried in another
+form — a different form of a refused command is evasion, not a workaround.
+The session carries on with the work that does not depend on it, names the
+refused command and the classifier's reason in the report, and leaves the
+action for the operator. A **no-verdict (error)** is an outage, not a refusal:
+wait about 30 s and retry the **same** action, up to 5 times, then stop and
+report.
 
-A session whose brief reads or writes MINIS is started in Manual mode
-(operator ruling, 2026-09-29): in auto mode the classifier refuses MINIS
-reads as *Production Reads*. The mode is the operator's to set; a session
-that finds itself in auto mode on such a brief says so before its first
-MINIS command.
+**Auto mode is the default, MINIS work included** (operator ruling,
+2026-10-02). `~/.claude/settings.json` on the Acer describes MINIS to the
+classifier as the operator's trusted dev host. A refusal of a MINIS command is
+a finding about those settings, reported as above. **A session never edits
+this file**: the classifier refuses it as *Self-Modification*, by design. A
+change to `CLAUDE.md` is proposed in the report and committed by the operator.
 
 ## What a session may not decide
 
