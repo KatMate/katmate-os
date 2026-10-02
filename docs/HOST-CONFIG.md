@@ -205,6 +205,20 @@ QEMU start, so no VM has a control path or a GUI path
 **Scope:** all · **[LIVE]** on MINIS · **[V]** 2026-09-26 (was `[?]` — not
 verified as a configured requirement)
 
+**Note 2026-10-02 (`ai2`, R126): the pool is 6144 × 2 MiB = 12 GiB.**
+On MINIS, `/etc/sysctl.d/hugepages.conf` sets `vm.nr_hugepages = 6144` and
+takes effect at the next boot. ai2 applies the change and reboots, and the
+`HugePages_Total` read after that boot is in `state.md` § *Live state*.
+**Capacity:** the four alpha AppVMs take `web` 4G plus `personal`, `office`
+and `vault` at 2G each, 10 GiB in all. That does not fit 8 GiB and does fit
+12 GiB, with 2 GiB to spare. Reserved pages are withheld from the host
+whether or not a guest uses them, so the host keeps `MemTotal` minus
+12 GiB. The operator's floor for that remainder is 16 GiB (ruling on ai2,
+2026-10-02). The hugetlbfs-versus-memfd/THP question below (*"Probably
+allocated the wrong way round"*) is post-alpha and gets its own ADR (R126).
+The ai1 note's *"8 GiB … The pool's size for more AppVMs is an open alpha
+question"* is answered by this note and is left as written.
+
 **Note 2026-10-02 (`ai1`): the reservation is configured by a sysctl
 file.** On MINIS, `/etc/sysctl.d/hugepages.conf:1` reads `vm.nr_hugepages =
 4096`, and `/proc/sys/vm/nr_hugepages` reads 4096. No `hugepages` argument
