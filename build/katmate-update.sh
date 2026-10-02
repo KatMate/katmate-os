@@ -61,7 +61,7 @@ fi
 source "${CONFIG}"
 
 # --- knobs (all interface values come from config.sh; check they are set) ---
-APP_TYPES=(web vault)                     # matches Makefile APP_TYPES
+APP_TYPES=(web vault office)              # matches Makefile APP_TYPES
 INSTANCES_DIR="${INSTANCES_DIR:-/var/lib/katmate/instances}"
 DELTA_SIZE="${DELTA_SIZE:-10G}"
 : "${VG:?config.sh must export VG}"
