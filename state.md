@@ -6,10 +6,11 @@
 > history and the ADRs — this file references them rather than repeating them.
 
 **Milestone:** v0.2 (in development) · **Last updated:** 2026-10-02
-(`ai3`, alpha integration step 3, on the Acer and MINIS: the work AppVM
-`app_work` on the new `office` layer (LibreOffice), three AppVMs on one
-netVM at once; the RUN whitelist gains `libreoffice` and `keepassxc`
-(R130); every set-aside layer removed (R132); next is the vault AppVM).
+(`ai4`, alpha integration step 4, on the Acer and MINIS: the offline vault
+`app_vault` under the new `katmate-app-offline@` template, four AppVMs on
+one netVM at once; ADR-032 H2 taken; KeePassXC runs in the vault only with
+`QT_QPA_PLATFORM=wayland`, so a RUN of it still fails; next is the menu
+step that ends the alpha, and vm-agent's Qt platform).
 
 ## Current focus
 
@@ -98,6 +99,17 @@ document in it, and a flow from `.19` carried `mark=4`. **Next is the vault
 AppVM**, the last of the alpha. It needs an offline template that carries
 `km.name=%i`. keepassxc is already whitelisted (R130). See § *This
 session*.**]**
+**[Note 2026-10-02, `ai4`: alpha integration step 4 is done, with one
+open item.** `app_vault` (CID 24, no slot) runs under the new
+`katmate-app-offline@` (R135) beside the three routed AppVMs. The operator
+read `user@app_vault:~$`, and both connect attempts failed at once with
+*Network is unreachable*. ADR-032 H2 refused before QEMU. **KeePassXC is
+the first Qt application in an AppVM.** It needs `qtwayland5` (added to
+`vault.list`) and `QT_QPA_PLATFORM=wayland`, which vm-agent does not set,
+so a RUN of `keepassxc` opens nothing. Started from foot with the
+variable, it worked (R140, the operator's *"JA"*). **Next:** the menu
+step that ends the alpha (ai4 report § 6), and vm-agent's platform
+selection for a RUN child. See § *This session*.**]**
 
 The **entire build chain remains scripted and proven from nothing**:
 `make foundation` builds the shared systemd-free base
@@ -126,7 +138,106 @@ restartable — and so updatable — without touching running VMs.
 Direction unchanged: IOMMU-capable platforms only (VT-d/AMD-Vi).
 MINIS is primary host and merge target.
 
-## This session (2026-10-02, alpha integration step 3 — ai3) — the work AppVM `app_work` on the `office` layer; three AppVMs on one netVM; the RUN whitelist gains libreoffice and keepassxc (R130); every set-aside layer removed (R132)
+## This session (2026-10-02, alpha integration step 4 — ai4) — the offline vault `app_vault` under the new `katmate-app-offline@` (R135–R137); four AppVMs on one netVM; ADR-032 H2 taken; spell checking in office (R138); KeePassXC needs a Qt platform the RUN path does not set
+
+One session, `ai4`, on the Acer and MINIS, in auto mode. It halted once,
+at its read pass, on six divergences. ADR-030's notes attached gates G2
+and ADR-032 H2 to `app-offline`, and the brief carried neither. R139
+expected *"`lo` only"*, where § *Invariants* records `sit0`. `state.md`
+said the template's gates needed an `app-web.meta` that exists.
+`katmate-update.sh`'s `APP_TYPES` lacked `office`. There is no
+installed-unit list in HOST-CONFIG. SECURITY-MODEL gap 11 did not cover a
+third unit. The orchestrator ruled, relayed by the operator: H2 in
+ADR-032's original pairing, and the inverted one not taken; G2 re-pointed
+to `katmate-app-offline@app_vault`; `lo` + `sit0` down expected; brackets
+here and in SECURITY-MODEL; `APP_TYPES` fixed in its own commit. A second
+stop came in Part B, at R140 (below), ruled A by the operator. No commit
+on MINIS. No reboot. The report is outside the repository:
+`~/Claude.assistent/ai4-report.md`, with every script and output in
+`~/Claude.assistent/ai4/` and `/home/host/katmate-dev/ai4/`.
+
+**The operator's rulings (2026-10-02).**
+- **R135 — `katmate-app-offline@.service`**: `katmate-app-routed@`
+  without the network pair, `km.ip/gw/dns` and `ExecStopPost=`. It keeps
+  `ipv6.disable=1`, `km.name=%i` and the home drive.
+- **R136 — the generator's `app-offline` arm** refuses `ephemeral` with
+  `app-routed`'s reason, and requires `KM_HOME_DEV`.
+- **R137 — `app_vault`**: `class = app`, `manifest = vault`, `netvm = ""`,
+  persistent, `identity = false`, `mem = "2G"`, `vcpus = 2`, CID 24, home
+  `vm_app_vault_home` thin.
+- **R138 — `office.list`** gains `fonts-liberation`, `hunspell-en-us` and
+  `hunspell-sl`. The UI stays English.
+- **R139 — the negative test** and **R140 — KeePassXC works**, with the
+  operator at MINIS. **R141 — reboots are announced.** None was needed.
+- **R140-A (Part B):** `qtwayland5` added to `vault.list`, the vault layer
+  rebuilt, and whether the plugin is enough measured.
+
+**What ran (CEST).**
+- **Part A (Acer):** `233794d` the template and the generator arm (an
+  extract on the Acer: six cases, and a negative control that flips the
+  two new refusals); `295c07c` `katmate-update` `APP_TYPES`; `fa297a4`
+  `office.list`; `87bd0ff` ADR-030's note. `app_vault.toml` staged
+  (`675a2614…`), and the validator gave 0 errors and 0 warnings over five
+  files, plain and `--strict`. Pushed before Part B.
+- **P0 (18:52):** no reboot since ai2; netVM MainPID 22405; no June vault
+  leftovers; CID 24 free; 6144 of 6144 pages free. The installed set
+  equalled the tree, 10 of 10.
+- **Install (19:01):** the generator and the new unit, hash-first. **The
+  installed set equals the tree at `87bd0ff`, 11 of 11.**
+- **Builds:** `vm_app_office` set aside as `_preai4`. `make app-vault`
+  exit 0 (279 packages); `make app-office` exit 0 (362 packages: ai3's
+  356 plus exactly six, the three R138 names among them). No foundation
+  rebuild. Deltas `app_vault.qcow2` (new) and `app_work.qcow2`
+  (recreated).
+- **R137 (19:05):** `vm_app_vault_home` in the form of record, and the T1
+  `app_vault.toml`. No owner, no NETCFG.
+- **H2 (19:05:39):** `katmate-app-routed@app_vault` → *"[katmate-generate-env]
+  FATAL: profile mismatch: the unit asserts 'app-routed' … derives
+  'app-offline' … Refusing before QEMU"*, `ExecMainPID=0`, no CID-24 QEMU.
+  `reset-failed`.
+- **Four AppVMs (19:06–19:07):** owners 01–03 and NETCFG 201–203, then
+  `app_web`, `app_personal`, `app_work` and **`app_vault`**, PING OK on try
+  3 each. **`[katmate-init] hostname: app_vault`**, **`net: offline (no
+  km.ip), lo up`**. app_vault's argv has 0 `-netdev`, 0 `virtio-net` and 0
+  slot paths, against 1 of each on the routed three. `HugePages_Free`
+  6026 → 5960 → 5894 → 5828.
+- **The operator at MINIS (19:34–20:20):** in `app_work`, `test.odt`
+  survived (9495 B) and spell checking works (*"spell check deluje, ja,
+  potrjeno. Jezik je en_US."*). In `app_vault`, R139: both connects gave
+  *Network is unreachable*, `rc=1`; `/etc/resolv.conf` is absent; `lo`
+  `0x9` and `sit0` `0x80` down, no route, loopback addresses only. netVM's
+  conntrack read 0 before and after. KeePassXC by RUN: no window (no Qt
+  Wayland plugin; from foot, `xcb … Aborted`, `rc=134`). Ruled A,
+  `15fc369`, vault layer rebuilt (+6 Qt packages). The plugin alone still
+  aborts. **With `QT_QPA_PLATFORM=wayland` from foot it ran, `rc=0`**: a
+  database was created, an entry added, the database closed and reopened
+  (*"JA"*). The file is `~/test.kdbx`, 2117 B.
+- **End (20:31):** four SHUTDOWNs (*"Deactivated successfully"*), REMOVE
+  201–203, owners removed, console logged out at 20:02. **`_preai4`
+  removed** (both set-aside layers, deltas and metas, under ai3's
+  guards). netVM left running.
+
+**Found, recorded and not designed for (report §§ 5, 6).**
+- **A RUN of a Qt application cannot reach the display.** vm-agent passes
+  `WAYLAND_DISPLAY` and `XDG_RUNTIME_DIR` only, and Qt 5.15 defaults to
+  `xcb`. The foundation's GUI runtime is GTK. A fix in vm-agent means a
+  foundation rebuild.
+- **No AppVM layer has `ip`** (`iproute2`). Readings inside a guest use
+  `/sys/class/net` and `/proc/net`, as ADR-038 G2 did.
+- `katmate-update` maps a delta to its app type by the name suffix, so it
+  refuses `app_personal`, `app_work` and `app_vault` whatever `APP_TYPES`
+  holds.
+- The vault layer took a newer `libpcre2-8-0` than the foundation
+  (deb13u3 against deb13u2): layer drift on a moving trixie.
+
+**Not done, and not claimed.**
+- No verdicts. H2, G2, R139 and R140 are the operator's.
+- A RUN of `keepassxc` opening a window; vm-agent setting the Qt platform.
+- A positive control for netVM's conntrack reading during the vault test.
+- `systemd-analyze verify` of the new unit (not run on either machine).
+- `init/tests/run.sh --apply`; G6b; #48's fail-closed half.
+
+## Previous session (2026-10-02, alpha integration step 3 — ai3) — the work AppVM `app_work` on the `office` layer; three AppVMs on one netVM; the RUN whitelist gains libreoffice and keepassxc (R130); every set-aside layer removed (R132)
 
 One session, `ai3`, on the Acer and MINIS, in auto mode. It halted once,
 at its read pass, on six divergences. The brief lay in the repository root,
@@ -214,7 +325,7 @@ output in `~/Claude.assistent/ai3/` and `/home/host/katmate-dev/ai3/`.
 - The generator's new line ran in `app_work`'s start. Its refusal of an
   unknown manifest ran only as an extract on the Acer.
 
-## Previous session (2026-10-02, alpha integration step 2 — ai2) — AppVMs name themselves from `km.name=` (R125); the hugepage pool is 12 GiB (R126); layers rebuilt
+## Earlier session, not yet rotated (2026-10-02, alpha integration step 2 — ai2) — AppVMs name themselves from `km.name=` (R125); the hugepage pool is 12 GiB (R126); layers rebuilt
 
 One session, `ai2`, on the Acer and MINIS, in auto mode. It halted once at
 its read pass. The brief's H1 fired, because every rebuild of record had
@@ -1736,6 +1847,47 @@ touched.
     `~/katmate-build/` with the rsync, and the next `--delete` sync removes
     it once it has left the Acer's tree.
 
+  **FOUR APPVMS ON ONE NETVM, ONE OF THEM OFFLINE (2026-10-02, ai4).** The
+  blocks above are left as published. This block supersedes their app
+  layers, deltas, T1 list and installed-set hashes. As left at 20:31:45
+  CEST (`ai4-report.md`, outside the repository):
+  - **Host boot unchanged** (2026-10-02 14:03:24, kernel 7.2.8-hardened).
+    No reboot in ai4.
+  - **The chain:** `vm_tpl_foundation` unchanged (ai3's,
+    `BUILD_DATE=2026-10-02T13:03:41Z`, 209 packages) → `vm_app_web`
+    unchanged (230) → `app_web.qcow2`, `app_personal.qcow2`;
+    **`vm_app_office`** rebuilt (`APP_BUILT=2026-10-02T17:05:00Z`,
+    `app-office.meta` `8b111225…`, 362 packages, with `fonts-liberation`,
+    `hunspell-en-us` and `hunspell-sl`) → **`app_work.qcow2`** (recreated);
+    **`vm_app_vault`** new (`APP_BUILT=2026-10-02T18:04:47Z`, `app-vault.meta`
+    `63cd4d40…`, 285 packages, with `keepassxc` and `qtwayland5`) →
+    **`app_vault.qcow2`** (new). Every layer carries `/sbin/init`
+    `8163e103…` and vm-agent `87ebdcaa…`. `vm_app_vault` has
+    `libpcre2-8-0` deb13u3 against the foundation's deb13u2.
+  - **vg0 holds nothing set aside.** `_preai4` (`vm_app_office_preai4`,
+    `vm_app_vault_preai4`, and both deltas and metas) is removed. LVs:
+    `root`, `swap`, `vm_tpl_foundation`, `vm_app_web`, `vm_app_office`,
+    `vm_app_vault`, `vm_app_web_home` (linear), `vm_app_personal_home`,
+    `vm_app_work_home`, `vm_app_vault_home` (all three thin),
+    `vm_sys_netvm`, and `vm_pool` (0.70 % data, 10.87 % meta).
+  - **Installed host set equals the tree at `87bd0ff`, 11 of 11** (ruling
+    5 of ai4's read pass). New: `katmate-app-offline@.service` `7151fc2e…`.
+    Changed: `katmate-generate-env` `a4817408…`. The hash-first check
+    expects no difference.
+  - **T1 files:** `netvm.toml`, `app_web.toml`, `app_personal.toml`,
+    `app_work.toml` and **`app_vault.toml`** (`675a2614…`, cid 24,
+    `netvm = ""`).
+  - **netVM unchanged:** MainPID `22405`, invocation `ca5f364e…`,
+    `NRestarts=0`. The console is logged out (`localhost login:`). No `jbd2`
+    hold on `vm_sys_netvm`.
+  - **The pool:** 16 `netvm` nodes, no owner, no `appvm`. Links 201–203
+    removed. **All four AppVM units inactive**, and
+    `katmate-app-routed@app_vault` is inactive after H2's `reset-failed`.
+  - Hugepages 6144, all free. Sleep targets unmasked (`static`).
+  - **Session files:** `/home/host/katmate-dev/ai4/` (scripts, the three
+    build logs, package lists, journal copies, argv copies). Fixtures, not
+    live configuration.
+
   **The uplink is capped by the cable, and that is a condition of the
   environment rather than a defect.** On the boot of 2026-09-12 the link came up
   1 Gbps, went down, and settled at **100 Mbps/Full (downshifted)**, the driver
@@ -1889,6 +2041,33 @@ touched.
   (`appweb-rebuild-report.md` § 6).
   **[2026-09-27, host-cleanup: `vm_app_vault_pre0926` is deleted. There is
   now no vault app layer on MINIS under any name.]**
+  **[2026-10-02, ai4: this entry is superseded, not reused (R137).** The
+  June layer is gone, as the bracket above says, and the instance below is
+  new. The text is left as written.**]**
+  **The instance, from 2026-10-02 (`ai4`, R137):** CID **24**, **no slot,
+  no `LINK_ID`, no owner**. `class = app`, `manifest = vault`, **`netvm =
+  ""`** (it derives `app-offline`), `persistence = persistent`, `identity =
+  false`, `disposable = false`, `mem = "2G"`, `vcpus = 2`.
+  - **Unit** `katmate-app-offline@app_vault` (R135): no network device,
+    `km.name=app_vault`, the home drive.
+  - **T1** `/etc/katmate/vm/app_vault.toml`, `root:root 0644`, `675a2614…`,
+    staged in the Acer's ignored `local/etc/katmate/vm/`.
+  - **Delta** `/var/lib/katmate/instances/app_vault.qcow2`, `host:host
+    0644`, backing `/dev/vg0/vm_app_vault` (raw), 10 GiB virtual, in the
+    form of record.
+  - **Home LV `vm_app_vault_home`**: 10G thin in `vm_pool`, in the form of
+    record (`app_personal`). Its ext4 equals `vm_app_personal_home`'s. It
+    holds the operator's `user/test.kdbx` (2117 B).
+  - **The `vault` layer** (`vm_app_vault`): the foundation plus keepassxc,
+    `qtwayland5`, foot and pcmanfm. 285 packages.
+  - **Booted twice** (2026-10-02 19:07–20:04 on the first vault layer,
+    20:05–20:31 on the second) beside the three routed AppVMs. The console
+    printed `hostname: app_vault` and `net: offline (no km.ip), lo up`. The
+    operator ran the negative test (R139) and KeePassXC (R140).
+    **KeePassXC starts only as `QT_QPA_PLATFORM=wayland keepassxc` from a
+    foot shell.** A RUN of `keepassxc` opens no window, because vm-agent
+    does not select the Qt platform. The per-instance values are in
+    `docs/PARAMETERS.md`.
 - **Set aside 2026-09-26 (`_pre0926`).** The rebuild renamed rather than
   removed what it replaced: `vm_tpl_foundation_pre0926`, `vm_app_web_pre0926`,
   `vm_app_vault_pre0926`; `instances/test_web.qcow2.pre0926`, **rebased with
@@ -4209,6 +4388,13 @@ What the gate session must carry in, and what is *not* in the report:
    `net-sys.con` as the thing running QEMU as root), `HOST-CONFIG.md` §3 and §6,
    `DECISIONS.md` and this file — repaired in the **same** commit, because that
    drift is created by it rather than inherited, and G3 is *"nothing was lost"*.
+   **[2026-10-02, `ai4` (read-pass ruling 3): the first half of this item no
+   longer holds.** `katmate-app-offline@` ships (`233794d`, R135), and
+   `app-web.meta` exists (it has since 2026-09-26). The gates the item
+   refers to are ADR-030's G2, re-pointed to `katmate-app-offline@app_vault`,
+   and ADR-032 H2, taken in its original pairing (ADR-030's note of
+   2026-10-02). The `.con` deletion half is unchanged. The item is left as
+   written.**]**
 
 Implementation session, thinking-off. Carry in: the validator's exit codes are
 three-valued; and the live delta is still named `test_web.qcow2` while
@@ -4746,6 +4932,14 @@ frozen `vm_home_skel` vs qcow2 branch.
      AppVM**, the last of the alpha: it needs an offline template that
      carries `km.name=%i`. Still open from 4c: G6b and #48's fail-closed
      half.**]**
+     **[Note 2026-10-02 (`ai4`): alpha integration step 4 is done.**
+     `app_vault` (CID 24, offline) ran under `katmate-app-offline@` beside
+     the three routed AppVMs, and every AppVM of the alpha has now run.
+     **Next:** the menu step that ends the alpha (its input is the ai4
+     report's § 6 ledger); vm-agent selecting the Qt platform for a RUN
+     child, so that RUN `keepassxc` opens a window (a foundation rebuild);
+     `katmate-update`'s delta-to-type mapping, which works by name suffix.
+     Still open from 4c: G6b and #48's fail-closed half.**]**
   5. **VPN mode** (added 2026-09-27, R30): the WireGuard config, the VPN
      ruleset and the kill-switch, under **its own ADR**, after step 4. R8
      names the config disk as the WireGuard config's channel, and R31 gives
