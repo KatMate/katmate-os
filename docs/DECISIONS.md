@@ -248,6 +248,17 @@ update accordingly (the *composition* in ADR-014 — three layers, two manifests
 RO/RW split — is unchanged; only the per-layer mechanism moves from qcow2 to
 LVM-thin for the two RO layers).
 
+**Revision note (2026-10-02):** the first instance's home LV,
+`vm_app_web_home` (created 2026-06-27), is a linear LV in the volume group,
+not a thin LV in the pool as § *Decision* requires. It was measured on MINIS
+by `ai1` (`lvs`: `-wi-a----- linear`). The decision is unchanged. The second
+instance, `vm_app_personal_home` (2026-10-02), was created thin in `vm_pool`
+by ruling, so the two instances differ. Until `vm_app_web_home` is migrated,
+a statement that every home LV is thin is false for `app_web`. Source:
+`ai1-report.md` § 5 item 5, outside the repository.
+**R127 (operator, 2026-10-02): `vm_app_web_home` stays linear until after the
+alpha.** Migrating it to thin is post-alpha work.
+
 ---
 
 ## ADR-011 — Base image build pipeline: shell scripts orchestrated by Make
