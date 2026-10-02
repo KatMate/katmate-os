@@ -3,6 +3,10 @@
 # RUN whitelist, a compile-time constant shared by every AppVM for the alpha
 # (R130; ADR-021's revision note). A per-manifest whitelist is post-alpha and
 # is not a vault blocker.
+# qtwayland5: keepassxc is Qt5, and the foundation's GUI runtime is GTK. An
+# AppVM's only display is Wayland (through waypipe), and without Qt's wayland
+# platform plugin keepassxc falls back to xcb and aborts (ai4, 2026-10-02).
 keepassxc
+qtwayland5
 foot
 pcmanfm
