@@ -283,6 +283,14 @@ app)
     ;;
 esac
 
+# --- app-offline: the home drive ---------------------------------------------
+# The same refusal as app-routed's below, for the same reason (R136): an
+# offline AppVM is booted by the same katmate-init and lists the same home
+# drive, so ephemeral is no more startable here than there.
+if [[ "$DERIVED" == app-offline && "${KM_T1[persistence]}" == ephemeral ]]; then
+    km_die "$KM_T1_FILE: persistence=ephemeral on the profile app-offline is NAMED and is NOT shipped. katmate-init mounts /dev/vdb as /home as a fatal condition, so katmate-app-offline@ lists the home drive unconditionally, and an ephemeral /home has no storage mechanism (ADR-030 §7): an explicit error, never a default. Use persistence=persistent."
+fi
+
 # --- app-routed: the slot ----------------------------------------------------
 # An AppVM attached to a netVM takes the slot of that netVM's pool whose `owner`
 # names this instance (ADR-035 §5; ADR-037 R62, R63). No T1 key carries a slot:
@@ -542,15 +550,18 @@ sys-driver)
     ;;
 app-offline)
     # No initrd — the microVM kernel is monolithic; no KM_ROOT_DEVICE — for an
-    # AppVM the guest root is a constant of the template, not data; KM_HOME_DEV
-    # follows persistence and is likewise not a property of the profile.
-    REQ_ENV=("${REQ_ENV_COMMON[@]}" KM_ROOTFSTYPE KM_DELTA)
+    # AppVM the guest root is a constant of the template, not data. KM_HOME_DEV
+    # is required because app-offline refuses persistence=ephemeral above, so a
+    # home drive always exists, and katmate-app-offline@ lists it
+    # unconditionally (R136; as for app-routed, ADR-037 R80). No link keys: this
+    # profile has no link, and absent is not the same as unused.
+    REQ_ENV=("${REQ_ENV_COMMON[@]}" KM_ROOTFSTYPE KM_DELTA KM_HOME_DEV)
     ;;
 app-routed)
     # Every one of these is an unconditional emission for this profile above.
-    # KM_ROOTFSTYPE and KM_DELTA as for app-offline. KM_HOME_DEV is here and not
-    # in app-offline because app-routed refuses persistence=ephemeral above, so
-    # a home drive always exists, and the template lists it unconditionally
+    # KM_ROOTFSTYPE, KM_DELTA and KM_HOME_DEV as for app-offline: app-routed
+    # refuses persistence=ephemeral above too, so a home drive always exists,
+    # and the template lists it unconditionally
     # (ADR-037 R80). KM_NETVM and KM_SLOT name the link's socket path (ADR-035
     # §5), KM_GUEST_ADDR is the slot's address (ADR-038 §10), and KM_MAC_INT is
     # the link's identity MAC (ADR-035 §9): each is the profile's link, which

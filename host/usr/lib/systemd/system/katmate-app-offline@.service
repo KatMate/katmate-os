@@ -1,0 +1,170 @@
+[Unit]
+# T3+T4 (ADR-030 §2): the unit template IS the serialisation of the class profile
+# and the TCB constants. There is no profile file beside it, and the profile is
+# carried in the unit NAME — katmate-app-offline@app_vault.service — not in a
+# field, so `systemctl status` displays it without a query to anything.
+#
+# app-offline = f(class = app, netvm = None): a microVM AppVM with NO network
+# device at all. Air-gap is the absence of an object, not a disabled one
+# (ADR-030 §2; ADR-021, ADR-022). The user declares topology in T1 (`netvm =
+# ""`) and the profile follows, which is the only reason T3 may be derived from
+# T1 without T1 becoming an attack surface: a user cannot select weaker
+# containment.
+#
+# Derived from katmate-app-routed@.service (R135, 2026-10-02), and it differs
+# from that template ONLY where the profile requires. Every other line is kept
+# verbatim. The differences, each marked [offline] where it occurs:
+#   - no -netdev and no -device virtio-net-device: no link, no slot path;
+#   - no km.ip= / km.gw= / km.dns= on -append, so katmate-init takes its
+#     offline branch (ADR-038 §2, §11): lo up, no address, no route, no
+#     resolver;
+#   - no ExecStopPost=: its only job was to unlink this instance's appvm
+#     socket in a slot, and an offline VM holds no slot;
+#   - nothing reads KM_NETVM, KM_SLOT, KM_GUEST_ADDR or KM_MAC_INT, which
+#     katmate-generate-env does not emit for app-offline;
+#   - the [Unit] comment on the netVM ordering, which has no subject here.
+# Kept: ipv6.disable=1, km.name=%i (R125) and the home drive (R136: the
+# generator requires KM_HOME_DEV for this profile, as for app-routed).
+Description=KatMate AppVM (offline): %i
+# No Documentation= : no man page ships. See the comment in
+# katmate-publish-nics.service.
+
+# NOT network-online.target, and this is not an omission. On this host it never
+# fires: both routable links are unmanaged, so networkctl reports "State:
+# routable" beside "Online state: offline" (measured 2026-08-02, HOST-CONFIG.md
+# §1), and a unit waiting for it would wait forever, with no diagnostic. This VM
+# does not use the host's network in any case: it has no network at all.
+After=local-fs.target
+
+# [offline] No Requires=/After= on any netVM's unit, and no owner lookup: this
+# profile has no netVM. A netVM start, stop or restart has nothing to do with
+# this VM.
+
+[Service]
+Type=simple
+
+# --- the ExecStartPre= chain -------------------------------------------------
+# One executable per check, and systemd stops at the first that fails and names
+# it (ADR-032 §2). Order, as in katmate-sys-driver@.service, is by cost:
+#
+#  0. rm -f of this instance's projection — `+`, uid 0 (ADR-037 R84). The unit-
+#     level form of katmate-generate-env's "nothing stale survives every exit
+#     path". Steps 1-3 below refuse BEFORE the generator runs, and a projection
+#     survives a stop and a failed start (ADR-032's note of 2026-08-22), so
+#     without this line a start refused at step 1-3 would leave the PREVIOUS
+#     start's projection standing in /run, readable and wrong. [offline] In
+#     the routed template this line also protects its ExecStopPost=; this
+#     template has none, and the line is kept for the stale-projection reason
+#     alone. The path is literal and built from %i alone: a unit name cannot
+#     carry a `/`.
+#  1. katmate-check-image   — plain file reads. Kernel, <image>.meta, and the
+#                             instance delta <instance>.qcow2.
+#  2. katmate-check-waypipe — the ADR-019 version lock. An offline AppVM runs
+#                             waypipe too (ADR-032 §2): its GUI crosses vsock,
+#                             not a network.
+#  3. katmate-activate-lvs  — `+`, uid 0. lvchange -K -ay on the foundation and
+#                             the app layer, -ay on the home LV; the LV
+#                             existence checks.
+#  4. katmate-generate-env  — `+`, uid 0 (ADR-030 §8). The projection and the
+#                             profile check (ADR-032 §6). [offline] No slot:
+#                             the generator runs its slot lookup for
+#                             app-routed only.
+ExecStartPre=+/usr/bin/rm -f /run/katmate/vm/%i.env
+ExecStartPre=/usr/lib/katmate/katmate-check-image %i
+ExecStartPre=/usr/lib/katmate/katmate-check-waypipe
+ExecStartPre=+/usr/lib/katmate/katmate-activate-lvs %i
+ExecStartPre=+/usr/lib/katmate/katmate-generate-env %p %i
+
+# The leading `-` is load-bearing, not defensive; katmate-sys-driver@.service
+# states why at its EnvironmentFile= line (ADR-030 §8, revision notes
+# 2026-08-17 and 2026-08-19). katmate-generate-env reads back what it published,
+# so the `-` removes an enforcement point from systemd and not the enforcement.
+EnvironmentFile=-/run/katmate/vm/%i.env
+
+# --- the VMM ------------------------------------------------------------------
+# Every value that crosses is a scalar interpolated at a FIXED position, in the
+# braced form: ${} does not word-split, so a value cannot become additional
+# arguments (ADR-030 §3). There is no argv blob and no per-instance drop-in.
+#
+# Notes (1), (2), (5) and (6) are katmate-app-routed@'s, unchanged; (3) and (4)
+# are its network lines, which this profile does not have.
+# (1) -nographic and -serial mon:stdio are OUT, as in katmate-sys-driver@'s (1)
+#     (ADR-030 §6). Under a unit there is no stdio terminal, and a multiplexed
+#     monitor would belong to whoever can write the unit's input. The shipped
+#     form is -display none -monitor none plus an explicit serial chardev, and
+#     the serial console goes to the journal (ADR-037 R83).
+# (2) Every value is a projected ${} scalar at a fixed position (ADR-030 §3):
+#     CID, memory, vCPUs and kernel from T1 and T2, the delta and the home LV
+#     from the instance name (ADR-032 §7), and the root filesystem type from T2
+#     (APP_ROOTFSTYPE). The guest root stays /dev/vda, a constant of this
+#     template: it is whichever -drive is listed first.
+# (3) [offline] -append carries NO km.ip= / km.gw= / km.dns=. Absence of all
+#     three is katmate-init's offline path (ADR-038 §2): lo up, no address, no
+#     route, the resolver symlink dangling, and the console line
+#     `net: offline (no km.ip), lo up` (§11). ipv6.disable=1 is kept, verbatim:
+#     AppVMs are IPv4-only (ADR-037 R66, R76), and an offline one has no
+#     reason to differ. The kernel still creates sit0 (CONFIG_IPV6_SIT), down
+#     and unaddressed (state.md § Invariants).
+# (4) [offline] No network pair. -nodefaults builds no implicit NIC, so the
+#     guest has no network device of any kind: air-gap is the absence of an
+#     object (ADR-030 §2).
+# (5) The memory backend is carried UNCHANGED: a hugepage backed
+#     memory-backend-file. The division between this and netVM's memfd
+#     backend belongs to the memory session and is not decided here (R83).
+# (6) -append carries km.name=%i (R125, and ADR-038's note of 2026-10-02: an
+#     offline template must carry it too, or the guest keeps "(none)").
+#     katmate-init sets the guest hostname from it, so a window's prompt names
+#     its AppVM. %i is not projected: it is the unit's own instance name,
+#     already checked by katmate-generate-env's km_check_instance
+#     ([a-z][a-z0-9_]*, at most 63 bytes) before ExecStart= runs, and
+#     katmate-init checks it again.
+ExecStart=/usr/bin/qemu-system-x86_64 \
+    -enable-kvm \
+    -nodefaults \
+    -no-user-config \
+    -no-reboot \
+    -machine microvm,accel=kvm,acpi=off,pit=off,pic=off,rtc=off,memory-backend=mem \
+    -cpu host \
+    -smp ${KM_VCPUS} \
+    -display none \
+    -monitor none \
+    -chardev stdio,id=console0,signal=off \
+    -serial chardev:console0 \
+    -object memory-backend-file,id=mem,size=${KM_MEM},mem-path=/dev/hugepages,share=on \
+    -kernel ${KM_KERNEL} \
+    -append "root=/dev/vda rw rootfstype=${KM_ROOTFSTYPE} console=ttyS0 reboot=t ipv6.disable=1 km.name=%i" \
+    -object iothread,id=iothread0 \
+    -drive file=${KM_DELTA},if=none,id=disk0,format=qcow2,cache=none,aio=threads \
+    -device virtio-blk-device,drive=disk0,iothread=iothread0 \
+    -drive file=${KM_HOME_DEV},if=none,id=disk1,format=raw,cache=none,aio=threads \
+    -device virtio-blk-device,drive=disk1,iothread=iothread0 \
+    -device virtio-rng-device \
+    -device vhost-vsock-device,guest-cid=${KM_CID} \
+    -sandbox on,obsolete=deny,elevateprivileges=deny,spawn=deny,resourcecontrol=deny
+
+# [offline] No ExecStopPost=. In katmate-app-routed@ it unlinks this
+# instance's appvm socket in its slot (ADR-035 §5); an offline VM binds no
+# socket in any slot, so there is nothing to unlink, and a line expanding
+# KM_NETVM and KM_SLOT here would expand them empty.
+
+# The serial console goes to the journal, one way, as in
+# katmate-sys-driver@.service (ADR-037 R83); that file carries the dev-console
+# rule, and this unit gets no dev drop-in of its own.
+StandardInput=null
+StandardOutput=journal
+StandardError=journal
+
+# No LimitMEMLOCK=: this VM has no vfio device, so nothing pins its RAM for DMA,
+# and the reason katmate-sys-driver@ lifts the limit does not apply here.
+
+# A stop here is SIGTERM to QEMU: the guest gets no clean shutdown, so /home is
+# not unmounted, and TimeoutStopSec bounds it. The graceful path is vm-agent's
+# SHUTDOWN, and wiring it to the unit is open problem #21.
+KillMode=control-group
+TimeoutStopSec=30s
+Restart=no
+
+[Install]
+# Deliberately no WantedBy=: nothing starts a VM at boot yet. Enablement is the
+# launch daemon's decision in step 3b, and until then a VM is started explicitly
+# by `systemctl start katmate-app-offline@<instance>`.
