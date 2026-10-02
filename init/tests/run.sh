@@ -4,7 +4,7 @@
 # foundation.sh's flags plus -g) and run it. Nothing here is baked into an image.
 #
 # Usage:
-#   init/tests/run.sh           parse, inet, select, resolver, ack — unprivileged
+#   init/tests/run.sh           parse, name, inet, select, resolver, ack — unprivileged
 #   init/tests/run.sh --apply   the apply group: root, in a private network
 #                               namespace, never the host's:
 #                                 sudo -n unshare -n init/tests/run.sh --apply
@@ -27,6 +27,7 @@ if [[ "${1:-}" != "--apply" ]]; then
   [[ $EUID -ne 0 ]] || die "run the unprivileged groups as a normal user (the ack group needs the kernel to refuse it)"
   rc=0
   echo "==> parse";    "$T/test-net" parse || rc=1
+  echo "==> name";     "$T/test-net" name || rc=1
   echo "==> inet (a reading, no verdict)"; "$T/test-net" inet
   echo "==> select";   mkdir "$T/sel"; "$T/test-net" select "$T/sel" || rc=1
   echo "==> resolver"; mkdir "$T/res"; "$T/test-net" resolver "$T/res" || rc=1

@@ -7,13 +7,15 @@
  *
  * Groups (argv[1]):
  *   parse               the km.* parser (R86), pure
+ *   name                the km.name= parser (R125), pure
  *   inet                measures which dotted-quad forms inet_pton(AF_INET)
  *                       refuses; a reading, not a test (no expectations)
  *   select <tmpdir>     NIC selection (R85) against sysfs-shaped fixtures
  *   resolver <tmpdir>   the resolver file: content, mode, O_EXCL, O_NOFOLLOW
  *   ack                 unprivileged, in the caller's own network namespace:
  *                       the kernel refuses the first request, and the refusal
- *                       must come back as an error (the ack path, not apply)
+ *                       must come back as an error (the ack path, not apply);
+ *                       and sethostname, refused the same way (R125)
  *   apply <tmpdir>      inside a private network namespace holding link km0
  *                       (run.sh sets that up): the netlink calls themselves
  *
@@ -118,7 +120,88 @@ static const struct parse_case parse_cases[] = {
 	{ "dotted non-km tokens beside the three -> routed",
 	  "ipv6.disable=1 console=ttyS0 " GOOD " virtio_net.napi_tx=1",
 	  X_ROUTED, "10.100.1.17", "10.100.1.1", "10.100.1.1", 0 },
+	{ "km.name= beside the three is not this parser's -> routed (R125)",
+	  "km.name=app_web " GOOD,
+	  X_ROUTED, "10.100.1.17", "10.100.1.1", "10.100.1.1", 0 },
+	{ "km.name= alone is not this parser's -> offline (R125)",
+	  "console=ttyS0 km.name=app_web", X_OFFLINE, 0, 0, 0, 0 },
+	{ "km.namex= -> unknown key",
+	  "km.namex=app_web", X_ERROR, 0, 0, 0, "unknown km.* key: 'km.namex=app_web'" },
 };
+
+/* ---- name (R125) ------------------------------------------------------------ */
+
+struct name_case {
+	const char *name;
+	const char *cmdline;
+	int         expect;                 /* X_OFFLINE = absent, X_ROUTED = set */
+	const char *value;                  /* set: the expected name */
+	const char *errsub;                 /* X_ERROR */
+};
+
+#define N63 "a23456789012345678901234567890123456789012345678901234567890123"
+#define N64 N63 "4"
+
+static const struct name_case name_cases[] = {
+	{ "valid -> set", "console=ttyS0 km.name=app_web " GOOD,
+	  X_ROUTED, "app_web", 0 },
+	{ "valid, upper case and '-' -> set", "km.name=App-Web_2",
+	  X_ROUTED, "App-Web_2", 0 },
+	{ "absent -> untouched, not an error", "console=ttyS0 " GOOD,
+	  X_OFFLINE, 0, 0 },
+	{ "empty cmdline -> absent", "", X_OFFLINE, 0, 0 },
+	{ "63 bytes -> set", "km.name=" N63, X_ROUTED, N63, 0 },
+	{ "64 bytes -> error", "km.name=" N64, X_ERROR, 0, "not 1-63 bytes" },
+	{ "empty value -> error", "km.name= " GOOD, X_ERROR, 0,
+	  "not 1-63 bytes: 'km.name='" },
+	{ "'.' -> error", "km.name=app.web", X_ERROR, 0,
+	  "not [A-Za-z0-9_-]: 'km.name=app.web'" },
+	{ "'/' -> error", "km.name=app/web", X_ERROR, 0,
+	  "not [A-Za-z0-9_-]: 'km.name=app/web'" },
+	{ "quoted space -> error at the quote", "km.name=\"app web\"", X_ERROR, 0,
+	  "not [A-Za-z0-9_-]: 'km.name=\"app'" },
+	{ "duplicate km.name -> error naming the second",
+	  "km.name=app_web km.name=app_personal", X_ERROR, 0,
+	  "duplicate km.name: 'km.name=app_personal'" },
+	{ "duplicate km.name, same value -> error",
+	  "km.name=app_web km.name=app_web", X_ERROR, 0, "duplicate km.name" },
+	{ "km.name after -- counted -> set", "console=ttyS0 -- km.name=app_web",
+	  X_ROUTED, "app_web", 0 },
+	{ "km.namex= is not km.name -> absent here",
+	  "km.namex=app_web", X_OFFLINE, 0, 0 },
+	{ "KM.name= and xkm.name= ignored -> absent",
+	  "KM.name=a xkm.name=b foo.km.name=c", X_OFFLINE, 0, 0 },
+};
+
+static void group_name(void)
+{
+	size_t i;
+
+	for (i = 0; i < sizeof name_cases / sizeof name_cases[0]; i++) {
+		const struct name_case *c = &name_cases[i];
+		char name[KM_NAME_MAX + 1];
+		char err[KM_ERR_MAX] = "";
+		char detail[KM_ERR_MAX + 128];
+		int present = -1;
+		int rc = km_name_parse(c->cmdline, name, &present, err, sizeof err);
+		int ok;
+
+		switch (c->expect) {
+		case X_OFFLINE:
+			ok = rc == 0 && present == 0;
+			break;
+		case X_ROUTED:
+			ok = rc == 0 && present == 1 && strcmp(name, c->value) == 0;
+			break;
+		default:
+			ok = rc == -1 && strstr(err, c->errsub) != NULL;
+			break;
+		}
+		snprintf(detail, sizeof detail, "rc=%d present=%d name=\"%s\" err=\"%s\"",
+		         rc, present, rc == 0 && present == 1 ? name : "", err);
+		check(ok, c->name, detail);
+	}
+}
 
 static int addr_is(const struct in_addr *a, const char *want)
 {
@@ -388,6 +471,27 @@ static void group_ack(void)
 	check(rc == -1 && strstr(err, "link up lo") != NULL &&
 	      strstr(err, "Operation not permitted") != NULL,
 	      "unprivileged lo up -> kernel's EPERM reported as an error", detail);
+
+	/* km_name_step's sethostname, refused the same way (R125). Never run as
+	 * root: there is no UTS namespace here, and it would rename the host. */
+	{
+		char path[] = "/tmp/km-name-ack-XXXXXX";
+		int fd = mkstemp(path);
+
+		err[0] = '\0';
+		if (fd < 0 || write(fd, "km.name=ackprobe\n", 17) != 17) {
+			check(0, "ack: cmdline fixture", strerror(errno));
+		} else {
+			close(fd);
+			rc = km_name_step(path, err, sizeof err);
+			snprintf(detail, sizeof detail, "rc=%d err=\"%s\"", rc, err);
+			check(rc == -1 && strstr(err, "sethostname(\"ackprobe\")") != NULL &&
+			      strstr(err, "Operation not permitted") != NULL,
+			      "unprivileged sethostname -> kernel's EPERM reported as an error",
+			      detail);
+		}
+		unlink(path);
+	}
 }
 
 /* ---- apply (inside a private network namespace) -------------------------- */
@@ -433,6 +537,8 @@ int main(int argc, char **argv)
 	setvbuf(stdout, NULL, _IOLBF, 0);
 	if (argc == 2 && strcmp(argv[1], "parse") == 0)
 		group_parse();
+	else if (argc == 2 && strcmp(argv[1], "name") == 0)
+		group_name();
 	else if (argc == 2 && strcmp(argv[1], "inet") == 0)
 		group_inet();
 	else if (argc == 3 && strcmp(argv[1], "select") == 0)
@@ -444,7 +550,7 @@ int main(int argc, char **argv)
 	else if (argc == 3 && strcmp(argv[1], "apply") == 0)
 		group_apply(argv[2]);
 	else {
-		fprintf(stderr, "usage: %s parse|inet|ack|select <tmp>|resolver <tmp>|apply <tmp>\n",
+		fprintf(stderr, "usage: %s parse|name|inet|ack|select <tmp>|resolver <tmp>|apply <tmp>\n",
 		        argv[0]);
 		return 2;
 	}

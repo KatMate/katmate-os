@@ -7,7 +7,9 @@
  * Responsibilities (and nothing more):
  *   1. Mount the pseudo-filesystems and the persistent /home rw LV.
  *   2. Set up XDG_RUNTIME_DIR for user 1000.
- *   3. Configure the network from the typed km.* kernel parameters (ADR-038):
+ *   3. Set the hostname from km.name= (R125), before the network, routed and
+ *      offline alike; absent leaves the kernel's "(none)". Then configure the
+ *      network from the typed km.* kernel parameters (ADR-038):
  *      lo up on every boot; with km.ip/km.gw/km.dns, the one device-backed
  *      link up, km.ip/32 on it, an on-link default route via km.gw, and
  *      /run/resolv.conf naming km.dns. Without km.*, offline: lo only. Any
@@ -38,6 +40,8 @@
  *   - kernel cmdline, routed AppVM (ADR-038 §10):
  *                     km.ip=<addr> km.gw=10.100.1.1 km.dns=10.100.1.1 ipv6.disable=1
  *                     (all three km.* or none; none = offline)
+ *   - kernel cmdline, any AppVM (R125): km.name=<instance>, 1-63 bytes of
+ *                     [A-Za-z0-9_-]; optional
  *   - -drive order:   vda = qcow2 root delta, vdb = raw /home LV
  *   - image:          /etc/resolv.conf is the relative symlink ../run/resolv.conf
  *                     (ADR-038 §7; the layer builds put it there)
@@ -254,6 +258,8 @@ static int km_read_text(const char *path, char *buf, size_t size,
  * km.<key>=<value> with <key> one of ip, gw, dns, each at most once, and
  * <value> at most 15 characters and accepted by inet_pton(AF_INET). The set
  * is all three (routed) or none (offline); one or two is an error (§3).
+ * km.name= is also a known key (R125); it is km_name_parse()'s, and is
+ * skipped here.
  */
 static int km_net_parse(const char *cmdline, struct km_net *net,
                         char *err, size_t errlen)
@@ -294,6 +300,8 @@ static int km_net_parse(const char *cmdline, struct km_net *net,
 			return -1;
 		}
 		keylen = (size_t)(eq - (tok + 3));
+		if (keylen == 4 && strncmp(tok + 3, "name", 4) == 0)
+			continue;                   /* km_name_parse()'s (R125) */
 		for (i = 0; i < 3; i++) {
 			if (keylen == strlen(keys[i]) &&
 			    strncmp(tok + 3, keys[i], keylen) == 0) {
@@ -341,6 +349,98 @@ static int km_net_parse(const char *cmdline, struct km_net *net,
 		return -1;
 	}
 	net->state = KM_NET_ROUTED;
+	return 0;
+}
+
+/* ---- hostname (R125) ------------------------------------------------------ */
+/*
+ * km.name=<instance> names the guest: the host passes its systemd instance
+ * name (%i), and init sets it with sethostname(2) on every boot, routed and
+ * offline alike, independent of km.ip. Validated in ADR-038's style: at most
+ * once, 1-63 bytes of [A-Za-z0-9_-]; anything else is an error and exits the
+ * VM like a malformed km.* (ADR-038 §9). Absent is not an error: the hostname
+ * is left as the kernel's "(none)".
+ */
+
+#define KM_NAME_MAX 63
+
+/* Find and check km.name= in the command line text. *present is 1 and name[]
+ * holds the value when it was given, 0 when it was absent. */
+static int km_name_parse(const char *cmdline, char name[KM_NAME_MAX + 1],
+                         int *present, char *err, size_t errlen)
+{
+	static const char key[] = "km.name=";
+	const size_t klen = sizeof key - 1;
+	const char *p = cmdline;
+	size_t i;
+
+	*present = 0;
+	name[0] = '\0';
+	for (;;) {
+		const char *tok, *val;
+		size_t len, vlen;
+
+		while (*p == ' ' || *p == '\t' || *p == '\n')
+			p++;
+		if (*p == '\0')
+			break;
+		tok = p;
+		while (*p != '\0' && *p != ' ' && *p != '\t' && *p != '\n')
+			p++;
+		len = (size_t)(p - tok);
+
+		if (len < klen || strncmp(tok, key, klen) != 0)
+			continue;                   /* not km.name=: ignored here */
+
+		if (*present) {
+			snprintf(err, errlen, "duplicate km.name: '%.*s'", (int)len, tok);
+			return -1;
+		}
+		val = tok + klen;
+		vlen = len - klen;
+		if (vlen == 0 || vlen > KM_NAME_MAX) {
+			snprintf(err, errlen,
+			         "km.name value is not 1-%d bytes: '%.*s'",
+			         KM_NAME_MAX, (int)(len > 80 ? 80 : len), tok);
+			return -1;
+		}
+		for (i = 0; i < vlen; i++) {
+			unsigned char c = (unsigned char)val[i];
+			if (!((c >= 'A' && c <= 'Z') || (c >= 'a' && c <= 'z') ||
+			      (c >= '0' && c <= '9') || c == '_' || c == '-')) {
+				snprintf(err, errlen,
+				         "km.name value is not [A-Za-z0-9_-]: '%.*s'",
+				         (int)len, tok);
+				return -1;
+			}
+		}
+		memcpy(name, val, vlen);
+		name[vlen] = '\0';
+		*present = 1;
+	}
+	return 0;
+}
+
+/* The whole step: read, parse, sethostname, and one log line. */
+static int km_name_step(const char *cmdline_path, char *err, size_t errlen)
+{
+	char cmdline[KM_CMDLINE_MAX];
+	char name[KM_NAME_MAX + 1];
+	int present;
+
+	if (km_read_text(cmdline_path, cmdline, sizeof cmdline, err, errlen) != 0)
+		return -1;
+	if (km_name_parse(cmdline, name, &present, err, errlen) != 0)
+		return -1;
+	if (!present) {
+		logmsg("hostname: not set (no km.name)");
+		return 0;
+	}
+	if (sethostname(name, strlen(name)) != 0) {
+		snprintf(err, errlen, "sethostname(\"%s\"): %s", name, strerror(errno));
+		return -1;
+	}
+	logmsg("hostname: %s", name);
 	return 0;
 }
 
@@ -930,6 +1030,13 @@ int main(void)
 	{
 		char err[KM_ERR_MAX];
 
+		/* The hostname first (R125), so a failure here is logged with the
+		 * rest of the km.* step and leaves the same way. */
+		if (km_name_step(KM_CMDLINE_PATH, err, sizeof err) != 0) {
+			logmsg("hostname: ERROR: %s", err);
+			logmsg("net: vm-agent not started; exiting the VM (ADR-038 §9)");
+			do_shutdown(-1);
+		}
 		if (km_net_step(KM_CMDLINE_PATH, KM_SYSFS_NET, KM_RESOLV_PATH,
 		                err, sizeof err) != 0) {
 			logmsg("net: ERROR: %s", err);
