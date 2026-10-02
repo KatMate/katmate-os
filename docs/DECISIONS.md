@@ -9430,3 +9430,35 @@ not edited.
 § *Networking* and the revision note on
 [ADR-033](DECISIONS.md#adr-033) are written in the same pass as this note.
 `init/katmate-init.c`'s header changed with the code (`04672b8`).
+
+**Revision note (2026-10-02, R125 — `km.name=`, the guest hostname):** a
+fourth typed parameter is added. This note records the operator's ruling and
+its implementation. It changes no text above, and it names the one statement
+it supersedes. Sources, outside the repository: `ai2-brief.md` and
+`ai2-report.md`.
+
+- **R125 (operator, 2026-10-02).** `km.name=<instance>` is on the AppVM
+  kernel command line. katmate-init sets the guest hostname from it with
+  `sethostname(2)` on every boot, routed and offline alike, independent of
+  `km.ip`. It is validated in this ADR's style: at most once, 1–63 bytes of
+  `[A-Za-z0-9_-]`. Anything else is an error of §9's class, which exits the
+  VM. When it is absent, the hostname is left as the kernel's `(none)`, and
+  that is not an error. The value is the systemd instance name,
+  `km.name=%i`, in `katmate-app-routed@.service`'s `-append`. No generator
+  change is needed, because `km_check_instance` has already typed `%i`.
+  netVM is not touched. The motive: in ai1 every AppVM prompt read
+  `user@(none)`, and the operator typed into the wrong window three times.
+- **§3's *"any other `km.*` key is an error"* is superseded for `name`.**
+  The network parser skips `km.name`, and `km.namex=` and the other unknown
+  keys are still errors. **A guest whose image predates the change exits on
+  `km.name=`** as an unknown key. A template carrying it must therefore
+  never start an image built before `f137929`.
+- **Implementation.** `f137929` (katmate-init: the name step runs before
+  the network step and logs `hostname: <name>`; its errors leave through
+  `do_shutdown(-1)`), `0e6fbbf` (the template, its change (6)) and
+  `8cb5fb9` (the host refuses an instance name over 63 bytes first, so the
+  guest's limit is never the one that fires). `init/tests/run.sh`'s new
+  `name` group passed on the Acer. A successful `sethostname` as root is
+  first executed at the first boot of an image built from `f137929`.
+- **Offline AppVMs.** No offline template exists yet. When one is created,
+  it must carry `km.name=%i` too, or an offline guest keeps `(none)`.
