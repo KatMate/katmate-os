@@ -6,10 +6,10 @@
 > history and the ADRs — this file references them rather than repeating them.
 
 **Milestone:** v0.2 (in development) · **Last updated:** 2026-10-02
-(`ai2`, alpha integration step 2, on the Acer and MINIS: AppVMs name
-themselves from `km.name=` (R125); the hugepage pool is 12 GiB (R126);
-foundation and app layer rebuilt, deltas recreated; next is the office or
-vault AppVM).
+(`ai3`, alpha integration step 3, on the Acer and MINIS: the work AppVM
+`app_work` on the new `office` layer (LibreOffice), three AppVMs on one
+netVM at once; the RUN whitelist gains `libreoffice` and `keepassxc`
+(R130); every set-aside layer removed (R132); next is the vault AppVM).
 
 ## Current focus
 
@@ -91,6 +91,13 @@ routed AppVM now names itself from `km.name=%i` (R125): the operator read
 which answers ai1's pool question. **Next is the next alpha AppVM**
 (office or vault). Vault needs an offline template that carries
 `km.name=%i`. See § *This session*.**]**
+**[Note 2026-10-02, `ai3`: alpha integration step 3 is done.** `app_work`
+(CID 23, slot 03, manifest `office`) ran beside `app_web` and
+`app_personal` on one netVM, the operator saved and reopened a Writer
+document in it, and a flow from `.19` carried `mark=4`. **Next is the vault
+AppVM**, the last of the alpha. It needs an offline template that carries
+`km.name=%i`. keepassxc is already whitelisted (R130). See § *This
+session*.**]**
 
 The **entire build chain remains scripted and proven from nothing**:
 `make foundation` builds the shared systemd-free base
@@ -119,7 +126,95 @@ restartable — and so updatable — without touching running VMs.
 Direction unchanged: IOMMU-capable platforms only (VT-d/AMD-Vi).
 MINIS is primary host and merge target.
 
-## This session (2026-10-02, alpha integration step 2 — ai2) — AppVMs name themselves from `km.name=` (R125); the hugepage pool is 12 GiB (R126); layers rebuilt
+## This session (2026-10-02, alpha integration step 3 — ai3) — the work AppVM `app_work` on the `office` layer; three AppVMs on one netVM; the RUN whitelist gains libreoffice and keepassxc (R130); every set-aside layer removed (R132)
+
+One session, `ai3`, on the Acer and MINIS, in auto mode. It halted once,
+at its read pass, on six divergences. The brief lay in the repository root,
+not in `~/Claude.assistent/`. R129's generator change is a host executable,
+and the brief never installed it. `tools/validate-properties.fish` also
+enumerates the app manifests. No unit test pinned the whitelist. Three
+documents enumerate the set, and `vault.list` and this file expected a
+per-manifest whitelist. And the 2026-09-25 whitelist ruling had no home in
+the repository. The orchestrator ruled, relayed by the operator: install
+both host files hash-first; `office` added to the validator's enum; a new
+test; the enumerations follow on `adc217f`'s model; and ADR-021 is the
+ruling's home. No commit on MINIS. No reboot. The report is outside the
+repository: `~/Claude.assistent/ai3-report.md`, with every script and
+output in `~/Claude.assistent/ai3/` and `/home/host/katmate-dev/ai3/`.
+
+**The operator's rulings (2026-10-02).**
+- **R128 — the work domain:** instance `app_work`, `class = app`,
+  `manifest = office`, `netvm = netvm`, persistent, `identity = true`,
+  `mem = "2G"`, `vcpus = 2`, CID 23, slot 03 (`10.100.1.19`, mark 4),
+  `LINK_ID` 203, home `vm_app_work_home` thin in `vm_pool`.
+- **R129 — `manifests/office.list`:** libreoffice-writer, -calc,
+  -impress, -gtk3, foot, pcmanfm. No Java.
+- **R130 — the RUN whitelist** stays a compile-time constant for the alpha
+  and becomes `firefox-esr, foot, pcmanfm, libreoffice, keepassxc`.
+- **R131 — ADR notes:** ADR-014 (the work row, three manifests), ADR-032
+  §3 (the app manifest set), ADR-021 (the whitelist rulings).
+- **R132 — every set-aside layer removed**, under guards.
+- **R133 — `katmate-lib.sh` installed** (and, by ruling 2 on the read
+  pass, `katmate-generate-env`).
+- **R134 — MINIS reboots are announced.** None was needed.
+
+**What ran (CEST).**
+- **Part A (Acer):** `af6e9d3` the whitelist, its new test (`cargo test
+  -p vm-agent`, 4 of 4) and the three enumerations, with `vault.list`'s
+  note; `78f4caf` `office.list`, `APP_TYPES`, the generator and the
+  validator (0 errors over the four staged T1 files, and the reverted enum
+  as a control rejects `app_work.toml`); `431ab9e` the three ADR notes.
+  Pushed before Part B.
+- **P0 (14:56):** no reboot since ai2 (14:03:24); netVM MainPID 22405;
+  slot 03 free, no T1 with cid 23; 6144 of 6144 pages free. Installed set
+  against the tree: exactly `katmate-generate-env` and `katmate-lib.sh`
+  differ, each equal to its parent blob.
+- **R132 (14:57):** `_pre0929`, `_pre0929b` and `_pre1002` removed (six
+  LVs, five deltas, six metas); every guard held. `vm_pool` 1.77 % →
+  0.46 %.
+- **Install (14:58):** both host files, hash-first, read back equal to the
+  tree. The installed set equals the tree at `431ab9e`, 10 of 10. vm-agent
+  rebuilt on MINIS (`87ebdcaa…`, both new names in `strings`, neither in
+  the old binary's).
+- **Builds:** `_preai3` set aside. `make foundation` exit 0
+  (14:59:43–15:03:41, 209 packages, **0 apt `W:` lines**); `make app-web`
+  exit 0 (230); **`make app-office` exit 0 (15:05:02–15:06:15): 356
+  packages, 147 added, no JRE** (Java only under *Suggested*). Every layer
+  bakes vm-agent `87ebdcaa…` and `/sbin/init` `8163e103…`. Three deltas
+  created.
+- **R128 (15:06):** `vm_app_work_home` (form of record; the same ext4 as
+  `vm_app_personal_home`), the T1 `app_work.toml` (`bd7f7acc…`), owners
+  01–03, NETCFG ADD 201–203 OK.
+- **Three AppVMs (15:07–15:08):** each PING OK on try 3. **`[katmate-init]
+  hostname: app_work`**, `net: eth0 10.100.1.19/32 via 10.100.1.1`.
+  `HugePages_Free` 6027 → 5960 → 5894.
+- **The operator at MINIS (15:16–15:31):** RUN `foot` → **`user@app_work:~$`**
+  (after the `C` locale warning). RUN `libreoffice`: *"LibreOffice runs
+  great! (fast!)"*; `test.odt` saved (9495 B), closed and reopened
+  (*"yes"*). **netVM conntrack: `ESTABLISHED src=10.100.1.19 dst=1.1.1.1 …
+  dport=443 … mark=4`**, NATed to `10.3.1.172`.
+- **End (15:32):** three SHUTDOWNs (*"Deactivated successfully"*), REMOVE
+  201–203, owners removed, console logged out. **`_preai3` removed** (the
+  condition held). netVM left running.
+
+**Found, recorded and not designed for (report §§ 5, 6).**
+- **LibreOffice's stderr is not observable.** The guest has no journal,
+  and a RUN child's output reaches neither the serial console nor
+  `waypipe-client`'s journal. "No warning seen" is therefore a check that
+  cannot fire. Recommended and not installed: `fonts-liberation`,
+  `hunspell-en-us`, `libreoffice-math`, `xdg-utils`, an icon theme.
+- **The apt `W:` flood did not occur** in this foundation build: same boot,
+  same kernel and same IPv6 rule as ai2's 102,072. It is intermittent.
+- `foot`'s `C` locale warning appears in `app_work` too.
+
+**Not done, and not claimed.**
+- No verdict. The operator's words and the readings are recorded.
+- Whether LibreOffice prints dbus or GTK warnings (not observable, above).
+- `init/tests/run.sh --apply`; G6b; #48's fail-closed half.
+- The generator's new line ran in `app_work`'s start. Its refusal of an
+  unknown manifest ran only as an extract on the Acer.
+
+## Previous session (2026-10-02, alpha integration step 2 — ai2) — AppVMs name themselves from `km.name=` (R125); the hugepage pool is 12 GiB (R126); layers rebuilt
 
 One session, `ai2`, on the Acer and MINIS, in auto mode. It halted once at
 its read pass. The brief's H1 fired, because every rebuild of record had
@@ -209,7 +304,7 @@ on MINIS. The report is outside the repository:
 - `init/tests/run.sh --apply` was not run, and it has no hostname case.
 - G6b and #48's fail-closed half, as before.
 
-## Previous session (2026-10-02, alpha integration step 1 — ai1) — `app_personal` beside `app_web` on one netVM: two slots, two GUIs, independence observed; `docs/PARAMETERS.md` created
+## Earlier session, not yet rotated (2026-10-02, alpha integration step 1 — ai1) — `app_personal` beside `app_web` on one netVM: two slots, two GUIs, independence observed; `docs/PARAMETERS.md` created
 
 One session, `ai1`, on the Acer and MINIS (Manual mode). It halted twice
 at its read pass. The first halt (2026-09-30, a closed session) raised four
@@ -1670,6 +1765,50 @@ touched.
     logs `189ae05a…` and `cf7bd5a2…`, and the package lists). Fixtures, not
     live configuration.
 
+  **THREE APPVMS ON ONE NETVM, AND A CLEAN VG0 (2026-10-02, ai3).** The
+  blocks above are left as published. This block supersedes their chain,
+  deltas, set-aside sets, installed-set hashes and `out/vm-agent`. As left
+  at 15:32:38 CEST (`ai3-report.md`, outside the repository):
+  - **Host boot unchanged** (2026-10-02 14:03:24, kernel 7.2.8-hardened).
+    No reboot in ai3.
+  - **The chain:** `vm_tpl_foundation` (`BUILD_DATE=2026-10-02T13:03:41Z`,
+    from `431ab9e`; `foundation.meta` `81f052e8…`; 209 packages) →
+    `vm_app_web` (`APP_BUILT=2026-10-02T13:04:41Z`; `app-web.meta`
+    `abb8e780…`; 230 packages) and
+    **`vm_app_office`** (`APP_BUILT=2026-10-02T13:06:15Z`; `app-office.meta`
+    `b4cfc9ac…`; 356 packages, no JRE) → `instances/app_web.qcow2`,
+    `app_personal.qcow2` (on `vm_app_web`) and **`app_work.qcow2`** (on
+    `vm_app_office`), each written by one boot. Every layer carries
+    `/sbin/init` `8163e103…` and `/usr/local/bin/vm-agent` **`87ebdcaa…`**
+    (R130's whitelist), the relative resolver link, and no
+    `run/resolv.conf`.
+  - **vg0 holds nothing set aside.** Every `_pre0929`, `_pre0929b`,
+    `_pre1002` and `_preai3` LV, delta and meta is removed (R132, and
+    ai3's own rollback after the run). LVs: `root`, `swap`,
+    `vm_tpl_foundation`, `vm_app_web`, `vm_app_office`, `vm_app_web_home`
+    (linear), `vm_app_personal_home`, `vm_app_work_home` (both thin),
+    `vm_sys_netvm`, and `vm_pool` (0.63 % data, 10.80 % meta).
+  - **`out/vm-agent` is `87ebdcaa…`** (built on MINIS from `431ab9e`). The
+    2026-09-26 binary is kept as `/home/host/katmate-dev/ai3/vm-agent.pre-ai3`
+    (`432c4d17…`), a fixture.
+  - **Installed host set equals the tree at `431ab9e`, 10 of 10.**
+    `katmate-lib.sh` `c5c2db32…` (R133) and `katmate-generate-env`
+    `e96f0382…` (accepts `office`). The hash-first check expects no
+    difference.
+  - **T1 files:** `netvm.toml`, `app_web.toml`, `app_personal.toml` and
+    **`app_work.toml`** (`bd7f7acc…`, cid 23).
+  - **netVM unchanged:** MainPID `22405`, invocation `ca5f364e…`,
+    `NRestarts=0`. The console is logged out (`localhost login:`). No `jbd2`
+    hold on `vm_sys_netvm`.
+  - **The pool:** 16 `netvm` nodes, no owner, no `appvm`. Links 201–203
+    removed. **All three AppVM units inactive.**
+  - Hugepages 6144, all free. Sleep targets unmasked (`static`).
+  - **Session files:** `/home/host/katmate-dev/ai3/` (scripts, the three
+    build logs, package lists, journal copies). Fixtures, not live
+    configuration. The untracked brief `ai3-brief.md` reached
+    `~/katmate-build/` with the rsync, and the next `--delete` sync removes
+    it once it has left the Acer's tree.
+
   **The uplink is capped by the cable, and that is a condition of the
   environment rather than a defect.** On the boot of 2026-09-12 the link came up
   1 Gbps, went down, and settled at **100 Mbps/Full (downshifted)**, the driver
@@ -1787,11 +1926,36 @@ touched.
     owner was written by hand and removed at the end, so the next start
     needs it written again (and after any reboot, as with every `/run`
     owner). The per-instance values are in `docs/PARAMETERS.md`.
+- **app_work** (CID **23**, slot **03**, `LINK_ID` **203**; created
+  2026-10-02 by `ai3`, R128). `class = app`, **`manifest = office`**,
+  `netvm = netvm`, `persistence = persistent`, `identity = true`,
+  `disposable = false`, `mem = "2G"`, `vcpus = 2`.
+  - **T1** `/etc/katmate/vm/app_work.toml`, `root:root 0644`, `bd7f7acc…`,
+    staged in the Acer's ignored `local/etc/katmate/vm/`.
+  - **Delta** `/var/lib/katmate/instances/app_work.qcow2`, `host:host
+    0644`, backing **`/dev/vg0/vm_app_office`** (raw), 10 GiB virtual, in
+    the form above with `vm_app_office`.
+  - **Home LV `vm_app_work_home`**: 10G thin in `vm_pool`, made in the form
+    of record above (`app_personal`). Its ext4 equals
+    `vm_app_personal_home`'s field for field. It holds the operator's
+    `user/test.odt` (9495 B).
+  - **The `office` layer** (`vm_app_office`): the foundation plus
+    LibreOffice Writer, Calc and Impress with the GTK3 front end, foot and
+    pcmanfm. 356 packages, no JRE. `/usr/bin/libreoffice` is the RUN target.
+  - **Booted once** (2026-10-02 15:07–15:31) by
+    `katmate-app-routed@app_work`: `km.ip=10.100.1.19`, `km.name=app_work`,
+    MAC `52:54:00:b4:ec:6c`, beside `app_web` and `app_personal`. The
+    operator ran `foot` and LibreOffice in it. Its owner was removed at the
+    end. The per-instance values are in `docs/PARAMETERS.md`.
 - **app_vault** (build-only): `vm_app_vault` thin snap RO of `vm_tpl_foundation`,
   built via `make app-vault` (2026-06-29; keepassxc/foot/nautilus). NOT yet
   instantiated — no qcow2 delta, no home LV, no CID (will be allocated from 20+),
   never booted. keepassxc
   still off the vm-agent RUN whitelist (Faza 4 blocker).
+  **[2026-10-02, ai3: false since `af6e9d3` in the tree and since ai3's
+  foundation on MINIS. keepassxc is on the compile-time whitelist (R130,
+  ADR-021's note), and a per-manifest whitelist is post-alpha, not a vault
+  blocker. The text is left as written.]**
   **2026-09-26: `vm_app_vault` no longer exists under that name** — only as
   `vm_app_vault_pre0926`, on the old foundation. `manifests/vault.list` now
   names pcmanfm instead of nautilus (`adc217f`). **Not rebuilt**
@@ -4644,6 +4808,16 @@ frozen `vm_home_skel` vs qcow2 branch.
      vault needs the per-manifest RUN whitelist. **Each one first needs a
      decision on the hugepage pool**: four AppVMs at 4G + 2G + … exceed
      4096 × 2 MiB. Still open from 4c: G6b and #48's fail-closed
+     half.**]**
+     **[Note 2026-10-02 (`ai3`): alpha integration step 3 is done, and two
+     clauses of the note above no longer hold.** office has its manifest
+     (`office.list`, R129), and `app_work` (CID 23, slot 03, `LINK_ID=203`)
+     ran beside the other two. *"vault needs the per-manifest RUN
+     whitelist"* is false: keepassxc is on the compile-time whitelist (R130,
+     ADR-021's note), and a per-manifest whitelist is post-alpha. The pool
+     question was answered by R126 (ai2, 12 GiB). **Next is the vault
+     AppVM**, the last of the alpha: it needs an offline template that
+     carries `km.name=%i`. Still open from 4c: G6b and #48's fail-closed
      half.**]**
   5. **VPN mode** (added 2026-09-27, R30): the WireGuard config, the VPN
      ruleset and the kill-switch, under **its own ADR**, after step 4. R8
