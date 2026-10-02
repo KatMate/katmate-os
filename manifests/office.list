@@ -1,0 +1,11 @@
+# office domain (ADR-014; the work domain, R128/R129)
+# Routed through a NetVM, persistent, with identity. Writer, Calc and Impress
+# with the GTK3 front end; no Java. Installed without recommends (the
+# foundation's apt configuration), so no default-jre comes in by Recommends.
+# The `libreoffice` executable is on the vm-agent RUN whitelist (R130).
+libreoffice-writer
+libreoffice-calc
+libreoffice-impress
+libreoffice-gtk3
+foot
+pcmanfm

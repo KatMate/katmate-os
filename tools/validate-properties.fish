@@ -76,7 +76,7 @@ set -g enum_persist  persistent ephemeral
 # (ADR-032 §3): skupni enum bi naredil manifest=netvm veljaven na AppVM-u —
 # veljavna vrednost, ki zgradi napačno sliko.
 set -g enum_man_sys  netvm
-set -g enum_man_app  vault web
+set -g enum_man_app  vault web office
 set -g bool_keys     identity disposable reset_on_shutdown provides_network
 
 # --- akumulatorji ČEZ datoteke (ADR-032 §4) ----------------------------------

@@ -154,7 +154,7 @@ done
 MANIFEST="${KM_T1[manifest]}"
 case "$CLASS" in
 sys) in_list "$MANIFEST" netvm      || km_die "$KM_T1_FILE: manifest='$MANIFEST' is not in {netvm} for class=sys (ADR-032 §3)" ;;
-app) in_list "$MANIFEST" vault web  || km_die "$KM_T1_FILE: manifest='$MANIFEST' is not in {vault, web} for class=app (ADR-032 §3)" ;;
+app) in_list "$MANIFEST" vault web office || km_die "$KM_T1_FILE: manifest='$MANIFEST' is not in {vault, web, office} for class=app (ADR-032 §3)" ;;
 esac
 
 for key in "${BOOL_KEYS[@]}"; do

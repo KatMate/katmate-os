@@ -22,7 +22,7 @@ KERNEL_VERSION := 6.12.87
 KERNEL_VMLINUZ := $(OUT)/vmlinuz-katmate-microvm-amd64-$(KERNEL_VERSION)
 KERNEL_SRC_DIR ?= /home/host/katmate-kernels
 VM_AGENT   := $(OUT)/vm-agent
-APP_TYPES  := web vault
+APP_TYPES  := web vault office
 APP_TARGETS := $(addprefix app-,$(APP_TYPES))
 
 .PHONY: all foundation apps clean $(APP_TARGETS)
