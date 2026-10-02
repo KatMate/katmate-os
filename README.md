@@ -37,6 +37,7 @@ templates, kernels, or forwarding layers. See [ADR-001](docs/DECISIONS.md#adr-00
 | [docs/HOST-CONFIG.md](docs/HOST-CONFIG.md) | Host configuration KatMate depends on that lives outside git — an input to the installer |
 | [docs/INSTALL.md](docs/INSTALL.md) | Requirements, installer walkthrough, disk layout, tested hardware, caveats |
 | [docs/DECISIONS.md](docs/DECISIONS.md) | Architecture Decision Records (Accepted / Proposed) |
+| [docs/PARAMETERS.md](docs/PARAMETERS.md) | Per-instance parameters the alpha integration sets by hand, and the component that will own each |
 | [ROADMAP.md](ROADMAP.md) | Milestones v0.1 → v1.0 |
 | [state.md](state.md) | Volatile working state: open problems, next steps (regenerated per session) |
 
