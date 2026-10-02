@@ -3744,6 +3744,57 @@ the vault instance** (R61). **The deletion of the `.con` files (G3) is
 still not in step 4**; `app_web.con` and `katmate-app-routed@app_web` must
 never run at once.
 
+**Revision note (2026-10-02, `app-offline` shipped with the vault — R135,
+R136; gates G2 and ADR-032 H2):** this note records a shipment and the
+operator's rulings on two gates. It changes no text above. Sources,
+outside the repository: `ai4-brief.md` and `ai4-report.md`.
+
+- **R135 — `katmate-app-offline@.service` ships** with the instance that
+  derives it, `app_vault` (`class = app`, `netvm = ""`; R137), as the
+  2026-09-28 note planned. It is `katmate-app-routed@.service` with only
+  what §2's profile requires taken out. It has no `-netdev` and no
+  `virtio-net-device`: with `-nodefaults`, the guest has no network device
+  at all, which is §2's *"`netvm: None` yields an absent device"*. Its
+  `-append` carries no `km.ip=`, `km.gw=` or `km.dns=`, so katmate-init
+  takes the offline path of [ADR-038](DECISIONS.md#adr-038) §2. It has no
+  `ExecStopPost=`, whose only job was the slot's `appvm` socket. Nothing
+  in it reads `KM_NETVM`, `KM_SLOT`, `KM_GUEST_ADDR` or `KM_MAC_INT`.
+  Every other directive is kept verbatim: `ipv6.disable=1`, `km.name=%i`
+  (R125, as ADR-038's note of 2026-10-02 requires of an offline template),
+  the home drive, the `ExecStartPre=` chain with `katmate-check-waypipe`
+  (ADR-032 §2), and `-sandbox`. Three templates now ship: `sys-driver`,
+  `app-routed` and `app-offline`. `sys-proxy` is still named and not
+  shipped.
+- **R136 — the generator's `app-offline` arm.** `katmate-generate-env`
+  refuses `persistence = ephemeral` for `app-offline` with `app-routed`'s
+  reason (§7: an ephemeral `/home` has no storage mechanism, and the
+  template lists the home drive unconditionally), and `KM_HOME_DEV` joins
+  the profile's required keys. In a unit's chain `katmate-activate-lvs`
+  runs first and already refuses `ephemeral` (*"the storage mechanism for
+  an ephemeral /home is deliberately not decided"*). The generator's own
+  refusal puts the rule where the profile is derived, and the required
+  key closes the read-back: an `app-offline` projection without a home
+  device no longer reads back clean.
+- **G2 is re-pointed.** The 2026-08-09 note named it
+  `katmate-app-offline@app_web`, a pairing that can no longer occur
+  because `app_web` is routed. By the operator's ruling of 2026-10-02, G2
+  is **`katmate-app-offline@app_vault`**. Its observation is that
+  instance's boot: the console prints `net: offline (no km.ip), lo up`,
+  and QEMU's command line carries no `-netdev` and no slot path. The
+  verdict is the operator's.
+- **ADR-032 H2 is taken in its original pairing only:** `app_vault.toml`,
+  which derives `app-offline`, started under `katmate-app-routed@app_vault`,
+  must be refused by `katmate-generate-env` before QEMU, with the journal
+  naming the asserted and the derived profile, and no QEMU carrying
+  `guest-cid=24` may appear. **The 2026-08-09 note's inverted pairing (a
+  `sys`-deriving file under `katmate-app-offline@`) is not taken.** The
+  only `class = sys` T1 is `netvm.toml`, and an app template's
+  `katmate-activate-lvs`, which runs before the generator, would act on
+  the running netVM's LV. The original pairing tests the same property
+  without touching it.
+- The observations are recorded in `state.md` and `docs/PARAMETERS.md` by
+  the session that takes them (ai4, Part B). This note claims none of them.
+
 ---
 
 ## ADR-032 — Where each tier lives: the path is the tier, and T4 is more than the template
