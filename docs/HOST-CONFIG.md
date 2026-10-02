@@ -385,6 +385,19 @@ the fallback it must show — netVM starting without the disk, on DHCP.
 
 **Scope:** all · **[LIVE]** on MINIS · **[V]** 2026-08-11
 
+**Note 2026-10-02, the first alpha integration session (`ai1`): MINIS now
+carries `netvm.toml`, `app_web.toml` and `app_personal.toml`, and the
+directory `netvm.d/`** (§ 12). `app_personal.toml` was created by hand in this
+section's form: staged in `local/etc/katmate/vm/`, `install -D -m 0644 -o
+root -g root`, verified with `cmp` and `sha256sum` (`042750bf…`). The
+installer's create-never-overwrite rule held, because the file was absent
+before the install. `tools/validate-properties.fish` returned 0 errors and
+0 warnings over the three staged files, with the cross-file rules
+evaluated. The sentence *"MINIS carries `netvm.toml` and `app_web.toml`"*
+below is left as written. **Not checked by anything here:** two T1 files
+carrying the same `cid`. Neither the generator nor the validator refuses it,
+and the values per instance are in [PARAMETERS.md](PARAMETERS.md).
+
 **Requirement:** one `<name>.toml` per VM at `/etc/katmate/vm/`, flat, one file
 per VM, `root:root` `0644` ([ADR-032](DECISIONS.md#adr-032) §1). MINIS carries
 `netvm.toml` and `app_web.toml`.
