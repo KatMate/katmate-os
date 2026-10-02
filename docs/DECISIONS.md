@@ -465,6 +465,21 @@ libpam-systemd. Their removal is deferred past the alpha. The domain table's `we
 row (firefox-esr, foot, nautilus) is superseded by `manifests/web.list`:
 firefox-esr, foot, pcmanfm.
 
+**Revision note 2026-10-02 — a work domain, and a third manifest (R128, R129).**
+The default domain set gains a fifth row:
+
+| Domain | Network | Persistence | Identity | Manifest |
+|---|---|---|---|---|
+| work | via NetVM | persistent | yes | `office` |
+
+The `office` manifest is `manifests/office.list`: Writer, Calc and Impress
+with the GTK3 front end, plus foot and pcmanfm, with no Java. The domain is
+defined by its properties, as § *Decision* requires. It shares `personal`'s
+property row and differs only in its application set, which follows from its
+purpose. *"Two manifests"* in § *Decision* and *"two hardcoded manifests"* in
+*Customization evolution* are now three: `vault`, `web` and `office`. The
+alpha's first instance of the domain is `app_work`.
+
 ---
 
 ## ADR-015 — VM properties: machine-readable schema (TOML, per-instance)
@@ -1438,6 +1453,27 @@ after `nftables.service`, so a ruleset that fails to load leaves forwarding
 off. *(Added by the write pass: forwarding after the ruleset is observed on
 a normal boot. That a failed ruleset leaves it off is not yet observed;
 see [ADR-037](DECISIONS.md#adr-037)'s note of 2026-09-30.)*
+
+**Revision note (2026-10-02, § *Decision* — `vm-agent`'s RUN whitelist, two
+rulings):** the opcode model gives `vm-agent` *"RUN … handler (uid 1000,
+whitelist)"* and names neither the whitelist's mechanism nor its contents.
+Two operator rulings settle both, and this note is the first record of the
+first one in the repository.
+- **The whitelist is a compile-time constant for the alpha** (ruling of
+  2026-09-25, D4 of `appweb-m1-brief.md`, outside the repository). It is
+  `WHITELIST` in `agent/crates/vm-agent/src/main.rs`, one set shared by every
+  AppVM whatever its manifest. vm-agent is baked into the foundation, so a
+  change to the set reaches a guest only through a foundation rebuild, and
+  that rebuild invalidates every app layer and every instance delta.
+- **R130 (2026-10-02): the set is `firefox-esr`, `foot`, `pcmanfm`,
+  `libreoffice`, `keepassxc`.** keepassxc is listed before the vault domain
+  is built, so that domain needs no second foundation rebuild. When a guest is
+  asked to RUN a program its layer does not have, the RUN fails, which is
+  already loud. A unit test pins the set.
+
+**A per-manifest whitelist is post-alpha.** The earlier expectation that vault
+needs one before it can be wired (`manifests/vault.list`, and two `state.md`
+lines) no longer holds: keepassxc is on the shared set.
 
 ## ADR-022 — Network topology is a graph; the physical NIC is an assignable object
 
@@ -4080,6 +4116,14 @@ itself is left as written, and this note amends it:
   world-readable mode is wrong for a key (r8 D12). The modes for a secret in
   `<instance>.d/` are decided at ADR-037's arc step 5 (VPN mode). This note
   sets no mode.
+
+**Revision note (2026-10-02, §3 — the app manifest set, R129):** §3's
+*"`app` → `vault | web`"* becomes **`app` → `vault | web | office`**, for
+[ADR-014](DECISIONS.md#adr-014)'s work domain. The rule is unchanged: the
+value set stays per class, so `office` is valid on `class = app` only, and
+`sys` stays `netvm`. Both readers of the enum carry the new value: the
+generator (`katmate-generate-env`) and `tools/validate-properties.fish`, which
+*Context* item 3 names.
 
 ---
 
