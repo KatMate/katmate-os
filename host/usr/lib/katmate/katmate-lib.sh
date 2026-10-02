@@ -68,6 +68,11 @@ km_check_instance() {
     [[ -n "$name" ]] || km_usage "empty instance name"
     [[ "$name" =~ ^[a-z][a-z0-9_]*$ ]] \
         || km_die "instance name '$name' is not [a-z][a-z0-9_]* — it is used as a filename under $KM_ETC_VM and is not taken on trust"
+    # The guest takes the name as its hostname (km.name=, R125), and
+    # katmate-init refuses more than 63 bytes by exiting the VM at boot. The
+    # host refuses first, here, where the reason can be named.
+    (( ${#name} <= 63 )) \
+        || km_die "instance name '$name' is ${#name} bytes; at most 63 (it becomes the guest hostname, R125)"
 }
 
 # --- T1: the flat key = value reader -----------------------------------------
