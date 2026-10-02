@@ -435,6 +435,16 @@ guard the session ran by hand. Nothing in the shipped executables does it.
 enum, returned 0 errors and 0 warnings over the four staged files, with the
 cross-file rules evaluated.
 
+**Note 2026-10-02, the fourth alpha integration session (`ai4`): MINIS now
+also carries `app_vault.toml`** (`675a2614…`, 2492 B, `root:root 0644`), so
+it has five T1 files. It is the first T1 with `netvm = ""`, a declared
+offline domain (ADR-032 §3), and it derives `app-offline`. It was
+installed in the form above, after a check that it was absent and that no
+T1 file already carried `cid = 24`, again a guard run by hand.
+`tools/validate-properties.fish` returned 0 errors and 0 warnings over the
+five staged files, in plain and in `--strict` mode, with the cross-file
+rules evaluated.
+
 **Requirement:** one `<name>.toml` per VM at `/etc/katmate/vm/`, flat, one file
 per VM, `root:root` `0644` ([ADR-032](DECISIONS.md#adr-032) §1). MINIS carries
 `netvm.toml` and `app_web.toml`.
