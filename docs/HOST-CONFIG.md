@@ -205,6 +205,19 @@ QEMU start, so no VM has a control path or a GUI path
 **Scope:** all · **[LIVE]** on MINIS · **[V]** 2026-09-26 (was `[?]` — not
 verified as a configured requirement)
 
+**Note 2026-10-02 (`ai1`): the reservation is configured by a sysctl
+file.** On MINIS, `/etc/sysctl.d/hugepages.conf:1` reads `vm.nr_hugepages =
+4096`, and `/proc/sys/vm/nr_hugepages` reads 4096. No `hugepages` argument
+was found on the kernel command line, and that file is the only match for
+`huge` under `/etc/sysctl.d/`, `/etc/sysctl.conf` and `/usr/lib/sysctl.d/`.
+This answers *"How the reservation is configured … was **not** read"* below,
+which is left as written. **Capacity, now a constraint:** both AppVM
+templates take their whole `mem` from this pool, and netVM's memfd backend
+does not. 4096 × 2 MiB = 8 GiB holds `app_web` (4G) and `app_personal` (2G)
+at once. Pages are taken on fault: 184 were in use with both guests just
+booted. The pool's size for more AppVMs is an open alpha question
+(per-instance values: [PARAMETERS.md](PARAMETERS.md)).
+
 **Requirement (believed):** `app_web.con` uses
 `memory-backend-file,mem-path=/dev/hugepages,share=on`, which requires
 hugepages to be reserved and the mount to exist.
