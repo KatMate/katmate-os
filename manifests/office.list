@@ -3,9 +3,16 @@
 # with the GTK3 front end; no Java. Installed without recommends (the
 # foundation's apt configuration), so no default-jre comes in by Recommends.
 # The `libreoffice` executable is on the vm-agent RUN whitelist (R130).
+# fonts-liberation (metric-compatible with the common proprietary fonts) and
+# the en_US and Slovenian Hunspell dictionaries for spell checking were
+# Recommends that the no-recommends install left out (R138). The UI stays
+# English: no libreoffice-l10n-* package.
 libreoffice-writer
 libreoffice-calc
 libreoffice-impress
 libreoffice-gtk3
+fonts-liberation
+hunspell-en-us
+hunspell-sl
 foot
 pcmanfm
