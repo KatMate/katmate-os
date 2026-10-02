@@ -5,11 +5,10 @@
 > each working session. Detailed proofs and command sequences live in git
 > history and the ADRs — this file references them rather than repeating them.
 
-**Milestone:** v0.2 (in development) · **Last updated:** 2026-09-30
-(`wp-0930`, the write pass after networking arc step 4c, on the Acer: 4c's
-verdict PASS (R117), four open problems closed (R118), ADR-035 still
-PROPOSED (R119), `netvm.sh` refuses a stale agent (R120); step 4 is done,
-and next is the alpha integration).
+**Milestone:** v0.2 (in development) · **Last updated:** 2026-10-02
+(`ai1`, alpha integration step 1, on the Acer and MINIS: `app_personal`
+created and run beside `app_web` on one netVM, slots 01 and 02, both GUIs
+up; `docs/PARAMETERS.md` created; next is the next alpha AppVM).
 
 ## Current focus
 
@@ -79,6 +78,12 @@ deferred (R119). **Next is the alpha integration** (`ROADMAP.md` § *Build
 order*, *Alpha integration*): the remaining AppVMs on netVM's slots, one at
 a time, with `docs/PARAMETERS.md` filled as they land. See § *This
 session*.**]**
+**[Note 2026-10-02, `ai1`: alpha integration step 1 is done.** Two AppVMs,
+`app_web` and the new `app_personal`, ran at the same time on one netVM,
+each on its own slot, with both GUIs on MINIS's screen through the one
+`waypipe-client`. `docs/PARAMETERS.md` exists. **Next is the next alpha
+AppVM** (office or vault), after a decision on the hugepage pool. See §
+*This session*.**]**
 
 The **entire build chain remains scripted and proven from nothing**:
 `make foundation` builds the shared systemd-free base
@@ -107,7 +112,80 @@ restartable — and so updatable — without touching running VMs.
 Direction unchanged: IOMMU-capable platforms only (VT-d/AMD-Vi).
 MINIS is primary host and merge target.
 
-## This session (2026-09-30, write pass — wp-0930) — step 4c's verdict and step 4 closed: R117–R120 recorded, the ADR-035 gate ledger, R120 in `netvm.sh`, the alpha integration in the roadmap
+## This session (2026-10-02, alpha integration step 1 — ai1) — `app_personal` beside `app_web` on one netVM: two slots, two GUIs, independence observed; `docs/PARAMETERS.md` created
+
+One session, `ai1`, on the Acer and MINIS (Manual mode). It halted twice
+at its read pass. The first halt (2026-09-30, a closed session) raised four
+divergences: the missing delta authorisation, no command of record for
+`vm_app_web_home`, the shared waypipe listener, and the mode. The second
+halt (2026-10-02) raised two: R121's `identity` against ADR-014/ADR-015's
+`personal`, and a linear home LV against ADR-010's thin. The operator ruled
+through the orchestrator: the delta in the form of record; `identity =
+true`; a **thin** home LV; `mem = "2G"` (hugepages); the shared listener is
+the observation P3 settles. No commit on MINIS. The report is outside the
+repository: `~/Claude.assistent/ai1-report.md`, with every script and
+output in `~/Claude.assistent/ai1/` and `/home/host/katmate-dev/ai1/`.
+
+**What ran (CEST).**
+- **P0 (08:27):** no reboot since 2026-09-30 16:16:21, and netVM is the same
+  process (MainPID 46612). The installed set equals the tree, 10 of 10.
+  4096 of 4096 hugepages free. The reservation is
+  `/etc/sysctl.d/hugepages.conf`. The untracked `waypipe-client` unit was
+  read and quoted (`3ddc65b0…`). **Its vsock listener cannot be read on
+  this host:** `vsock_diag` is not loaded, so `ss --vsock` lists nothing.
+- **P1 (08:30–08:31):** slot 02's stale node (5354) unlinked after a root
+  `ECONNREFUSED`. `vm_app_personal_home` created **thin in `vm_pool`**,
+  `Vwi-a-tz--`, no `k` flag, with the same ext4 as `vm_app_web_home` (no
+  label, 16 features, 5 % reserved) and `user/` `1000:1000 0700`. The delta
+  `app_personal.qcow2` in the form of record. The T1 `app_personal.toml`
+  created (`042750bf…`). Owners for slots 01 and 02. NETCFG ADD 201 and
+  202, both OK.
+- **P2 (08:33):** both units started. PING OK on try 3 each.
+  `[katmate-init] net: eth0 10.100.1.18/32 via 10.100.1.1 dns 10.100.1.1`
+  for `app_personal`. Three QEMUs, and each slot's `appvm` bound by its
+  own AppVM.
+- **P3 (12:02–12:25, the operator at MINIS):** RUN `foot` in `app_web`,
+  then in `app_personal`. **Both windows open, and the first stayed alive
+  when the second opened:** one `waypipe-client` (PID 1409) carried both.
+  Flows `mark=2` (`.17`) and `mark=3` (`.18`), NATed to `10.3.1.172`.
+  **The cross-slot attempt `.18 → .17:80`: `cross-slot rc=124` (timeout)**,
+  and no `.18 → .17` conntrack entry in 0.5 s polls covering it.
+- **P4 (12:28):** SHUTDOWN 22 left `app_web` and slot 01 untouched. REMOVE
+  202 took `km02` DOWN and flushed `mark=3` (the entry had 8 s left and was
+  gone 1.19 s later), and `mark=2` was still present, ageing 34 → 27 s.
+  SHUTDOWN 21 and REMOVE 201 followed, and both slots are DOWN.
+- **End (12:29):** owners removed; console logged out; this session's
+  netVM `/run` files removed.
+
+**Found, recorded and not designed for (report §§ 5, 6).**
+- **A window's screen position is not its opening order.** Three
+  "refused" (`rc=1`) cross-slot results came from `app_web`'s window, i.e.
+  a connect to the guest's own address. A window is identified by
+  `cat /proc/cmdline` (`km.ip=`).
+- **The brief's "`forward` counters before and after" cannot fire:**
+  `forward` has no counter, and the cross-slot drop is its uncounted
+  policy.
+- 1.1.1.1 closes idle connections. A held flow reads `CLOSE_WAIT`, not
+  `ESTABLISHED`, and expires within about 60 s. P4 was run back to back
+  for that reason.
+- `vm_app_web_home` is linear, against ADR-010 (a revision note is proposed
+  in the report, not written).
+- Nothing refuses two T1 files carrying one CID.
+
+**The commits.** `5b331c1` `docs/PARAMETERS.md` and the README's map row;
+`b7818c7` HOST-CONFIG § 10 (MINIS's T1 files); `712724e` HOST-CONFIG § 6
+(the hugepage sysctl file); `8814bc6` the s4c-a entry rotated to
+`docs/SESSIONS.md`; and this entry, with § *Current focus*, § *Live state*
+and the step pointer in § *Next steps*.
+
+**Not done, and not claimed.**
+- G6b and #48's fail-closed half, as before.
+- Who refused the three `rc=1` attempts is inferred (a connect to the
+  guest's own address), not traced inside the guest.
+- No reboot was taken. That `app_personal` starts again after one needs its
+  owner rewritten, like every `/run` owner.
+
+## Previous session (2026-09-30, write pass — wp-0930) — step 4c's verdict and step 4 closed: R117–R120 recorded, the ADR-035 gate ledger, R120 in `netvm.sh`, the alpha integration in the roadmap
 
 One session, `wp-0930`, on the Acer only. No MINIS command. It halted
 once at its read pass, which a session limit also interrupted. There were
@@ -165,7 +243,7 @@ path). That is not the executable.
 - `Cargo.toml` at the workspace root is not in R120's source list, as
   ruled. A change to it alone does not mark the binary stale.
 
-## Previous session (2026-09-30, step 4c B — s4c-b) — installed, rebuilt and gated: the pairing check, the duplicate count, records by MAC, DOWN on REMOVE, the mark flush and the ARP table observed on netVM
+## Earlier session, not yet rotated (2026-09-30, step 4c B — s4c-b) — installed, rebuilt and gated: the pairing check, the duplicate count, records by MAC, DOWN on REMOVE, the mark flush and the ARP table observed on netVM
 
 One session, `s4c-b`, on MINIS (Manual mode, operator ruling). It halted
 once, at its read pass, on six divergences. The operator ruled: the guarded
@@ -1548,6 +1626,32 @@ touched.
     configuration. `out/netvm-agent` was replaced, and the 2026-07-23
     binary (`0a155800…`) is not kept.
 
+  **TWO APPVMS ON ONE NETVM (2026-10-02, ai1).** The block above is left as
+  published. Its stale `appvm` on slot 02 (inode 5354) is gone. Otherwise
+  it still holds, and was re-read at 08:27 and 12:29 CEST
+  (`ai1-report.md`, outside the repository):
+  - **No host reboot since 2026-09-30 16:16:21.** netVM is MainPID `46612`,
+    invocation `b9475ec3…`, `NRestarts=0`, throughout. The installed set
+    equals the tree at `f9c98a7`, 10 of 10 (the same hashes as `6023a86`).
+  - **The pool:** 16 `netvm` nodes and nothing else. No owner, no `appvm`,
+    every `km*` DOWN, `/run/netvm-agent/` empty.
+  - **Both AppVM units inactive.** `/run/katmate/vm/` keeps both projections
+    (`app_web.env`, `app_personal.env`), as a projection survives a stop.
+  - **The console is logged out**, and the holder (46330), FIFO and `/run`
+    drop-in stay until the next reboot.
+  - **Hugepages:** 4096 × 2 MiB, set by `/etc/sysctl.d/hugepages.conf`
+    (`vm.nr_hugepages = 4096`), all free at the end. It holds `app_web`
+    (4G) and `app_personal` (2G) at once.
+  - **`jbd2/dm-9-8` is held** (`vm_sys_netvm`, Open count 2). **A reboot is
+    still due before the next `netvm.sh`.** Suspend was not masked.
+  - **The `waypipe-client` user unit** (`3ddc65b0…`, untracked, #31) ran
+    as PID 1409 since 2026-09-30 16:20:37, with `NRestarts` 0, and carried
+    both AppVMs' windows. **`vsock_diag` is not loaded** on this host, so
+    `ss --vsock` shows no vsock socket at all. That is a check that cannot
+    fire, not an absent listener.
+  - **Session files:** `/home/host/katmate-dev/ai1/`. Fixtures, not live
+    configuration.
+
   **The uplink is capped by the cable, and that is a condition of the
   environment rather than a defect.** On the boot of 2026-09-12 the link came up
   1 Gbps, went down, and settled at **100 Mbps/Full (downshifted)**, the driver
@@ -1633,6 +1737,38 @@ touched.
   `app_web.qcow2` is a new delta on it. 4b-B's delta is
   `app_web.qcow2.pre0929b`. ADR-038's and ADR-037's gates were taken on it.
   See *THE GATED APPVM* above. The text is left as written.]**
+  **[2026-10-02, ai1: booted once more by `katmate-app-routed@app_web` on
+  slot 01, beside `app_personal`. `app_web.qcow2` is now 3014656 B.
+  `vm_app_web_home` is **linear** (`-wi-a-----`), which disagrees with
+  ADR-010's thin home LV (a finding, `ai1-report.md` § 5). Its ext4: no
+  label, default features, `user/` `1000:1000 0700`. The T1 `be542506…`
+  keeps `identity = false` with its NEEDS REVIEW comment. The text is left
+  as written.]**
+- **app_personal** (CID **22**, slot **02**, `LINK_ID` **202**; created
+  2026-10-02 by `ai1`, the first alpha integration AppVM). `class = app`,
+  `manifest = web`, `netvm = netvm`, `persistence = persistent`,
+  **`identity = true`** (ADR-014's `personal`), `disposable = false`,
+  **`mem = "2G"`**, `vcpus = 2`.
+  - **T1** `/etc/katmate/vm/app_personal.toml`, `root:root 0644`,
+    `042750bf…`, staged in the Acer's ignored `local/etc/katmate/vm/`.
+  - **Delta** `/var/lib/katmate/instances/app_personal.qcow2`, `host:host
+    0644`, backing `/dev/vg0/vm_app_web` (raw), 10 GiB virtual: `qemu-img
+    create -f qcow2 -F raw -b /dev/vg0/vm_app_web <delta> 10G`, then
+    `chmod 0644`, as `host`.
+  - **Home LV `vm_app_personal_home`**: 10G **thin in `vm_pool`**
+    (`Vwi-a-tz--`, no `k` flag, `dm-13` on this boot). **The form of
+    record for a home LV** (ruling of 2026-10-02):
+    `lvcreate -V 10G -T vg0/vm_pool -n vm_<instance>_home`; read
+    `lvs -o lv_name,lv_attr,pool_lv` (active, no `k`) before anything else;
+    `mkfs.ext4 /dev/vg0/vm_<instance>_home` with default options (e2fsprogs
+    1.47.4: no label, the same 16 features as `vm_app_web_home`); mount;
+    `install -d -o 1000 -g 1000 -m 0700 <mnt>/user`; umount.
+  - **Booted once** (2026-10-02 08:33–12:28) by
+    `katmate-app-routed@app_personal`: `km.ip=10.100.1.18`, MAC
+    `52:54:00:f0:e9:bf`, GUI on MINIS's screen beside `app_web`'s. Its
+    owner was written by hand and removed at the end, so the next start
+    needs it written again (and after any reboot, as with every `/run`
+    owner). The per-instance values are in `docs/PARAMETERS.md`.
 - **app_vault** (build-only): `vm_app_vault` thin snap RO of `vm_tpl_foundation`,
   built via `make app-vault` (2026-06-29; keepassxc/foot/nautilus). NOT yet
   instantiated — no qcow2 delta, no home LV, no CID (will be allocated from 20+),
@@ -4482,6 +4618,15 @@ frozen `vm_home_skel` vs qcow2 branch.
      last, MINIS first. `docs/PARAMETERS.md` is created by the first
      integration session with its first row, and filled as each AppVM
      lands. Still open from 4c: G6b and #48's fail-closed half.**]**
+     **[Note 2026-10-02 (`ai1`): alpha integration step 1 is done.**
+     `app_personal` (CID 22, slot 02, `LINK_ID=202`) ran beside `app_web`
+     (CID 21, slot 01) on one netVM, and `docs/PARAMETERS.md` exists
+     (`5b331c1`). See § *This session*. **Next is the next alpha AppVM.**
+     office needs a manifest, which is a design choice not yet made, and
+     vault needs the per-manifest RUN whitelist. **Each one first needs a
+     decision on the hugepage pool**: four AppVMs at 4G + 2G + … exceed
+     4096 × 2 MiB. Still open from 4c: G6b and #48's fail-closed
+     half.**]**
   5. **VPN mode** (added 2026-09-27, R30): the WireGuard config, the VPN
      ruleset and the kill-switch, under **its own ADR**, after step 4. R8
      names the config disk as the WireGuard config's channel, and R31 gives
