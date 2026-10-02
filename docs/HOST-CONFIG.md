@@ -425,6 +425,16 @@ below is left as written. **Not checked by anything here:** two T1 files
 carrying the same `cid`. Neither the generator nor the validator refuses it,
 and the values per instance are in [PARAMETERS.md](PARAMETERS.md).
 
+**Note 2026-10-02, the third alpha integration session (`ai3`): MINIS now
+also carries `app_work.toml`** (`bd7f7acc…`, 1981 B, `root:root 0644`), so
+it has four T1 files. It was installed in the form above, `install -o root -g
+root -m 0644` from the synced staging tree, and only after a check that it
+was absent and that no T1 file already carried `cid = 23`. That check is a
+guard the session ran by hand. Nothing in the shipped executables does it.
+`tools/validate-properties.fish`, with `office` added to its app manifest
+enum, returned 0 errors and 0 warnings over the four staged files, with the
+cross-file rules evaluated.
+
 **Requirement:** one `<name>.toml` per VM at `/etc/katmate/vm/`, flat, one file
 per VM, `root:root` `0644` ([ADR-032](DECISIONS.md#adr-032) §1). MINIS carries
 `netvm.toml` and `app_web.toml`.
