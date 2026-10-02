@@ -51,6 +51,138 @@
 
 ---
 
+## Previous session (2026-09-30, write pass — wp-0930) — step 4c's verdict and step 4 closed: R117–R120 recorded, the ADR-035 gate ledger, R120 in `netvm.sh`, the alpha integration in the roadmap
+
+One session, `wp-0930`, on the Acer only. No MINIS command. It halted
+once at its read pass, which a session limit also interrupted. There were
+three divergences. `docs/PARAMETERS.md` and *"alpha integration"* existed
+nowhere in the tree. The brief's downshift sentence matched no record. And
+one line range was cited wrongly. The operator ruled through the orchestrator:
+the roadmap entry as its own commit, `PARAMETERS.md` not created, and the
+downshift sentence as the operator's statement. The report is outside the
+repository: `~/Claude.assistent/wp-0930-report.md`.
+
+**The operator's rulings (2026-09-30).**
+- **R117 — step 4c's verdict: PASS**, on every row of `s4c-b-report.md`
+  § B5 (rows 1–7) and § B6. G6b is untaken, because no procedure exists,
+  and #48's fail-closed half is unmeasured.
+- **R118 — open problems #34, #45, #49 and #51 are closed**, each by the
+  observation that settles it. **#48 stays open** for its fail-closed half
+  only.
+- **R119 — ADR-035 stays PROPOSED.** Acceptance waits until G6b is taken
+  or explicitly deferred by the operator.
+- **R120 — `build/netvm.sh` refuses a missing or stale `netvm-agent`**, on
+  `foundation.sh`'s model for `vm-agent`, and does not run cargo itself.
+- **On the read pass:** the alpha integration goes into `ROADMAP.md` (the
+  ruling of 2026-09-21, relayed with its content); `docs/PARAMETERS.md` is
+  created by the first integration session with its first row; the
+  downshift sentence is the operator's statement.
+
+**The commits.**
+- `ff68306` ADR-035's note of 2026-09-30: the mark flush observed; the
+  leftover supersession route removed at the slot's next REMOVE; netVM's
+  `ExecStopPost=` half executed; R117; R119; and **a gate ledger**, G1–G6
+  with every split half, taken or not, and where.
+- `0e2e22d` ADR-037's note: the guest kernel is 6.12.111 under the
+  unchanged manifest, s4c-m0's readings are identical on it, and R115's
+  load and R111's normal-boot half are observed.
+- `17479cf` ADR-021's revision note: the `30-netvm-forward.conf` bake-list
+  line is stale since R111.
+- `06ab509` R120 in `build/netvm.sh`. The preflight refuses a missing
+  binary, and a binary older than any file of `netvm-agent`,
+  `katmate-protocol` or `Cargo.lock`. Step 7's NOTICE path is gone.
+- `45973a4` four entries in § *Invariants & gotchas*, the downshift
+  sentence, and a dated bracket on the `ExecStopPost=` invariant.
+- `7f822c7` `ROADMAP.md`: *Alpha integration*.
+- `210cc31` the step-4b2 entry rotated to `docs/SESSIONS.md`.
+- This entry, with § *Current focus*, § *Live state*, the open problems and
+  step 4 in § *Next steps*.
+
+On the Acer: `bash -n` and `shellcheck -S warning` on `build/netvm.sh`
+clean, and R120's block run as an extract against a fake tree (fresh,
+absent, a newer protocol file, a newer `Cargo.lock`, and an absent source
+path). That is not the executable.
+
+**Not done, and not claimed.**
+- R120 has not run in a build. Its first execution is the next netVM build.
+- G6b and #48's fail-closed half, as before.
+- `Cargo.toml` at the workspace root is not in R120's source list, as
+  ruled. A change to it alone does not mark the binary stale.
+
+## Previous session (2026-09-30, step 4c B — s4c-b) — installed, rebuilt and gated: the pairing check, the duplicate count, records by MAC, DOWN on REMOVE, the mark flush and the ARP table observed on netVM
+
+One session, `s4c-b`, on MINIS (Manual mode, operator ruling). It halted
+once, at its read pass, on six divergences. The operator ruled: the guarded
+`lvremove`, how `netvm-agent` is built, the fixture's path, netVM stopped
+before the reboot, and B6 by operator window. No commit on MINIS. The
+report is outside the repository: `~/Claude.assistent/s4c-b-report.md`,
+with every script and output in `~/Claude.assistent/s4cb/` and
+`/home/host/katmate-dev/s4cb/`.
+
+**What ran, in order (CEST).**
+- **Host modules before anything**, 16:14: `nf_conntrack_netlink` is loaded
+  on the MINIS host (refcount 0). Whether s4c-a's W0 loaded it is not
+  settled, because no earlier reading exists.
+- **Install.** rsync (form of record, no deletion). Hash-first 9 of 10, and
+  the tenth, `katmate-sys-driver@.service`, equal to `46f8a26`'s blob.
+  Reinstalled from the tree (`0aa40135…`; the diff is exactly block (9) and
+  `ipv6.disable=1`). `cargo build --release -p netvm-agent` on MINIS,
+  copied to `out/netvm-agent` (`4a4e0715…`, 335168 B, replacing the
+  2026-07-23 binary), and confirmed with `strings`.
+- **netVM stopped before the reboot (16:15:28): netVM's half of
+  `ExecStopPost=` executed for the first time.** The 16 `netvm` nodes → 0.
+  The two stale `appvm` nodes (02, 05) and the 16 slot directories stayed.
+  Attributed by the paths: systemd collects the instance's record after a
+  clean stop.
+- **Reboot** (boot 16:16:21). netVM `inactive`, as every record since
+  2026-09-20 says (nothing starts it at boot). No `jbd2/dm-9-8`.
+- **Rebuild.** f12-impl-B's guarded `lvremove` (all guards held,
+  16:22:46), then `build/netvm.sh` in the transient-unit form,
+  16:22:57–16:37:22, `rc=0`. **Every read-back passed**, and R52's `nft -c`
+  accepted `table arp` and `ct mark set` on the host kernel.
+  **`NETVM_BUILT=2026-09-30T14:37:22Z`, guest kernel `6.12.111+deb13-amd64`**
+  (6.12.107 before; trixie moved).
+- **Start** 16:40:17 on the static T1, with the console per session: MainPID
+  46612, PING on try 4, 16 of 16 bindings.
+- **Boot readings (console):** `ipv6.disable=1` in `/proc/cmdline`, no
+  `/proc/sys/net/ipv6`, `ip -6 addr` empty; `inet filter` with `slot_guard`,
+  `slot_mark` (prerouting, 16 marks), `input`, `forward` and `output`; `ip
+  nat`; `arp filter`/`slot_arp`; `nf_conntrack_netlink` loaded (*"Inserted
+  module"*); `ip_forward` 1 and `katmate-ip-forward` active; **`Finished
+  nftables.service` at 2.884 s, before the first `kmkk` rename at 3.216
+  s**; dnsmasq and dhcpcd running under `ipv6.disable=1`. On 6.12.111:
+  `NF_TABLES_ARP=y`, `NF_TABLES_NETDEV=y`, `NF_CT_NETLINK=m`,
+  `NF_CONNTRACK=m`, `NETFILTER_NETLINK=m`, `NF_CONNTRACK_MARK=y`, `NFT_CT=m`.
+
+**The gates (slot 01; slot 02 where two are needed). Readings, no
+verdicts.**
+
+| Row | Reading |
+|---|---|
+| R103 (#49) | `:01` with peer `.18` → ERR, journal `… requires the peer 10.100.1.(16+k) (R103)`, nothing programmed; the true pair → OK |
+| G3 (§7, R104) | `dummy` `g3dup` with `52:54:01:00:00:01`: ADD → ERR (*"more than one interface carries the requested MAC"*), nothing programmed, and a record written (record-before-mechanism); REMOVE → ERR, record kept; dummy deleted → the same ADD OK |
+| R114, records | `mac-525401000001`; `link_id` 103 with another payload, same slot and other slot → ERR (R114) twice, record `f7295851…` unchanged |
+| G4 refusal (R105) | ADD A (metric 100), ADD B (metric 200) → one record with B's bytes, route at 200 only, address present in each read; REMOVE A → OK, nothing changed |
+| DOWN (R102, R106, #45) | After REMOVE: `km01` DOWN, `ip neigh` empty (a `.17` entry before), no link-local. **A hand-added `peer/32 metric 300` route did not survive the DOWN** (s4c-a's supersession leftover) |
+| Mark flush (R107, R116) | TCP to `1.1.1.1:443`: `ESTABLISHED … mark=2` (timeout 431995); REMOVE → OK; 0.2 s later gone. TCP to `10.100.1.1:53`: `ESTABLISHED … mark=2`; REMOVE → OK; gone. **The kernel accepts the tuple-less, mark-filtered delete** |
+| #34 (R100) | 3 forged requests and 3 forged replies from slot 02 claiming `.17`: 0 answers, drop counter 0 → 3 → 6, no `.17` neighbour. Control on slot 01: 3 of 3 answered, counter unchanged, `.17` on `km01` |
+| G6b | not taken: no procedure is in the record |
+| B6, app_web | `katmate-app-routed@app_web` on slot 01 (owner and ADD by hand, as s4-gates). An operator-typed connection from `foot`: `ESTABLISHED src=10.100.1.17 dst=1.1.1.1 … mark=2`. After SHUTDOWN, two `mark=2` entries (`LAST_ACK` 27 s left, `CLOSE` 7 s); REMOVE → OK; 2.7 s later `count=0`, `km01` DOWN, no neighbour |
+
+**Found, recorded and not designed for.** `build/netvm.sh` does not build
+`netvm-agent`, and no method of record existed. Ruled for this session:
+`cargo build --release -p netvm-agent`, copied to `out/`. Whether
+`netvm.sh` should build it is for the next write pass.
+
+**Not done, and not claimed.**
+- G6b; #48's fail-closed half (it needs a boot with a broken ruleset); the
+  failure paths of the new read-backs (#50's shape).
+- The one extra conntrack entry seen in row 6 was never identified.
+- The first B6 attempt produced no flow: the operator did not know the
+  window was up. Only the second attempt is a reading.
+- The session's rotation of the step-4b2 entry to `SESSIONS.md` is not
+  done. The brief allowed one commit.
+
 ## Previous session (2026-09-30, step 4c A — s4c-a) — netvm-agent's 4c items, the ARP table, the mark flush, forwarding after the ruleset, and IPv6 off in netVM, committed and not built; R114–R116
 
 One session, `s4c-a`, on the Acer, with one capture on the MINIS host.
