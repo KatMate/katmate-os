@@ -1,0 +1,45 @@
+#!/usr/bin/env bash
+# check-run-whitelist — vm-agent's RUN whitelist and katmate-launch's copy agree
+#
+# The whitelist has one source, vm-agent's compile-time constant
+# (`pub const WHITELIST` in agent/crates/vm-agent/src/main.rs). katmate-launch
+# carries a copy (`RUN_WHITELIST=(…)`) so that it can refuse an app before it
+# starts a VM, and names this check beside it (R150). A copy is the drift this
+# project keeps finding, so the two are compared here as sets, and the
+# cardinality is printed beside the verdict: a parse that dropped an element
+# would otherwise agree with itself.
+#
+# Usage: tools/check-run-whitelist [<repo root>]    (developer-side, no root)
+# Exit: 0 = the two agree, 1 = they differ, 2 = a source could not be parsed.
+
+set -euo pipefail
+ROOT="${1:-$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)}"
+AGENT="$ROOT/agent/crates/vm-agent/src/main.rs"
+LAUNCH="$ROOT/host/usr/lib/katmate/katmate-launch"
+
+die2() { printf '[check-run-whitelist] %s\n' "$*" >&2; exit 2; }
+
+# Exactly one line of each form, or the parse is not trusted.
+[[ "$(grep -c -E '^pub const WHITELIST: &\[&str\] = &\[' "$AGENT")" == 1 ]] \
+    || die2 "$AGENT: expected exactly one 'pub const WHITELIST: &[&str] = &[…];' line"
+[[ "$(grep -c -E '^RUN_WHITELIST=\(' "$LAUNCH")" == 1 ]] \
+    || die2 "$LAUNCH: expected exactly one 'RUN_WHITELIST=(…)' line"
+
+mapfile -t agent < <(grep -E '^pub const WHITELIST: &\[&str\] = &\[' "$AGENT" \
+    | sed -E 's/^[^[]*\[[^[]*\[//; s/\];.*$//' | tr ',' '\n' \
+    | sed -E 's/^[[:space:]]*"//; s/"[[:space:]]*$//' | grep -v '^$' | sort)
+mapfile -t launch < <(grep -E '^RUN_WHITELIST=\(' "$LAUNCH" \
+    | sed -E 's/^RUN_WHITELIST=\(//; s/\).*$//' | tr -s ' ' '\n' | grep -v '^$' | sort)
+
+(( ${#agent[@]} > 0 )) || die2 "$AGENT: the whitelist parsed to 0 entries"
+(( ${#launch[@]} > 0 )) || die2 "$LAUNCH: the whitelist parsed to 0 entries"
+
+printf 'vm-agent      (%d): %s\n' "${#agent[@]}" "${agent[*]}"
+printf 'katmate-launch (%d): %s\n' "${#launch[@]}" "${launch[*]}"
+if [[ "${agent[*]}" == "${launch[*]}" ]]; then
+    echo "AGREE: ${#agent[@]} entries compared"
+    exit 0
+fi
+echo "DIFFER:"
+diff <(printf '%s\n' "${agent[@]}") <(printf '%s\n' "${launch[@]}") || true
+exit 1
