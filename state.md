@@ -6,11 +6,11 @@
 > history and the ADRs — this file references them rather than repeating them.
 
 **Milestone:** v0.2 (in development) · **Last updated:** 2026-10-03
-(`cd1`/`cd2`, repository and cloud, no MINIS work: Codeberg retired and
-GitHub the only remote; the first cloud sessions; the vm-agent rewrite
-recorded as ADR-039, with a revision note on the protocol module and what
-changed after it; open problem #56. The next step is unchanged from `ai4`:
-the menu step that ends the alpha, and vm-agent's Qt platform).
+(`ai5`, alpha integration step 5, on the Acer and MINIS: vm-agent gives a
+RUN child the Qt platform, the session type and a UTF-8 locale (R146), and
+`iproute2` is in the foundation after the build-dependency purge, guarded
+by a read-back (R147); one foundation rebuild, all four AppVMs again, and
+RUN `keepassxc` opens; next is the menu step that ends the alpha).
 
 ## Current focus
 
@@ -110,6 +110,16 @@ so a RUN of `keepassxc` opens nothing. Started from foot with the
 variable, it worked (R140, the operator's *"JA"*). **Next:** the menu
 step that ends the alpha (ai4 report § 6), and vm-agent's platform
 selection for a RUN child. See § *This session*.**]**
+**[Note 2026-10-03, `ai5`: alpha integration step 5 is done.** vm-agent
+sets `QT_QPA_PLATFORM=wayland`, `XDG_SESSION_TYPE=wayland` and
+`LANG=C.UTF-8` for a RUN child (R146), and every layer carries `ip`
+(R147). After one foundation rebuild, **RUN `keepassxc` opened a window
+and the operator's `~/test.kdbx` opened**. foot no longer warns about the
+locale, and firefox-esr and LibreOffice still open. The three variables
+were read in the app's own environment. ai4's verdicts are recorded
+(R148), and `katmate-update`'s mapping is open problem #57 (R149).
+**Next:** the menu step that ends the alpha (ai6). See § *This
+session*.**]**
 
 The **entire build chain remains scripted and proven from nothing**:
 `make foundation` builds the shared systemd-free base
@@ -138,7 +148,108 @@ restartable — and so updatable — without touching running VMs.
 Direction unchanged: IOMMU-capable platforms only (VT-d/AMD-Vi).
 MINIS is primary host and merge target.
 
-## This session (2026-10-03, repository and cloud — cd1/cd2) — Codeberg retired, GitHub the only remote; the first cloud sessions; the vm-agent rewrite recorded as ADR-039, with its protocol note (R142–R145); open problem #56
+## This session (2026-10-03, alpha integration step 5 — ai5) — the RUN child's environment (R146); `iproute2` after the build-dependency purge, with a residue read-back (R147); one foundation rebuild; RUN `keepassxc` opens; ai4's verdicts (R148); `katmate-update`'s mapping is #57 (R149)
+
+One session, `ai5`, on the Acer and MINIS, in auto mode. It halted four
+times, and each halt was ruled through the orchestrator by the operator.
+**D1 (read pass):** the brief said vm-agent's RUN child already had
+`WAYLAND_DISPLAY` and `XDG_RUNTIME_DIR` from vm-agent. It had neither from
+vm-agent: `spawn()` passed the agent's inherited environment, which is
+katmate-init's five constants. Ruled option (a), below. **D2:** the brief's
+R142–R145 were already taken by cd1/cd2's rulings, so they were renumbered
+**R146–R149** in order. **B3-HALT:** the first foundation build with
+`iproute2` in step 3 had 235 packages. `iproute2` Suggests python3, so step
+5's autoremove kept the waypipe build residue (python3.13, binutils): 72
+removed against ai3's 91. Ruled (b), install after the purge, plus a
+read-back. **B3-HALT-2:** the ruled read-back pattern `gcc*` matched
+`gcc-14-base`, which is in every known-good layer. Ruled: exclude exactly
+`^gcc-[0-9]+-base$`. The classifier refused `git pull` once (*Untrusted
+Code Integration*). It was moot, because HEAD already held the four new
+commits, and it was not retried. **GitHub SSH is not available to this
+session**, so every push is left to the operator. No commit on MINIS. No
+reboot. The report is outside the repository:
+`~/Claude.assistent/ai5-report.md`, with every script and output in
+`~/Claude.assistent/ai5/` and `/home/host/katmate-dev/ai5/`.
+
+**The operator's rulings (2026-10-02 brief, renumbered 2026-10-03).**
+- **R146 — vm-agent's RUN child environment** (D1 option (a)): the agent's
+  own environment (katmate-init's five, their single source), with
+  `QT_QPA_PLATFORM=wayland`, `XDG_SESSION_TYPE=wayland` and
+  `LANG=C.UTF-8` set by vm-agent, replacing any inherited value. Nothing
+  else is added or removed. A unit test pins the composition.
+  Rejected: (b), because katmate-init's five would live in two binaries;
+  (c), because platform and locale are vm-agent's policy.
+- **R147 — `iproute2` in the foundation**, installed after step 5's purge
+  (step 5b). A read-back (step 5c) kills the build on any installed
+  `python3*`, `libpython3*`, `binutils*`, `libbinutils`, `gcc*` (but
+  `gcc-N-base`), `cpp*`, `meson` or `ninja-build`.
+- **R148 — ai4's verdicts:** H2 PASS, G2 (re-pointed) PASS, R139 PASS,
+  R140 partial. ai5 closes R140.
+- **R149 — `katmate-update`'s delta-to-type mapping** is an open problem
+  (#57), not fixed here.
+
+**What ran (CEST).**
+- **Part A (Acer):** `2a9e638` vm-agent (`RUN_ENV`, `run_child_env`,
+  `spawn(argv, envp)`, and the stale *"systemd unit"* comments in
+  `main.rs` and `config.rs`). `cargo test -p vm-agent` gave 5 of 5. A
+  negative control (the filter disabled) failed the new test.
+  `f5ed9d6`, superseded by `77f1b72`: `iproute2` (step 5b) and the
+  read-back (step 5c), with an Acer extract of nine cases, all as
+  expected, two of them synthesised from the real package lists (ai3's
+  209 pass; ai5's first build refuses with 11 names). Notes: `7f40e33`
+  ADR-021 (R146), `9c8fee0` and `cbe49b0` ADR-014 (R147), `6e50358`
+  ADR-030 (R148). `710bc77` and `9125aa1` brackets in ai4's entry (now in
+  `docs/SESSIONS.md`).
+- **P0 (16:17):** no reboot since 2026-10-02 14:03:24; netVM MainPID
+  22405; all AppVM units inactive; no layer jbd2; 6144 of 6144 pages
+  free. The installed set equalled the tree, 11 of 11.
+- **B2 (16:18):** rsync; vm-agent built on MINIS (`cargo test` 5 of 5).
+  **`out/vm-agent` `5d35567f…`**, with the three names in `strings`. The
+  old `87ebdcaa…` had none.
+- **B3 (16:19–16:40):** `_preai5` set aside (all four layers, four deltas
+  rebased `-u`, four metas). First `make foundation` exit 0, 235 packages:
+  halted, removed under R132's guards. **Second `make foundation` exit 0
+  (16:33:46–16:37:01): 216 packages = 209 + 7**, autoremove 91, and
+  `Read-back: no build residue installed among 216 dpkg records`. `make
+  app-web` 237, `make app-office` 368, `make app-vault` 292, each exit 0
+  with every error pattern 0. Every layer bakes `/sbin/init` `8163e103…`
+  and vm-agent `5d35567f…`, and has `/usr/bin/ip`, with `locale -a`
+  listing `C.utf8`. Four deltas recreated.
+- **B4 (16:40):** owners 01–03, NETCFG ADD 201–203 OK; all four AppVMs,
+  **PING OK on try 3 each, 4.38–4.56 s from `systemctl start`**;
+  `hostname:`/`net:` lines as before; app_vault's argv 0/0/0/0.
+  `HugePages_Free` 6026 → 5960 → 5893 → 5826.
+- **The operator at MINIS (17:06–17:19):** **RUN `keepassxc` (app_vault):
+  the window opened, and `~/test.kdbx` opened with the entry** (*"it's
+  there. and database opens"*). RUN `foot` (app_vault): **no locale
+  warning**; `env` showed `XDG_SESSION_TYPE=wayland`, `LANG=C.UTF-8`,
+  `WAYLAND_DISPLAY=wayland-1GxsdmpBTw`, `QT_QPA_PLATFORM=wayland`;
+  `ip -br link` `lo UNKNOWN … <LOOPBACK,UP,LOWER_UP>`, `sit0@NONE DOWN`;
+  `ip -br addr` `lo 127.0.0.1/8` only; `ip route` empty. RUN `foot`
+  (app_web): `eth0 UP 10.100.1.17/32`. RUN `firefox-esr` (app_web) and
+  `libreoffice` (app_work): both opened normally.
+- **End (17:19):** four SHUTDOWNs (*"Deactivated successfully"*), REMOVE
+  201–203, owners removed. **`_preai5` removed** (three app layers, then
+  the foundation origin, four deltas, four metas; every guard held).
+  netVM left running.
+
+**Found, recorded and not designed for (report §§ 5, 6).**
+- **An installed package's Suggests keep an auto-installed package alive
+  through `apt-get autoremove`**, so the order of installs decides what a
+  purge leaves behind. Measured 91 against 72. The apt option that does
+  it (`SuggestsImportant`) is recalled, not read.
+- ai5's vm-agent change moved line numbers cited elsewhere:
+  `main.rs:475` (`Op::try_from`) is now `:513`, and `:288`/`:310`
+  (SHUTDOWN) are now `:300`/`:322`. Cited by #56 and ADR-039's note of
+  2026-10-03. `:87` is unchanged.
+
+**Not done, and not claimed.**
+- Verdicts on R146 and R147: the operator's.
+- The read-back's refusal path on MINIS (it ran only as the Acer extract).
+- netVM conntrack during the vault test (not asked this time).
+- `init/tests/run.sh --apply`; G6b; #48's fail-closed half.
+
+## Previous session (2026-10-03, repository and cloud — cd1/cd2) — Codeberg retired, GitHub the only remote; the first cloud sessions; the vm-agent rewrite recorded as ADR-039, with its protocol note (R142–R145); open problem #56
 
 No MINIS work. The day ran in the operator's chat and in two Claude Code
 cloud sessions, `cd1` and `cd2`, on the environment `katmate-docs`
@@ -1686,6 +1797,42 @@ touched.
     build logs, package lists, journal copies, argv copies). Fixtures, not
     live configuration.
 
+  **FOUR APPVMS ON A REBUILT CHAIN, RUN ENVIRONMENT AND `ip` (2026-10-03,
+  ai5).** The blocks above are left as published. This block supersedes
+  their chain, layers, metas, deltas and `out/vm-agent`. As left at
+  17:19:58 CEST (`ai5-report.md`, outside the repository):
+  - **Host boot unchanged** (2026-10-02 14:03:24, kernel 7.2.8-hardened).
+    No reboot in ai5.
+  - **The chain:** `vm_tpl_foundation` (`BUILD_DATE=2026-10-03T14:37:01Z`,
+    from `77f1b72`; `foundation.meta` `cb773d77…`; **216 packages**, with
+    `iproute2 6.15.0-1` installed after the purge, and no python3 or
+    binutils) → `vm_app_web` (`APP_BUILT=2026-10-03T14:37:57Z`, 237),
+    `vm_app_office` (`2026-10-03T14:39:09Z`, 368) and `vm_app_vault`
+    (`2026-10-03T14:39:41Z`, 292) → `app_web.qcow2`, `app_personal.qcow2`
+    (on web), `app_work.qcow2` (office) and `app_vault.qcow2` (vault), each
+    new and written by one boot. Every layer carries `/sbin/init`
+    `8163e103…`, **vm-agent `5d35567f…`** (R146), `/usr/bin/ip`, and
+    `C.utf8` in `locale -a`.
+  - **`out/vm-agent` is `5d35567f…`** (built on MINIS from `2a9e638`). The
+    previous binary is kept as `/home/host/katmate-dev/ai5/vm-agent.pre-ai5`
+    (`87ebdcaa…`), a fixture.
+  - **vg0 holds nothing set aside.** `_preai5` is removed. LVs: `root`,
+    `swap`, `vm_tpl_foundation`, `vm_app_web`, `vm_app_office`,
+    `vm_app_vault`, `vm_app_web_home` (linear), `vm_app_personal_home`,
+    `vm_app_work_home`, `vm_app_vault_home` (thin), `vm_sys_netvm`, and
+    `vm_pool` (0.71 % data, 10.85 % meta). The homes were untouched.
+  - **Installed host set equals the tree, 11 of 11** (no host file changed
+    in ai5). T1 files unchanged.
+  - **netVM unchanged:** MainPID `22405`, invocation `ca5f364e…`,
+    `NRestarts=0`. The console is logged out. No `jbd2` hold on
+    `vm_sys_netvm`.
+  - **The pool:** 16 `netvm` nodes, no owner, no `appvm`. **All four AppVM
+    units inactive.** Hugepages 6144, all free. Sleep targets unmasked
+    (`static`).
+  - **Session files:** `/home/host/katmate-dev/ai5/` (scripts, both
+    foundation build logs, three app-layer logs, package lists, journal and
+    argv copies). Fixtures, not live configuration.
+
   **The uplink is capped by the cable, and that is a condition of the
   environment rather than a defect.** On the boot of 2026-09-12 the link came up
   1 Gbps, went down, and settled at **100 Mbps/Full (downshifted)**, the driver
@@ -1866,6 +2013,10 @@ touched.
     foot shell.** A RUN of `keepassxc` opens no window, because vm-agent
     does not select the Qt platform. The per-instance values are in
     `docs/PARAMETERS.md`.
+    **[2026-10-03, ai5: superseded. vm-agent sets the platform for a RUN
+    child (R146), and on the rebuilt vault layer **RUN `keepassxc` opened
+    a window and `~/test.kdbx` opened** (the operator, 17:06). The text is
+    left as written.]**
 - **Set aside 2026-09-26 (`_pre0926`).** The rebuild renamed rather than
   removed what it replaced: `vm_tpl_foundation_pre0926`, `vm_app_web_pre0926`,
   `vm_app_vault_pre0926`; `instances/test_web.qcow2.pre0926`, **rebased with
@@ -3934,6 +4085,22 @@ touched.
    agent's port (see #18 on the global CID space). Whether the decoder
    should again reject an unhandled opcode before the body is the open
    question. ADR-039's revision note of 2026-10-03 records the change.
+   **[2026-10-03, ai5: `vm-agent/src/main.rs:475` above is now `:513`
+   (`2a9e638` added code above it). The text is left as written.]**
+
+57. **`katmate-update` maps an instance delta to its app type by the
+   name's suffix.** Added 2026-10-03 (operator ruling R149; found by ai4,
+   ai4-report § 5 item 6; read in the tree by ai5, not run).
+   `build/katmate-update.sh:160–161` and `:193–195` take the type as the
+   last `_` segment of the delta's name (`type="${base##*_}"`), and
+   `:164` dies on a type outside `APP_TYPES`. Of the four deltas,
+   `app_web` → `web` and `app_vault` → `vault` map right by coincidence of
+   name. `app_personal` → `personal` and `app_work` → `work` are unknown,
+   so **the first such delta aborts the whole update**, before anything is
+   rebuilt. (ai4's entry, now in `docs/SESSIONS.md`, also lists `app_vault`
+   as refused. The code maps it.) The instance's T1 `manifest` key, or
+   the delta's own backing file, would name the type. Which one the
+   updater should read is the open question. It is not fixed here.
 
 ## Next steps
 
@@ -4755,6 +4922,12 @@ frozen `vm_home_skel` vs qcow2 branch.
      child, so that RUN `keepassxc` opens a window (a foundation rebuild);
      `katmate-update`'s delta-to-type mapping, which works by name suffix.
      Still open from 4c: G6b and #48's fail-closed half.**]**
+     **[Note 2026-10-03 (`ai5`): the Qt platform item is done** (R146; RUN
+     `keepassxc` opened a window on the rebuilt chain), and every layer has
+     `ip` (R147). `katmate-update`'s mapping is open problem #57 (R149).
+     **Next:** the menu step that ends the alpha (ai6; its inputs are the
+     ai4 report's § 6 ledger and the ai5 report's § 6). Still open from 4c:
+     G6b and #48's fail-closed half.**]**
   5. **VPN mode** (added 2026-09-27, R30): the WireGuard config, the VPN
      ruleset and the kill-switch, under **its own ADR**, after step 4. R8
      names the config disk as the WireGuard config's channel, and R31 gives
