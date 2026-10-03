@@ -51,6 +51,81 @@
 
 ---
 
+## Previous session (2026-10-03, repository and cloud — cd1/cd2) — Codeberg retired, GitHub the only remote; the first cloud sessions; the vm-agent rewrite recorded as ADR-039, with its protocol note (R142–R145); open problem #56
+
+No MINIS work. The day ran in the operator's chat and in two Claude Code
+cloud sessions, `cd1` and `cd2`, on the environment `katmate-docs`
+(trusted network, no environment variables, no setup script). Each worked
+on a shallow HTTPS clone, on its own `claude/…` branch, and the operator
+squash-merged the result on the Acer under his key. `CLAUDE.md` gained §
+*Cloud sessions* (`6baf58e`) and was corrected from cd1's measurements
+(`8b53814`). The facts of the repository move below are the operator's,
+relayed by the orchestrator in cd2's brief; no session verified them.
+
+**Repository and identity (the operator, 2026-10-03).**
+- **Codeberg is retired** over its terms on LLM-assisted projects.
+  `github.com/KatMate/katmate-os` (private) is the primary and only remote.
+  The Codeberg repository is deleted and the account kept. The project is
+  to be published as GPL-3.0 before the alpha, after a history audit.
+- The dangling CNAME `git.katmate-os.org` (Codeberg Pages) was removed
+  before the Codeberg repository was deleted (subdomain-takeover risk).
+  The mirror token is revoked and the `pages` branch deleted.
+- Every commit shows *Verified* on GitHub, and vigilant mode is on. The
+  signing key `3F49AE514562ACD3FF9D6049F8841B7B3D3AB436` is on
+  `keys.openpgp.org`, retrievable by fingerprint and by
+  `git@katmate-os.org`.
+- No GitHub Pro, so branch protection waits for the public release. `main`
+  is protected by workflow: cloud sessions push only `claude/…` branches,
+  and the operator squash-merges on the Acer and signs.
+
+**cd1.** Its brief's premise (an orphaned draft, to be deleted) was wrong,
+and the session halted on it at its read pass. Its result, squashed by the
+operator, is `488d9c2`: the vm-agent Rust rewrite recorded as ADR-039 (it
+had been drafted under the number ADR-018, which the Foundation build
+holds), six citations repointed, and ADR-021 annotated. The next free ADR
+number is **ADR-040**. Creating a draft pull request from the session
+failed with `403 Resource not accessible by integration`, although the
+Claude GitHub App holds pull-request write access and the connection
+checks green. That is a tooling matter, reported to Anthropic by the
+operator, and not a project open problem.
+
+**cd2.** It halted once, at its read pass, on the comparison its brief
+asked for: the `katmate-protocol` crate against ADR-039's frame and
+limits. The six named items match. Three later changes are absent from
+ADR-039's text: the decoder no longer validates the opcode (ADR-021); `0x06`
+NETCFG exists (ADR-021); and vm-agent's SHUTDOWN asks katmate-init over its
+socket (ADR-024). The brief also believed R138 was the highest ruling
+number, where the tree holds R141. The operator ruled (R144, R145 below).
+Then three commits, one concern each, on its branch:
+- ADR-039's revision note of 2026-10-03: the protocol module's home in the
+  `katmate-protocol` crate, the six items unchanged with file:line, and
+  the three later changes. It decides nothing.
+- `ai3` and `ai2` rotated to `docs/SESSIONS.md`, verbatim (`diff` exit 0
+  on both extracts), with ai2's heading returned to *Previous session*.
+- This entry, with open problem #56.
+
+**The operator's rulings (2026-10-03).**
+- **R142 — cd1's two judgement-call citations**
+  (`agent/crates/ping-client/src/main.rs:42`, `docs/DECISIONS.md:1934`)
+  mean the **Foundation build** (ADR-018), as cd1 classified them.
+- **R143 — ADR-039 gets a revision note** on the protocol module's
+  location (now the `katmate-protocol` crate, ADR-021).
+- **R144 — that note records and does not decide.** It states the six
+  matching items as unchanged, and records, with file:line and the ADR
+  that made each, the opcode check after the full read (ADR-021), `0x06`
+  NETCFG (ADR-021), and SHUTDOWN to katmate-init (ADR-024).
+- **R145 — open problem #56:** whether the decoder should again reject an
+  unhandled opcode before reading the body. The observation and the risk
+  only, and no solution. It overrides cd2's brief, which had said to add
+  no open problem.
+
+**Not done, and not claimed.**
+- No build, test or gate. cd2 read the crate and did not run `cargo test`.
+  The facts of the repository move and of cd1 are the operator's.
+- ADR-039's body still describes the decoder as validating the command,
+  and a power helper for SHUTDOWN. Only the note records the change.
+- Whether the decoder should reject early (#56).
+
 ## Previous session (2026-10-02, alpha integration step 4 — ai4) — the offline vault `app_vault` under the new `katmate-app-offline@` (R135–R137); four AppVMs on one netVM; ADR-032 H2 taken; spell checking in office (R138); KeePassXC needs a Qt platform the RUN path does not set
 
 One session, `ai4`, on the Acer and MINIS, in auto mode. It halted once,
