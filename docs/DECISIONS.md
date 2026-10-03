@@ -1484,6 +1484,43 @@ already held, and is recorded as ADR-039 (see its revision note). The other
 ADR-018 citations in this ADR mean the Foundation build. The text above is
 not edited.
 
+**Revision note (2026-10-03, § *Decision* — `vm-agent`'s RUN contract, the
+child's environment; R146):** the opcode model names RUN's whitelist and
+says nothing about the environment a RUN child receives. The operator's
+ruling (R146, on `ai5`'s read pass, D1) settles it. The source is
+`ai5-report.md` §§ 0.3–0.4, outside the repository.
+- **What a RUN child receives.** vm-agent builds the child's environment
+  explicitly: its own environment, unchanged, with
+  `QT_QPA_PLATFORM=wayland`, `XDG_SESSION_TYPE=wayland` and `LANG=C.UTF-8`
+  set by vm-agent, which replace any inherited value of those three names.
+  Nothing else is added or removed. The three are fixed constants
+  (`RUN_ENV` in `agent/crates/vm-agent/src/main.rs`), and a unit test pins
+  the composition. vm-agent's own environment is the one katmate-init gives
+  it (`init/katmate-init.c`, `spawn_agent()`): `HOME`, `USER`, `LOGNAME`,
+  `XDG_RUNTIME_DIR` and `PATH`, five constants. katmate-init stays their
+  only source, and the test does not pin them. **Why:** KatMate's first Qt
+  application, KeePassXC, falls back to `xcb` without
+  `QT_QPA_PLATFORM`, and the guest's only display is Wayland (`ai4`). With
+  no `LANG`, the locale is `C`. Setting the three in katmate-init was
+  rejected, because the Qt platform and the locale are vm-agent's policy
+  for what it launches. Building all eight in vm-agent was rejected,
+  because katmate-init's five would then live in two binaries.
+- **`WAYLAND_DISPLAY` is not in that environment.** The RUN child is
+  `waypipe … server <app>`, and `WAYLAND_DISPLAY` reaches the app from
+  `waypipe server`, not from vm-agent. *Inference, to be observed:* the
+  name an app sees is a generated one (`wayland-IT0Zde7upL` in `ai4`).
+  That the three variables pass through `waypipe server` to the app is
+  also assumed here and not yet observed.
+- **Two published statements this corrects.**
+  [ADR-039](DECISIONS.md#adr-039)'s *"The child inherits the agent's
+  environment (so `WAYLAND_DISPLAY` / `XDG_RUNTIME_DIR` come from the
+  systemd unit, not hardcoded)"* has been false since vm-agent was started
+  by katmate-init. No unit starts it, and `WAYLAND_DISPLAY` is not in its
+  environment. ADR-039's *"`CONTROL_PORT`, `HOST_CID` and `VSOCK_PORT` …
+  are read from the unit's environment"* is stale for the same reason.
+  katmate-init sets none of them, so the protocol defaults are what runs.
+  Neither ADR's text is edited.
+
 ## ADR-022 — Network topology is a graph; the physical NIC is an assignable object
 
 **Status:** Accepted (2026-07-14)
