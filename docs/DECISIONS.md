@@ -3138,6 +3138,53 @@ empirics-before-commitment method of [ADR-024](DECISIONS.md#adr-024); the
 C-gate criteria C1, C3 and C5a are hereby assigned to unit configuration rather
 than to daemon implementation ([ADR-027](DECISIONS.md#adr-027)).
 
+**Revision note (2026-10-03, the launch daemon's alpha precursor,
+`katmate-launch`; R150–R158):** the alpha integration ends when four AppVMs
+launch from a menu (`ROADMAP.md` § *Build order*, *Alpha integration*). The
+operator's rulings in `ai6`'s brief (R150–R153) and on its read pass
+(R154–R158) put a script in the daemon's place for the alpha. It decides
+nothing in this ADR. The sources are `ai6-brief.md` and `ai6-report.md` § 0,
+outside the repository.
+- **What it is.** `host/usr/lib/katmate/katmate-launch`, bash, shipped as T4
+  ([ADR-032](DECISIONS.md#adr-032) §2) at `/usr/lib/katmate/katmate-launch`.
+  It takes `<instance> <app>`, `--stop <instance>` or `--stop-all`. For a
+  routed AppVM it writes the slot owner in the form of record, issues NETCFG
+  ADD, and only then `systemctl start`s the unit (the alpha order, steps
+  1–5). It reads the projection back, waits for PING, and RUNs the app. At
+  stop it sends SHUTDOWN, waits for the unit to leave `active`
+  (`systemctl stop` after 30 s), issues NETCFG REMOVE and removes the owner.
+  It does not start netVM. **It orders and parents nothing.** systemd starts
+  every QEMU, as § *Decision* 1–2 require, so this ADR's model is kept and
+  the script holds no process relationship to any VMM.
+- **Unit selection (R154).** The launcher *selects* `katmate-app-routed@` or
+  `katmate-app-offline@` from T1's `netvm`, and `katmate-generate-env`
+  *verifies* the selection before QEMU. That is ADR-032 §6's case (*"when the
+  launch daemon selects unit names"*). The generator stays the profile's one
+  authority, and neither it nor `katmate-lib.sh` changed.
+- **What is hand-set in it, which the daemon takes over.** Static tables, for
+  the four alpha instances only: per instance the apps its layer carries, and
+  for each routed instance slot, LINK_ID, netVM's slot MAC and peer address,
+  as literals copied from `docs/PARAMETERS.md` with no arithmetic (R156).
+  After each start, the generator's `KM_GUEST_ADDR` and `KM_SLOT` are
+  compared with the literals, and a difference stops the instance. The RUN
+  whitelist is a copy of vm-agent's constant, and
+  `tools/check-run-whitelist` keeps the two equal (R150). These tables are
+  the daemon's output specification, as PARAMETERS.md is. What the daemon
+  does instead is ADR-017's allocation and [ADR-025](DECISIONS.md#adr-025)'s
+  NETCFG ordering and re-issue, neither of which this script attempts. In
+  particular it re-issues nothing after a netVM restart.
+- **Privilege (R151, R155).** The desktop user reaches it through one
+  `NOPASSWD` sudoers rule for that path. That is a dev/alpha shortcut,
+  SECURITY-MODEL gap 17, which the daemon's own request interface replaces.
+  Because it runs as root, its control client is the T4 binary
+  `/usr/lib/katmate/ping-client` and never a build tree.
+- **What it is not.** Not a supervisor, not an allocator, and not the
+  reconcile of ADR-017. It does not hold the graph of
+  [ADR-022](DECISIONS.md#adr-022) (it refuses to start a routed AppVM when
+  netVM is not active, and nothing more), and it does not keep the CID→name
+  table of [ADR-026](DECISIONS.md#adr-026). It is removed when the daemon
+  lands, with its sudoers rule.
+
 ---
 
 ## ADR-030 — What the launch daemon reads: four artefacts, authorship as the tier boundary
