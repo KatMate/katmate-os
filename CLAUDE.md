@@ -48,11 +48,39 @@ before you issue the first remote command, whatever the brief says.
 Anything an Acer session produces that belongs at a canonical path is a
 **reviewable artefact and a fixture, not live configuration**, and the report
 must say so in those words.
-
 Identity for every commit: `KatMate <git@katmate-os.org>`, GPG-signed (`-S`),
 key `3F49AE514562ACD3FF9D6049F8841B7B3D3AB436`. Remote
-`codeberg.org:KatMate/katmate-os.git`, branch `main`. The `pages` branch is
-Codeberg Pages — never project work.
+`git@github.com:KatMate/katmate-os.git` (private; primary since 2026-10-03,
+Codeberg retired), branch `main` — the only long-lived branch.
+
+## Cloud sessions
+
+A session may also run in a Claude Code **cloud** container: a fresh clone of
+the GitHub repository on a remote VM. It is a third context, beside the two
+machines above, and narrower than either:
+
+- **No Acer, no MINIS, no KVM.** No build, no gate, no instance, no SSH to any
+  host of the project. A cloud session works on the tree as text — documents,
+  analysis, and later code that builds and tests without a VM. A brief that
+  needs MINIS is wrong for a cloud session; that is a divergence, not a task.
+- **Commits are unsigned, and stay on the session's own `claude/…` branch.**
+  The operator's key never leaves the Acer. The session never writes `main`,
+  never force-pushes, and never rewrites a commit it did not make. Pushing its
+  own branch is part of the task and needs no separate ask; every other item
+  in *Ask before* still applies.
+- **The operator takes the work onto `main` himself**, on the Acer, as one
+  squash commit signed with his key. The session's commits never reach `main`;
+  the branch is deleted afterwards. The session does not merge, and does not
+  ask the operator to merge in the GitHub web interface.
+- **The brief is pasted into the session**, not read from `~/`. **The report
+  is the body of a draft pull request** from the session's branch to `main`,
+  under the *Report contract* below, in en_US. The pull request exists to be
+  read, and is closed — not merged — once the operator has squashed the
+  branch.
+- **Everything else in this file holds unchanged**: reading order, halt before
+  the first change, claim discipline, one concern per commit. A cloud session
+  can read whole documents that an interactive session reads in slices; it may,
+  and that changes nothing about what it may decide.
 
 ## Reading order, before the first change
 
