@@ -1,0 +1,443 @@
+#!/usr/bin/env bash
+# katmate-launch — start an alpha AppVM and run one application in it
+#
+# T4 (ADR-032 §2), shipped at /usr/lib/katmate/katmate-launch. It is the
+# launch daemon's alpha precursor (ADR-029's note of 2026-10-03; R150): it does
+# by script, at one click, what alpha integration steps 1–5 did by hand at
+# every start. It is not the launch daemon. It orders units and parents
+# nothing (ADR-029): systemd starts QEMU, and this script only writes the
+# owner, issues NETCFG, starts and stops units, and speaks to the agents.
+#
+# Usage:
+#   katmate-launch <instance> <app>     start <instance> unless its unit is
+#                                       active, wait for PING, then RUN <app>
+#   katmate-launch --stop <instance>    SHUTDOWN, wait for the unit to leave
+#                                       active, then (routed) NETCFG REMOVE
+#                                       and remove the owner
+#   katmate-launch --stop-all           --stop for every alpha AppVM that is
+#                                       running or still holds a link
+#
+# Exit status, katmate-lib.sh's convention and not a new one:
+#   0  done
+#   1  refused, or an action failed: the message says which, and so does the
+#      journal (tag katmate-launch)
+#   2  called wrongly: usage
+#
+# Privilege: it runs as uid 0 and refuses otherwise. The desktop user reaches it
+# through one sudoers rule, NOPASSWD for exactly this path (R151), which is a
+# dev/alpha shortcut that the launch daemon replaces (SECURITY-MODEL gap 17).
+# So everything it takes from the caller is checked before it is used: the
+# instance name by km_check_instance and against the alpha table, and the app
+# name against the RUN whitelist and the instance's layer.
+#
+# The menu starts it with no terminal, so stdout and stderr go nowhere a person
+# reads. Every action is therefore also one journal line:
+#   journalctl -t katmate-launch
+
+set -euo pipefail
+umask 022
+# sudo's secure_path is the caller's configuration, not this script's. Every
+# program below is a system binary, and ping-client is called by its absolute
+# path (R155).
+export PATH=/usr/bin
+
+# The uid guard comes first, before anything is read: it must not depend on the
+# library being where it should be, and nothing this script reads or writes is
+# meant for any other uid (R151).
+if (( EUID != 0 )); then
+    printf '[katmate-launch] FATAL: must run as uid 0 (sudo -n /usr/lib/katmate/katmate-launch …, R151): it writes owners under /run/katmate and starts system units\n' >&2
+    logger -t katmate-launch -- "FATAL: refused, uid $EUID is not 0" || true
+    exit 1
+fi
+
+# KM_PROG is the diagnostic prefix; it is read by katmate-lib.sh after the
+# source below, which shellcheck cannot see across an absolute path.
+# shellcheck disable=SC2034
+KM_PROG="katmate-launch"
+# shellcheck source=host/usr/lib/katmate/katmate-lib.sh
+source /usr/lib/katmate/katmate-lib.sh
+
+# The control client, installed beside this script as a T4 binary (R155). Never
+# a build tree: this runs as root, and a binary uid 1000 can replace would make
+# the sudoers rule a root grant (ADR-032 §5: a build tree is never read at
+# runtime).
+PING_CLIENT=/usr/lib/katmate/ping-client
+
+# --- the journal ---------------------------------------------------------------
+# katmate-lib.sh's three diagnostics, the same text and the same exit codes,
+# each also written to the journal. Redefined here rather than wrapped, so the
+# library's own readers (km_t1_read, km_check_instance) log their refusals too.
+jlog() {
+    logger -t katmate-launch -- "$*" \
+        || printf '[%s] WARNING: logger failed; the line above is not in the journal\n' "$KM_PROG" >&2
+}
+km_log()   { printf '[%s] %s\n' "$KM_PROG" "$*"; jlog "$*"; }
+km_die()   { printf '[%s] FATAL: %s\n' "$KM_PROG" "$*" >&2; jlog "FATAL: $*"; exit 1; }
+km_usage() { printf '[%s] USAGE: %s\n' "$KM_PROG" "$*" >&2; jlog "USAGE: $*"; exit 2; }
+
+USAGE="katmate-launch <instance> <app> | --stop <instance> | --stop-all"
+
+# --- the static tables (alpha only) -----------------------------------------
+# The RUN whitelist, a copy. Its one source is vm-agent's compile-time constant,
+# `pub const WHITELIST` in agent/crates/vm-agent/src/main.rs. The agent
+# enforces it; this copy only refuses earlier and with a reason.
+# tools/check-run-whitelist compares the two and fails on any difference
+# (R150).
+RUN_WHITELIST=(firefox-esr foot pcmanfm libreoffice keepassxc)
+
+# The apps each alpha instance's layer carries, from manifests/<manifest>.list
+# (web: firefox-esr foot pcmanfm; office: libreoffice foot pcmanfm; vault:
+# keepassxc foot pcmanfm), as read in the built layers on MINIS by ai5. A RUN of
+# a whitelisted app the layer lacks answers OK and opens nothing (the agent
+# answers when waypipe spawns), so it is refused here.
+ALPHA_INSTANCES=(app_web app_personal app_work app_vault)
+declare -A APPS=(
+    [app_web]="firefox-esr foot pcmanfm"
+    [app_personal]="firefox-esr foot pcmanfm"
+    [app_work]="libreoffice foot pcmanfm"
+    [app_vault]="keepassxc foot pcmanfm"
+)
+
+# The alpha's links, one row per routed instance: slot, LINK_ID, netVM's slot
+# MAC and the guest's address. Literals copied from docs/PARAMETERS.md (rows
+# *Slot* and *LINK_ID*, and the NETCFG ADD form in the LINK_ID row), which are
+# frozen for the alpha (R150, R156). There is no arithmetic here on purpose:
+# the address layout is computed only in katmate-generate-env, and after every
+# start this script compares its literal with the generator's KM_GUEST_ADDR and
+# KM_SLOT and refuses on a difference. The launch daemon replaces this table.
+LINK_NETVM=netvm
+NETCFG_METRIC=100
+declare -A LINK=(
+    [app_web]="01 201 52:54:01:00:00:01 10.100.1.17"
+    [app_personal]="02 202 52:54:01:00:00:02 10.100.1.18"
+    [app_work]="03 203 52:54:01:00:00:03 10.100.1.19"
+)
+
+PING_TIMEOUT=30   # seconds; PING answers ~4.5 s after start (ai5: try 3 of 2 s)
+STOP_TIMEOUT=30   # seconds from SHUTDOWN to the unit leaving `active`
+LOCK_TIMEOUT=90   # longer than one start or one stop
+
+in_list() {
+    local needle="$1" item
+    shift
+    for item in "$@"; do [[ "$item" == "$needle" ]] && return 0; done
+    return 1
+}
+
+oneline() { local s="${1//$'\n'/ | }"; printf '%s' "${s%' | '}"; }
+
+unit_state() { systemctl is-active "$1" 2>/dev/null || true; }
+
+show_journal() {
+    printf '[%s] last journal lines of %s:\n' "$KM_PROG" "$1" >&2
+    journalctl -u "$1" -n 20 --no-pager -o short-precise >&2 || true
+}
+
+# --- the instance --------------------------------------------------------------
+check_alpha_instance() {
+    km_check_instance "$1"
+    [[ -v APPS[$1] ]] \
+        || km_die "instance '$1' is not one of the alpha's AppVMs (${ALPHA_INSTANCES[*]}); katmate-launch carries static tables for those only (R150)"
+}
+
+# read_instance <instance>: T1 through katmate-lib.sh's reader, never a parser
+# of its own (R150). Sets CID, NETVM, UNIT and, for a routed instance, SLOT,
+# LINK_ID, SLOT_MAC, PEER and NETVM_CID.
+read_instance() {
+    local inst="$1" class nclass
+    km_t1_read "$inst"
+    class="$(km_t1_require class)"
+    [[ "$class" == app ]] \
+        || km_die "$KM_T1_FILE: class='$class'; katmate-launch starts AppVMs only (class = app)"
+    CID="$(km_t1_require cid)"
+    [[ "$CID" =~ ^[0-9]+$ ]] \
+        || km_die "$KM_T1_FILE: cid='$CID' is not a fixed integer; the launcher has no allocator"
+    NETVM="$(km_t1_require netvm)"
+
+    # The unit is SELECTED here and VERIFIED by katmate-generate-env, which is
+    # the profile's one authority (ADR-032 §2, §6; R154). The unit name asserts
+    # a profile, the generator derives one from (class, netvm, nic), and a
+    # mismatch fails in its ExecStartPre=, before QEMU. This is the selection
+    # ADR-032 §6 was written for, not a second derivation: nothing here decides
+    # what a profile contains.
+    if [[ -n "$NETVM" ]]; then
+        UNIT="katmate-app-routed@$inst.service"
+    else
+        UNIT="katmate-app-offline@$inst.service"
+    fi
+
+    # T1 and the static link table must agree about whether there is a link.
+    # A disagreement is a T1 edited after the table was written, or a table
+    # that is wrong, and either way the start would use the wrong half.
+    if [[ -n "$NETVM" ]]; then
+        [[ -v LINK[$inst] ]] \
+            || km_die "$KM_T1_FILE: netvm='$NETVM', but katmate-launch's link table has no row for '$inst' (R156)"
+        [[ "$NETVM" == "$LINK_NETVM" ]] \
+            || km_die "$KM_T1_FILE: netvm='$NETVM'; the link table's literals belong to netVM '$LINK_NETVM' only (R156)"
+        read -r SLOT LINK_ID SLOT_MAC PEER <<<"${LINK[$inst]}"
+
+        # netVM's CID from its own T1 file, through the same reader.
+        km_t1_read "$LINK_NETVM"
+        nclass="$(km_t1_require class)"
+        [[ "$nclass" == sys ]] \
+            || km_die "$KM_T1_FILE: class='$nclass'; netVM '$LINK_NETVM' must be class = sys"
+        NETVM_CID="$(km_t1_require cid)"
+        [[ "$NETVM_CID" =~ ^[0-9]+$ ]] \
+            || km_die "$KM_T1_FILE: cid='$NETVM_CID' is not an integer"
+    else
+        [[ ! -v LINK[$inst] ]] \
+            || km_die "$KM_T1_FILE: netvm = \"\" (offline), but katmate-launch's link table has a row for '$inst' (R156)"
+    fi
+}
+
+routed() { [[ -n "$NETVM" ]]; }
+
+owner_path() { printf '%s/link/%s/%s/owner' "$KM_RUN_DIR" "$LINK_NETVM" "$SLOT"; }
+owner_text() { printf 'KATMATE_OWNER_VERSION=1\nINSTANCE=%s\nLINK_ID=%s\n' "$1" "$LINK_ID"; }
+
+# --- the link: owner and NETCFG ----------------------------------------------
+# The owner in the form of record (s4-gates p1.sh; ai5 net.sh): three lines,
+# installed root:root 0644, never edited in place.
+claim_owner() {
+    local inst="$1" o dir tmp
+    o="$(owner_path)"
+    dir="${o%/owner}"
+    [[ -d "$dir" ]] \
+        || km_die "slot directory $dir is absent: netVM '$LINK_NETVM' has not created its pool on this boot"
+    [[ ! -L "$o" ]] || km_die "$o is a symlink; refusing to write through it"
+    if [[ -e "$o" ]]; then
+        # A leftover of this instance's own earlier start (a crash, a --stop
+        # that never ran) is kept, because it says exactly what would be
+        # written. Anything else is somebody's assignment.
+        if [[ "$(cat -- "$o")" == "$(owner_text "$inst")" ]]; then
+            km_log "owner $o already names $inst with LINK_ID $LINK_ID; kept"
+            return 0
+        fi
+        km_die "$o exists and is not $inst's: '$(oneline "$(cat -- "$o")")'. Refusing to take slot $SLOT."
+    fi
+    tmp="$(mktemp "$LOCK_DIR/.owner.XXXXXX")"
+    owner_text "$inst" >"$tmp"
+    if ! install -o root -g root -m 0644 "$tmp" "$o"; then
+        rm -f -- "$tmp"
+        km_die "cannot install the owner $o"
+    fi
+    rm -f -- "$tmp"
+    km_log "owner written: $o (INSTANCE=$inst LINK_ID=$LINK_ID)"
+}
+
+netcfg_add() {
+    local out
+    if out="$("$PING_CLIENT" netcfg-add "$NETVM_CID" "$LINK_ID" "$SLOT_MAC" "$PEER" "$NETCFG_METRIC" 2>&1)"; then
+        km_log "NETCFG ADD $LINK_ID $SLOT_MAC $PEER metric $NETCFG_METRIC to CID $NETVM_CID: OK"
+        return 0
+    fi
+    km_log "NETCFG ADD $LINK_ID to CID $NETVM_CID failed: $(oneline "$out")"
+    return 1
+}
+
+# withdraw_link <instance>: NETCFG REMOVE and the owner, each only if it is
+# there to withdraw. REMOVE of an unknown id is OK at the agent, so it is
+# idempotent. Returns 1 if anything could not be withdrawn, after trying both.
+withdraw_link() {
+    local inst="$1" o ns out rc=0
+    ns="$(unit_state "katmate-sys-driver@$LINK_NETVM.service")"
+    if [[ "$ns" == active ]]; then
+        if out="$("$PING_CLIENT" netcfg-remove "$NETVM_CID" "$LINK_ID" 2>&1)"; then
+            km_log "NETCFG REMOVE $LINK_ID to CID $NETVM_CID: OK"
+        else
+            km_log "NETCFG REMOVE $LINK_ID to CID $NETVM_CID failed: $(oneline "$out")"
+            rc=1
+        fi
+    else
+        km_log "netVM '$LINK_NETVM' is '$ns': NETCFG REMOVE $LINK_ID skipped (a netVM that is not running holds no link)"
+    fi
+
+    o="$(owner_path)"
+    if [[ -L "$o" ]]; then
+        km_log "$o is a symlink; not removed"
+        rc=1
+    elif [[ -e "$o" ]]; then
+        if [[ "$(cat -- "$o")" == "$(owner_text "$inst")" ]]; then
+            rm -f -- "$o"
+            km_log "owner removed: $o"
+        else
+            km_log "$o does not name $inst with LINK_ID $LINK_ID ('$(oneline "$(cat -- "$o")")'); not removed"
+            rc=1
+        fi
+    else
+        km_log "no owner on slot $SLOT; nothing to remove"
+    fi
+    return "$rc"
+}
+
+# --- start, PING, RUN ----------------------------------------------------------
+# The generator's projection is complete when `systemctl start` returns: its
+# ExecStartPre= chain has run by then (Type=simple returns once QEMU forks).
+readback() {
+    local inst="$1" env got_addr got_slot
+    env="$KM_RUN_DIR/vm/$inst.env"
+    got_addr="" got_slot=""
+    if [[ -f "$env" ]]; then
+        got_addr="$(km_meta_get "$env" KM_GUEST_ADDR)"
+        got_slot="$(km_meta_get "$env" KM_SLOT)"
+    fi
+    if [[ "$got_addr" == "$PEER" && "$got_slot" == "$SLOT" ]]; then
+        km_log "read-back: $env has KM_GUEST_ADDR=$got_addr KM_SLOT=$got_slot, as the link table says"
+        return 0
+    fi
+    km_log "read-back MISMATCH: $env has KM_GUEST_ADDR='$got_addr' KM_SLOT='$got_slot'; the link table says $PEER, slot $SLOT. Stopping $UNIT."
+    systemctl stop "$UNIT" || km_log "systemctl stop $UNIT failed"
+    withdraw_link "$inst" || true
+    km_die "the generator placed $inst at '$got_addr' (slot '$got_slot'), and NETCFG was issued for $PEER (slot $SLOT). $UNIT is stopped and the link withdrawn (R156)."
+}
+
+cold_start() {
+    local inst="$1" ns
+    if routed; then
+        ns="$(unit_state "katmate-sys-driver@$LINK_NETVM.service")"
+        [[ "$ns" == active ]] \
+            || km_die "netVM '$LINK_NETVM' is '$ns', not active. katmate-launch does not start netVM in the alpha (R150): start katmate-sys-driver@$LINK_NETVM.service first."
+        claim_owner "$inst"
+        if ! netcfg_add; then
+            withdraw_link "$inst" || true
+            km_die "NETCFG ADD for $inst failed; the owner is withdrawn and $UNIT was not started"
+        fi
+    fi
+
+    km_log "systemctl start $UNIT"
+    if ! systemctl start "$UNIT"; then
+        show_journal "$UNIT"
+        if routed; then withdraw_link "$inst" || true; fi
+        km_die "systemctl start $UNIT failed (journal lines above, and journalctl -u $UNIT)"
+    fi
+    if routed; then readback "$inst"; fi
+}
+
+wait_ping() {
+    local inst="$1" out="" try=0 t0 now
+    t0="$(date +%s%3N)"
+    while :; do
+        try=$(( try + 1 ))
+        if out="$("$PING_CLIENT" ping "$CID" 2>&1)"; then
+            now="$(date +%s%3N)"
+            km_log "PING CID $CID ($inst): OK on try $try, $(( now - t0 )) ms"
+            return 0
+        fi
+        now="$(date +%s%3N)"
+        (( now - t0 < PING_TIMEOUT * 1000 )) || break
+        sleep 1
+    done
+    show_journal "$UNIT"
+    km_die "no PING answer from CID $CID ($inst) in ${PING_TIMEOUT} s, $try tries; last: $(oneline "$out"). $UNIT is left as it is; 'katmate-launch --stop $inst' stops it."
+}
+
+run_app() {
+    local inst="$1" app="$2" out
+    if out="$("$PING_CLIENT" run "$CID" "$app" 2>&1)"; then
+        km_log "RUN $app in $inst (CID $CID): OK"
+        return 0
+    fi
+    km_die "RUN $app in $inst (CID $CID) failed: $(oneline "$out")"
+}
+
+launch() {
+    local inst="$1" app="$2" st
+    check_alpha_instance "$inst"
+    in_list "$app" "${RUN_WHITELIST[@]}" \
+        || km_die "app '$app' is not on vm-agent's RUN whitelist (${RUN_WHITELIST[*]})"
+    # shellcheck disable=SC2086  # the table's value is a word list
+    in_list "$app" ${APPS[$inst]} \
+        || km_die "app '$app' is whitelisted, but $inst's layer does not carry it (it carries: ${APPS[$inst]}); a RUN of it would answer OK and open nothing"
+    read_instance "$inst"
+
+    km_log "launch $inst $app (unit $UNIT, CID $CID, invoked by ${SUDO_USER:-<no SUDO_USER>})"
+    st="$(unit_state "$UNIT")"
+    case "$st" in
+    active)          km_log "$UNIT is active: no start, RUN only" ;;
+    inactive|failed) cold_start "$inst" ;;
+    *)               km_die "$UNIT is '$st'; refusing to act on a unit in transition. Try again." ;;
+    esac
+    wait_ping "$inst"
+    run_app "$inst" "$app"
+}
+
+# --- stop ----------------------------------------------------------------------
+stop_instance() {
+    local inst="$1" st out deadline
+    check_alpha_instance "$inst"
+    read_instance "$inst"
+    km_log "stop $inst (unit $UNIT, CID $CID, invoked by ${SUDO_USER:-<no SUDO_USER>})"
+    st="$(unit_state "$UNIT")"
+    if [[ "$st" == active ]]; then
+        if out="$("$PING_CLIENT" shutdown "$CID" 2>&1)"; then
+            km_log "SHUTDOWN CID $CID ($inst): OK"
+            deadline=$(( $(date +%s) + STOP_TIMEOUT ))
+            while [[ "$(unit_state "$UNIT")" == active ]] && (( $(date +%s) < deadline )); do
+                sleep 1
+            done
+        else
+            km_log "SHUTDOWN CID $CID ($inst) failed: $(oneline "$out")"
+        fi
+        st="$(unit_state "$UNIT")"
+        if [[ "$st" == active ]]; then
+            # The agent did not answer, or the guest did not power off in
+            # time. systemd owns the process (ADR-029), so it is asked.
+            km_log "$UNIT still active after SHUTDOWN; systemctl stop $UNIT"
+            systemctl stop "$UNIT" || km_die "systemctl stop $UNIT failed"
+            st="$(unit_state "$UNIT")"
+        fi
+        km_log "$UNIT is now '$st'"
+    else
+        km_log "$UNIT is '$st': nothing to shut down"
+    fi
+    if routed; then
+        withdraw_link "$inst" || km_die "the link of $inst was not fully withdrawn (lines above)"
+    fi
+}
+
+# --stop-all: every alpha instance whose unit is active, or which still holds an
+# owner (a routed instance that crashed). One failure does not stop the others;
+# the exit is 1 if any failed.
+stop_all() {
+    local inst st fails=0
+    km_log "stop-all (invoked by ${SUDO_USER:-<no SUDO_USER>})"
+    for inst in "${ALPHA_INSTANCES[@]}"; do
+        (
+            read_instance "$inst"
+            st="$(unit_state "$UNIT")"
+            if [[ "$st" != active ]] && { ! routed || [[ ! -e "$(owner_path)" ]]; }; then
+                km_log "stop-all: $inst is '$st' and holds no link; skipped"
+                exit 0
+            fi
+            stop_instance "$inst"
+        ) || fails=$(( fails + 1 ))
+    done
+    (( fails == 0 )) || km_die "stop-all: $fails instance(s) failed to stop cleanly (lines above)"
+    km_log "stop-all: done"
+}
+
+# --- main ----------------------------------------------------------------------
+# One launcher at a time: two clicks on one instance must not both claim its
+# slot. The lock lives in /run/katmate, the only tree a T4 executable writes.
+LOCK_DIR="$(km_run_subdir launch 0700)"
+exec 9>"$LOCK_DIR/lock"
+flock -w "$LOCK_TIMEOUT" 9 \
+    || km_die "another katmate-launch has held $LOCK_DIR/lock for ${LOCK_TIMEOUT} s"
+
+case "${1-}" in
+--stop)
+    (( $# == 2 )) || km_usage "$USAGE"
+    stop_instance "$2"
+    ;;
+--stop-all)
+    (( $# == 1 )) || km_usage "$USAGE"
+    stop_all
+    ;;
+-*|"")
+    km_usage "$USAGE"
+    ;;
+*)
+    (( $# == 2 )) || km_usage "$USAGE"
+    launch "$1" "$2"
+    ;;
+esac
