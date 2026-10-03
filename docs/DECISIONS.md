@@ -480,6 +480,17 @@ purpose. *"Two manifests"* in § *Decision* and *"two hardcoded manifests"* in
 *Customization evolution* are now three: `vault`, `web` and `office`. The
 alpha's first instance of the domain is `app_work`.
 
+**Revision note 2026-10-03 — `iproute2` in the foundation (R147).** The
+2026-09-26 note above lists what the foundation carries beside its GUI
+runtime: nothing. It now also carries `iproute2` (`build/foundation.sh`,
+step 3), so `ip` exists in every domain. It is a diagnostic tool, not GUI
+runtime, and it goes in the foundation rather than in a manifest because
+every domain needs the same in-guest network reading. Until now, that
+reading had to be taken from `/sys/class/net` and `/proc/net`
+([ADR-038](DECISIONS.md#adr-038) G2, and the vault's negative test in
+`ai4`). The foundation's package count rises by `iproute2` and its
+dependencies. The count is read at the next foundation build.
+
 ---
 
 ## ADR-015 — VM properties: machine-readable schema (TOML, per-instance)
