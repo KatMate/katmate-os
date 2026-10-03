@@ -264,8 +264,8 @@ ADR-030 launcher inventory; deferred to its own session, together with C3.
 
 ## 14. The launcher menu's two files in `~/.config/waybar/`
 
-**Scope:** MINIS · **[LIVE]** from `ai6` · **[?]** until that session's Part B
-reads them back
+**Scope:** MINIS · **[LIVE]** · **[V]** 2026-10-03 (`ai6`: both symlinks
+read back with `readlink -f`, and the menu used by the operator)
 
 **Requirement:** for the desktop user, `~/.config/waybar/modules-katmate.jsonc`
 and `~/.config/waybar/katmate-menu.xml` as symlinks to the tracked
@@ -287,8 +287,9 @@ and that file names the second by the absolute path
 
 ## 13. `/etc/sudoers.d/katmate-launch` — the menu's one sudo rule
 
-**Scope:** MINIS · **[LIVE]** from `ai6` · **[?]** until that session's Part B
-reads it back · **dev/alpha only**
+**Scope:** MINIS · **[LIVE]** · **[V]** 2026-10-03 (`ai6`: `cmp` equal to the
+staged file, `root:root 440`, `visudo -c` parsed OK, listed by
+`sudo -l -U host`) · **dev/alpha only**
 
 **Requirement:** `/etc/sudoers.d/katmate-launch`, `root:root 0440`, containing
 `host ALL=(root) NOPASSWD: /usr/lib/katmate/katmate-launch`. That is exactly
