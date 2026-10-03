@@ -3852,6 +3852,22 @@ outside the repository: `ai4-brief.md` and `ai4-report.md`.
 - The observations are recorded in `state.md` and `docs/PARAMETERS.md` by
   the session that takes them (ai4, Part B). This note claims none of them.
 
+**Revision note (2026-10-03, the verdicts on the 2026-10-02 note's two gates
+— R148):** the operator's verdicts on `ai4`'s observations, recorded by
+`ai5`. The observations themselves are in `state.md` (ai4's entry) and
+`ai4-report.md` §§ B4h and B5, outside the repository.
+- **G2 (re-pointed to `katmate-app-offline@app_vault`): PASS.** The
+  console printed `[katmate-init] net: offline (no km.ip), lo up`, and the
+  QEMU command line carried 0 `-netdev`, 0 `virtio-net` and 0
+  `/run/katmate/link` paths, against 1 of each on the three routed AppVMs
+  started the same way (2026-10-02, MINIS).
+- **[ADR-032](DECISIONS.md#adr-032) H2, original pairing: PASS.**
+  `katmate-app-routed@app_vault` was refused by `katmate-generate-env`
+  before QEMU (*"profile mismatch: the unit asserts 'app-routed' … derives
+  'app-offline' … Refusing before QEMU"*), with `ExecMainPID=0` and no
+  QEMU carrying `guest-cid=24` (2026-10-02, MINIS). The inverted pairing
+  stays untaken, as ruled.
+
 ---
 
 ## ADR-032 — Where each tier lives: the path is the tier, and T4 is more than the template
