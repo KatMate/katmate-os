@@ -63,6 +63,12 @@ even on failure.
 - nftables: default-drop ruleset (see [SECURITY-MODEL.md](SECURITY-MODEL.md#controls-by-component)), enabled
 - WireGuard: ProtonVPN profile + `wg-quick@proton` enabled (transitional
   installer default — in production NetVM carries the VPN per [ADR-009](DECISIONS.md#adr-009))
+  **[Correction 2026-10-03 (R164): both halves are contradicted.** A host
+  WireGuard link is dev scaffolding on the pre-release removal list, not a
+  transitional default, and netVM carries no WireGuard: under
+  [ADR-037](DECISIONS.md#adr-037) its egress is direct, with a VPN a
+  post-install option. See [SECURITY-MODEL.md](SECURITY-MODEL.md#known-gaps-tracked)
+  gap 3's note of 2026-09-27. The item is left as written.**]**
 - `vhost_vsock` module autoload via `/etc/modules-load.d/katmate-vsock.conf`
   (AF_VSOCK sole host↔guest channel per [ADR-003](DECISIONS.md#adr-003))
 - mkinitcpio: `HOOKS=(base udev autodetect keyboard keymap modconf block

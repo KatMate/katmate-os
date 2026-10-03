@@ -22,13 +22,14 @@ desktop/
 │   └── style-sway.css              @imports style.css, adds .focused
 ├── bin/
 │   ├── sway-session                env wrapper — sway has no `env =`
+│   ├── sway-quiet                  greetd entry's Exec: clears the tty, execs sway-session
 │   ├── km-shot                     region screenshot (replaces hyprshot)
 │   └── km-scratch                  scratchpad toggle (replaces pyprland)
 └── greetd/
     ├── config.toml                 reference copy of /etc/greetd/config.toml
-    └── sessions/                   reference copies of the .desktop entries
-        ├── katmate-sway.desktop
-        └── hyprland-quiet.desktop
+    └── wayland-sessions/           reference copies of the .desktop entries
+        ├── sway.desktop
+        └── hyprland.desktop
 ```
 
 
@@ -36,8 +37,10 @@ desktop/
 
 Two classes of file, deployed differently.
 
-**User files are symlinked**, so this tree is the only original and editing
-the live config edits the repo. Same anti-drift pattern as `~/net-sys.con`.
+**User files are symlinked**, so this tree is the only original. On MINIS
+the links point into the synced copy, so an edit made through them is removed
+by the next `rsync --delete`: edit in the git tree and sync. Same anti-drift
+pattern as `~/net-sys.con`.
 
 The source is `~/katmate-build/`, not `~/katmate-os/`, because MINIS holds
 the copy synced one-way from the Acer's git tree, not the git tree itself
@@ -70,7 +73,7 @@ it ([ROADMAP.md](../ROADMAP.md) step 5).
 ```sh
 sudo install -m 755 desktop/bin/sway-session /usr/local/bin/
 sudo install -m 644 desktop/greetd/config.toml /etc/greetd/
-sudo install -m 644 -D desktop/greetd/sessions/*.desktop -t /etc/greetd/sessions/
+sudo install -m 644 -D desktop/greetd/wayland-sessions/*.desktop -t /etc/greetd/sessions/
 ```
 
 `/etc/greetd/sessions/` rather than `/usr/share/wayland-sessions/` on purpose:
@@ -163,5 +166,6 @@ targets `DP-2`, an output that exists on neither reference machine.
 
 ## Reference machine
 
-Acer ES1-633, single output `eDP-1`. The MINIS two-output block
-(`DP-3` @ 0x0, `HDMI-A-1` @ 1920x0) is not written yet.
+MINIS (MINISFORUM UM870). Outputs are not configured in this tree:
+`sway/config` includes `outputs.conf`, which is local to the machine and
+not tracked.

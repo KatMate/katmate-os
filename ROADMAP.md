@@ -195,8 +195,8 @@ complementing the per-mechanism gates.
 
 **Parallel (off critical path, before releasing step 6):** remove installer
 secrets + rotate burned WG key + drop `Hidden=true` (SECURITY-MODEL #1–2);
-remove dev sshd (#4); remove the `usermod -p` dev-root line from `netvm.sh`
-(#12) — see the operational note in `state.md`.
+remove dev sshd (#4); ~~remove the `usermod -p` dev-root line from `netvm.sh`
+(#12)~~ **done in `23e4268` (2026-09-03)** — see the operational note in `state.md`.
 **Opportunistic:** suspend/resume under linux-hardened; hibernation decision
 (resume hook or shrink swap); `qemu-full` → `qemu-base`.
 

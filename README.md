@@ -1,7 +1,5 @@
 # Katmate OS
 
-*Codename: Cyberdome*
-
 A security- and privacy-oriented desktop operating system built on compartmentalization.
 Application workloads run in isolated QEMU/KVM MicroVMs; the host remains a minimal,
 auditable trusted computing base.
@@ -53,3 +51,15 @@ Avoid unnecessary abstraction, large management stacks, hidden magic, excessive
 dependencies.
 
 **Privacy. Security. Isolation. Simplicity.**
+
+## License
+
+Katmate OS is licensed under the GNU General Public License, version 3 only
+(GPL-3.0-only). The full text is in [LICENSE](LICENSE); the decision is
+[ADR-031](docs/DECISIONS.md#adr-031). Third-party work the project derives
+from is credited in [CREDITS.md](CREDITS.md).
+
+## Contributing
+
+Contributions and pull requests are not accepted yet. The project will open
+to others as it grows.
