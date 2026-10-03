@@ -127,8 +127,6 @@ cp /etc/resolv.conf "$MNT/etc/resolv.conf"
 # source build links against these; build deps are added+purged in step 5).
 # Every application — foot, pcmanfm, firefox-esr, keepassxc — is in manifests/.
 # libgtk-3-0t64 is trixie's name; the old libgtk-3-0 resolves only as a virtual.
-# iproute2 is not GUI runtime: it puts `ip` in every AppVM, so an in-guest
-# network reading needs no /sys and /proc substitute (R147; ai4 found none).
 #
 # katmate-init is PID 1, yet systemd, systemd-sysv, dbus and dbus-daemon end up
 # installed, as dependency debt accepted for the alpha; nothing starts them:
@@ -140,8 +138,7 @@ chroot_run "$MNT" apt-get install -y \
   ca-certificates \
   fontconfig fonts-dejavu-core \
   libgbm1 libwayland-client0 liblz4-1 libzstd1 \
-  libgtk-3-0t64 \
-  iproute2
+  libgtk-3-0t64
 
 # ---- 4. custom MicroVM kernel — NOT installed into the image ----------------
 # The host boots the kernel via -kernel $KERNEL (see app_web.con): monolithic,
@@ -175,6 +172,45 @@ chroot_run "$MNT" bash -eu -c "
 chroot_run "$MNT" apt-get purge -y $WP_BUILD_DEPS
 chroot_run "$MNT" apt-get autoremove --purge -y
 rm -rf "$MNT/tmp/waypipe" "$MNT/root/.cargo" "$MNT/root/.cache" 2>/dev/null || true
+
+# ---- 5b. iproute2, after the purge (R147) -----------------------------------
+# Not GUI runtime: it puts `ip` in every AppVM, so an in-guest network reading
+# needs no /sys and /proc substitute. Installed HERE, after step 5's purge and
+# autoremove, and not in step 3: iproute2 Suggests python3, and an installed
+# package's Suggests keep the waypipe build residue (python3.13, binutils)
+# alive through autoremove — measured in ai5 B3, 72 removed against 91.
+log "iproute2 (after the build-dependency purge)"
+chroot_run "$MNT" apt-get install -y iproute2
+
+# ---- 5c. read-back: no build residue in the layer ---------------------------
+# Step 5's rule — build deps must not ship — made enforceable. Reads the
+# layer's dpkg status (nothing installs after this point; step 9 only cleans
+# the apt cache) and dies naming any installed (ii) compiler-toolchain or
+# Python package. Dying here, before the freeze, lets cleanup remove the
+# half-built LV.
+# The one exception to gcc*: gcc-<N>-base is libgcc-s1's runtime base, present
+# in every known-good layer (ai5: ai3's 209-package foundation and all three
+# app layers), and not a compiler.
+build_residue_check() {
+  local status="$1"
+  awk '
+    /^Package: /{ p = $2 }
+    /^Status: /{ s = $0 }
+    /^$/{ emit() } END{ emit() }
+    function emit() {
+      if (s == "Status: install ok installed" &&
+          p ~ /^(python3.*|libpython3.*|binutils.*|libbinutils|gcc.*|cpp.*|meson|ninja-build)$/ &&
+          p !~ /^gcc-[0-9]+-base$/)
+        print p
+      p = s = ""
+    }' "$status"
+}
+DPKG_STATUS="$MNT/var/lib/dpkg/status"
+[[ -s "$DPKG_STATUS" ]] || die "read-back: $DPKG_STATUS is missing or empty"
+RESIDUE="$(build_residue_check "$DPKG_STATUS")"
+[[ -z "$RESIDUE" ]] || die "build residue installed in the foundation (step 5 must purge it):
+$RESIDUE"
+log "Read-back: no build residue installed among $(grep -c '^Package: ' "$DPKG_STATUS") dpkg records (python3*, libpython3*, binutils*, libbinutils, gcc* but gcc-N-base, cpp*, meson, ninja-build)"
 
 # ---- 6. bake vm-agent + katmate-init ----------------------------------------
 # Paths from the live code: vm-agent at /usr/local/bin/vm-agent (`VM_AGENT_PATH`
