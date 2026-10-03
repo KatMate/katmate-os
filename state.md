@@ -316,6 +316,10 @@ on MINIS. No reboot. The report is outside the repository:
 
 **Not done, and not claimed.**
 - No verdicts. H2, G2, R139 and R140 are the operator's.
+  **[2026-10-03, R148, recorded by ai5: the operator's verdicts. H2 PASS,
+  G2 (re-pointed to `app_vault`) PASS, R139 PASS. R140 partial: KeePassXC
+  works by hand, from foot with `QT_QPA_PLATFORM=wayland`, and not by RUN.
+  ai5 closes it. G2 and H2 are also in ADR-030's note of 2026-10-03.]**
 - A RUN of `keepassxc` opening a window; vm-agent setting the Qt platform.
 - A positive control for netVM's conntrack reading during the vault test.
 - `systemd-analyze verify` of the new unit (not run on either machine).
