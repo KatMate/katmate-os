@@ -1,8 +1,9 @@
 //! config.rs — runtime configuration, resolved once at startup.
 //!
-//! The systemd unit exports VSOCK_PORT, HOST_CID and VM_CID into the
-//! agent's environment. This module reads them, falling back to the
-//! source-of-truth defaults. Invalid values fall back to the default
+//! This module reads CONTROL_PORT, HOST_CID and VSOCK_PORT from the
+//! agent's environment, falling back to the source-of-truth defaults.
+//! The agent's environment is katmate-init's, which sets none of them
+//! today, so the defaults are what runs. Invalid values fall back to the default
 //! rather than aborting, and (in debug builds) say so.
 //!
 //! Moved from `agent/src/config.rs`, unchanged in behaviour. Only the

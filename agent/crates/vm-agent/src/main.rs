@@ -1,7 +1,7 @@
 //! vm-agent — VSOCK control agent for KatMate appVMs.
 //!
 //! Runs inside each appVM (as the unprivileged session user, uid 1000,
-//! started by a systemd --user unit). It speaks a small binary,
+//! started by katmate-init, PID 1, after the privilege drop). It speaks a small binary,
 //! length-prefixed protocol over a VSOCK control channel and accepts
 //! connections only from the host CID.
 //!
@@ -90,6 +90,18 @@ pub const INIT_SOCK: &str = "/run/katmate-init.sock";
 /// init matches this prefix and triggers reboot(RB_AUTOBOOT).
 pub const SHUTDOWN_CMD: &[u8] = b"SHUTDOWN";
 
+/// Variables vm-agent sets for every RUN child, replacing any inherited
+/// value of the same name (R146, ADR-021's note of 2026-10-03). Fixed
+/// constants: Qt 5.15 picks its `xcb` platform unless told otherwise, and
+/// the guest has no X display, only waypipe's Wayland socket; and with no
+/// `LANG` the locale is `C`, which foot warns about. Everything else the
+/// child gets is the agent's own environment, which is katmate-init's.
+pub const RUN_ENV: &[(&str, &str)] = &[
+    ("QT_QPA_PLATFORM", "wayland"),
+    ("XDG_SESSION_TYPE", "wayland"),
+    ("LANG", "C.UTF-8"),
+];
+
 // --- logging --------------------------------------------------------
 
 /// Debug-only log. Expands to an `eprintln!` (→ journal, since the unit
@@ -168,14 +180,14 @@ fn handle_run(fd: RawFd, req: &RawRequest, cfg: &Config) -> Result<()> {
     // Debug visibility into exactly how waypipe is launched — this is
     // the information that was missing when the Wayland environment was
     // hard to get right. Compiled out of release builds.
+    let envp = run_child_env(std::env::vars_os());
     log_debug!("RUN argv: {argv:?}");
     log_debug!(
-        "RUN env: WAYLAND_DISPLAY={:?} XDG_RUNTIME_DIR={:?}",
-        std::env::var("WAYLAND_DISPLAY").ok(),
-        std::env::var("XDG_RUNTIME_DIR").ok()
+        "RUN env: {:?}",
+        envp.iter().map(|e| String::from_utf8_lossy(e)).collect::<Vec<_>>()
     );
 
-    match spawn(&argv) {
+    match spawn(&argv, &envp) {
         Ok(pid) => {
             log_debug!("RUN spawned waypipe pid {pid}");
             frame::write_ok(fd)
@@ -364,13 +376,41 @@ fn signal_init_shutdown() -> Result<()> {
     result
 }
 
+// --- RUN child environment -------------------------------------------
+
+/// The environment a RUN child receives, as `NAME=value` entries: every
+/// inherited entry in its order, except those named in RUN_ENV, followed
+/// by RUN_ENV's entries in RUN_ENV's order. So each RUN_ENV name appears
+/// exactly once, with vm-agent's value, and nothing else is added or
+/// removed. `inherited` is the agent's own environment in production
+/// (`std::env::vars_os()`), which katmate-init sets; the function takes
+/// it as a parameter so the composition can be tested.
+fn run_child_env<I>(inherited: I) -> Vec<Vec<u8>>
+where
+    I: IntoIterator<Item = (std::ffi::OsString, std::ffi::OsString)>,
+{
+    use std::os::unix::ffi::OsStrExt;
+
+    let mut env: Vec<Vec<u8>> = inherited
+        .into_iter()
+        .filter(|(k, _)| !RUN_ENV.iter().any(|(name, _)| k.as_bytes() == name.as_bytes()))
+        .map(|(k, v)| [k.as_bytes(), b"=", v.as_bytes()].concat())
+        .collect();
+    env.extend(
+        RUN_ENV
+            .iter()
+            .map(|(k, v)| [k.as_bytes(), b"=", v.as_bytes()].concat()),
+    );
+    env
+}
+
 // --- child spawning (posix_spawn) ----------------------------------
 
-/// Spawn `argv[0]` with arguments `argv`, searching PATH, inheriting the
-/// agent's environment. Returns the child PID. Uses posix_spawn so all
-/// argument marshalling happens in the parent — no allocation or other
-/// non-async-signal-safe work between fork and exec.
-fn spawn(argv: &[&str]) -> Result<libc::pid_t> {
+/// Spawn `argv[0]` with arguments `argv` and environment `envp` (entries
+/// of the form `NAME=value`), searching PATH. Returns the child PID. Uses
+/// posix_spawn so all argument marshalling happens in the parent — no
+/// allocation or other non-async-signal-safe work between fork and exec.
+fn spawn(argv: &[&str], envp: &[Vec<u8>]) -> Result<libc::pid_t> {
     use std::ffi::CString;
 
     // Build owned C strings; these must outlive the posix_spawn call.
@@ -379,10 +419,17 @@ fn spawn(argv: &[&str]) -> Result<libc::pid_t> {
         .map(|a| CString::new(*a))
         .collect::<std::result::Result<_, _>>()
         .map_err(|_| AgentError::Rejected("argument contains NUL byte"))?;
+    let c_env: Vec<CString> = envp
+        .iter()
+        .map(|e| CString::new(e.as_slice()))
+        .collect::<std::result::Result<_, _>>()
+        .map_err(|_| AgentError::Rejected("environment entry contains NUL byte"))?;
 
-    // argv array of pointers into c_args, NULL-terminated.
+    // argv and envp arrays of pointers into c_args / c_env, NULL-terminated.
     let mut c_argv: Vec<*const libc::c_char> = c_args.iter().map(|c| c.as_ptr()).collect();
     c_argv.push(std::ptr::null());
+    let mut c_envp: Vec<*const libc::c_char> = c_env.iter().map(|c| c.as_ptr()).collect();
+    c_envp.push(std::ptr::null());
 
     let mut pid: libc::pid_t = 0;
 
@@ -409,10 +456,11 @@ fn spawn(argv: &[&str]) -> Result<libc::pid_t> {
         }
     }
 
-    // SAFETY: c_argv is NULL-terminated and its pointers reference
-    // c_args, which is still alive. environ gives the child our
-    // environment (inheriting WAYLAND_DISPLAY / XDG_RUNTIME_DIR from the
-    // unit). posix_spawnp searches PATH for argv[0].
+    // SAFETY: c_argv and c_envp are NULL-terminated and their pointers
+    // reference c_args and c_env, which are still alive. The child's
+    // environment is exactly envp (run_child_env: the agent's own, which
+    // katmate-init sets, plus RUN_ENV). posix_spawnp searches PATH for
+    // argv[0].
     let rc = unsafe {
         libc::posix_spawnp(
             &mut pid,
@@ -420,7 +468,7 @@ fn spawn(argv: &[&str]) -> Result<libc::pid_t> {
             &actions,
             std::ptr::null(),
             c_argv.as_ptr() as *const *mut libc::c_char,
-            environ(),
+            c_envp.as_ptr() as *const *mut libc::c_char,
         )
     };
 
@@ -435,16 +483,6 @@ fn spawn(argv: &[&str]) -> Result<libc::pid_t> {
         )));
     }
     Ok(pid)
-}
-
-/// The process environment pointer, for passing to posix_spawn.
-fn environ() -> *const *mut libc::c_char {
-    extern "C" {
-        static environ: *const *mut libc::c_char;
-    }
-    // SAFETY: `environ` is the standard POSIX global; reading the
-    // pointer is safe. posix_spawn only reads through it.
-    unsafe { environ }
 }
 
 // --- per-connection loop -------------------------------------------
@@ -625,5 +663,57 @@ mod tests {
             WHITELIST,
             &["firefox-esr", "foot", "pcmanfm", "libreoffice", "keepassxc"]
         );
+    }
+
+    /// The RUN child's environment (R146): the input, minus any inherited
+    /// value of the three RUN_ENV names, plus those three with vm-agent's
+    /// values, each exactly once. This pins the COMPOSITION only. The
+    /// five inherited constants below are katmate-init's today
+    /// (init/katmate-init.c, spawn_agent), and this test does not pin
+    /// them: they are katmate-init's, not vm-agent's.
+    #[test]
+    fn run_child_env_composition() {
+        use std::ffi::OsString;
+        let input = |pairs: &[(&str, &str)]| -> Vec<(OsString, OsString)> {
+            pairs
+                .iter()
+                .map(|(k, v)| (OsString::from(k), OsString::from(v)))
+                .collect()
+        };
+        let init_five = [
+            ("HOME", "/home/user"),
+            ("USER", "user"),
+            ("LOGNAME", "user"),
+            ("XDG_RUNTIME_DIR", "/run/user/1000"),
+            ("PATH", "/usr/local/bin:/usr/bin:/bin"),
+        ];
+        let expected: Vec<Vec<u8>> = [
+            "HOME=/home/user",
+            "USER=user",
+            "LOGNAME=user",
+            "XDG_RUNTIME_DIR=/run/user/1000",
+            "PATH=/usr/local/bin:/usr/bin:/bin",
+            "QT_QPA_PLATFORM=wayland",
+            "XDG_SESSION_TYPE=wayland",
+            "LANG=C.UTF-8",
+        ]
+        .iter()
+        .map(|s| s.as_bytes().to_vec())
+        .collect();
+
+        // katmate-init's environment as it is: the three are added.
+        assert_eq!(run_child_env(input(&init_five)), expected);
+
+        // An input that already carries the three, with other values (and
+        // LANG twice): each is replaced, and appears once.
+        let mut with_three = init_five.to_vec();
+        with_three.insert(1, ("LANG", "sl_SI.UTF-8"));
+        with_three.push(("QT_QPA_PLATFORM", "xcb"));
+        with_three.push(("XDG_SESSION_TYPE", "x11"));
+        with_three.push(("LANG", "C"));
+        assert_eq!(run_child_env(input(&with_three)), expected);
+
+        // An empty input yields exactly the three.
+        assert_eq!(run_child_env(Vec::new()), expected[5..].to_vec());
     }
 }
