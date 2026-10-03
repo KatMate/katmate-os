@@ -61,7 +61,7 @@ fi
 KERNEL_PROVENANCE="$(kernel_provenance_check "$KERNEL_VMLINUZ")"
 log "Kernel provenance: $KERNEL_PROVENANCE ($KERNEL_VMLINUZ)"
 [[ -f "$VM_AGENT_BIN" ]] || die "Missing vm-agent binary: $VM_AGENT_BIN
-  Build the Rust vm-agent and copy it here (ADR-018):
+  Build the Rust vm-agent and copy it here (ADR-039):
     (cd agent && cargo build --release && cp target/release/vm-agent $VM_AGENT_BIN)"
 [[ -f "$INIT_SRC" ]] || die "Missing init source: $INIT_SRC"
 

@@ -12,7 +12,7 @@
 
 - [x] vm-agent in C (PING, RUN, FILEGET, FILEPUT, SHUTDOWN)
 - [x] vm-agent rewritten in Rust — versioned binary protocol, bounds-checked
-      framing, posix_spawn, atomic FILEPUT, traversal-safe paths (ADR-018)
+      framing, posix_spawn, atomic FILEPUT, traversal-safe paths (ADR-039)
 - [x] Agent split into a Cargo workspace — `katmate-protocol` + `vm-agent` +
       `netvm-agent` + `ping-client`; absent-not-disabled opcode model (ADR-021)
 - [x] File transfer over VSOCK

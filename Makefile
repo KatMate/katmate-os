@@ -14,7 +14,7 @@
 # External prerequisites for the FOUNDATION step only (not the app-layers),
 # placed in out/ by their own sub-pipelines:
 #     out/linux-image-katmate-microvm-amd64.deb   (custom MicroVM kernel, ADR-005)
-#     out/vm-agent                                 (Rust vm-agent binary, ADR-018)
+#     out/vm-agent                                 (Rust vm-agent binary, ADR-039)
 SHELL := /bin/bash
 BUILD := build
 OUT   := out
@@ -67,7 +67,7 @@ $(KERNEL_VMLINUZ):
 	  exit 1; \
 	fi
 
-# vm-agent is Rust now (ADR-018); copy the compiled binary here for the
+# vm-agent is Rust now (ADR-039); copy the compiled binary here for the
 # foundation build. (App-layers do not use it.)
 $(VM_AGENT):
 	@echo "MISSING: $@"; \
