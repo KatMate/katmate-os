@@ -183,6 +183,13 @@ complementing the per-mechanism gates.
   integration session creates it with its first row.
 - **Stopping rule:** engineering ends when the table is complete and four
   AppVMs launch from the menu.
+  **[Status 2026-10-03, `ai6`: the stopping rule is met on MINIS.** All four
+  AppVMs (`app_web`, `app_personal`, `app_work`, `app_vault`) launched from
+  the waybar menu, cold, through `katmate-launch`, and each opened its window
+  (the operator, 4–6 s from click to window). `docs/PARAMETERS.md` has no
+  empty cell (12 rows). **The engineering of the alpha is done.** Not done:
+  the MSI Cubi as the reproducibility gate (*Order* above), and the launch
+  daemon that replaces `katmate-launch` (step 3b). See `state.md`.**]**
 - **Framing:** it demonstrates a wider isolation framework, and shows which
   parameters are still hand-set, why, and where in the path they sit.
 
