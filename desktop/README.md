@@ -39,15 +39,19 @@ Two classes of file, deployed differently.
 **User files are symlinked**, so this tree is the only original and editing
 the live config edits the repo. Same anti-drift pattern as `~/net-sys.con`.
 
+The source is `~/katmate-build/`, not `~/katmate-os/`, because MINIS holds
+the copy synced one-way from the Acer's git tree, not the git tree itself
+([CLAUDE.md](../CLAUDE.md) § *The two machines*).
+
 ```sh
-ln -s ~/katmate-os/desktop/sway/config               ~/.config/sway/config
-ln -s ~/katmate-os/desktop/waybar/config-sway.jsonc  ~/.config/waybar/
-ln -s ~/katmate-os/desktop/waybar/modules-sway.jsonc ~/.config/waybar/
-ln -s ~/katmate-os/desktop/waybar/style-sway.css     ~/.config/waybar/
-ln -s ~/katmate-os/desktop/waybar/modules-katmate.jsonc ~/.config/waybar/
-ln -s ~/katmate-os/desktop/waybar/katmate-menu.xml      ~/.config/waybar/
-ln -s ~/katmate-os/desktop/bin/km-shot               ~/.local/bin/
-ln -s ~/katmate-os/desktop/bin/km-scratch            ~/.local/bin/
+ln -s ~/katmate-build/desktop/sway/config               ~/.config/sway/config
+ln -s ~/katmate-build/desktop/waybar/config-sway.jsonc  ~/.config/waybar/
+ln -s ~/katmate-build/desktop/waybar/modules-sway.jsonc ~/.config/waybar/
+ln -s ~/katmate-build/desktop/waybar/style-sway.css     ~/.config/waybar/
+ln -s ~/katmate-build/desktop/waybar/modules-katmate.jsonc ~/.config/waybar/
+ln -s ~/katmate-build/desktop/waybar/katmate-menu.xml      ~/.config/waybar/
+ln -s ~/katmate-build/desktop/bin/km-shot               ~/.local/bin/
+ln -s ~/katmate-build/desktop/bin/km-scratch            ~/.local/bin/
 ```
 
 The launcher menu (`custom/katmate`) needs waybar ≥ 0.11 (`menu`,
