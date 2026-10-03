@@ -6,11 +6,11 @@
 > history and the ADRs — this file references them rather than repeating them.
 
 **Milestone:** v0.2 (in development) · **Last updated:** 2026-10-03
-(`ai5`, alpha integration step 5, on the Acer and MINIS: vm-agent gives a
-RUN child the Qt platform, the session type and a UTF-8 locale (R146), and
-`iproute2` is in the foundation after the build-dependency purge, guarded
-by a read-back (R147); one foundation rebuild, all four AppVMs again, and
-RUN `keepassxc` opens; next is the menu step that ends the alpha).
+(`ai6`, alpha integration step 6, on the Acer and MINIS: `katmate-launch`
+and the waybar menu (R150–R158). All four AppVMs launched from the menu,
+and the parameter table is complete, so **the engineering of the alpha is
+done** (R153). What remains is the Cubi reproducibility gate and the launch
+daemon).
 
 ## Current focus
 
@@ -120,6 +120,16 @@ were read in the app's own environment. ai4's verdicts are recorded
 (R148), and `katmate-update`'s mapping is open problem #57 (R149).
 **Next:** the menu step that ends the alpha (ai6). See § *This
 session*.**]**
+**[Note 2026-10-03, `ai6`: alpha integration step 6 is done, and with it
+the alpha's engineering** (R153). `katmate-launch` (T4, the launch daemon's
+alpha precursor) writes the owner, issues NETCFG, starts the unit, waits for
+PING and RUNs the app, and reverses all of it at stop. A waybar menu calls
+it through one sudoers rule (SECURITY-MODEL gap 17). The operator launched
+all four AppVMs from the menu, cold, each window 4–6 s after the click, and
+then *Stop all AppVMs*. `docs/PARAMETERS.md` has no empty cell. **Next:**
+the MSI Cubi as the reproducibility gate, and the launch daemon (build order
+step 3b), whose output specification is PARAMETERS.md with
+`katmate-launch`'s tables. See § *This session*.**]**
 
 The **entire build chain remains scripted and proven from nothing**:
 `make foundation` builds the shared systemd-free base
@@ -148,7 +158,93 @@ restartable — and so updatable — without touching running VMs.
 Direction unchanged: IOMMU-capable platforms only (VT-d/AMD-Vi).
 MINIS is primary host and merge target.
 
-## This session (2026-10-03, alpha integration step 5 — ai5) — the RUN child's environment (R146); `iproute2` after the build-dependency purge, with a residue read-back (R147); one foundation rebuild; RUN `keepassxc` opens; ai4's verdicts (R148); `katmate-update`'s mapping is #57 (R149)
+## This session (2026-10-03, alpha integration step 6 — ai6) — `katmate-launch` and the waybar menu (R150–R158); four AppVMs launched from the menu; the alpha's engineering is done (R153)
+
+One session, `ai6`, on the Acer and MINIS, in auto mode. It halted once,
+at its read pass, on four divergences, and the operator ruled them
+(R154–R158). **D1:** the brief said to reuse the generator's profile
+derivation. No reusable form exists: it is inline in `katmate-generate-env`,
+and `katmate-lib.sh` excludes it by name. **D2:** `ping-client` had no
+installed path, and its only copy was in a build tree that uid 1000 can
+write. **D3:** NETCFG ADD needs netVM's slot MAC and the peer address, which
+the brief's table did not carry, and the address is computed only in the
+generator. **D4:** the operator's running waybar config is the tracked
+`desktop/waybar/config-sway.jsonc` (a symlink into the synced tree), and an
+include alone shows nothing. No commit on MINIS. No reboot. The report is
+outside the repository: `~/Claude.assistent/ai6-report.md`, with every
+script and output in `~/Claude.assistent/ai6/` and
+`/home/host/katmate-dev/ai6/`.
+
+**The operator's rulings.** Brief (2026-10-02): **R150** `katmate-launch
+<instance> <app>`, `--stop`, `--stop-all`, bash, T4. **R151** one
+`NOPASSWD` sudoers rule for exactly that path, a dev/alpha shortcut.
+**R152** the waybar `custom/katmate` menu. **R153** the alpha's end
+condition. Read pass (2026-10-03):
+- **R154 (D1):** the launcher *selects* the unit from T1's `netvm`, and the
+  generator's ADR-032 §6 check *verifies* it. The generator stays the
+  profile's one authority.
+- **R155 (D2):** `ping-client` is installed as the T4 binary
+  `/usr/lib/katmate/ping-client`, and the launcher calls only that path.
+- **R156 (D3):** a static table of slot, LINK_ID, slot MAC and peer, as
+  literals from PARAMETERS.md, with no arithmetic. The order is owner, ADD,
+  start, PING, RUN. After the start, the generator's `KM_GUEST_ADDR` is read
+  back, and a mismatch stops the instance.
+- **R157 (D4):** two lines in the tracked `config-sway.jsonc` (the include,
+  and `custom/katmate` first in `modules-left`), two new tracked files in
+  `desktop/waybar/`, and two symlinks in `~/.config/waybar/`.
+- **R158:** R151's sufficiency is UNVERIFIED while `katmate-dev` exists.
+  The new gap is SECURITY-MODEL **#17**.
+
+**What ran (CEST).**
+- **Part A (Acer):** `27500cf` `katmate-launch`; `321753c`
+  `tools/check-run-whitelist` (AGREE, 5 entries; two negative controls
+  refused); `ee287c6` the menu; `10a95e5` gap 17; `1e91476` ADR-029's note;
+  `894c940` HOST-CONFIG §§ 13–14. A fixture extract of the launcher (stubbed
+  systemctl, ping-client and logger, the real library and T1 reader, and the
+  staged T1 files) gave **41 of 41**: every argument, whitelist, layer and T1
+  refusal, the cold, warm and offline paths, the read-back mismatch, a start
+  failure, a PING timeout, and the stop and stop-all paths. Pushed;
+  `ls-remote` equal to HEAD.
+- **P0 (19:42):** no reboot since 2026-10-02 14:03:24; netVM 22405;
+  installed = tree, 11 of 11; **waybar 0.15.0**, started by sway with
+  `config-sway.jsonc`.
+- **B2 (20:00):** rsync (21 items, no deletions). Installed: `katmate-launch`
+  `7938f47a…`; `ping-client` `bbeeddf2…`, the 2026-07-23 build every session
+  used, whose sources have changed since only in comments; and
+  `/etc/sudoers.d/katmate-launch` `ebfb91fe…`, `root:root 0440`, after
+  `visudo -c -f`. `sudo -l -U host` lists the rule. Two symlinks; waybar
+  SIGUSR2 (same PID 1420). The installed set is 13 of 13 equal to its
+  sources. The operator saw the *KatMate* label.
+- **B3 (20:02–20:04), from the shell:** `app_vault keepassxc`, `--stop
+  app_vault`, `app_web foot`, `--stop app_web`, each exit 0. KeePassXC and
+  foot opened. PING OK on try 5 at about 4.0 s (1 s poll).
+- **B4 (20:06–20:13), the operator from the menu:** cold web Firefox,
+  personal Terminal, work LibreOffice and vault KeePassXC, then nine warm
+  RUNs, all `RUN … OK`. **Windows, click to window:** vault KeePassXC ~4 s,
+  personal Terminal ~4 s, work LibreOffice ~5 s, web Firefox ~6 s; warm
+  under 1 s, Firefox ~1 s (the operator). All four AppVMs ran at once.
+  *Stop all AppVMs* (20:13:27–20:13:31): four SHUTDOWNs, REMOVE 201–203,
+  owners removed, every window closed.
+- **End state:** netVM 22405 running, `NRestarts=0`; all four AppVM units
+  inactive; no owner; 6144 of 6144 hugepages free.
+
+**Found, recorded and not designed for (report §§ 5, 6).**
+- **A RUN of an app the layer lacks:** ADR-021's note of 2026-10-02 (R130)
+  says the RUN *"fails, which is already loud"*, while `ai5-report.md` § 6,
+  from reading `handle_run`, says it answers OK and opens nothing.
+  `katmate-launch` refuses such a pair either way. Neither claim has been
+  observed.
+- `desktop/README.md`'s deploy lines point at `~/katmate-os/`, while MINIS's
+  symlinks point at `~/katmate-build/`. This predates ai6, which follows the
+  README's pattern.
+
+**Not done, and not claimed.**
+- That R151's rule alone is sufficient (R158).
+- The launcher's refusal paths on MINIS (they ran only in the Acer extract),
+  NETCFG's effect inside netVM, and the MSI Cubi.
+- The `ip -br addr` line in the B3 foot window (asked, not answered).
+
+## Previous session (2026-10-03, alpha integration step 5 — ai5) — the RUN child's environment (R146); `iproute2` after the build-dependency purge, with a residue read-back (R147); one foundation rebuild; RUN `keepassxc` opens; ai4's verdicts (R148); `katmate-update`'s mapping is #57 (R149)
 
 One session, `ai5`, on the Acer and MINIS, in auto mode. It halted four
 times, and each halt was ruled through the orchestrator by the operator.
@@ -1977,6 +2073,31 @@ touched.
   are verified — the operator showed the unit file. The distro `waypipe` was
   removed (`pacman -Rs waypipe`), `waypipe-client` stayed `active`, and
   `waypipe` is no longer on the host `PATH`.
+- **The launcher and the menu (from 2026-10-03, `ai6`; R150–R158).**
+  - **`/usr/lib/katmate/katmate-launch`** `root:root 0755`, `7938f47a…` (T4,
+    the launch daemon's alpha precursor; ADR-029's note of 2026-10-03).
+    `katmate-launch <instance> <app>` | `--stop <instance>` | `--stop-all`,
+    as root only. Exit 0 = done, 1 = refused or failed, 2 = usage. Every
+    action is a journal line: **`journalctl -t katmate-launch`**. It does
+    not start netVM.
+  - **`/usr/lib/katmate/ping-client`** `root:root 0755`, `bbeeddf2…` (R155),
+    a copy of `~/katmate-build/agent/target/release/ping-client` (built
+    2026-07-23). **The installed set is now 13 files:** the eleven of the
+    tree, plus `katmate-launch` (against the tree) and `ping-client`
+    (against that build output). Hash-first compares `ping-client` with the
+    build output, not with the tree.
+  - **`/etc/sudoers.d/katmate-launch`** `root:root 0440`, `ebfb91fe…`,
+    staged in the Acer's ignored `local/etc/sudoers.d/` (HOST-CONFIG § 13).
+    SECURITY-MODEL gap 17. Its sufficiency is UNVERIFIED while `katmate-dev`
+    exists (R158).
+  - **The menu:** `custom/katmate`, the first module of `modules-left` in
+    the tracked `config-sway.jsonc`. `~/.config/waybar/modules-katmate.jsonc`
+    and `katmate-menu.xml` are symlinks into `~/katmate-build/desktop/waybar/`
+    (HOST-CONFIG § 14). waybar 0.15.0, PID 1420, parented by sway; it was
+    reloaded with SIGUSR2.
+  - **Its locks and owners:** `/run/katmate/launch/` (`root:root 0700`,
+    `flock`). Owners are written and removed by the launcher; none stands
+    between starts.
 - **Disk chain**: three-level LVM-thin chain proven live through a full
   boot/render/shutdown cycle.
 
