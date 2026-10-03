@@ -490,6 +490,11 @@ reading had to be taken from `/sys/class/net` and `/proc/net`
 ([ADR-038](DECISIONS.md#adr-038) G2, and the vault's negative test in
 `ai4`). The foundation's package count rises by `iproute2` and its
 dependencies. The count is read at the next foundation build.
+`iproute2` is installed after the build-dependency purge (step 5b), not
+with the GUI runtime: installed before it, its `Suggests: python3` kept
+the waypipe build residue (python3.13, binutils) through autoremove
+(`ai5`, 72 packages removed against 91), and a read-back now refuses any
+such residue in the layer.
 
 ---
 
