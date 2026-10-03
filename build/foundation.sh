@@ -127,6 +127,8 @@ cp /etc/resolv.conf "$MNT/etc/resolv.conf"
 # source build links against these; build deps are added+purged in step 5).
 # Every application — foot, pcmanfm, firefox-esr, keepassxc — is in manifests/.
 # libgtk-3-0t64 is trixie's name; the old libgtk-3-0 resolves only as a virtual.
+# iproute2 is not GUI runtime: it puts `ip` in every AppVM, so an in-guest
+# network reading needs no /sys and /proc substitute (R147; ai4 found none).
 #
 # katmate-init is PID 1, yet systemd, systemd-sysv, dbus and dbus-daemon end up
 # installed, as dependency debt accepted for the alpha; nothing starts them:
@@ -138,7 +140,8 @@ chroot_run "$MNT" apt-get install -y \
   ca-certificates \
   fontconfig fonts-dejavu-core \
   libgbm1 libwayland-client0 liblz4-1 libzstd1 \
-  libgtk-3-0t64
+  libgtk-3-0t64 \
+  iproute2
 
 # ---- 4. custom MicroVM kernel — NOT installed into the image ----------------
 # The host boots the kernel via -kernel $KERNEL (see app_web.con): monolithic,
