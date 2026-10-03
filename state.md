@@ -297,6 +297,15 @@ on MINIS. No reboot. The report is outside the repository:
   `WAYLAND_DISPLAY` and `XDG_RUNTIME_DIR` only, and Qt 5.15 defaults to
   `xcb`. The foundation's GUI runtime is GTK. A fix in vm-agent means a
   foundation rebuild.
+  **[2026-10-03, ai5 (D1, R146): *"vm-agent passes `WAYLAND_DISPLAY` and
+  `XDG_RUNTIME_DIR` only"* is wrong.** vm-agent set no environment. A RUN
+  child inherited the agent's own, which is katmate-init's five constants
+  (`HOME`, `USER`, `LOGNAME`, `XDG_RUNTIME_DIR`, `PATH`), with no
+  `WAYLAND_DISPLAY`. That variable reaches the app from `waypipe
+  server`. The sentence came from a stale comment in `main.rs`, not from
+  `spawn()`. The rest of the item stands. ADR-021's note of 2026-10-03
+  records the contract that replaces it. The text is left as
+  written.**]**
 - **No AppVM layer has `ip`** (`iproute2`). Readings inside a guest use
   `/sys/class/net` and `/proc/net`, as ADR-038 G2 did.
 - `katmate-update` maps a delta to its app type by the name suffix, so it
