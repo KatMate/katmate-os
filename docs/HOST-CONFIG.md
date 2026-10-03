@@ -262,6 +262,58 @@ ADR-030 launcher inventory; deferred to its own session, together with C3.
 
 # Desktop and session
 
+## 14. The launcher menu's two files in `~/.config/waybar/`
+
+**Scope:** MINIS · **[LIVE]** from `ai6` · **[?]** until that session's Part B
+reads them back
+
+**Requirement:** for the desktop user, `~/.config/waybar/modules-katmate.jsonc`
+and `~/.config/waybar/katmate-menu.xml` as symlinks to the tracked
+`desktop/waybar/` files, in `desktop/README.md`'s pattern (R157). The tracked
+`config-sway.jsonc` includes the first file by its `~/.config/waybar/` path,
+and that file names the second by the absolute path
+`/home/host/.config/waybar/katmate-menu.xml`. Needs waybar ≥ 0.11 (MINIS:
+0.15.0).
+
+**Failure modes.**
+- **The include target absent:** what waybar does with a missing include was
+  not read. The module is then undefined while `modules-left` names it.
+- **The menu file absent or unreadable:** the label shows and the click opens
+  nothing. Every item's action is skipped, and **this is silent**, because
+  waybar's own output goes to no terminal.
+- **A user other than `host`:** the absolute `menu-file` path and the sudoers
+  rule (§ 13) both name `host`. The installer must write both for the actual
+  desktop user.
+
+## 13. `/etc/sudoers.d/katmate-launch` — the menu's one sudo rule
+
+**Scope:** MINIS · **[LIVE]** from `ai6` · **[?]** until that session's Part B
+reads it back · **dev/alpha only**
+
+**Requirement:** `/etc/sudoers.d/katmate-launch`, `root:root 0440`, containing
+`host ALL=(root) NOPASSWD: /usr/lib/katmate/katmate-launch`. That is exactly
+that path, with any arguments, for the desktop user (R151). It is checked with
+`visudo -c -f` before it is installed. Staged in the ignored
+`local/etc/sudoers.d/`, like T1 (§ 10), and installed as a copy, never
+authored on the machine.
+
+**Failure modes.**
+- **Absent:** every menu item fails at `sudo -n` with *"a password is
+  required"*, and **this is silent**, because waybar shows no output.
+  `journalctl -t katmate-launch` then has no line for the click, which is
+  how to tell it from a launcher refusal. **On MINIS this failure cannot
+  occur today:** `katmate-dev` (SECURITY-MODEL gap 13) grants `host`
+  `NOPASSWD: ALL`, so the menu works with or without this file (R158).
+- **A syntax error:** `sudo` refuses **every** rule while any file under
+  `sudoers.d/` fails to parse, the dev rule included. That is why `visudo -c
+  -f` comes first.
+- **A wider rule** (a directory, or a wildcard path): root for anything the
+  pattern matches. The rule names one absolute file, whose directory is
+  root-owned.
+
+**Removal:** with the launcher, when the launch daemon lands
+(SECURITY-MODEL gap 17). Not part of the installer-provisioned configuration.
+
 ## 11. `waypipe-client` user unit — the host end of the GUI path
 
 **Scope:** MINIS · **[LIVE]** · **[V]** 2026-09-26
