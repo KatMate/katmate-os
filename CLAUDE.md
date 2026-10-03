@@ -202,6 +202,13 @@ not `find`, for what is actually tracked. Never `git add -A`, and never stage a
 file this session did not write: the operator edits the tree concurrently, and
 an unstaged modification in `git status` is usually his.
 
+**Documentation also changes in cloud sessions** (operator ruling, 2026-10-03),
+on `claude/…` branches that the operator squash-merges to `main` at any time.
+An Acer session therefore assumes `main` may move under it: before its first
+commit and before every push it runs `git fetch origin` and, if `origin/main`
+is ahead, `git pull --ff-only origin main`. If that is not a fast-forward, it
+stops and reports — no rebase, no merge.
+
 ## Language
 
 Everything in the repository is **en_US** — code, comments, diagnostics, commit
