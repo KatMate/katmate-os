@@ -55,28 +55,34 @@ Codeberg retired), branch `main` — the only long-lived branch.
 
 ## Cloud sessions
 
-A session may also run in a Claude Code **cloud** container: a fresh clone of
-the GitHub repository on a remote VM. It is a third context, beside the two
-machines above, and narrower than either:
+A session may also run in a Claude Code **cloud** container: a shallow HTTPS
+clone of the GitHub repository on a remote VM. It is a third context, beside
+the two machines above, and narrower than either:
 
 - **No Acer, no MINIS, no KVM.** No build, no gate, no instance, no SSH to any
   host of the project. A cloud session works on the tree as text — documents,
   analysis, and later code that builds and tests without a VM. A brief that
   needs MINIS is wrong for a cloud session; that is a divergence, not a task.
-- **Commits are unsigned, and stay on the session's own `claude/…` branch.**
-  The operator's key never leaves the Acer. The session never writes `main`,
-  never force-pushes, and never rewrites a commit it did not make. Pushing its
-  own branch is part of the task and needs no separate ask; every other item
-  in *Ask before* still applies.
+- **Commits stay on the session's own `claude/…` branch.** The harness signs
+  them with its own SSH key as `Claude <noreply@anthropic.com>`; the
+  operator's GPG key never leaves the Acer. The session never writes `main`,
+  never force-pushes, and never rewrites a commit it did not make; amending
+  its own commit before it is pushed is allowed. Pushing its own branch is
+  part of the task and needs no separate ask; every other item in *Ask
+  before* still applies.
 - **The operator takes the work onto `main` himself**, on the Acer, as one
   squash commit signed with his key. The session's commits never reach `main`;
   the branch is deleted afterwards. The session does not merge, and does not
   ask the operator to merge in the GitHub web interface.
 - **The brief is pasted into the session**, not read from `~/`. **The report
-  is the body of a draft pull request** from the session's branch to `main`,
-  under the *Report contract* below, in en_US. The pull request exists to be
-  read, and is closed — not merged — once the operator has squashed the
-  branch.
+  is the session's final message**, under the *Report contract* below, in
+  en_US. If the brief asks for a draft pull request and GitHub refuses it, the
+  refusal is reported and not worked around; the pushed branch is what the
+  orchestrator reviews.
+- **The clone is shallow.** History older than the clone's depth is not
+  evidence: the oldest commit visible is where the clone stops, not where a
+  file began. Fetch more history before making any claim about when something
+  was added.
 - **Everything else in this file holds unchanged**: reading order, halt before
   the first change, claim discipline, one concern per commit. A cloud session
   can read whole documents that an interactive session reads in slices; it may,
