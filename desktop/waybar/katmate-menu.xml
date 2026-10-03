@@ -1,0 +1,35 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  KatMate launcher menu: the GTK builder file for waybar's custom/katmate
+  module (modules-katmate.jsonc; R152, R157). waybar looks up the object with
+  id "menu" and connects each item whose id is a key of the module's
+  "menu-actions". The ids here and the keys there must therefore match one for
+  one. A label is only a label, and what an item does is decided there.
+
+  Per AppVM, the apps its layer carries (manifests/<manifest>.list), in the
+  menu's own order: web and personal (layer web) Firefox, Files, Terminal;
+  work (layer office) LibreOffice, Files, Terminal; vault (layer vault)
+  KeePassXC, Terminal. A flat list with separators rather than submenus: the
+  alpha needs twelve items, and a flat list has one less GTK mechanism to go
+  wrong.
+-->
+<interface>
+  <object class="GtkMenu" id="menu">
+    <child><object class="GtkMenuItem" id="web-firefox"><property name="label">web · Firefox</property></object></child>
+    <child><object class="GtkMenuItem" id="web-files"><property name="label">web · Files</property></object></child>
+    <child><object class="GtkMenuItem" id="web-terminal"><property name="label">web · Terminal</property></object></child>
+    <child><object class="GtkSeparatorMenuItem" id="sep-web"/></child>
+    <child><object class="GtkMenuItem" id="personal-firefox"><property name="label">personal · Firefox</property></object></child>
+    <child><object class="GtkMenuItem" id="personal-files"><property name="label">personal · Files</property></object></child>
+    <child><object class="GtkMenuItem" id="personal-terminal"><property name="label">personal · Terminal</property></object></child>
+    <child><object class="GtkSeparatorMenuItem" id="sep-personal"/></child>
+    <child><object class="GtkMenuItem" id="work-libreoffice"><property name="label">work · LibreOffice</property></object></child>
+    <child><object class="GtkMenuItem" id="work-files"><property name="label">work · Files</property></object></child>
+    <child><object class="GtkMenuItem" id="work-terminal"><property name="label">work · Terminal</property></object></child>
+    <child><object class="GtkSeparatorMenuItem" id="sep-work"/></child>
+    <child><object class="GtkMenuItem" id="vault-keepassxc"><property name="label">vault · KeePassXC</property></object></child>
+    <child><object class="GtkMenuItem" id="vault-terminal"><property name="label">vault · Terminal</property></object></child>
+    <child><object class="GtkSeparatorMenuItem" id="sep-vault"/></child>
+    <child><object class="GtkMenuItem" id="stop-all"><property name="label">Stop all AppVMs</property></object></child>
+  </object>
+</interface>

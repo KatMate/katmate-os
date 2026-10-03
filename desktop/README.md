@@ -17,6 +17,8 @@ desktop/
 ├── waybar/
 │   ├── config-sway.jsonc           bar layout (sway session)
 │   ├── modules-sway.jsonc          sway/{workspaces,window,language}
+│   ├── modules-katmate.jsonc       custom/katmate: the alpha's launcher menu
+│   ├── katmate-menu.xml            its GTK builder menu (ids = menu-actions keys)
 │   └── style-sway.css              @imports style.css, adds .focused
 ├── bin/
 │   ├── sway-session                env wrapper — sway has no `env =`
@@ -42,9 +44,18 @@ ln -s ~/katmate-os/desktop/sway/config               ~/.config/sway/config
 ln -s ~/katmate-os/desktop/waybar/config-sway.jsonc  ~/.config/waybar/
 ln -s ~/katmate-os/desktop/waybar/modules-sway.jsonc ~/.config/waybar/
 ln -s ~/katmate-os/desktop/waybar/style-sway.css     ~/.config/waybar/
+ln -s ~/katmate-os/desktop/waybar/modules-katmate.jsonc ~/.config/waybar/
+ln -s ~/katmate-os/desktop/waybar/katmate-menu.xml      ~/.config/waybar/
 ln -s ~/katmate-os/desktop/bin/km-shot               ~/.local/bin/
 ln -s ~/katmate-os/desktop/bin/km-scratch            ~/.local/bin/
 ```
+
+The launcher menu (`custom/katmate`) needs waybar ≥ 0.11 (`menu`,
+`menu-file`, `menu-actions`). It does nothing on its own: each item runs
+`sudo -n /usr/lib/katmate/katmate-launch …`, so it also needs that
+executable and its sudoers rule ([HOST-CONFIG.md](../docs/HOST-CONFIG.md)
+§ 13). Its `menu-file` names `/home/host/.config/waybar/katmate-menu.xml`,
+the symlink above, by absolute path.
 
 **System files are copied**, never symlinked. `/etc/greetd/config.toml` is read
 by the unprivileged `greeter` user and sits on a privilege boundary; a symlink

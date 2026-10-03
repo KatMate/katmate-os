@@ -1,0 +1,36 @@
+/*
+# ---------------------------------------
+# KatMate launcher menu, the alpha's (R152, R157)
+# A plain-text label. A click opens katmate-menu.xml, and each item runs
+# katmate-launch through sudo: `sudo -n` with the one NOPASSWD rule in
+# /etc/sudoers.d/katmate-launch (R151; SECURITY-MODEL gap 17). The launch
+# daemon replaces both. waybar shows no output from an action, so what an
+# item did is in the journal: journalctl -t katmate-launch
+#
+# menu-file is an absolute path to the symlink that desktop/README.md
+# deploys. Whether waybar expands ~ in menu-file was not read, so the path
+# does not depend on it.
+# ---------------------------------------
+*/
+{
+	"custom/katmate": {
+		"format": "KatMate",
+		"tooltip": false,
+		"menu": "on-click",
+		"menu-file": "/home/host/.config/waybar/katmate-menu.xml",
+		"menu-actions": {
+			"web-firefox":       "sudo -n /usr/lib/katmate/katmate-launch app_web firefox-esr",
+			"web-files":         "sudo -n /usr/lib/katmate/katmate-launch app_web pcmanfm",
+			"web-terminal":      "sudo -n /usr/lib/katmate/katmate-launch app_web foot",
+			"personal-firefox":  "sudo -n /usr/lib/katmate/katmate-launch app_personal firefox-esr",
+			"personal-files":    "sudo -n /usr/lib/katmate/katmate-launch app_personal pcmanfm",
+			"personal-terminal": "sudo -n /usr/lib/katmate/katmate-launch app_personal foot",
+			"work-libreoffice":  "sudo -n /usr/lib/katmate/katmate-launch app_work libreoffice",
+			"work-files":        "sudo -n /usr/lib/katmate/katmate-launch app_work pcmanfm",
+			"work-terminal":     "sudo -n /usr/lib/katmate/katmate-launch app_work foot",
+			"vault-keepassxc":   "sudo -n /usr/lib/katmate/katmate-launch app_vault keepassxc",
+			"vault-terminal":    "sudo -n /usr/lib/katmate/katmate-launch app_vault foot",
+			"stop-all":          "sudo -n /usr/lib/katmate/katmate-launch --stop-all"
+		}
+	}
+}
