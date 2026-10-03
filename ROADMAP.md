@@ -56,7 +56,9 @@
       root, so the check could not fire where it matters. Neither this entry
       nor #25 closes while the other stands.
 - [ ] Suspend/resume fix under `linux-hardened`
-- [ ] Remove secrets from installer (prompts / `wg genkey`); rotate burned WG key
+- [ ] Remove secrets from installer (prompts / `wg genkey`); ~~rotate burned WG key~~
+      **rotated, with the Wi-Fi passphrase (R162); removing the values from
+      `installer/` stays open**
 - [ ] Remove dev-only sshd (host + netVM) — SECURITY-MODEL #4
 - [ ] Power management
 
@@ -194,7 +196,7 @@ complementing the per-mechanism gates.
   parameters are still hand-set, why, and where in the path they sit.
 
 **Parallel (off critical path, before releasing step 6):** remove installer
-secrets + rotate burned WG key + drop `Hidden=true` (SECURITY-MODEL #1–2);
+secrets (still open) + ~~rotate burned WG key~~ **done (R162)** + drop `Hidden=true` (SECURITY-MODEL #1–2);
 remove dev sshd (#4); ~~remove the `usermod -p` dev-root line from `netvm.sh`
 (#12)~~ **done in `23e4268` (2026-09-03)** — see the operational note in `state.md`.
 **Opportunistic:** suspend/resume under linux-hardened; hibernation decision

@@ -4155,6 +4155,8 @@ touched.
 CYBRland-derived `desktop/` subtree) — **decision taken, document not written**;
 the number stays reserved and the gap in the sequence is an honest record of
 that. `ADR-032` = *where each tier lives* (2026-08-09).
+**[Note 2026-10-03 (R168): ADR-031 is written** (`acfd764`, R159):
+GPL-3.0-only for the whole repository, and the reservation is filled.**]**
 
 **Debt carried to ADR-033's acceptance, and it is not part of that ADR's own
 open list.** ADR-033's *Costs accepted* section asserts that `-netdev tap` with

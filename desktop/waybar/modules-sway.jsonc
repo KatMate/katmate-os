@@ -1,6 +1,7 @@
 /*
 # ---------------------------------------
 # CYBRbar     sway module definitions
+# Based on CYBRland (GPL-3.0), modified for KatMate/Sway
 # Sway equivalents of hyprland/workspaces, hyprland/window,
 # hyprland/language. Loaded after modules.jsonc; the hyprland/*
 # definitions in that file stay untouched and are simply unused

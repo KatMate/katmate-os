@@ -3965,6 +3965,12 @@ has a single developer, and it accepts no third-party contributions.
   source), which ADR-036 names as a provenance question this ADR owns. It
   stays open.
 
+**Revision note (2026-10-03, R168):** the numbering notes of
+[ADR-034](DECISIONS.md#adr-034), [ADR-036](DECISIONS.md#adr-036),
+[ADR-037](DECISIONS.md#adr-037) and [ADR-038](DECISIONS.md#adr-038) say that
+`ADR-031` is reserved or stays reserved. That is superseded: this ADR was
+written in `acfd764`. Their texts are left as written.
+
 ---
 
 ## ADR-032 — Where each tier lives: the path is the tier, and T4 is more than the template

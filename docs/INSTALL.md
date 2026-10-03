@@ -99,9 +99,12 @@ adapters; USB-NIC passthrough (r8152) is the working alternative for NetVM.
 
 - **Hardcoded secrets** — hostname/user/password defaults, WiFi SSID+PSK and a
   WireGuard private key are embedded in the scripts. These must move to
-  install-time prompts / generation (`wg genkey`); the committed WG key is
-  burned and must be rotated. Tracked as a v0.2 blocker
+  install-time prompts / generation (`wg genkey`); ~~the committed WG key is
+  burned and must be rotated~~. Tracked as a v0.2 blocker
   ([SECURITY-MODEL.md, gap #1](SECURITY-MODEL.md#known-gaps-tracked)).
+  **[2026-10-03 (R167): the WG key and the Wi-Fi passphrase were rotated
+  (R162), so the committed values are dead. Moving them out of the scripts
+  stays open.]**
 - **Desktop layer not yet installed** — greetd/Hyprland/Plymouth are a manual
   post-step on development machines. Integration will require `kms` in the
   mkinitcpio `HOOKS`.

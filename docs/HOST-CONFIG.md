@@ -389,6 +389,10 @@ own `.git`. The rofi layer has two sources of truth and they are not reconciled.
 **Failure mode.** Not a runtime failure — a provenance failure. A fresh install
 has no defined rofi source, and the licence position of the CYBRland-derived
 `desktop/` subtree is still open (GPL-3.0 attribution, ADR-031 planned).
+**[Note 2026-10-03 (R168): ADR-031 is written (`acfd764`).** The license
+position is settled: the project is GPL-3.0-only, and `CREDITS.md` names the
+CYBRland-based files. The rofi source, this section's subject, stays open,
+as ADR-031 says.**]**
 
 ---
 

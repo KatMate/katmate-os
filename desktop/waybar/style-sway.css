@@ -1,6 +1,7 @@
 /*
 # ---------------------------------------
 # CYBRbar     style addendum — SWAY session
+# Based on CYBRland (GPL-3.0), modified for KatMate/Sway
 # Imports the untouched Hyprland stylesheet and adds only what
 # differs: waybar's sway/workspaces module marks the active
 # button with .focused, hyprland/workspaces marks it .active.

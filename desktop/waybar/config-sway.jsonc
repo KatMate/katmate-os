@@ -1,6 +1,7 @@
 /*
 # ---------------------------------------
 # CYBRbar     waybar config — SWAY session
+# Based on CYBRland (GPL-3.0), modified for KatMate/Sway
 # Parallel to config.jsonc (Hyprland). Neither touches the other.
 # Launch: waybar -c ~/.config/waybar/config-sway.jsonc \
 #                -s ~/.config/waybar/style-sway.css

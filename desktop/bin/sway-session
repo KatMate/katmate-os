@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
 # ---------------------------------------------------------------
 # KatMate OS — sway session wrapper
+# Based on CYBRland (GPL-3.0), modified for KatMate/Sway
 # Install as ~/.local/bin/sway-session  (chmod +x)
 #
 # Sway's config has no `env =` directive — unlike hyprland.conf,
