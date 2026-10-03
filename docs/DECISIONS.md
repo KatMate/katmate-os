@@ -9677,3 +9677,43 @@ implemented as "ADR-018", a number already held by the accepted
 ADR-039 to resolve the collision. Earlier citations of "ADR-018" for the
 vm-agent rewrite mean this ADR. The text above is the draft's, carried
 verbatim from `ADR-018-DRAFT.md`; only the number in its heading changed.
+
+**Revision note (2026-10-03, what changed after this decision):** the
+protocol module no longer lives in the agent. It was promoted, as the
+*Consequences* anticipated, into the shared `katmate-protocol` crate
+([ADR-021](DECISIONS.md#adr-021)): the frame codec is
+`agent/crates/katmate-protocol/src/frame.rs`, the error type
+`agent/crates/katmate-protocol/src/error.rs`, and the opcode values
+`agent/crates/katmate-protocol/src/opcode.rs`. `agent/src/protocol.rs` no
+longer exists. This note records what changed and decides nothing.
+
+Unchanged by the split, as read in the tree on 2026-10-03:
+`PROTOCOL_VERSION` is `0x01` (`frame.rs:62`); `MAX_ARGC` is `8`
+(`frame.rs:73`); `MAX_ARG_LEN` is `4096` (`frame.rs:76`); `MAX_FILE_SIZE` is
+`100 * 1024 * 1024` (`frame.rs:80`); every multi-byte field is encoded and
+decoded little-endian (`from_le_bytes` at `frame.rs:194` and `:200`,
+`to_le_bytes` in the encoders); and every length is checked against its
+limit before it drives an allocation, in `read_request` and
+`read_response` alike. The byte layout of the request and response frames
+is as specified above.
+
+Changed after this decision, by later ADRs:
+- **The opcode is no longer validated by the decoder** (ADR-021). The
+  sentence above, *"validates the version, command and every length … and
+  only then reads variable-length data"*, no longer holds for the command.
+  `read_request` (`frame.rs:215`) reads the opcode byte unmapped
+  (`frame.rs:226`), reads the arguments and the payload, and returns a
+  `RawRequest`. Each binary maps the opcode afterwards, through its own
+  `Op::try_from` (`agent/crates/vm-agent/src/main.rs:475`,
+  `agent/crates/netvm-agent/src/main.rs:192`). A request carrying an opcode
+  the binary does not handle can therefore cost a read and an allocation of
+  up to `MAX_FILE_SIZE` before the ERR response.
+- **A sixth opcode exists** (ADR-021): `0x06` NETCFG (`opcode.rs:54`),
+  handled by `netvm-agent` only.
+- **SHUTDOWN no longer spawns a power helper** (ADR-024). `vm-agent` replies
+  OK and asks katmate-init, PID 1, over its unix socket
+  `/run/katmate-init.sock` (`agent/crates/vm-agent/src/main.rs:87`, `:288`,
+  `:310`; `docs/DECISIONS.md:1874–1875`). `posix_spawnp` remains the path
+  for RUN only.
+
+The text above is not edited.

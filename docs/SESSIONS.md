@@ -51,6 +51,184 @@
 
 ---
 
+## Previous session (2026-10-02, alpha integration step 3 — ai3) — the work AppVM `app_work` on the `office` layer; three AppVMs on one netVM; the RUN whitelist gains libreoffice and keepassxc (R130); every set-aside layer removed (R132)
+
+One session, `ai3`, on the Acer and MINIS, in auto mode. It halted once,
+at its read pass, on six divergences. The brief lay in the repository root,
+not in `~/Claude.assistent/`. R129's generator change is a host executable,
+and the brief never installed it. `tools/validate-properties.fish` also
+enumerates the app manifests. No unit test pinned the whitelist. Three
+documents enumerate the set, and `vault.list` and this file expected a
+per-manifest whitelist. And the 2026-09-25 whitelist ruling had no home in
+the repository. The orchestrator ruled, relayed by the operator: install
+both host files hash-first; `office` added to the validator's enum; a new
+test; the enumerations follow on `adc217f`'s model; and ADR-021 is the
+ruling's home. No commit on MINIS. No reboot. The report is outside the
+repository: `~/Claude.assistent/ai3-report.md`, with every script and
+output in `~/Claude.assistent/ai3/` and `/home/host/katmate-dev/ai3/`.
+
+**The operator's rulings (2026-10-02).**
+- **R128 — the work domain:** instance `app_work`, `class = app`,
+  `manifest = office`, `netvm = netvm`, persistent, `identity = true`,
+  `mem = "2G"`, `vcpus = 2`, CID 23, slot 03 (`10.100.1.19`, mark 4),
+  `LINK_ID` 203, home `vm_app_work_home` thin in `vm_pool`.
+- **R129 — `manifests/office.list`:** libreoffice-writer, -calc,
+  -impress, -gtk3, foot, pcmanfm. No Java.
+- **R130 — the RUN whitelist** stays a compile-time constant for the alpha
+  and becomes `firefox-esr, foot, pcmanfm, libreoffice, keepassxc`.
+- **R131 — ADR notes:** ADR-014 (the work row, three manifests), ADR-032
+  §3 (the app manifest set), ADR-021 (the whitelist rulings).
+- **R132 — every set-aside layer removed**, under guards.
+- **R133 — `katmate-lib.sh` installed** (and, by ruling 2 on the read
+  pass, `katmate-generate-env`).
+- **R134 — MINIS reboots are announced.** None was needed.
+
+**What ran (CEST).**
+- **Part A (Acer):** `af6e9d3` the whitelist, its new test (`cargo test
+  -p vm-agent`, 4 of 4) and the three enumerations, with `vault.list`'s
+  note; `78f4caf` `office.list`, `APP_TYPES`, the generator and the
+  validator (0 errors over the four staged T1 files, and the reverted enum
+  as a control rejects `app_work.toml`); `431ab9e` the three ADR notes.
+  Pushed before Part B.
+- **P0 (14:56):** no reboot since ai2 (14:03:24); netVM MainPID 22405;
+  slot 03 free, no T1 with cid 23; 6144 of 6144 pages free. Installed set
+  against the tree: exactly `katmate-generate-env` and `katmate-lib.sh`
+  differ, each equal to its parent blob.
+- **R132 (14:57):** `_pre0929`, `_pre0929b` and `_pre1002` removed (six
+  LVs, five deltas, six metas); every guard held. `vm_pool` 1.77 % →
+  0.46 %.
+- **Install (14:58):** both host files, hash-first, read back equal to the
+  tree. The installed set equals the tree at `431ab9e`, 10 of 10. vm-agent
+  rebuilt on MINIS (`87ebdcaa…`, both new names in `strings`, neither in
+  the old binary's).
+- **Builds:** `_preai3` set aside. `make foundation` exit 0
+  (14:59:43–15:03:41, 209 packages, **0 apt `W:` lines**); `make app-web`
+  exit 0 (230); **`make app-office` exit 0 (15:05:02–15:06:15): 356
+  packages, 147 added, no JRE** (Java only under *Suggested*). Every layer
+  bakes vm-agent `87ebdcaa…` and `/sbin/init` `8163e103…`. Three deltas
+  created.
+- **R128 (15:06):** `vm_app_work_home` (form of record; the same ext4 as
+  `vm_app_personal_home`), the T1 `app_work.toml` (`bd7f7acc…`), owners
+  01–03, NETCFG ADD 201–203 OK.
+- **Three AppVMs (15:07–15:08):** each PING OK on try 3. **`[katmate-init]
+  hostname: app_work`**, `net: eth0 10.100.1.19/32 via 10.100.1.1`.
+  `HugePages_Free` 6027 → 5960 → 5894.
+- **The operator at MINIS (15:16–15:31):** RUN `foot` → **`user@app_work:~$`**
+  (after the `C` locale warning). RUN `libreoffice`: *"LibreOffice runs
+  great! (fast!)"*; `test.odt` saved (9495 B), closed and reopened
+  (*"yes"*). **netVM conntrack: `ESTABLISHED src=10.100.1.19 dst=1.1.1.1 …
+  dport=443 … mark=4`**, NATed to `10.3.1.172`.
+- **End (15:32):** three SHUTDOWNs (*"Deactivated successfully"*), REMOVE
+  201–203, owners removed, console logged out. **`_preai3` removed** (the
+  condition held). netVM left running.
+
+**Found, recorded and not designed for (report §§ 5, 6).**
+- **LibreOffice's stderr is not observable.** The guest has no journal,
+  and a RUN child's output reaches neither the serial console nor
+  `waypipe-client`'s journal. "No warning seen" is therefore a check that
+  cannot fire. Recommended and not installed: `fonts-liberation`,
+  `hunspell-en-us`, `libreoffice-math`, `xdg-utils`, an icon theme.
+- **The apt `W:` flood did not occur** in this foundation build: same boot,
+  same kernel and same IPv6 rule as ai2's 102,072. It is intermittent.
+- `foot`'s `C` locale warning appears in `app_work` too.
+
+**Not done, and not claimed.**
+- No verdict. The operator's words and the readings are recorded.
+- Whether LibreOffice prints dbus or GTK warnings (not observable, above).
+- `init/tests/run.sh --apply`; G6b; #48's fail-closed half.
+- The generator's new line ran in `app_work`'s start. Its refusal of an
+  unknown manifest ran only as an extract on the Acer.
+
+## Previous session (2026-10-02, alpha integration step 2 — ai2) — AppVMs name themselves from `km.name=` (R125); the hugepage pool is 12 GiB (R126); layers rebuilt
+
+One session, `ai2`, on the Acer and MINIS, in auto mode. It halted once at
+its read pass. The brief's H1 fired, because every rebuild of record had
+**renamed** the old layers aside, never removed them, and the brief's mode
+disagreed with `CLAUDE.md`. It stopped again in Part A, when the classifier
+refused its `CLAUDE.md` edit as *Self-Modification*. The operator ruled
+through the orchestrator: the current layers are set aside as `_pre1002`,
+and the `_pre0929`/`_pre0929b` sets are removed under guards; auto mode
+(the operator committed `CLAUDE.md` himself, `40e4357`); the host refuses
+names over 63 bytes first; the unit is reinstalled just before the first
+start; and the host must keep at least 16 GiB beside the pool. No commit
+on MINIS. The report is outside the repository:
+`~/Claude.assistent/ai2-report.md`, with every script and output in
+`~/Claude.assistent/ai2/` and `/home/host/katmate-dev/ai2/`.
+
+**The operator's rulings (2026-10-02).**
+- **R125 — `km.name=<instance>`** on the AppVM command line. katmate-init
+  sets the hostname from it on every boot. It is validated as
+  `[A-Za-z0-9_-]`, 1–63 bytes, and is otherwise fatal like a malformed
+  `km.*`. When absent, the hostname stays `(none)`.
+- **R126 — the hugepage pool is 6144 × 2 MiB** on MINIS. The
+  hugetlbfs/memfd question is post-alpha, in its own ADR.
+- **R127 — `vm_app_web_home` stays linear until after the alpha.**
+
+**What ran (CEST).**
+- **Part A (Acer):** `f137929` katmate-init and its tests (`run.sh`, PASS,
+  new group `name`); `8cb5fb9` `km_check_instance` ≤ 63 bytes; `0e6fbbf`
+  the template's `km.name=%i` (6); `40e4357` `CLAUDE.md` (the operator's);
+  `9e0a239` ADR-010's note (R127); `3d8f854` ADR-038's note (R125);
+  `db1d153` HOST-CONFIG § 6 (R126). Pushed before Part B.
+- **P0 (14:01):** host up since 2026-09-30; netVM MainPID 46612;
+  `MemTotal` 31611728 kB, so the host keeps 18.15 GiB beside a 12 GiB pool
+  (floor 16). Only `app_web.qcow2` and `app_personal.qcow2` backed onto
+  `vm_app_web`. The installed set equalled `7f6e7be`, 10 of 10.
+- **B2 (14:02):** netVM stopped. `ExecStopPost=` took the 16 `netvm`
+  nodes, the second observation. `hugepages.conf` 4096 → 6144
+  (`f6da11b6…` → `cf13b418…`). Sleep masked. **Reboot 14:03**, back at
+  14:12 (LUKS passphrase, see below). `HugePages_Total` 6144, no netVM
+  `jbd2`.
+- **B4 (14:12–14:19):** rsync (form of record, no deletion). `_pre1002`
+  set aside in s4b2-impl-B's form (both deltas rebased `-u`). **The
+  `_pre0929`/`_pre0929b` removal removed nothing**: both app layers are
+  named by their `.pre0929*` deltas, so the guard held them, and their
+  foundation origins were left by the snapshot-first rule. `make
+  foundation` exit 0 (14:12:56–14:17:17), `make app-web` exit 0
+  (14:18:11–14:19:05). Both layers carry `/sbin/init` `8163e103…` with the
+  `km.name` strings, the relative resolver link, and no `run/resolv.conf`.
+  209 and 230 packages; foundation drift is one package
+  (`libpng16-16t64` deb13u5 → deb13u6). Deltas recreated; sleep unmasked.
+- **B5 (14:19):** netVM started in s4c-b's B3.3 form (MainPID 22405, PING
+  try 4, 16 of 16). Owners 01/02, NETCFG ADD 201/202 OK. **Unit
+  reinstalled just before the first start** (`19b95edf…` → `365ffa22…`; the
+  diff is `km.name=%i` and its comment). Both started: **`[katmate-init]
+  hostname: app_web`** and **`hostname: app_personal`**, each before its
+  `net:` line, PING try 3 each.
+- **B6 (14:23–14:29, the operator at MINIS):** RUN `foot` in both. **The
+  operator read `user@app_web:~$` and `user@app_personal:~$`.** RUN
+  `firefox-esr` in `app_web`: it opened without complaint and loaded the
+  existing profile, so no stale-lock problem from the `(none)` era.
+- **B7 (14:30):** SHUTDOWN 21 and 22 (*"Deactivated successfully"*),
+  REMOVE 201/202 OK, owners removed. netVM left running.
+
+**Found, recorded and not designed for (report § 5, § 6).**
+- **MINIS's disk is LUKS-encrypted.** A host reboot waits at the passphrase
+  prompt until the operator types it, and the `uptime -s` versus journal
+  gap is that wait. **A session announces a MINIS reboot to the operator
+  before it issues it** (the operator, 2026-10-02).
+- The host kernel moved from 7.2.7 to **7.2.8**-hardened across the reboot.
+  No session recorded installing it.
+- The 102,072 apt *"Tried to start delayed item"* `W:` lines are back in
+  `make foundation` **with** the IPv6 rule in place, so that rule is not
+  the whole cause.
+- `foot` warns *"'C' is not a UTF-8 locale, falling back to 'C.UTF-8'"*
+  in both guests.
+- `dpkg-query` does not exist on the Arch host. A layer's package list is
+  read from its `var/lib/dpkg/status`.
+
+**Not done, and not claimed.**
+- The installed `katmate-lib.sh` is **not** updated (`8c221ae0…`, against
+  the tree's `c5c2db32…`). `8cb5fb9`'s length check is in the tree only.
+- The `_pre0929`/`_pre0929b` sets still stand, and clearing them needs a
+  ruling that also covers the two `.pre0929*` deltas. `_pre1002` (both
+  layers, both deltas, both metas) is ai2's rollback, and is removed after
+  the operator's verdict.
+- App-layer package drift was not read (the set-aside layer was not
+  activated).
+- `init/tests/run.sh --apply` was not run, and it has no hostname case.
+- G6b and #48's fail-closed half, as before.
+
 ## Previous session (2026-10-02, alpha integration step 1 — ai1) — `app_personal` beside `app_web` on one netVM: two slots, two GUIs, independence observed; `docs/PARAMETERS.md` created
 
 One session, `ai1`, on the Acer and MINIS (Manual mode). It halted twice
