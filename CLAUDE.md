@@ -84,9 +84,8 @@ the two machines above, and narrower than either:
   file began. Fetch more history before making any claim about when something
   was added.
 - **Everything else in this file holds unchanged**: reading order, halt before
-  the first change, claim discipline, one concern per commit. A cloud session
-  can read whole documents that an interactive session reads in slices; it may,
-  and that changes nothing about what it may decide.
+  the first change, claim discipline, one concern per commit. Token budget
+  rules below apply to cloud sessions in full.
 
 ## Reading order, before the first change
 
@@ -234,6 +233,28 @@ passing.
   `git update-index --chmod=+x` after.
 - Never rsync or copy a kernel build tree with broad `--exclude` patterns:
   `--exclude='vmlinux.*'` eats the source `vmlinux.lds.S`.
+
+## Token budget
+
+Sessions run on a metered budget. Spend it on evidence, not on re-reading.
+
+- **Read surgically.** Locate with `grep -n` / `git grep -n`, then read the
+  range (`sed -n 'a,bp'`, Read with offset/limit). `state.md` is ~6000 lines:
+  read § *Invariants & gotchas* in full (reading order), every other section
+  only where the brief or a grep hit points. Never read a whole large file to
+  find one thing.
+- **Read once.** Do not re-read a file already read in this session unless it
+  changed; do not re-read a file after your own edit to "check" it.
+- **No subagents** unless the brief asks for one: each starts cold and
+  re-reads what you already have.
+- **Quote the deciding lines, not whole outputs.** The report contract wants
+  verbatim output: paste the lines that settle the claim (summary lines,
+  exit codes, the diff hunk), not full logs. Say what was trimmed.
+- **Narrate minimally** between tool calls; the report is where reasoning goes.
+- **Reuse scratch artefacts** (fixture harness, extracted test scripts) across
+  briefs in the same session instead of rebuilding them.
+- **Shallow clone stays shallow** unless a claim needs history; then fetch a
+  bounded depth.
 
 ## On MINIS: what a mistake costs
 
