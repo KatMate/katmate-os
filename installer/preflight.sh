@@ -123,6 +123,12 @@ for c in cat grep sed awk sort uniq tr ls readlink basename dirname date uname w
   have "$c" || die "Missing command: $c"
 done
 
+# Shared with install.sh; looked up beside this script, wherever it was run from.
+LM_LIB="$(dirname "$(readlink -f -- "$0")")/lib/live-medium.sh"
+[[ -r "$LM_LIB" ]] || die "missing $LM_LIB: copy the whole installer/ directory, not single scripts (preflight.sh and install.sh share lib/)"
+# shellcheck source=installer/lib/live-medium.sh
+source "$LM_LIB"
+
 # ---------------------------------------------------------------------------
 # Output file: verified writable by creating it, before any check runs. The
 # Arch ISO medium is iso9660 and read-only, so the directory may not be.
@@ -690,78 +696,19 @@ else
   record "cpus" FAIL "CPU count unreadable"
 fi
 
-# disk_of <path>: the disk a block device (or a link to one) belongs to.
-disk_of() {
-  local dev pk
-  dev="$(readlink -f -- "$1" 2>/dev/null || true)"
-  [[ -n "$dev" && -b "$dev" ]] || return 1
-  pk="$(lsblk -n -d -o PKNAME "$dev" 2>/dev/null | head -n 1 || true)"
-  pk="${pk//[[:space:]]/}"
-  if [[ -z "$pk" ]]; then
-    pk="$(lsblk -n -d -o NAME "$dev" 2>/dev/null | head -n 1 || true)"
-    pk="${pk//[[:space:]]/}"
-  fi
-  [[ -n "$pk" ]] || return 1
-  printf '%s' "$pk"
-}
-
 if have lsblk; then
   # The live boot medium, so that it is never offered as an install target.
-  # Methods in the archiso hook's own order (mkinitcpio-archiso hooks/archiso,
-  # read 2026-10-04): an explicit archisodevice=; archisosearchuuid= resolved
-  # as UUID=<uuid>; archisolabel= as /dev/disk/by-label/<label>. The hook's
-  # mount, /run/archiso/bootmnt, is a secondary source only: with copytoram
-  # (default auto) the hook unmounts it after copying the image to RAM.
-  LIVE_DISK=""
-  a_uuid="" a_label="" a_dev="" ARCHISO_PARAMS=""
-  set -f
-  for tok in $CMDLINE; do
-    case "$tok" in
-      archisosearchuuid=*) a_uuid="${tok#*=}";  ARCHISO_PARAMS+="$tok " ;;
-      archisolabel=*)      a_label="${tok#*=}"; ARCHISO_PARAMS+="$tok " ;;
-      archisodevice=*)     a_dev="${tok#*=}";   ARCHISO_PARAMS+="$tok " ;;
-      copytoram=*)         ARCHISO_PARAMS+="$tok " ;;
-    esac
-  done
-  set +f
-
-  if [[ "$ARCHISO_PARAMS" != *archiso* ]]; then
-    say "  live boot medium: not an archiso live boot: no boot medium to exclude"
-  else
-    say "  archiso parameters on the command line: ${ARCHISO_PARAMS% }"
-    cands=()
-    [[ -n "$a_dev" ]]   && cands+=("archisodevice|$a_dev")
-    [[ -n "$a_uuid" ]]  && cands+=("archisosearchuuid|/dev/disk/by-uuid/$a_uuid")
-    [[ -n "$a_label" ]] && cands+=("archisolabel|/dev/disk/by-label/$a_label")
-    src=""
-    if have findmnt; then
-      src="$(findmnt -n -o SOURCE /run/archiso/bootmnt 2>/dev/null || true)"
-    fi
-    if [[ -n "$src" ]]; then
-      cands+=("/run/archiso/bootmnt|$src")
-    elif [[ -d /run/archiso/copytoram ]]; then
-      say "  /run/archiso/bootmnt: not mounted; /run/archiso/copytoram exists, so the hook copied the image to RAM and unmounted the boot medium (copytoram)"
+  # The resolution is shared with install.sh: lib/live-medium.sh.
+  lm_resolve "$CMDLINE"
+  LIVE_DISK="$LM_DISK"
+  for l in "${LM_LINES[@]}"; do say "  $l"; done
+  if (( LM_ARCHISO )); then
+    if [[ -z "$LM_DISK" ]]; then
+      record "live-medium" WARN "archiso boot ($LM_PARAMS) but no method resolves the boot medium to a disk: it cannot be excluded from the install candidates"
+    elif [[ "$LM_SEEN" == *" "* ]]; then
+      record "live-medium" WARN "methods disagree on the boot medium: $LM_SEEN; excluding $LM_DISK only"
     else
-      say "  /run/archiso/bootmnt: not mounted; no /run/archiso/copytoram, so why is not determinable here"
-    fi
-    LIVE_SEEN=""
-    for c in "${cands[@]}"; do
-      how="${c%%|*}"; path="${c#*|}"
-      if d="$(disk_of "$path")"; then
-        say "  $how: $path -> $(readlink -f -- "$path") -> disk $d"
-        [[ " $LIVE_SEEN " == *" $d "* ]] || LIVE_SEEN+="$d "
-        [[ -n "$LIVE_DISK" ]] || LIVE_DISK="$d"
-      else
-        say "  $how: $path does not resolve to a block device"
-      fi
-    done
-    LIVE_SEEN="${LIVE_SEEN% }"
-    if [[ -z "$LIVE_DISK" ]]; then
-      record "live-medium" WARN "archiso boot (${ARCHISO_PARAMS% }) but no method resolves the boot medium to a disk: it cannot be excluded from the install candidates"
-    elif [[ "$LIVE_SEEN" == *" "* ]]; then
-      record "live-medium" WARN "methods disagree on the boot medium: $LIVE_SEEN; excluding $LIVE_DISK only"
-    else
-      record "live-medium" PASS "$LIVE_DISK, excluded from the install candidates"
+      record "live-medium" PASS "$LM_DISK, excluded from the install candidates"
     fi
   fi
   DISKS="$(lsblk -d -b -n -o NAME,TYPE,SIZE,TRAN,MODEL 2>/dev/null || true)"

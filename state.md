@@ -5954,6 +5954,28 @@ frozen `vm_home_skel` vs qcow2 branch.
   option` and ignores it). IOMMU actually runs via `iommu=pt` + IVHD/IVRS. The
   MINIS cmdline still carries the dead `amd_iommu=on`; harmless, clean up
   someday. IOMMU group 12 (RTL8125) is clean/isolated — passthrough-safe.
+  **[Note 2026-10-04 (ADR-040): *"IOMMU actually runs via `iommu=pt` +
+  IVHD/IVRS"* is superseded as practice.** The AMD IOMMU is on by default,
+  driven by the IVRS table. `iommu=pt` only put every host device into a
+  passthrough DMA domain (*"Default domain type: Passthrough (set via kernel
+  command line)"*, the operator's `pf-minis.txt:52`). ADR-040 forbids
+  `iommu=pt`, and `amd_iommu=on` too, so *"harmless, clean up someday"* is now
+  a requirement. **Both are removed from MINIS's persistent command line:
+  done 2026-10-04 by the operator, and observed.** The source is
+  `/etc/kernel/cmdline`, applied with `mkinitcpio -P` (HOST-CONFIG §15).
+  After the reboot:
+
+  ```
+  /proc/cmdline: pti=on page_alloc.shuffle=1 root=/dev/vg0/root rw
+    cryptdevice=UUID=…:cryptroot quiet splash
+  [    1.538555] iommu: Default domain type: Translated
+  ```
+
+  and no *"AMD-Vi: Unknown option"* line. `pti=on page_alloc.shuffle=1` is
+  not in that file. It is `linux-hardened`'s built-in command line
+  (`CONFIG_CMDLINE_BOOL=y`, `CONFIG_CMDLINE="pti=on page_alloc.shuffle=1"`,
+  `/proc/config.gz` on `7.2.8-hardened1-1-hardened`), prepended at boot.
+  The text above is left as written.**]**
 
 - **`foundation.meta` (ADR-019):** host-side source of truth at
   `/var/lib/katmate/foundation.meta`, flat `KEY=value`. Read without

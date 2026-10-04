@@ -9884,3 +9884,41 @@ Changed after this decision, by later ADRs:
   for RUN only.
 
 The text above is not edited.
+
+---
+
+## ADR-040 — IOMMU kernel parameters: translated host DMA domain, vendor-specific enablement, no passthrough
+
+**Status:** Accepted (2026-10-04)
+
+**Context:** The host is intended to be the minimal TCB (ARCHITECTURE §
+principles; SECURITY-MODEL § TCB records this as intent, only partly
+realised). An IOMMU protects the host's own memory from DMA by its own devices
+only when those devices sit in a translated domain. MINIS ran with
+`iommu=pt`, which places every host device (NVMe, GPU, USB, audio) in an
+identity-mapped passthrough domain: a faulty or compromised device, or its
+firmware, can DMA anywhere in host RAM. `iommu=pt` does not affect devices
+bound to `vfio-pci`; those are always in their own translated domain. The
+first preflight runs (state.md, open problem #9, note 2026-10-04) measured: on
+Intel (Cubi, Arch kernel) `CONFIG_INTEL_IOMMU_DEFAULT_ON` is not set, and with
+`intel_iommu=on` the default domain is Translated; on AMD (MINIS) the default
+domain was Passthrough only because of `iommu=pt`, and `amd_iommu=on` is not a
+valid option (the kernel logs `AMD-Vi: Unknown option - 'on'` and ignores it).
+
+**Decision:**
+1. KatMate never sets `iommu=pt`. The host default DMA domain is Translated.
+2. Intel hosts: the kernel command line carries `intel_iommu=on`.
+3. AMD hosts: no IOMMU enabling parameter (the AMD IOMMU is enabled by
+   default); `amd_iommu=on` is never written.
+4. The installer derives 2–3 from the measured CPU vendor; no other IOMMU
+   parameter is added without a new ADR.
+
+**Consequences:**
+- Host DMA is confined per device. Cost: IOTLB/mapping overhead on host I/O.
+  On MINIS the operator perceived no difference (informal, unmeasured); the
+  low-end target (Cubi N6000) is where a cost would show, and it is to be
+  measured there, not assumed.
+- MINIS's live command line must drop `iommu=pt` and `amd_iommu=on`
+  (operator action; HOST-CONFIG / state.md record it).
+- Default-on behaviour of other kernels (e.g. `linux-hardened`) is not
+  assumed: rule 2 makes the Intel case independent of that default.

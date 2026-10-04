@@ -66,9 +66,15 @@ trap cleanup EXIT
 
 for c in iwctl parted cryptsetup pvcreate vgcreate lvcreate lvdisplay \
           pacstrap genfstab lsblk blkid mkfs.fat mkfs.ext4 arch-chroot \
-          bootctl awk grep; do
+          bootctl awk grep readlink; do
   require "$c"
 done
+
+# Live boot medium resolution, shared with preflight.sh (lib/live-medium.sh).
+LM_LIB="$(dirname "$(readlink -f -- "$0")")/lib/live-medium.sh"
+[[ -r "$LM_LIB" ]] || die "Missing $LM_LIB: copy the whole installer/ directory, not single scripts (install.sh and preflight.sh share lib/)."
+# shellcheck source=installer/lib/live-medium.sh
+source "$LM_LIB"
 
 # ---------------------------------------------------------------------------
 # WiFi
@@ -93,15 +99,20 @@ log "CPU detect"
 
 CPU_VENDOR="$(grep -m1 'vendor_id' /proc/cpuinfo | awk '{print $3}')"
 
+# The IOMMU parameter follows the vendor (ADR-040): Intel needs intel_iommu=on,
+# AMD needs nothing (amd_iommu=on is not an option), and iommu=pt is never set.
 if [[ "$CPU_VENDOR" == "AuthenticAMD" ]]; then
   UCODE="amd-ucode"
+  IOMMU_PARAM=""
   echo "CPU: AMD → amd-ucode"
+  echo "IOMMU: AMD-Vi is on by default, no parameter (ADR-040)"
 elif [[ "$CPU_VENDOR" == "GenuineIntel" ]]; then
   UCODE="intel-ucode"
+  IOMMU_PARAM="intel_iommu=on"
   echo "CPU: Intel → intel-ucode"
+  echo "IOMMU: intel_iommu=on (ADR-040)"
 else
-  UCODE=""
-  echo "CPU: unknown vendor ($CPU_VENDOR) → no ucode"
+  die "Unknown CPU vendor (${CPU_VENDOR:-none}): no known IOMMU path (ADR-040), so this machine cannot be a KatMate host."
 fi
 
 # ---------------------------------------------------------------------------
@@ -110,12 +121,30 @@ fi
 
 log "Disk selection"
 
-lsblk -d -o NAME,SIZE,MODEL
+# The archiso stick this system booted from is never a target. Any other
+# disk, USB included, may be (operator, 2026-10-04).
+lm_resolve "$(cat /proc/cmdline)"
+for l in "${LM_LINES[@]}"; do echo "  $l"; done
+if (( LM_ARCHISO )) && [[ -z "$LM_DISK" ]]; then
+  die "Archiso boot ($LM_PARAMS), but the boot medium resolves to no disk: cannot prove the target is not the boot stick."
+fi
+echo ""
+
+lsblk -d -o NAME,SIZE,TRAN,MODEL
 echo ""
 read -rp "Disk (e.g. sda, nvme0n1): " D
 DISK="/dev/$D"
 
 [[ -b "$DISK" ]] || die "Device $DISK does not exist."
+
+if (( LM_ARCHISO )); then
+  TARGET_DISK="$(lm_disk_of "$DISK")" \
+    || die "Cannot resolve $DISK to a disk: cannot prove it is not the boot stick."
+  # Every disk any method resolved to is refused, not only the first.
+  if [[ " $LM_SEEN " == *" $TARGET_DISK "* ]]; then
+    die "$DISK is on $TARGET_DISK, the live boot medium this system booted from. Refusing."
+  fi
+fi
 
 echo ""
 read -rp "WIPE $DISK — vse bo izbrisano (yes/no): " C
@@ -395,7 +424,7 @@ title   Katmate OS
 linux   /vmlinuz-linux-hardened
 initrd  /${UCODE}.img
 initrd  /initramfs-linux-hardened.img
-options cryptdevice=UUID=${LUKS_UUID}:cryptlvm root=/dev/vg0/root rw quiet loglevel=3
+options cryptdevice=UUID=${LUKS_UUID}:cryptlvm root=/dev/vg0/root rw quiet loglevel=3${IOMMU_PARAM:+ ${IOMMU_PARAM}}
 ENTRY
 
 # Če ni ucode, odstrani prazno initrd vrstico
@@ -416,6 +445,15 @@ test -f /mnt/boot/initramfs-linux-hardened.img     || die "initramfs manjka"
 
 grep -q "cryptdevice=UUID=${LUKS_UUID}:cryptlvm" /mnt/boot/loader/entries/katmate.conf \
   || die "cryptdevice manjka v boot entry"
+
+# ADR-040: the vendor's IOMMU parameter is present, and no passthrough or
+# AMD enabling parameter is, whatever the vendor.
+OPTS=" $(grep '^options' /mnt/boot/loader/entries/katmate.conf | head -n 1) "
+if [[ -n "$IOMMU_PARAM" && "$OPTS" != *" $IOMMU_PARAM "* ]]; then
+  die "$IOMMU_PARAM missing from the boot entry (ADR-040)"
+fi
+[[ "$OPTS" != *" iommu=pt "* ]] || die "iommu=pt in the boot entry (ADR-040 forbids it)"
+[[ "$OPTS" != *" amd_iommu="* ]] || die "amd_iommu= in the boot entry (ADR-040 forbids it)"
 
 log "Boot files"
 find /mnt/boot -maxdepth 4 -type f | sort

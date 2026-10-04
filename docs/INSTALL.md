@@ -6,8 +6,7 @@
 - Disk ≥ 32 GB (enforced by the installer)
 - RAM: 8 GB practical minimum (low-end reference class), more for multiple concurrent VMs
 - Arch Linux live ISO environment, WiFi or wired connectivity
-- The two scripts from `installer/`: `install.sh` (run in the live environment)
-  and `postinstall.sh` (invoked automatically via `arch-chroot`)
+- The whole `installer/` directory, copied as is: the scripts share `lib/`
 
 > **Do not mount anything at `/mnt`** before running the installer (e.g. the
 > script USB) — the installer requires `/mnt` free and will abort otherwise.

@@ -169,6 +169,59 @@ descriptor question once.
 
 # Boot and firmware
 
+## 15. Host kernel command line
+
+**Scope:** MINIS · **[LIVE]** · **[V]** 2026-10-04
+
+**Requirement** ([ADR-040](DECISIONS.md#adr-040)): no `iommu=pt` and no
+`amd_iommu=on`. On AMD no IOMMU parameter is needed. An Intel host carries
+`intel_iommu=on`.
+
+**Where MINIS's command line comes from: two sources, joined at boot.**
+- **`/etc/kernel/cmdline`**, baked into the UKI by `mkinitcpio -P`. It is the
+  only file among `/etc/kernel/cmdline` and `/etc/cmdline.d/*.conf`; no
+  mkinitcpio preset and no loader entry carries options (the operator,
+  2026-10-04).
+- **The kernel's built-in command line**, prepended to it.
+  `linux-hardened` is built with
+  ```
+  CONFIG_CMDLINE_BOOL=y
+  CONFIG_CMDLINE="pti=on page_alloc.shuffle=1"
+  ```
+  (`/proc/config.gz` on `7.2.8-hardened1-1-hardened`, the operator,
+  2026-10-04). So `pti=on page_alloc.shuffle=1` is **not** in any file on the
+  host, and a command line the installer writes must not repeat them.
+
+**Applied on MINIS, 2026-10-04 (the operator).** Before, the preflight read
+(the operator's `pf-minis.txt:27`, outside the repository)
+`pti=on page_alloc.shuffle=1 root=/dev/vg0/root rw cryptdevice=UUID=…:cryptroot
+amd_iommu=on iommu=pt quiet splash`, with `iommu: Default domain type:
+Passthrough (set via kernel command line)` and `AMD-Vi: Unknown option - 'on'`
+in the kernel log. `amd_iommu=on iommu=pt` was removed from
+`/etc/kernel/cmdline` and `mkinitcpio -P` was run. After the reboot:
+
+```
+/proc/cmdline: pti=on page_alloc.shuffle=1 root=/dev/vg0/root rw
+  cryptdevice=UUID=…:cryptroot quiet splash
+[    1.538555] iommu: Default domain type: Translated
+```
+
+and no *"AMD-Vi: Unknown option"* line.
+
+**Failure mode — silent.** With `iommu=pt` every host device (NVMe, GPU, USB,
+audio) sits in an identity-mapped domain and can DMA anywhere in host RAM.
+Nothing fails and nothing warns. The only trace is the *"Default domain type:
+Passthrough"* line in the kernel log. `amd_iommu=on` changes nothing, since the
+kernel ignores it, but it is a parameter ADR-040 says is never written. An
+edit to `/etc/kernel/cmdline` without `mkinitcpio -P` changes nothing either:
+the UKI keeps the line it was built with.
+
+**Fresh installs:** `installer/install.sh` writes a systemd-boot entry with the
+vendor's parameter and checks that neither forbidden one is present (ADR-040
+rule 4). That entry carries neither `pti=on` nor `page_alloc.shuffle=1`, so it
+does not duplicate the built-in line. MINIS was not installed by that path
+(it boots a UKI, §4), so the `[LIVE]` state above is MINIS's alone.
+
 ## 4. mkinitcpio HOOKS and MODULES for the UKI pipeline
 
 **Scope:** MINIS · **[LIVE]** · **[?]** — exact values not re-checked
