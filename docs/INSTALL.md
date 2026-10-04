@@ -5,7 +5,8 @@
 - x86-64 UEFI machine with VT-d / AMD-Vi (IOMMU required)
 - Disk ≥ 32 GB (enforced by the installer)
 - RAM: 8 GB practical minimum (low-end reference class), more for multiple concurrent VMs
-- Arch Linux live ISO environment, WiFi or wired connectivity
+- Arch Linux live ISO environment, online over UTP (archiso DHCP) or, failing
+  that, a Wi-Fi network the installer can join
 - The whole `installer/` directory, copied as is: the scripts share `lib/`
 
 > **Do not mount anything at `/mnt`** before running the installer (e.g. the
@@ -59,38 +60,60 @@ preflight stops before any check.
 
 ## What `install.sh` does
 
-1. **Sanity checks** — `/mnt` unoccupied, all required tools present.
-2. **WiFi** — connects via iwd (currently hardcoded SSID/PSK — see Caveats).
-3. **CPU detection** — vendor → `amd-ucode` / `intel-ucode` automatically.
-4. **Disk selection** — interactive, with an explicit wipe confirmation.
-5. **Proportional layout** (computed, then confirmed interactively):
+1. **Sanity checks** — `/mnt` unoccupied, all required tools present
+   (`curl`, `ip`, `openssl` and `loadkeys` among them; `iwctl` only if Wi-Fi
+   is needed).
+2. **Keymap** — prompted, default `us`, checked against `localectl
+   list-keymaps` when available, and loaded into the live console at once,
+   so every passphrase that follows — the LUKS one above all — is typed under
+   the layout the installed system's initramfs will use.
+3. **Network** — a check, not a configuration. Online test over HTTPS
+   (`curl` to `archlinux.org`, 5 s; ICMP is not used). If online, the
+   interface carrying the default route is logged and Wi-Fi is skipped. If
+   offline, an iwd station device is required (otherwise: connect UTP), SSID
+   and passphrase are prompted (passphrase not echoed), a visible and then a
+   hidden connect is tried, and the HTTPS check is repeated. Nothing about
+   the install-time network is written to the target.
+4. **Identity** — hostname (RFC 1123 label), username
+   (`^[a-z_][a-z0-9_-]{0,31}$`, not `root`) and password (twice, not echoed,
+   non-empty). The password is hashed in the live system
+   (`openssl passwd -6`); root gets the same password as the user.
+5. **CPU detection** — vendor → `amd-ucode` / `intel-ucode` automatically.
+6. **Disk selection** — interactive, with an explicit wipe confirmation.
+7. **Proportional layout** (computed, then confirmed interactively):
    - ESP: 512M
    - root: 15% of disk, clamped to 20–60 G
    - swap: sized = RAM (rounded up)
    - thin pool: remainder; metadata 1% of pool, clamped 64M–1G;
      aborts if the pool would be < 8 G
-6. **Partitioning** — GPT: ESP + LUKS partition; `partprobe`.
-7. **Encryption & LVM** — LUKS2 (`cryptlvm`) → `vg0` with `root`, `swap`, and
+8. **Partitioning** — GPT: ESP + LUKS partition; `partprobe`.
+9. **Encryption & LVM** — LUKS2 (`cryptlvm`) → `vg0` with `root`, `swap`, and
    a thin pool (single `lvcreate --type thin-pool -l 100%FREE
    --poolmetadatasize`, so LVM sizes data + metadata + pmspare together).
-8. **Filesystems & mount** — FAT32 ESP at `/boot`, ext4 root, swap on.
-9. **Mirror refresh** — `ParallelDownloads = 5`; `reflector`
+10. **Filesystems & mount** — FAT32 ESP at `/boot`, ext4 root, swap on.
+11. **Mirror refresh** — `ParallelDownloads = 5`; `reflector`
    (CH/DE/AT, https, sorted by rate) refreshes the mirrorlist before pacstrap,
    with a static geo-close fallback. Mitigates flaky upstream mirrors.
-10. **Pacstrap** — `base linux-hardened linux-hardened-headers linux-firmware
+12. **Pacstrap** — `base linux-hardened linux-hardened-headers linux-firmware
    <ucode> lvm2 efibootmgr cryptsetup iwd micro sudo nftables wireguard-tools
-   qemu-full`.
-11. **Base config** — fstab, hostname, timezone `Europe/Zurich`, wired DHCP
+   qemu-full`. (`iwd` is installed but not enabled.)
+13. **Base config** — fstab, hostname, timezone `Europe/Zurich`, wired DHCP
     network unit, wheel sudoers.
-12. **Handoff** — writes `/root/install.env`, copies and runs `postinstall.sh`
-    inside the chroot.
-13. **resolv.conf fix** — symlinks to `stub-resolv.conf` *after* leaving the
+14. **Handoff** — writes `/root/install.env` (username, LUKS UUID, ucode,
+    keymap; no secrets), copies and runs `postinstall.sh` inside the chroot,
+    then removes `install.env` — also on failure, from the exit trap.
+15. **Passwords** — the hash is piped to `chpasswd -e` in the chroot for root
+    and the user; it reaches the target only in `/etc/shadow`.
+16. **resolv.conf fix** — symlinks to `stub-resolv.conf` *after* leaving the
     chroot (deliberately not touched inside it).
-14. **systemd-boot** — `bootctl install`; `loader.conf` with `timeout 0`,
+17. **systemd-boot** — `bootctl install`; `loader.conf` with `timeout 0`,
     `editor no`; boot entry with
-    `cryptdevice=UUID=<luks>:cryptlvm root=/dev/vg0/root rw quiet loglevel=3`.
-15. **Verification** — asserts EFI binary, boot entry, kernel, initramfs and
-    the cryptdevice string exist; prints the boot file tree.
+    `cryptdevice=UUID=<luks>:cryptlvm root=/dev/vg0/root rw quiet loglevel=3`
+    and the vendor's IOMMU parameter ([ADR-040](DECISIONS.md#adr-040)).
+18. **Verification** — asserts EFI binary, boot entry, kernel, initramfs, the
+    cryptdevice string and the IOMMU parameters; a `$6$` hash in
+    `/etc/shadow` for root and the user; no `/root/install.env`; prints the
+    boot file tree.
 
 Debugging aid: `KEEP_MOUNTS=yes ./install.sh` leaves `/mnt` mounted for
 inspection; otherwise a cleanup trap unmounts and deactivates `vg0`/`cryptlvm`
@@ -98,21 +121,17 @@ even on failure.
 
 ## What `postinstall.sh` does
 
-- Hardware clock sync; root and user passwords; user in `wheel`
-- Enables `systemd-networkd`, `systemd-resolved`, `iwd`
-- iwd: PSK profile (AutoConnect, currently `Hidden=true`) and `main.conf` with
-  `EnableNetworkConfiguration=true`
-- Locales: `LANG=en_US.UTF-8`, regional `LC_*` set to `sl_SI.UTF-8`;
-  console keymap `slovene`
+- Hardware clock sync; creates the user in `wheel` (refused if the name
+  already exists in the target); passwords are set by `install.sh` afterwards
+- Enables `systemd-networkd`, `systemd-resolved`
+- No Wi-Fi profile and no VPN on the host. *(Until 2026-10-04 it wrote an iwd
+  PSK profile and a ProtonVPN WireGuard config with `wg-quick@proton`; the
+  R164 correction of 2026-10-03 recorded why the latter was wrong.)* A VPN is
+  an optional, user-supplied WireGuard config in netVM
+  ([ADR-037](DECISIONS.md#adr-037)).
+- Locale: `en_US.UTF-8` only (`LANG`); console keymap from the install-time
+  prompt (`/etc/vconsole.conf`)
 - nftables: default-drop ruleset (see [SECURITY-MODEL.md](SECURITY-MODEL.md#controls-by-component)), enabled
-- WireGuard: ProtonVPN profile + `wg-quick@proton` enabled (transitional
-  installer default — in production NetVM carries the VPN per [ADR-009](DECISIONS.md#adr-009))
-  **[Correction 2026-10-03 (R164): both halves are contradicted.** A host
-  WireGuard link is dev scaffolding on the pre-release removal list, not a
-  transitional default, and netVM carries no WireGuard: under
-  [ADR-037](DECISIONS.md#adr-037) its egress is direct, with a VPN a
-  post-install option. See [SECURITY-MODEL.md](SECURITY-MODEL.md#known-gaps-tracked)
-  gap 3's note of 2026-09-27. The item is left as written.**]**
 - `vhost_vsock` module autoload via `/etc/modules-load.d/katmate-vsock.conf`
   (AF_VSOCK sole host↔guest channel per [ADR-003](DECISIONS.md#adr-003))
 - mkinitcpio: `HOOKS=(base udev autodetect keyboard keymap modconf block
@@ -141,20 +160,17 @@ adapters; USB-NIC passthrough (r8152) is the working alternative for NetVM.
 
 ## Caveats (current installer state)
 
-- **Hardcoded secrets** — hostname/user/password defaults, WiFi SSID+PSK and a
-  WireGuard private key are embedded in the scripts. These must move to
-  install-time prompts / generation (`wg genkey`); ~~the committed WG key is
-  burned and must be rotated~~. Tracked as a v0.2 blocker
-  ([SECURITY-MODEL.md, gap #1](SECURITY-MODEL.md#known-gaps-tracked)).
-  **[2026-10-03 (R167): the WG key and the Wi-Fi passphrase were rotated
-  (R162), so the committed values are dead. Moving them out of the scripts
-  stays open.]**
+- **Hardcoded secrets** — removed 2026-10-04: hostname, user and password are
+  prompted, and no Wi-Fi or WireGuard secret is in the scripts. *(The R167
+  note of 2026-10-03 recorded the WG key and Wi-Fi passphrase as rotated
+  (R162); the literals remain in git history, burned.)*
+  [SECURITY-MODEL.md, gap #1](SECURITY-MODEL.md#known-gaps-tracked) is not
+  updated by this change.
 - **Desktop layer not yet installed** — greetd/Hyprland/Plymouth are a manual
   post-step on development machines. Integration will require `kms` in the
   mkinitcpio `HOOKS`.
 - **Hibernation non-functional** — swap is sized = RAM, but there is no
   `resume` hook / kernel parameter. Either add resume support or shrink swap;
   on 32 GB machines this is currently dead disk space.
-- **Version header** — the installer script header (v0.3) is a script
-  iteration counter, not the project milestone (v0.2); to be aligned at the
-  next `install.sh` edit.
+- **Version header** — aligned 2026-10-04: the script header names the
+  milestone (v0.2), not a script iteration counter.
