@@ -474,14 +474,29 @@ else
     say "  group $g:"
     for b in ${G_MEMBERS[$g]}; do say "    $(pci_line "$b")"; done
   done < <(printf '%s\n' "${!G_MEMBERS[@]}" | sort -n)
+  # The IOMMU itself (0806) and the host bridge / root complex (0600) sit
+  # outside any group by design: measured on MINIS, 2026-10-04 (pf-minis.txt),
+  # 0000:00:00.0 [1022:14e8] and 0000:00:00.2 [1022:14e9]. No other class is
+  # exempt without a measured case.
   ungrouped=()
-  for b in "${PCI_ALL[@]}"; do [[ -n "${P_GROUP[$b]}" ]] || ungrouped+=("$b"); done
+  expected=()
+  for b in "${PCI_ALL[@]}"; do
+    [[ -n "${P_GROUP[$b]}" ]] && continue
+    case "${P_CLASS[$b]:0:4}" in
+      0806|0600) expected+=("$b") ;;
+      *)         ungrouped+=("$b") ;;
+    esac
+  done
+  if (( ${#expected[@]} > 0 )); then
+    say "  expected ungrouped (IOMMU 0806, host bridge 0600):"
+    for b in "${expected[@]}"; do say "    $(pci_line "$b")"; done
+  fi
   if (( ${#ungrouped[@]} > 0 )); then
     say "  devices with no IOMMU group:"
     for b in "${ungrouped[@]}"; do say "    $(pci_line "$b")"; done
     record "iommu-groups" WARN "${#G_MEMBERS[@]} group(s) over ${#PCI_ALL[@]} PCI devices; ${#ungrouped[@]} device(s) in no group"
   else
-    record "iommu-groups" PASS "${#G_MEMBERS[@]} group(s) over ${#PCI_ALL[@]} PCI devices"
+    record "iommu-groups" PASS "${#G_MEMBERS[@]} group(s) over ${#PCI_ALL[@]} PCI devices${expected[0]:+; ${#expected[@]} expected ungrouped}"
   fi
 fi
 
@@ -675,30 +690,107 @@ else
   record "cpus" FAIL "CPU count unreadable"
 fi
 
-if have lsblk; then
-  LIVE_DISK=""
-  if have findmnt; then
-    src="$(findmnt -n -o SOURCE /run/archiso/bootmnt 2>/dev/null || true)"
-    [[ -n "$src" ]] && LIVE_DISK="$(lsblk -n -d -o PKNAME "$src" 2>/dev/null | head -n 1 || true)"
-    [[ -n "$src" && -z "$LIVE_DISK" ]] && LIVE_DISK="$(basename "$src")"
+# disk_of <path>: the disk a block device (or a link to one) belongs to.
+disk_of() {
+  local dev pk
+  dev="$(readlink -f -- "$1" 2>/dev/null || true)"
+  [[ -n "$dev" && -b "$dev" ]] || return 1
+  pk="$(lsblk -n -d -o PKNAME "$dev" 2>/dev/null | head -n 1 || true)"
+  pk="${pk//[[:space:]]/}"
+  if [[ -z "$pk" ]]; then
+    pk="$(lsblk -n -d -o NAME "$dev" 2>/dev/null | head -n 1 || true)"
+    pk="${pk//[[:space:]]/}"
   fi
-  say "  live boot medium: ${LIVE_DISK:-not identified (/run/archiso/bootmnt not mounted)}"
+  [[ -n "$pk" ]] || return 1
+  printf '%s' "$pk"
+}
+
+if have lsblk; then
+  # The live boot medium, so that it is never offered as an install target.
+  # Methods in the archiso hook's own order (mkinitcpio-archiso hooks/archiso,
+  # read 2026-10-04): an explicit archisodevice=; archisosearchuuid= resolved
+  # as UUID=<uuid>; archisolabel= as /dev/disk/by-label/<label>. The hook's
+  # mount, /run/archiso/bootmnt, is a secondary source only: with copytoram
+  # (default auto) the hook unmounts it after copying the image to RAM.
+  LIVE_DISK=""
+  a_uuid="" a_label="" a_dev="" ARCHISO_PARAMS=""
+  set -f
+  for tok in $CMDLINE; do
+    case "$tok" in
+      archisosearchuuid=*) a_uuid="${tok#*=}";  ARCHISO_PARAMS+="$tok " ;;
+      archisolabel=*)      a_label="${tok#*=}"; ARCHISO_PARAMS+="$tok " ;;
+      archisodevice=*)     a_dev="${tok#*=}";   ARCHISO_PARAMS+="$tok " ;;
+      copytoram=*)         ARCHISO_PARAMS+="$tok " ;;
+    esac
+  done
+  set +f
+
+  if [[ "$ARCHISO_PARAMS" != *archiso* ]]; then
+    say "  live boot medium: not an archiso live boot: no boot medium to exclude"
+  else
+    say "  archiso parameters on the command line: ${ARCHISO_PARAMS% }"
+    cands=()
+    [[ -n "$a_dev" ]]   && cands+=("archisodevice|$a_dev")
+    [[ -n "$a_uuid" ]]  && cands+=("archisosearchuuid|/dev/disk/by-uuid/$a_uuid")
+    [[ -n "$a_label" ]] && cands+=("archisolabel|/dev/disk/by-label/$a_label")
+    src=""
+    if have findmnt; then
+      src="$(findmnt -n -o SOURCE /run/archiso/bootmnt 2>/dev/null || true)"
+    fi
+    if [[ -n "$src" ]]; then
+      cands+=("/run/archiso/bootmnt|$src")
+    elif [[ -d /run/archiso/copytoram ]]; then
+      say "  /run/archiso/bootmnt: not mounted; /run/archiso/copytoram exists, so the hook copied the image to RAM and unmounted the boot medium (copytoram)"
+    else
+      say "  /run/archiso/bootmnt: not mounted; no /run/archiso/copytoram, so why is not determinable here"
+    fi
+    LIVE_SEEN=""
+    for c in "${cands[@]}"; do
+      how="${c%%|*}"; path="${c#*|}"
+      if d="$(disk_of "$path")"; then
+        say "  $how: $path -> $(readlink -f -- "$path") -> disk $d"
+        [[ " $LIVE_SEEN " == *" $d "* ]] || LIVE_SEEN+="$d "
+        [[ -n "$LIVE_DISK" ]] || LIVE_DISK="$d"
+      else
+        say "  $how: $path does not resolve to a block device"
+      fi
+    done
+    LIVE_SEEN="${LIVE_SEEN% }"
+    if [[ -z "$LIVE_DISK" ]]; then
+      record "live-medium" WARN "archiso boot (${ARCHISO_PARAMS% }) but no method resolves the boot medium to a disk: it cannot be excluded from the install candidates"
+    elif [[ "$LIVE_SEEN" == *" "* ]]; then
+      record "live-medium" WARN "methods disagree on the boot medium: $LIVE_SEEN; excluding $LIVE_DISK only"
+    else
+      record "live-medium" PASS "$LIVE_DISK, excluded from the install candidates"
+    fi
+  fi
   DISKS="$(lsblk -d -b -n -o NAME,TYPE,SIZE,TRAN,MODEL 2>/dev/null || true)"
   say "  lsblk -d -b (NAME TYPE SIZE TRAN MODEL):"
   printf '%s\n' "$DISKS" | grep -v '^$' | quote || true
   fit=""
+  nfit=0
+  nusb=0
   ndisk=0
   while read -r name type size _; do
     [[ "$type" == disk && "$size" =~ ^[0-9]+$ ]] || continue
     ndisk=$(( ndisk + 1 ))
     gb=$(( size / 1024 / 1024 / 1024 ))
-    say "  $name: ${gb}G by install.sh's arithmetic$( [[ "$name" == "$LIVE_DISK" ]] && echo ' (live boot medium)')"
-    [[ "$name" != "$LIVE_DISK" ]] && (( gb >= MIN_DISK_GB )) && fit+="$name(${gb}G) "
+    # Read per disk: an empty TRAN column would shift the table's fields.
+    tran="$(lsblk -n -d -o TRAN "/dev/$name" 2>/dev/null | head -n 1 || true)"
+    tran="${tran//[[:space:]]/}"
+    say "  $name: ${gb}G by install.sh's arithmetic, transport ${tran:-unknown}$( [[ "$name" == "$LIVE_DISK" ]] && echo ' (live boot medium)')"
+    if [[ "$name" != "$LIVE_DISK" ]] && (( gb >= MIN_DISK_GB )); then
+      fit+="$name(${gb}G,${tran:-unknown}) "
+      nfit=$(( nfit + 1 ))
+      [[ "$tran" == usb ]] && nusb=$(( nusb + 1 ))
+    fi
   done < <(printf '%s\n' "$DISKS")
   if (( ndisk == 0 )); then
     record "disks" WARN "lsblk lists no disk"
   elif [[ -z "$fit" ]]; then
     record "disks" WARN "no disk other than the live medium reaches install.sh's ${MIN_DISK_GB}G minimum"
+  elif (( nusb == nfit )); then
+    record "disks" WARN "only USB-attached candidates for install.sh (>= ${MIN_DISK_GB}G): ${fit% }"
   else
     record "disks" PASS "candidates for install.sh (>= ${MIN_DISK_GB}G): ${fit% }"
   fi

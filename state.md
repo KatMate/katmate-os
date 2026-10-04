@@ -2144,6 +2144,34 @@ touched.
    isolation. On MINIS group 12 is clean, but that is luck, not a guarantee for a
    product installed on unknown hardware. Needs an HCL + an installer preflight
    check. SECURITY-MODEL gap #9.
+   **[Note 2026-10-04: the preflight exists (`installer/preflight.sh`) and has
+   run twice on real hardware.** The operator's reports are outside the
+   repository: `pf-cubi.txt` and `pf-minis.txt`. What they measured:
+   - **MSI Cubi N6000**, Arch live ISO, kernel `7.2.2-arch1-1`. DMAR present,
+     two IOMMU units (`dmar0`, `dmar1`). `DMAR-IR: Enabled IRQ remapping in
+     x2apic mode`, beside 30 interrupt lines on `IR-` chips.
+     `# CONFIG_INTEL_IOMMU_DEFAULT_ON is not set` (`pf-cubi.txt:33`). The run
+     was booted with `intel_iommu=on`, and the kernel logged `DMAR: IOMMU
+     enabled` (`:46`). A run without the parameter has not been taken.
+     `iommu: Default domain type: Translated` (`:58`). The RTL8111
+     (`10ec:8168`, `0000:03:00.0`, `r8169`) is alone in group 17. The CNVi
+     Wi-Fi (`8086:4df0`, `00:14.3`) is alone in group 6. The xHCI (`00:14.0`)
+     shares group 5 with the Shared SRAM (`00:14.2`, `8086:4def`). The GPU is
+     `8086:4e71` on `i915`.
+   - **MINIS**, the installed host (kernel `7.2.8-hardened1-1-hardened`), not
+     a live ISO. IVRS present, one unit (`ivhd0`). `AMD-Vi: Interrupt
+     remapping enabled`, beside 43 `IR-` lines. `AMD-Vi: Unknown option -
+     'on'` (`pf-minis.txt:46`), which corroborates the `amd_iommu=on` entry
+     in § *Invariants & gotchas*. `iommu: Default domain type: Passthrough
+     (set via kernel command line)` (`:52`), from `iommu=pt`. The RTL8125 is
+     alone in group 12, bound to `vfio-pci`, so its MAC is not readable on
+     the host.
+   - **Both:** the PCIe Device Serial Number reads `01-00-00-00-68-4c-e0-00`
+     on two different Realtek NICs: the Cubi's `10ec:8168`
+     (`pf-cubi.txt:160`) and MINIS's `10ec:8125` (`pf-minis.txt:196`). This
+     is a measured fact bearing on ADR-030 §5's descriptor question. No
+     descriptor is concluded from it. The HCL half of this problem is still
+     open.**]**
 
 10. **RESOLVED 2026-07-18 (ADR-024) — netVM graceful shutdown.** The QMP
    `system_powerdown` path was inert (logind needs dbus, which the manifest
