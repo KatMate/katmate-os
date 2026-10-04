@@ -17,6 +17,7 @@ Files based on CYBRland:
 | `desktop/waybar/config-sway.jsonc` | CYBRland's waybar configuration (`config.jsonc`), as a Sway counterpart |
 | `desktop/waybar/modules-sway.jsonc` | CYBRland's waybar module definitions (`modules.jsonc`), with Sway equivalents of its Hyprland modules |
 | `desktop/bin/sway-session` | the environment section of CYBRland's `hyprland.conf`, whose values it carries over |
+| `desktop/wallpapers/*.jpg` | CYBRland's wallpapers, reworked by the operator for dark, text-oriented sessions with transparent windows |
 
 The port and what it dropped are described in
 [desktop/README.md](desktop/README.md) § *What this profile is a port of*.
