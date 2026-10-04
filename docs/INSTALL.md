@@ -13,6 +13,51 @@
 > script USB) — the installer requires `/mnt` free and will abort otherwise.
 > Use `/installer` for the USB.
 
+## Preflight
+
+`installer/preflight.sh` checks the hardware **before** `install.sh`, from the
+same live environment, and changes nothing: no module is loaded, no driver is
+bound, nothing is installed. It covers CPU virtualisation, UEFI, KVM, the
+IOMMU (ACPI table, activity, interrupt remapping), every IOMMU group, the
+isolation of each Ethernet, Wi-Fi and USB controller, NIC identity (MAC,
+slot path, udev path), the GPU, RAM, CPUs and disks.
+
+**Boot the live ISO with the IOMMU on, or the result is not meaningful.** On
+Intel, edit the ISO's boot entry and append `intel_iommu=on`. On AMD the IOMMU
+is on by default (`amd_iommu=on` is not a valid option; the kernel logs it as
+unknown). If the IOMMU is off because of the boot line, the preflight says so,
+distinctly from a firmware with VT-d / AMD-Vi disabled.
+
+**It writes one file, and it needs a writable place for it.** The Arch ISO
+medium is read-only, and the live system's `/tmp` is in RAM and lost at
+reboot. Run it as root from the script USB, if that stick is mounted
+read-write:
+
+```
+cd /installer
+bash preflight.sh
+```
+
+or write to `/tmp` and copy the file to a second stick before rebooting:
+
+```
+bash /installer/preflight.sh -o /tmp/preflight.txt
+```
+
+The default name is `katmate-preflight-<hostname>-<UTC time>.txt` in the
+current directory. If the file cannot be created, or already exists, the
+preflight stops before any check.
+
+**Reading the result.** Every check prints `PASS`, `WARN`, `FAIL` or
+`SKIPPED` with its evidence quoted under it, and a summary ends the file:
+
+| Overall | Meaning | Exit |
+|---|---|---|
+| `GO` | every check passed | 0 |
+| `GO-WITH-WARNINGS` | no failure; each `WARN` is for the operator to rule on (e.g. a controller that is not isolable) | 1 |
+| `NO-GO` | at least one `FAIL` | 2 |
+| `PREFLIGHT ABORTED — NO VERDICT` | the preflight could not run to the end; there is no result | 3 |
+
 ## What `install.sh` does
 
 1. **Sanity checks** — `/mnt` unoccupied, all required tools present.
