@@ -1,0 +1,22 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  KatMate power menu: the GTK builder file for waybar's custom/arch module
+  (modules-cybrbar.jsonc; operator ruling 2026-10-05, rule 1). It replaces the
+  rofi powermenu script, with the same mechanism and plain-text style as
+  katmate-menu.xml: waybar looks up the object with id "menu" and connects each
+  item whose id is a key of the module's "menu-actions", so the ids here and
+  the keys there match one for one.
+
+  No lock item: there is no screen locker yet (swaylock is not shipped).
+  The actions ask logind directly, which consults polkitd; no confirmation
+  dialog stands between a click and the action.
+-->
+<interface>
+  <object class="GtkMenu" id="menu">
+    <child><object class="GtkMenuItem" id="poweroff"><property name="label">Power off</property></object></child>
+    <child><object class="GtkMenuItem" id="reboot"><property name="label">Reboot</property></object></child>
+    <child><object class="GtkMenuItem" id="suspend"><property name="label">Suspend</property></object></child>
+    <child><object class="GtkSeparatorMenuItem" id="sep-session"/></child>
+    <child><object class="GtkMenuItem" id="exit"><property name="label">Exit sway</property></object></child>
+  </object>
+</interface>

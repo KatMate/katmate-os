@@ -2,14 +2,14 @@
 # ---------------------------------------
 # CYBRbar     style addendum — SWAY session
 # Based on CYBRland (GPL-3.0), modified for KatMate/Sway
-# Imports the untouched Hyprland stylesheet and adds only what
-# differs: waybar's sway/workspaces module marks the active
-# button with .focused, hyprland/workspaces marks it .active.
-# Everything else is identical, so nothing is duplicated here.
+# Imports style-cybrbar.css, CYBRland's stylesheet pruned for this bar
+# and installed beside this file in /etc/xdg/waybar/, and adds only what
+# differs: waybar's sway/workspaces module marks the active button with
+# .focused, hyprland/workspaces marks it .active.
 # ---------------------------------------
 */
 
-@import url("style.css");
+@import url("style-cybrbar.css");
 
 #workspaces button.focused {
 	background-color: @re0;
@@ -33,9 +33,8 @@
 
 /* The KatMate menu button (custom/katmate, modules-katmate.jsonc) carries no
    background in the imported stylesheet and shows as transparent. Give it the
-   bar's black (operator ruling 3, 2026-10-04). A literal, sway's $no0, not a
-   @define-color from style.css: that file is untracked, so a name from it is
-   not something this tree can rely on (ruling D5). */
+   background the bar's modules use, @no1 from style-cybrbar.css (operator
+   ruling 2026-10-05, superseding the #030408 literal of D5). */
 #custom-katmate {
-	background-color: #030408;
+	background-color: @no1;
 }

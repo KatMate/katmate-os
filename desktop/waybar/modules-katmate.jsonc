@@ -9,10 +9,10 @@
 # desktop notification carrying the last FATAL line (operator ruling 2,
 # 2026-10-04). The full record is in the journal: journalctl -t katmate-launch
 #
-# menu-file and km-launch are absolute paths to the symlinks that
-# desktop/README.md deploys. Whether waybar expands ~ in menu-file was not
-# read, so neither path depends on it. Both name the user host; moving
-# km-launch to a system path is deferred to the installer pass.
+# menu-file and km-launch are absolute system paths, the layout the installer
+# deploys and desktop/README.md describes (operator ruling 2026-10-05, D8):
+# menu files under /usr/share/katmate/waybar/, km-launch in /usr/local/bin/.
+# Neither depends on the user's name or on waybar expanding ~.
 # ---------------------------------------
 */
 {
@@ -20,20 +20,20 @@
 		"format": "KatMate",
 		"tooltip": false,
 		"menu": "on-click",
-		"menu-file": "/home/host/.config/waybar/katmate-menu.xml",
+		"menu-file": "/usr/share/katmate/waybar/katmate-menu.xml",
 		"menu-actions": {
-			"web-firefox":       "/home/host/.local/bin/km-launch app_web firefox-esr",
-			"web-files":         "/home/host/.local/bin/km-launch app_web pcmanfm",
-			"web-terminal":      "/home/host/.local/bin/km-launch app_web foot",
-			"personal-firefox":  "/home/host/.local/bin/km-launch app_personal firefox-esr",
-			"personal-files":    "/home/host/.local/bin/km-launch app_personal pcmanfm",
-			"personal-terminal": "/home/host/.local/bin/km-launch app_personal foot",
-			"work-libreoffice":  "/home/host/.local/bin/km-launch app_work libreoffice",
-			"work-files":        "/home/host/.local/bin/km-launch app_work pcmanfm",
-			"work-terminal":     "/home/host/.local/bin/km-launch app_work foot",
-			"vault-keepassxc":   "/home/host/.local/bin/km-launch app_vault keepassxc",
-			"vault-terminal":    "/home/host/.local/bin/km-launch app_vault foot",
-			"stop-all":          "/home/host/.local/bin/km-launch --stop-all"
+			"web-firefox":       "/usr/local/bin/km-launch app_web firefox-esr",
+			"web-files":         "/usr/local/bin/km-launch app_web pcmanfm",
+			"web-terminal":      "/usr/local/bin/km-launch app_web foot",
+			"personal-firefox":  "/usr/local/bin/km-launch app_personal firefox-esr",
+			"personal-files":    "/usr/local/bin/km-launch app_personal pcmanfm",
+			"personal-terminal": "/usr/local/bin/km-launch app_personal foot",
+			"work-libreoffice":  "/usr/local/bin/km-launch app_work libreoffice",
+			"work-files":        "/usr/local/bin/km-launch app_work pcmanfm",
+			"work-terminal":     "/usr/local/bin/km-launch app_work foot",
+			"vault-keepassxc":   "/usr/local/bin/km-launch app_vault keepassxc",
+			"vault-terminal":    "/usr/local/bin/km-launch app_vault foot",
+			"stop-all":          "/usr/local/bin/km-launch --stop-all"
 		}
 	}
 }

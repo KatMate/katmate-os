@@ -15,29 +15,15 @@
     set $up    k
     set $right l
 
-    # Applications (hyprland.conf § BINDS)
-    set $term        kitty
-    set $term_float  kitty --class=com.center-float
-    set $browser     firefox
-    set $private     --private-window
-    set $editor      micro
-    set $filemgr     kitty --class=yazi-term -e yazi
-    set $alt_filemgr nemo
-    set $notes       obsidian
-    set $music       spotify-launcher
-    set $office      libreoffice
+    # The host terminal. Applications run in AppVMs and are launched from
+    # the waybar KatMate menu (custom/katmate); the host binds no application
+    # but this one (operator rulings 2026-10-05: rule 4, D3).
+    set $term        foot
 
-    # Rofi
-    set $rofi_scripts $HOME/.config/rofi/scripts
-    set $launcher     rofi -show drun -theme $HOME/.config/rofi/launcher.rasi
-    set $powermenu    $rofi_scripts/powermenu/powermenu
-    set $clipboard    $rofi_scripts/clipboard/clipboard
-    set $keybindings  $rofi_scripts/keybindings/keybindings
-    set $emoji        $rofi_scripts/emoji/emoji
-
-    # Waybar (parallel config — Hyprland's own is untouched)
-    set $bar waybar -c $HOME/.config/waybar/config-sway.jsonc \
-                    -s $HOME/.config/waybar/style-sway.css
+    # Waybar, from the system paths the installer deploys (desktop/README.md;
+    # operator ruling 2026-10-05, D8). Hyprland's own config is untouched.
+    set $bar waybar -c /etc/xdg/waybar/config-sway.jsonc \
+                    -s /etc/xdg/waybar/style-sway.css
 
 
 # Black-Screen-Wallpaper-3-1.jpg
@@ -108,14 +94,20 @@
 
 ### INPUT ########################################################
 
+    # The layout is not this file's to choose (operator ruling 2026-10-05,
+    # rule 5). "us" is only the default for a machine whose installer wrote
+    # nothing. The installer writes the machine's layout to
+    # /etc/sway/config.d/10-keyboard.conf, which the `include` at the end of
+    # this file reads after this block; a later `input` block for the same
+    # identifier is merged over this one, so it replaces xkb_layout and
+    # leaves the rest. The file contract is in desktop/README.md.
     input type:keyboard {
-        xkb_layout  "si"
+        xkb_layout  "us"
         xkb_options "compose:rctrl,level3:ralt_switch,grp:alt_space_toggle"
         xkb_numlock enabled
     }
-    #   NOTE: grp:alt_space_toggle switches between layouts, but only one
-    #   layout ("si") is configured — carried over from hyprland.conf as-is.
-    #   If you want the toggle to do anything, use  xkb_layout "si,us".
+    #   NOTE: grp:alt_space_toggle switches between layouts; it does something
+    #   only when 10-keyboard.conf names more than one (xkb_layout "si,us").
 
     input type:touchpad {
         natural_scroll enabled
@@ -130,27 +122,12 @@
 ### KEYBINDINGS — APPLICATIONS ###################################
 
     bindsym $mod+Return    exec $term
-    bindsym $mod+w         exec $browser
-    bindsym $mod+Shift+w   exec $browser $private
-    bindsym $mod+e         exec $filemgr
-    bindsym $mod+Shift+e   exec $alt_filemgr
-    bindsym $mod+BackSpace exec $editor
-    bindsym $mod+o         exec $notes
-    bindsym $mod+Shift+o   exec $office
-    bindsym $mod+s         exec $music
-
-    #   NOTE: hyprland.conf routed these through $scripts/launch_app (focus if
-    #   running, else launch). That script uses hyprctl. Bound directly here;
-    #   a swaymsg equivalent is a separate task.
 
 
 ### KEYBINDINGS — LAUNCHERS ######################################
 
-    bindsym $mod+space   exec $launcher
-    bindsym $mod+Escape  exec $powermenu
-    bindsym $mod+v       exec $clipboard
-    bindsym $mod+slash   exec $keybindings
-    bindsym $mod+period  exec $emoji
+    # No rofi (operator ruling 2026-10-05, rule 1 and D2): applications come
+    # from the waybar KatMate menu, power actions from the menu on custom/arch.
 
     bindsym $mod+n       exec swaync-client -t -sw
     bindsym $mod+Shift+r exec swaync-client -R && swaync-client -rs
@@ -250,8 +227,7 @@
 ### KEYBINDINGS — SCREENSHOT & MEDIA #############################
 
     bindsym $mod+Print   exec grim -g "$(slurp)" - | wl-copy
-	bindsym Shift+Escape exec $HOME/.local/bin/km-shot
-    #   NOTE: that rofi script calls hyprshot. Needs a grim/slurp rewrite.
+    bindsym Shift+Escape exec /usr/local/bin/km-shot
 
     bindsym --locked XF86AudioMute        exec wpctl set-mute   @DEFAULT_AUDIO_SINK@ toggle
     bindsym --locked XF86AudioRaiseVolume exec wpctl set-volume -l 1.0 @DEFAULT_AUDIO_SINK@ 5%+
@@ -268,53 +244,16 @@
 
 ### WINDOW RULES #################################################
 
-    # Wayland-native apps match on app_id; XWayland apps on class.
+    # Only rules for windows KatMate shows. Every rule for an application
+    # KatMate does not ship is gone (operator ruling 2026-10-05, rule 2 and
+    # D4): app launchers, settings panels, monitor scratchpads, polkit agents,
+    # media players, game clients.
 
-	for_window [app_id="^km-keyb$"] \
-    	    floating enable, resize set width 45 ppt height 80 ppt, move position center
-
-    for_window [app_id="^com\.center-float-large$"] \
-        floating enable, resize set width 70 ppt height 70 ppt, move position center
-
-    for_window [app_id="^com\.center-float$"] \
+    # An AppVM window's title starts with its "[<instance>] " label (vm-agent,
+    # waypipe --title-prefix), so the dialog names may follow one. The label
+    # is guest-set and cosmetic; this rule only floats a dialog.
+    for_window [title="^(\[[A-Za-z0-9_-]+\] )?(Open Folder|Open File|Save File|Save Folder|Delete File|Confirm File Delete|Save Image|Save As|Open As).*$"] \
         floating enable, resize set width 50 ppt height 50 ppt, move position center
-
-    for_window [app_id="^com\.center-float-mini$"] \
-        floating enable, resize set width 30 ppt height 40 ppt, move position center
-    #   NOTE (pre-existing bug carried from hyprland.conf): the launcher uses
-    #   --class=com.center-float but the Hyprland rule matched ^(center-float)$
-    #   — so it never fired there. Matched on the real app_id here.
-
-    for_window [title="^(Open Folder|Open File|Save File|Save Folder|Delete File|Confirm File Delete|Save Image|Save As|Open As).*$"] \
-        floating enable, resize set width 50 ppt height 50 ppt, move position center
-
-    for_window [app_id="^(galculator|ytdlp-gui|udiskie)$"] \
-        floating enable, resize set width 30 ppt height 40 ppt, move position center
-
-    # System settings panels, reached from the waybar icons: volume,
-    # bluetooth, network. Centered and floating rather than tiled.
-    for_window [app_id="^(org\.pulseaudio\.pavucontrol|blueman-manager|nm-connection-editor)$"] \
-        floating enable, resize set width 50 ppt height 60 ppt, move position center
-
-    # Monitor and maintenance terminals from the waybar cpu, memory and
-    # nvtop icons. Launched as `kitty --class <name>`, which sets the
-    # app_id. The click passes "scratchpad-large" as its size hint, so
-    # they take the same 70 ppt this file already uses for that name.
-    for_window [app_id="^scratchpad-(btop|nvtop|large)$"] \
-        floating enable, resize set width 70 ppt height 70 ppt, move position center
-
-    for_window [app_id="^(xfce-polkit|wleave|nwg-look|org\.twosheds\.iwgtk|overskride|branchdialog)$"] \
-        floating enable
-    for_window [class="^(Xfce-polkit|Nm-connection-editor)$"] floating enable
-
-    for_window [app_id="^scrcpy$"] floating enable, move position center
-
-    # Idle inhibit
-    for_window [app_id="^(mpv|celluloid)$"] inhibit_idle fullscreen
-    for_window [class="^steam_app"]         inhibit_idle focus
-
-    # Scratchpad candidates (replaces pyprland)
-    for_window [app_id="^(overskride|org\.twosheds\.iwgtk)$"] move scratchpad
 
 
 ### DOMAIN INDICATOR — placeholder ###############################
@@ -341,11 +280,10 @@
 
     exec $bar
     exec swaync
-    exec wl-paste --watch cliphist store
-    exec /usr/lib/polkit-gnome/polkit-gnome-authentication-agent-1
-    exec udiskie
-    exec swayosd-server
-    exec easyeffects --gapplication-service
+    #   Removed (operator ruling 2026-10-05, rule 2): cliphist, the
+    #   polkit-gnome agent, udiskie, swayosd-server, easyeffects. polkitd
+    #   itself is a system service and stays: logind needs it for the power
+    #   menu's poweroff, reboot and suspend.
 
     # hypridle → swayidle. Left commented: hypridle.conf was not supplied, so
     # the timeouts are unknown and an unexpected lock mid-test is unwelcome.
@@ -355,4 +293,7 @@
 
     # exec_always for anything that must survive `swaymsg reload`.
 
+# Machine-local configuration written by the installer, the keyboard layout
+# among it (10-keyboard.conf, desktop/README.md). The distribution's sway
+# package may put its own files here too. Last, so it overrides the above.
 include /etc/sway/config.d/*

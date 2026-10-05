@@ -90,6 +90,12 @@
 - [ ] Domain indicator — waybar module (authoritative) + 2px border, drawn
       host-side from waypipe CID identity, encoding the netVM attachment
       (carriers and identity path settled: ADR-026)
+- [ ] Per-VM waypipe listeners with a Wayland security context
+      (`--secctx`): per-domain clipboard isolation, and window labels
+      assigned by the host rather than the guest. The alpha shares one
+      clipboard across all VMs and the host, and its `[<instance>]` title
+      label is guest-set (README, *Known limitations (alpha)*; operator
+      ruling 2026-10-05)
 - [ ] **VMM containment gate (C-gate)** — ADR-027. C4 (tightened seccomp) and
       C5b (no host filesystem export into netVM) passed 2026-07-28. Remaining:
       C1–C3 (non-root netVM VMM, vfio via group + udev, `memlock` from a unit),

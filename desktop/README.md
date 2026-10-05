@@ -19,13 +19,17 @@ desktop/
 │   ├── modules-sway.jsonc          sway/{workspaces,window,language}
 │   ├── modules-katmate.jsonc       custom/katmate: the alpha's launcher menu
 │   ├── katmate-menu.xml            its GTK builder menu (ids = menu-actions keys)
-│   └── style-sway.css              @imports style.css, adds .focused
+│   ├── power-menu.xml              custom/arch's power menu (Power off, Reboot, Suspend, Exit)
+│   ├── modules-cybrbar.jsonc       CYBRland's module definitions, pruned to this bar
+│   ├── style-cybrbar.css           CYBRland's stylesheet, pruned to this bar
+│   ├── svg/no1-right.svg           the one powerline arrow the bar draws
+│   └── style-sway.css              @imports style-cybrbar.css, adds .focused
 ├── bin/
 │   ├── sway-session                env wrapper — sway has no `env =`
 │   ├── sway-quiet                  greetd entry's Exec: clears the tty, execs sway-session
 │   ├── km-shot                     region screenshot (replaces hyprshot)
 │   ├── km-launch                   the menu's katmate-launch wrapper: notifies on failure
-│   └── km-scratch                  scratchpad toggle (replaces pyprland)
+│   └── km-scratch                  scratchpad toggle; nothing calls it since 2026-10-05
 ├── wallpapers/
 │   ├── default.jpg                 the one sway/config is wired to
 │   └── wall_km_*.jpg               alternatives (CREDITS.md)
@@ -41,8 +45,8 @@ desktop/
 
 Two classes of file, deployed differently.
 
-**User files are symlinked**, so this tree is the only original. On MINIS
-the links point into the synced copy, so an edit made through them is removed
+**The sway config is symlinked**, so this tree is the only original. On MINIS
+the link points into the synced copy, so an edit made through it is removed
 by the next `rsync --delete`: edit in the git tree and sync. Same anti-drift
 pattern as `~/net-sys.con`.
 
@@ -52,25 +56,46 @@ the copy synced one-way from the Acer's git tree, not the git tree itself
 
 ```sh
 ln -s ~/katmate-build/desktop/sway/config               ~/.config/sway/config
-ln -s ~/katmate-build/desktop/waybar/config-sway.jsonc  ~/.config/waybar/
-ln -s ~/katmate-build/desktop/waybar/modules-sway.jsonc ~/.config/waybar/
-ln -s ~/katmate-build/desktop/waybar/style-sway.css     ~/.config/waybar/
-ln -s ~/katmate-build/desktop/waybar/modules-katmate.jsonc ~/.config/waybar/
-ln -s ~/katmate-build/desktop/waybar/katmate-menu.xml      ~/.config/waybar/
-ln -s ~/katmate-build/desktop/bin/km-shot               ~/.local/bin/
-ln -s ~/katmate-build/desktop/bin/km-scratch            ~/.local/bin/
-ln -s ~/katmate-build/desktop/bin/km-launch             ~/.local/bin/
 ```
+
+**Everything the sway config and the bar name is at a system path** (operator
+ruling 2026-10-05, D8), the layout the installer deploys, so nothing names
+a user's home:
+
+| Path | From | Mode |
+|---|---|---|
+| `/etc/xdg/waybar/config-sway.jsonc`, `modules-cybrbar.jsonc`, `modules-sway.jsonc`, `modules-katmate.jsonc`, `style-cybrbar.css`, `style-sway.css`, `svg/no1-right.svg` | `desktop/waybar/` | 644 |
+| `/usr/share/katmate/waybar/katmate-menu.xml`, `power-menu.xml` | `desktop/waybar/` | 644 |
+| `/usr/local/bin/km-launch`, `/usr/local/bin/km-shot` | `desktop/bin/` | 755 |
+
+Until the installer owns them, a dev host deploys them by hand from the synced
+copy, as root, and **again after every sync** that changes one of them: they
+are copies, so a sync alone does not reach them.
+
+```sh
+cd ~/katmate-build
+sudo install -m 644 -D -t /etc/xdg/waybar/ \
+    desktop/waybar/config-sway.jsonc desktop/waybar/modules-cybrbar.jsonc \
+    desktop/waybar/modules-sway.jsonc desktop/waybar/modules-katmate.jsonc \
+    desktop/waybar/style-cybrbar.css desktop/waybar/style-sway.css
+sudo install -m 644 -D -t /etc/xdg/waybar/svg/ desktop/waybar/svg/no1-right.svg
+sudo install -m 644 -D -t /usr/share/katmate/waybar/ desktop/waybar/katmate-menu.xml desktop/waybar/power-menu.xml
+sudo install -m 755 -D -t /usr/local/bin/ desktop/bin/km-launch desktop/bin/km-shot
+```
+
+The symlinks earlier versions of this file placed in `~/.config/waybar/` and
+`~/.local/bin/` are no longer read and can be removed. `/etc/xdg/waybar/`
+also holds the waybar package's own `config.jsonc` and `style.css`; no file
+deployed here takes either name.
 
 The launcher menu (`custom/katmate`) needs waybar ≥ 0.11 (`menu`,
 `menu-file`, `menu-actions`). It does nothing on its own: each item runs
-`/home/host/.local/bin/km-launch …`, the symlink above, which runs
+`/usr/local/bin/km-launch …`, which runs
 `sudo -n /usr/lib/katmate/katmate-launch …` and, on a non-zero exit, shows
 the last FATAL line as a critical notification (`notify-send`, so libnotify
 and swaync, as for `km-shot`). So it also needs that executable and its
 sudoers rule ([HOST-CONFIG.md](../docs/HOST-CONFIG.md) § 13). Its
-`menu-file` names `/home/host/.config/waybar/katmate-menu.xml`, the symlink
-above, by absolute path.
+`menu-file` is `/usr/share/katmate/waybar/katmate-menu.xml`.
 
 **System files are copied**, never symlinked. `/etc/greetd/config.toml` is read
 by the unprivileged `greeter` user and sits on a privilege boundary; a symlink
@@ -98,6 +123,37 @@ without the Qt/GTK/XDG environment, and the resulting breakage is subtle.
 Executable bits matter and `micro` strips them on save. After editing anything
 under `bin/`, `chmod +x` before `git add`.
 
+
+## Keyboard layout: `/etc/sway/config.d/10-keyboard.conf`
+
+`sway/config` does not choose the keyboard layout. It sets `xkb_layout "us"`
+as a default and ends with `include /etc/sway/config.d/*`. The installer
+writes the machine's layout there (the installer pass). The contract:
+
+- **Path:** `/etc/sway/config.d/10-keyboard.conf`, `root:root 0644`. It is
+  written by the installer, never by hand.
+- **Content:** exactly one block, and nothing else:
+
+  ```
+  input type:keyboard {
+      xkb_layout  "<XKB layout>[,<XKB layout>…]"
+      xkb_variant "<XKB variant>[,…]"      # optional
+  }
+  ```
+
+- **The value is an XKB layout name** (`si`, `de`, `us`), as listed by
+  `localectl list-x11-keymap-layouts`. It is **not** the console keymap that
+  `vconsole.conf` takes (`slovene`, `de-latin1`). The two name spaces differ,
+  and a console keymap name given to `xkb_layout` gives no layout.
+- **Absent file:** the session starts on `us`, and nothing fails.
+- `xkb_options` and `xkb_numlock` stay in `sway/config`. sway merges a later
+  `input` block for the same identifier over the earlier one, so the file
+  replaces only what it names.
+
+UNVERIFIED on a running sway: the merge of the two `input` blocks, and that
+an absent file leaves the include silent. Settled on MINIS by
+`swaymsg -t get_inputs` reading the file's layout with the file present, and
+`us` with it renamed away.
 
 ## What this profile is a port of
 
@@ -160,15 +216,16 @@ Two facts are untested and gate the ADR:
 
 ## Shared with the Hyprland dev profile
 
-`~/.config/waybar/{modules.jsonc,style.css,svg/}`, the rofi themes and scripts,
-and swaync are used by both profiles and are **not** in this tree. They live in
+Only swaync is shared now. The sway bar no longer reads
+`~/.config/waybar/{modules.jsonc,style.css,svg/}`: it uses pruned copies of
+them, tracked here (`modules-cybrbar.jsonc`, `style-cybrbar.css`, `svg/`,
+credited in `CREDITS.md`). The Hyprland profile's own copies stay in
 `~/.config/` and remain scherrer-txt's files.
 
-Three rofi scripts called `hyprctl` and were made compositor-neutral rather
-than forked: `powermenu` now uses `loginctl terminate-session`, `keybindings`
-sets a class at launch instead of an inline Hyprland window rule. The
-`wallpaper` script is still Hyprland-only and was already broken there — it
-targets `DP-2`, an output that exists on neither reference machine.
+The sway profile uses no rofi (operator ruling 2026-10-05): applications come
+from the waybar KatMate menu, and nothing in `sway/config` binds a rofi
+script. The rofi themes and scripts in `~/.config/rofi/` are the Hyprland
+profile's alone.
 
 
 ## Not in git

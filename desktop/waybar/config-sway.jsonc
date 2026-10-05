@@ -3,16 +3,17 @@
 # CYBRbar     waybar config — SWAY session
 # Based on CYBRland (GPL-3.0), modified for KatMate/Sway
 # Parallel to config.jsonc (Hyprland). Neither touches the other.
-# Launch: waybar -c ~/.config/waybar/config-sway.jsonc \
-#                -s ~/.config/waybar/style-sway.css
+# Launch: waybar -c /etc/xdg/waybar/config-sway.jsonc \
+#                -s /etc/xdg/waybar/style-sway.css
+# System paths, deployed by the installer (desktop/README.md; D8).
 # ---------------------------------------
 */
 [
 	{
 		"include": [
-			"~/.config/waybar/modules.jsonc",
-			"~/.config/waybar/modules-sway.jsonc",
-			"~/.config/waybar/modules-katmate.jsonc"
+			"/etc/xdg/waybar/modules-cybrbar.jsonc",
+			"/etc/xdg/waybar/modules-sway.jsonc",
+			"/etc/xdg/waybar/modules-katmate.jsonc"
 		],
 		"height": 31,
 		"layer": "top",
@@ -42,7 +43,6 @@
 			"custom/arrow-right-no1",
 			"memory",
 			"cpu",
-			"custom/brightness",
 			"network",
 			"battery",
 			"bluetooth",

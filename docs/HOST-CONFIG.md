@@ -347,6 +347,15 @@ the menu-file bullet gives: the action's exec fails and waybar shows nothing.
 It names `host` too, so the third bullet covers it. Moving it to a system path
 is deferred to the installer pass. Not yet deployed on MINIS.**]**
 
+**[Note 2026-10-05 (operator ruling D8): this section's paths are superseded.**
+The bar's files are now system files, not symlinks in `~/.config/waybar/` and
+`~/.local/bin/`: the waybar configs and stylesheets in `/etc/xdg/waybar/`, the
+menu files in `/usr/share/katmate/waybar/`, and `km-launch` and `km-shot` in
+`/usr/local/bin/`, all `root:root`, copied (desktop/README.md, *Deployment*).
+The failure modes above hold for the new paths, and the `host`-name bullet no
+longer applies: no deployed file names the user. Not yet deployed on
+MINIS.**]**
+
 ## 13. `/etc/sudoers.d/katmate-launch` — the menu's one sudo rule
 
 **Scope:** MINIS · **[LIVE]** · **[V]** 2026-10-03 (`ai6`: `cmp` equal to the

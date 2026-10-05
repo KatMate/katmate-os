@@ -175,7 +175,8 @@ fn handle_run(fd: RawFd, req: &RawRequest, cfg: &Config) -> Result<()> {
     // hardcoded; host_cid/waypipe_port come from the environment (the
     // unit) or the defaults above.
     let socket_arg = format!("{}:{}", cfg.host_cid, cfg.waypipe_port);
-    let argv = ["waypipe", "--vsock", "--socket", &socket_arg, "server", app];
+    let prefix = title_prefix(&instance_name());
+    let argv = waypipe_argv(&socket_arg, prefix.as_deref(), app);
 
     // Debug visibility into exactly how waypipe is launched — this is
     // the information that was missing when the Wayland environment was
@@ -402,6 +403,57 @@ where
             .map(|(k, v)| [k.as_bytes(), b"=", v.as_bytes()].concat()),
     );
     env
+}
+
+// --- the window-title label (alpha) --------------------------------
+// Every window a RUN child opens is titled "[<instance>] <title>", so the
+// host's window list says which AppVM it came from (operator ruling
+// 2026-10-05, rule 6). COSMETIC, NOT A SECURITY LABEL: the guest composes the
+// title, so a compromised guest can show any label it likes. The label a
+// user may trust is host-assigned (per-VM waypipe listeners and --secctx),
+// the next release's. UNVERIFIED that waypipe v0.11.0 applies --title-prefix
+// in server mode: its man page describes ssh mode only, where the prefix is
+// applied on the client side, and the source was not read. Settled by a
+// window from app_web titled "[app_web] ..." in `swaymsg -t get_tree`.
+
+/// The instance name: the guest's hostname, which katmate-init sets from
+/// km.name= after validating it (R125). Read back with gethostname(2)
+/// rather than parsed a second time from /proc/cmdline, so km.name= keeps
+/// one parser. Empty if the call fails.
+fn instance_name() -> Vec<u8> {
+    let mut buf = [0u8; 256];
+    // SAFETY: buf is a valid, writable buffer of the length passed;
+    // gethostname writes at most that many bytes into it.
+    let rc = unsafe { libc::gethostname(buf.as_mut_ptr().cast(), buf.len()) };
+    if rc != 0 {
+        return Vec::new();
+    }
+    let len = buf.iter().position(|&b| b == 0).unwrap_or(buf.len());
+    buf[..len].to_vec()
+}
+
+/// "[<name>] " for a name katmate-init would have accepted from km.name=
+/// (1-63 bytes of [A-Za-z0-9_-]); None otherwise, so an AppVM booted
+/// without km.name= (whose hostname is the kernel's default) runs its
+/// windows unlabelled rather than under a label nobody assigned.
+fn title_prefix(name: &[u8]) -> Option<String> {
+    let ok = (1..=63).contains(&name.len())
+        && name
+            .iter()
+            .all(|&b| b.is_ascii_alphanumeric() || b == b'_' || b == b'-');
+    // The bytes are ASCII, checked above.
+    ok.then(|| format!("[{}] ", String::from_utf8_lossy(name)))
+}
+
+/// waypipe's argv for RUN. --title-prefix is a global option, so it comes
+/// before the `server` subcommand.
+fn waypipe_argv<'a>(socket_arg: &'a str, prefix: Option<&'a str>, app: &'a str) -> Vec<&'a str> {
+    let mut argv = vec!["waypipe", "--vsock", "--socket", socket_arg];
+    if let Some(p) = prefix {
+        argv.extend(["--title-prefix", p]);
+    }
+    argv.extend(["server", app]);
+    argv
 }
 
 // --- child spawning (posix_spawn) ----------------------------------
@@ -715,5 +767,44 @@ mod tests {
 
         // An empty input yields exactly the three.
         assert_eq!(run_child_env(Vec::new()), expected[5..].to_vec());
+    }
+
+    /// The title label (rule 6): a name katmate-init accepts becomes
+    /// "[name] "; anything else, including the kernel's default hostname,
+    /// gives no label.
+    #[test]
+    fn title_prefix_from_hostname() {
+        assert_eq!(title_prefix(b"app_web").as_deref(), Some("[app_web] "));
+        assert_eq!(title_prefix(b"app-vault-2").as_deref(), Some("[app-vault-2] "));
+        assert_eq!(title_prefix(&[b'a'; 63]).map(|p| p.len()), Some(66));
+
+        assert_eq!(title_prefix(b""), None);
+        assert_eq!(title_prefix(&[b'a'; 64]), None);
+        assert_eq!(title_prefix(b"(none)"), None);
+        assert_eq!(title_prefix(b"app web"), None);
+        assert_eq!(title_prefix(b"app]web"), None);
+        assert_eq!(title_prefix("app_wéb".as_bytes()), None);
+    }
+
+    /// instance_name() is the kernel's hostname, the one katmate-init set:
+    /// read back here through /proc as an independent second reading.
+    #[test]
+    fn instance_name_reads_the_kernel_hostname() {
+        let proc = std::fs::read("/proc/sys/kernel/hostname").expect("procfs");
+        assert_eq!(instance_name(), proc.trim_ascii_end());
+    }
+
+    /// waypipe's argv: the prefix, when there is one, is a global option
+    /// before `server`; without one the argv is the pre-label form.
+    #[test]
+    fn waypipe_argv_with_and_without_label() {
+        assert_eq!(
+            waypipe_argv("2:1024", Some("[app_web] "), "foot"),
+            ["waypipe", "--vsock", "--socket", "2:1024", "--title-prefix", "[app_web] ", "server", "foot"]
+        );
+        assert_eq!(
+            waypipe_argv("2:1024", None, "foot"),
+            ["waypipe", "--vsock", "--socket", "2:1024", "server", "foot"]
+        );
     }
 }

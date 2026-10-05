@@ -1,0 +1,259 @@
+/*
+# ---------------------------------------
+# CYBRbar     waybar theme — KatMate sway bar
+# Based on CYBRland's style.css (scherrer-txt, GPL-3.0,
+# https://github.com/scherrer-txt/cybrland), pruned for KatMate.
+#
+# Imported by style-sway.css. Only the rules for modules config-sway.jsonc
+# names are kept, and only the colours those rules use (operator ruling
+# 2026-10-05, rule 3). The hyprland/workspaces .active rules are dropped:
+# sway marks the focused button .focused, which style-sway.css styles.
+# Not named style.css: /etc/xdg/waybar/style.css is the waybar package's.
+# ---------------------------------------
+*/
+
+/* === VARIABLES === */
+
+@define-color no0 #030408;
+@define-color no1 #05070D;
+
+@define-color re0 #2DD4BF;
+@define-color re1 #0F766E;
+@define-color re2 #042F2E;
+
+@define-color gr0 #30F291;
+
+@define-color ye0 #F2D230;
+@define-color ye2 #332D10;
+
+@define-color wh0 #898D99;
+
+@define-color or0 #F26118;
+
+
+/* === GLOBAL === */
+
+* {
+	font-family: GeistMono Nerd Font;
+	font-size: 15px;
+	letter-spacing: -0.05em;
+	font-weight: 400;
+	min-height: 0;
+}
+
+window#waybar {
+	background: transparent;
+	opacity: 1;
+}
+
+window#waybar.hidden {
+	opacity: 0;
+}
+
+
+/* === MODULE DEFAULTS === */
+
+#custom-arch,
+#workspaces,
+#window {
+	background-color: transparent;
+	border: none;
+	border-radius: 0;
+	padding: 0 16px;
+	color: @re0;
+}
+
+
+/* === BUTTON SIZE === */
+
+#bluetooth,
+#pulseaudio,
+#network,
+#cpu,
+#memory,
+#battery {
+	padding: 0 16px;
+	min-width: 15px;
+}
+
+
+/* === POWERLINE ARROWS === */
+
+#custom-arrow-right-no1 {
+	background-image: url('svg/no1-right.svg');
+	background-position: right;
+	background-repeat: no-repeat;
+	background-size: contain;
+}
+
+
+/* === ARCH LOGO === */
+
+#custom-arch {
+	color: @no0;
+	background-color: @re0;
+	font-weight: bold;
+}
+
+#custom-arch:hover {
+	color: @no0;
+	background-color: @gr0;
+}
+
+
+/* === WORKSPACES === */
+
+#workspaces {
+	background-color: @no1;
+	border: none;
+}
+
+#workspaces button {
+	border-radius: 0;
+	border: none;
+	margin: 0;
+	min-width: 30px;
+	font-weight: bolder;
+	color: @re0;
+	background: transparent;
+}
+
+#workspaces button label {
+	font-size: 15px;
+	padding: 0 10px;
+	color: @re0;
+}
+
+#workspaces button:hover {
+	background-color: @re2;
+}
+
+#workspaces button:hover label {
+	color: @re0;
+}
+
+#workspaces button.urgent {
+	background-color: @ye0;
+}
+
+#workspaces button.urgent label {
+	color: @ye2;
+}
+
+/* === CLOCKS === */
+
+#clock.time,
+#clock.date {
+	color: @re0;
+	background-color: @no1;
+	padding: 0 32px;
+}
+
+#clock.time:hover,
+#clock.date:hover {
+	color: @re0;
+	background-color: @re2;
+}
+
+
+/* === SYSTEM METRICS === */
+
+#cpu,
+#memory {
+	color: @re0;
+	background-color: @no1;
+}
+
+#cpu:hover,
+#memory:hover {
+	color: @re0;
+	background-color: @re2;
+}
+
+
+/* === NETWORK & AUDIO === */
+
+#network {
+	background-color: @no1;
+	color: @re0;
+}
+
+#battery {
+	background-color: @no1;
+	color: @re0;
+}
+
+#battery.warning {
+	color: @ye0;
+}
+
+#battery.critical {
+	color: @no0;
+	background-color: @or0;
+}
+
+#network.disconnected {
+	color: @wh0;
+	background-color: @or0;
+}
+
+#network.linked {
+	color: @gr0;
+	background-color: @no1;
+}
+
+#pulseaudio {
+	color: @re0;
+	background-color: @no1;
+}
+
+#pulseaudio.muted {
+	color: @re1;
+}
+
+#network:hover,
+#battery:hover,
+#pulseaudio:hover {
+	color: @re0;
+	background-color: @re2;
+}
+
+#battery.critical:hover {
+	color: @no0;
+	background-color: @or0;
+}
+
+#pulseaudio.muted:hover {
+	color: @re1;
+	background-color: @re2;
+}
+
+
+/* === MISC === */
+
+#bluetooth {
+	color: @re0;
+	background-color: @no1;
+}
+
+#bluetooth.disabled,
+#bluetooth:not(.connected),
+#bluetooth.empty {
+	padding: 0;
+	min-width: 0;
+	background-color: transparent;
+}
+
+#bluetooth.connected:hover {
+	color: @re0;
+	background-color: @re2;
+}
+
+/* === WINDOW === */
+
+#window {
+	color: @no0;
+	background-color: @re0;
+	padding: 0 32px;
+	border: none;
+}
