@@ -25,3 +25,9 @@ CYBRland's own files that the desktop shares with the Hyprland profile
 (`modules.jsonc`, `style.css`, the rofi themes and scripts) are not in this
 repository ([desktop/README.md](desktop/README.md) § *Shared with the
 Hyprland dev profile*).
+
+## KatMate branding
+
+The KatMate logos, including `desktop/plymouth/logo.png`, are original hand-made work by **Natasha Qualizza**, a professional designer, created for KatMate before and independently of any AI tooling.
+
+The logos are **not** covered by the repository licence (GPL-3.0): all rights reserved. Forks may use the code, but not the KatMate name or logos.
