@@ -173,6 +173,16 @@ depends on that daemon staying alive.
    instance); disposable lifecycle.
 6. **Installer integration** — provision the whole set so a fresh install runs,
    including the Sway desktop profile (needs `kms` in mkinitcpio HOOKS).
+   **[Note 2026-10-05 (`49a172d`): implemented, ungated.** The installer
+   provisions the whole alpha from a signed release (GitHub release assets
+   made by `tools/make-release.sh` and signed on the Acer; ADR-020 holds, so
+   it builds nothing): netVM and the four AppVMs as prebuilt images, T1 from
+   `installer/t1/`, home LVs and deltas, the KatMate units and
+   `/usr/lib/katmate/`, the Sway desktop at system paths, greetd, and a
+   Plymouth splash with `kms` and `plymouth` before `encrypt` in HOOKS. The
+   host keeps no network. It has not run: the gate is a Cubi install from
+   the first release, which needs that release built on MINIS first. The
+   text above is left as written.**]**
 
 **Alpha integration** (operator ruling, 2026-09-21). A pre-loaded desktop —
 web, office/work, vault and personal AppVMs plus netVM — launched from a

@@ -682,6 +682,9 @@ pacman -S --noconfirm archlinux-keyring
 # e2fsprogs for the home LVs' ext4. Package names were checked by a web search
 # only for otf-geist-mono-nerd, ttf-nerd-fonts-symbols, greetd-tuigreet,
 # swaync and wf-recorder; the rest are UNVERIFIED until the Cubi install.
+# No iwd and no wireguard-tools (operator ruling, 2026-10-05): the host has no
+# network, its NIC is netVM's, and a VPN is the user's config in netVM
+# (ADR-037). The live system's iwctl above is install-time only.
 
 log "Pacstrap"
 
@@ -692,8 +695,8 @@ pacstrap /mnt \
   base linux-hardened linux-hardened-headers linux-firmware ${UCODE_PKG} \
   lvm2 e2fsprogs \
   efibootmgr cryptsetup \
-  iwd micro sudo \
-  nftables wireguard-tools \
+  micro sudo \
+  nftables \
   qemu-full \
   plymouth \
   sway swaybg waybar swaync greetd greetd-tuigreet foot \

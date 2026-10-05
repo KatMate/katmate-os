@@ -153,11 +153,12 @@ Run as root, from the extracted archive: `bash installer/install.sh`.
 13. **Mirror refresh and pacstrap** — `ParallelDownloads = 5`, `reflector`
     (CH/DE/AT) with a static fallback; then `base linux-hardened
     linux-hardened-headers linux-firmware <ucode> lvm2 e2fsprogs efibootmgr
-    cryptsetup iwd micro sudo nftables wireguard-tools qemu-full plymouth`,
+    cryptsetup micro sudo nftables qemu-full plymouth`,
     and the desktop: `sway swaybg waybar swaync greetd greetd-tuigreet foot
     pipewire wireplumber pipewire-pulse brightnessctl playerctl grim slurp
     wl-clipboard wf-recorder libnotify xdg-utils polkit otf-geist-mono-nerd
-    ttf-nerd-fonts-symbols`. (`iwd` is installed but not enabled.)
+    ttf-nerd-fonts-symbols`. No `iwd` and no `wireguard-tools`: the host
+    has no network (until 2026-10-05 both were installed, `iwd` not enabled).
 14. **Base config** — fstab, hostname, timezone `Europe/Zurich`, wheel
     sudoers. **No network profile**: no wired or Wi-Fi unit, and neither
     `systemd-networkd` nor `systemd-resolved` is enabled; the host's card
@@ -246,8 +247,17 @@ even on failure. Downloaded release files are removed either way.
 | Dell Latitude 3120 | Pentium N6000 | 8 GB | live install test target (VT-d) |
 | Acer ES1-633 | Pentium N4200 | 8 GB | dev scratch |
 
-Known hardware limitation: PCI passthrough is problematic on some 2.5 GbE
-adapters; USB-NIC passthrough (r8152) is the working alternative for NetVM.
+**netVM's NIC: PCI passthrough only in the alpha.** The installer offers PCI
+Ethernet controllers (class `0x0200`) and nothing else; a USB NIC (such as
+the r8152 used on development hosts) cannot be assigned to netVM and is not
+supported (README, *Known limitations*). PCI passthrough is problematic on
+some 2.5 GbE adapters: run `installer/preflight.sh` and check the card's
+IOMMU group before installing. *(Until 2026-10-05 this paragraph named USB-NIC
+passthrough as the working alternative; that was development practice, and
+the alpha installer does not provide it.)*
+
+The Dell Latitude 3120 (8 GB) is below the alpha's 16 GB minimum, and the
+installer refuses it.
 
 ## Caveats (current installer state)
 

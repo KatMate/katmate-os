@@ -142,6 +142,22 @@ The release model is fixed (ADR-020): the build chain is developer-side; its
 output is a signed ISO; the user installs by verify → bake → boot → provision,
 never by building. `katmate-update` (ADR-019 version-lock backbone) is complete
 — and deliberately does NOT cover netVM (ADR-021).
+**[Note 2026-10-05 (`49a172d`, operator rulings R1–R4, U1–U3): the release
+is not an ISO.** ADR-020's principle stands, and the installer builds
+nothing, but the unit of distribution is now a set of GitHub release assets
+rather than a signed ISO: a `git archive` of the release tag, the guest
+images as zstd (foundation, the app layers web/office/vault, netVM), their
+T2 metas, the kernels and the host binaries (`waypipe`, `ping-client`), all
+listed in one `SHA256SUMS` signed detached by the release key
+(`installer/katmate-release.asc`). The user verifies the signature by hand
+once, then runs `installer/install.sh` from the extracted archive on the
+Arch live ISO, from a USB directory or the release URL (`docs/INSTALL.md`).
+`tools/make-release.sh` assembles the unsigned half on MINIS; the archive,
+its hash and the signature are added on the Acer. App layers ship as full
+images and install as standalone thin LVs, not snapshots (delta import is
+post-alpha). Nothing of it has run yet: the MINIS release and the Cubi
+install are the gates. *"Its output is a signed ISO … bake"* above is
+superseded and left as written.**]**
 
 What is open is the **VMM process itself**: ADR-027 defines a containment
 gate (C-gate) of which C4 (tightened seccomp) and C5b (no host filesystem export into netVM)
@@ -1853,6 +1869,38 @@ touched.
   - **Session files:** `/home/host/katmate-dev/ai5/` (scripts, both
     foundation build logs, three app-layer logs, package lists, journal and
     argv copies). Fixtures, not live configuration.
+
+  **HOST CONFIGURATION AFTER THE INSTALLER MERGE (2026-10-05, `49a172d`).**
+  The blocks above are left as published. This block supersedes their
+  hugepage lines and the installed-set statement. **The operator's
+  statement, relayed to a cloud session; not read on MINIS by any session
+  yet:**
+  - **Hugepages:** `/etc/sysctl.d/hugepages.conf` (`vm.nr_hugepages = 6144`)
+    is **removed**. Since `49a172d` both AppVM templates use
+    `memory-backend-memfd,share=on` and no unit names `/dev/hugepages`
+    (HOST-CONFIG §6, its note of this date). Until the next boot the 6144
+    pages stay reserved unless they were released by hand; that was not
+    stated. **UNVERIFIED until the MINIS gate:** all four AppVMs launch on
+    memfd with `HugePages_Total` = 0.
+  - **topoext:** the drop-in
+    `/etc/systemd/system/katmate-sys-driver@.service.d/10-cpu.conf`
+    (`[Service]` / `Environment=KM_CPU_FLAGS=,topoext=on`) is **added by
+    hand**, so netVM keeps `-cpu host,topoext=on` under the template's new
+    `-cpu host${KM_CPU_FLAGS}`. On a fresh install the installer writes the
+    same file on AMD hosts. Its effect on the running netVM needs a
+    `daemon-reload` and a netVM restart; whether either was done was not
+    stated.
+  - **Installed host set:** `host/usr/` **re-synced at `49a172d`**: the
+    units (memfd AppVM templates, sys-driver with `KM_CPU_FLAGS`) and
+    `/usr/lib/katmate/`. The hash-first check (*Invariants*) against
+    `49a172d` is the next session's first action, and no count of matching
+    files is recorded here because none was quoted.
+  - **Not changed by the merge on MINIS:** the netVM image carries no
+    unbooted marker (`build/netvm.sh` step 9b is newer than it) and has been
+    booted, so `tools/make-release.sh` refuses it; the first release needs
+    a fresh netVM build that is not booted before the export. The deltas
+    stay `host:host`, the T1 files stay hand-installed, and `vm_app_web_home`
+    stays linear; the installer's forms apply to fresh installs only.
 
   **The uplink is capped by the cable, and that is a condition of the
   environment rather than a defect.** On the boot of 2026-09-12 the link came up
@@ -5027,6 +5075,15 @@ frozen `vm_home_skel` vs qcow2 branch.
 - **Installer:** secrets removal (v0.2 blocker); create `/var/lib/katmate/`.
   PROVISIONING only — no build logic, no toolchain.
 - **Desktop:** port CYBRland + Plymouth from Acer to MINIS.
+  **[Note 2026-10-05 (`49a172d`): the three items above are superseded.**
+  There is no ISO bake: a release is signed GitHub assets, made by
+  `tools/make-release.sh` on MINIS and signed on the Acer (see *Current
+  focus*, the note of this date). The installer carries no secret, creates
+  `/var/lib/katmate/` and every tier directory, and provisions the whole
+  alpha from the release with no build logic. It deploys the sway desktop
+  and a KatMate Plymouth theme to system paths. **Next here:** the first
+  `make-release.sh` run on MINIS, then the Cubi install from it. The text
+  above is left as written.**]**
 - **Host uplink persistence** (dev-only, low priority): USB-NIC
   `enp195s0f3u1u1` / `10.3.1.3` is volatile (`ip addr`). If it should survive a
   reboot, add a persistent profile matched on MAC (`00:e0:4c:39:61:b8`), not the
