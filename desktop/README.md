@@ -4,8 +4,8 @@ The desktop profile for KatMate OS. Sway is the single shipped compositor
 ([ADR-016](../docs/DECISIONS.md#adr-016)); the host compositor is inside the
 TCB because it draws the domain indicator.
 
-This tree holds the *user-facing* half of the desktop. Wallpapers, themes and
-fonts are deliberately absent — see "Not in git" below.
+This tree holds the *user-facing* half of the desktop, and the wallpapers.
+Themes and fonts are deliberately absent — see "Not in git" below.
 
 
 ## Layout
@@ -24,7 +24,11 @@ desktop/
 │   ├── sway-session                env wrapper — sway has no `env =`
 │   ├── sway-quiet                  greetd entry's Exec: clears the tty, execs sway-session
 │   ├── km-shot                     region screenshot (replaces hyprshot)
+│   ├── km-launch                   the menu's katmate-launch wrapper: notifies on failure
 │   └── km-scratch                  scratchpad toggle (replaces pyprland)
+├── wallpapers/
+│   ├── default.jpg                 the one sway/config is wired to
+│   └── wall_km_*.jpg               alternatives (CREDITS.md)
 └── greetd/
     ├── config.toml                 reference copy of /etc/greetd/config.toml
     └── wayland-sessions/           reference copies of the .desktop entries
@@ -55,14 +59,18 @@ ln -s ~/katmate-build/desktop/waybar/modules-katmate.jsonc ~/.config/waybar/
 ln -s ~/katmate-build/desktop/waybar/katmate-menu.xml      ~/.config/waybar/
 ln -s ~/katmate-build/desktop/bin/km-shot               ~/.local/bin/
 ln -s ~/katmate-build/desktop/bin/km-scratch            ~/.local/bin/
+ln -s ~/katmate-build/desktop/bin/km-launch             ~/.local/bin/
 ```
 
 The launcher menu (`custom/katmate`) needs waybar ≥ 0.11 (`menu`,
 `menu-file`, `menu-actions`). It does nothing on its own: each item runs
-`sudo -n /usr/lib/katmate/katmate-launch …`, so it also needs that
-executable and its sudoers rule ([HOST-CONFIG.md](../docs/HOST-CONFIG.md)
-§ 13). Its `menu-file` names `/home/host/.config/waybar/katmate-menu.xml`,
-the symlink above, by absolute path.
+`/home/host/.local/bin/km-launch …`, the symlink above, which runs
+`sudo -n /usr/lib/katmate/katmate-launch …` and, on a non-zero exit, shows
+the last FATAL line as a critical notification (`notify-send`, so libnotify
+and swaync, as for `km-shot`). So it also needs that executable and its
+sudoers rule ([HOST-CONFIG.md](../docs/HOST-CONFIG.md) § 13). Its
+`menu-file` names `/home/host/.config/waybar/katmate-menu.xml`, the symlink
+above, by absolute path.
 
 **System files are copied**, never symlinked. `/etc/greetd/config.toml` is read
 by the unprivileged `greeter` user and sits on a privilege boundary; a symlink
@@ -74,7 +82,13 @@ it ([ROADMAP.md](../ROADMAP.md) step 5).
 sudo install -m 755 desktop/bin/sway-session /usr/local/bin/
 sudo install -m 644 desktop/greetd/config.toml /etc/greetd/
 sudo install -m 644 -D desktop/greetd/wayland-sessions/*.desktop -t /etc/greetd/sessions/
+sudo install -m 644 -D desktop/wallpapers/*.jpg -t /usr/share/backgrounds/katmate/
 ```
+
+The wallpapers are copied rather than symlinked for a smaller reason than
+greetd's: `sway/config` names `/usr/share/backgrounds/katmate/default.jpg`, a
+path that does not depend on the user. If it is absent, sway falls back to the
+solid `$no0` that `output * bg` names as its fallback colour.
 
 `/etc/greetd/sessions/` rather than `/usr/share/wayland-sessions/` on purpose:
 the latter is package-owned, so a `sway` or `hyprland` upgrade can add entries
@@ -159,7 +173,9 @@ targets `DP-2`, an output that exists on neither reference machine.
 
 ## Not in git
 
-- `~/.config/sway/walls/` — wallpapers, binary, third-party provenance
+- `~/.config/sway/walls/` — local wallpapers, binary, third-party provenance;
+  nothing in `sway/config` reads them. The shipped wallpapers are tracked in
+  `wallpapers/` since 2026-10-04 (`CREDITS.md` names their source).
 - the Hyprland/CYBRland profile itself — a dev/demo profile, not a release
   artifact ([ADR-016](../docs/DECISIONS.md#adr-016))
 

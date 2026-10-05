@@ -30,8 +30,10 @@
 # instance name by km_check_instance and against the alpha table, and the app
 # name against the RUN whitelist and the instance's layer.
 #
-# The menu starts it with no terminal, so stdout and stderr go nowhere a person
-# reads. Every action is therefore also one journal line:
+# The menu starts it with no terminal, through desktop/bin/km-launch, which on a
+# non-zero exit shows the last FATAL line (else the last stderr line) as a
+# critical desktop notification. Everything else goes nowhere a person reads,
+# so every action is also one journal line:
 #   journalctl -t katmate-launch
 
 set -euo pipefail
@@ -203,7 +205,7 @@ claim_owner() {
     o="$(owner_path)"
     dir="${o%/owner}"
     [[ -d "$dir" ]] \
-        || km_die "slot directory $dir is absent: netVM '$LINK_NETVM' has not created its pool on this boot"
+        || km_die "netVM '$LINK_NETVM' is still starting, or is not running: its slot directory $dir is absent on this boot (systemctl status katmate-sys-driver@$LINK_NETVM)"
     [[ ! -L "$o" ]] || km_die "$o is a symlink; refusing to write through it"
     if [[ -e "$o" ]]; then
         # A leftover of this instance's own earlier start (a crash, a --stop

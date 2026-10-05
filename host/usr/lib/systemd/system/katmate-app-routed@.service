@@ -175,6 +175,6 @@ TimeoutStopSec=30s
 Restart=no
 
 [Install]
-# Deliberately no WantedBy=: nothing starts a VM at boot yet. Enablement is the
+# Deliberately no WantedBy=: no AppVM starts at boot. Enablement is the
 # launch daemon's decision in step 3b, and until then a VM is started explicitly
 # by `systemctl start katmate-app-routed@<instance>`.

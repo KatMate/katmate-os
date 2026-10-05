@@ -290,6 +290,12 @@ TimeoutStopSec=30s
 Restart=no
 
 [Install]
-# Deliberately no WantedBy=: nothing starts a VM at boot yet. Enablement is the
-# launch daemon's decision in step 3b, and until then a VM is started explicitly
-# by `systemctl start katmate-sys-driver@<instance>`.
+# netVM starts at boot (operator ruling 1, 2026-10-04): enabled per instance
+# with `systemctl enable katmate-sys-driver@netvm` (HOST-CONFIG.md § 16). The
+# measured cause: after a host reboot no katmate-* unit was loaded, so the slot
+# tree under /run/katmate/link/netvm/ did not exist and every launch from the
+# menu died at katmate-launch's slot-directory check. AppVMs still do not start
+# at boot, and enablement in general remains the launch daemon's decision in
+# step 3b. A template with WantedBy= enables nothing by itself: only the
+# instance named in `systemctl enable` is linked into multi-user.target.wants.
+WantedBy=multi-user.target

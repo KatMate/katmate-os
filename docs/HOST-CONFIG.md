@@ -338,6 +338,15 @@ and that file names the second by the absolute path
   rule (§ 13) both name `host`. The installer must write both for the actual
   desktop user.
 
+**[Note 2026-10-04 (operator ruling 2): a third file.** Every menu action now
+runs `/home/host/.local/bin/km-launch`, a symlink to the tracked
+`desktop/bin/km-launch`, which runs `katmate-launch` through `sudo -n` and
+turns a non-zero exit into a critical desktop notification (the last FATAL
+line, else the last stderr line). **Its absence is silent**, for the reason
+the menu-file bullet gives: the action's exec fails and waybar shows nothing.
+It names `host` too, so the third bullet covers it. Moving it to a system path
+is deferred to the installer pass. Not yet deployed on MINIS.**]**
+
 ## 13. `/etc/sudoers.d/katmate-launch` — the menu's one sudo rule
 
 **Scope:** MINIS · **[LIVE]** · **[V]** 2026-10-03 (`ai6`: `cmp` equal to the
@@ -355,7 +364,9 @@ authored on the machine.
 - **Absent:** every menu item fails at `sudo -n` with *"a password is
   required"*, and **this is silent**, because waybar shows no output.
   `journalctl -t katmate-launch` then has no line for the click, which is
-  how to tell it from a launcher refusal. **On MINIS this failure cannot
+  how to tell it from a launcher refusal. **[Note 2026-10-04: through
+  `km-launch` (§ 14) it is no longer silent: sudo's *"a password is
+  required"* is the notification's body.]** **On MINIS this failure cannot
   occur today:** `katmate-dev` (SECURITY-MODEL gap 13) grants `host`
   `NOPASSWD: ALL`, so the menu works with or without this file (R158).
 - **A syntax error:** `sudo` refuses **every** rule while any file under
@@ -450,6 +461,36 @@ as ADR-031 says.**]**
 ---
 
 # VM description
+
+## 16. `katmate-sys-driver@netvm` enabled — netVM starts at boot
+
+**Scope:** MINIS · **[OPEN]** — the template's `[Install]` carries
+`WantedBy=multi-user.target` since 2026-10-04 (operator ruling 1); the enable
+has not been run on MINIS, so no confidence marker yet
+
+**Requirement:** the netVM instance enabled, once, as root:
+
+```sh
+systemctl enable katmate-sys-driver@netvm
+```
+
+This links `/etc/systemd/system/multi-user.target.wants/katmate-sys-driver@netvm.service`.
+Only that instance: AppVM units carry no `WantedBy=` and are never enabled.
+The installer does not deploy the KatMate units at all yet, so it cannot
+enable this one either (the installer pass).
+
+**Failure modes.**
+- **Not enabled:** after a host reboot no `katmate-*` unit is loaded, the
+  slot tree `/run/katmate/link/netvm/` does not exist, and every launch from
+  the menu is refused at `katmate-launch`'s slot-directory check. Measured on
+  MINIS after a reboot (operator, 2026-10-04). Before the menu wrapper
+  (`desktop/bin/km-launch`) this was silent; with it, it is a critical
+  notification.
+- **A netVM rebuild after a reboot now meets a running netVM.** The rule of
+  record is a reboot before each `build/netvm.sh` (CLAUDE.md, *On MINIS*), and
+  with this enabled that reboot brings netVM up holding its LV. The rebuild
+  procedure has to account for it (stop, or `disable` before the reboot); this
+  entry does not decide which.
 
 ## 12. `/etc/katmate/netvm/` — per-installation netVM configuration
 

@@ -2,14 +2,17 @@
 # ---------------------------------------
 # KatMate launcher menu, the alpha's (R152, R157)
 # A plain-text label. A click opens katmate-menu.xml, and each item runs
-# katmate-launch through sudo: `sudo -n` with the one NOPASSWD rule in
-# /etc/sudoers.d/katmate-launch (R151; SECURITY-MODEL gap 17). The launch
-# daemon replaces both. waybar shows no output from an action, so what an
-# item did is in the journal: journalctl -t katmate-launch
+# km-launch (desktop/bin/km-launch), which runs katmate-launch through sudo:
+# `sudo -n` with the one NOPASSWD rule in /etc/sudoers.d/katmate-launch (R151;
+# SECURITY-MODEL gap 17). The launch daemon replaces all three. waybar shows no
+# output from an action, so km-launch turns a non-zero exit into a critical
+# desktop notification carrying the last FATAL line (operator ruling 2,
+# 2026-10-04). The full record is in the journal: journalctl -t katmate-launch
 #
-# menu-file is an absolute path to the symlink that desktop/README.md
-# deploys. Whether waybar expands ~ in menu-file was not read, so the path
-# does not depend on it.
+# menu-file and km-launch are absolute paths to the symlinks that
+# desktop/README.md deploys. Whether waybar expands ~ in menu-file was not
+# read, so neither path depends on it. Both name the user host; moving
+# km-launch to a system path is deferred to the installer pass.
 # ---------------------------------------
 */
 {
@@ -19,18 +22,18 @@
 		"menu": "on-click",
 		"menu-file": "/home/host/.config/waybar/katmate-menu.xml",
 		"menu-actions": {
-			"web-firefox":       "sudo -n /usr/lib/katmate/katmate-launch app_web firefox-esr",
-			"web-files":         "sudo -n /usr/lib/katmate/katmate-launch app_web pcmanfm",
-			"web-terminal":      "sudo -n /usr/lib/katmate/katmate-launch app_web foot",
-			"personal-firefox":  "sudo -n /usr/lib/katmate/katmate-launch app_personal firefox-esr",
-			"personal-files":    "sudo -n /usr/lib/katmate/katmate-launch app_personal pcmanfm",
-			"personal-terminal": "sudo -n /usr/lib/katmate/katmate-launch app_personal foot",
-			"work-libreoffice":  "sudo -n /usr/lib/katmate/katmate-launch app_work libreoffice",
-			"work-files":        "sudo -n /usr/lib/katmate/katmate-launch app_work pcmanfm",
-			"work-terminal":     "sudo -n /usr/lib/katmate/katmate-launch app_work foot",
-			"vault-keepassxc":   "sudo -n /usr/lib/katmate/katmate-launch app_vault keepassxc",
-			"vault-terminal":    "sudo -n /usr/lib/katmate/katmate-launch app_vault foot",
-			"stop-all":          "sudo -n /usr/lib/katmate/katmate-launch --stop-all"
+			"web-firefox":       "/home/host/.local/bin/km-launch app_web firefox-esr",
+			"web-files":         "/home/host/.local/bin/km-launch app_web pcmanfm",
+			"web-terminal":      "/home/host/.local/bin/km-launch app_web foot",
+			"personal-firefox":  "/home/host/.local/bin/km-launch app_personal firefox-esr",
+			"personal-files":    "/home/host/.local/bin/km-launch app_personal pcmanfm",
+			"personal-terminal": "/home/host/.local/bin/km-launch app_personal foot",
+			"work-libreoffice":  "/home/host/.local/bin/km-launch app_work libreoffice",
+			"work-files":        "/home/host/.local/bin/km-launch app_work pcmanfm",
+			"work-terminal":     "/home/host/.local/bin/km-launch app_work foot",
+			"vault-keepassxc":   "/home/host/.local/bin/km-launch app_vault keepassxc",
+			"vault-terminal":    "/home/host/.local/bin/km-launch app_vault foot",
+			"stop-all":          "/home/host/.local/bin/km-launch --stop-all"
 		}
 	}
 }

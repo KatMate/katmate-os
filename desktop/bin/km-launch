@@ -1,0 +1,42 @@
+#!/usr/bin/env bash
+# km-launch — the waybar menu's front end to katmate-launch (operator ruling 2,
+# 2026-10-04). Requires: sudo libnotify (notify-send) swaync
+#
+# Every custom/katmate menu item runs this with katmate-launch's own arguments.
+# It runs katmate-launch through `sudo -n` exactly as the menu did before (the
+# one NOPASSWD rule, HOST-CONFIG § 13), and does nothing on success. On a
+# non-zero exit it shows a critical desktop notification carrying the last
+# FATAL line of katmate-launch's stderr, or, when there is none, the last
+# non-empty stderr line: sudo's own refusal ("a password is required") and a
+# USAGE line carry no FATAL. waybar shows no output of a menu action, so
+# without this a failed click is silent.
+#
+# The wrapping is here and not in katmate-launch: katmate-launch is T4 and runs
+# as root, and a notification belongs to the desktop user's session bus, which
+# a root process does not have. The full record stays in the journal:
+#   journalctl -t katmate-launch
+
+set -u
+
+LAUNCH=/usr/lib/katmate/katmate-launch
+
+# stdout (katmate-launch's progress lines) is discarded; stderr is kept.
+err="$(sudo -n "$LAUNCH" "$@" 2>&1 >/dev/null)"
+rc=$?
+(( rc == 0 )) && exit 0
+
+msg="$(printf '%s\n' "$err" | grep -F 'FATAL: ' | tail -n 1)"
+[[ -n "$msg" ]] || msg="$(printf '%s\n' "$err" | grep -v '^[[:space:]]*$' | tail -n 1)"
+[[ -n "$msg" ]] || msg="exited $rc with no message"
+msg="${msg#\[katmate-launch\] }"
+
+# swaync renders the body as Pango markup: escape it, or a line carrying
+# <instance> or & is mangled or dropped. The replacements are quoted because
+# bash >= 5.2 (patsub_replacement) reads an unquoted & in one as the match.
+msg="${msg//&/'&amp;'}"
+msg="${msg//</'&lt;'}"
+msg="${msg//>/'&gt;'}"
+
+notify-send --app-name=KatMate -u critical "KatMate: $*" "$msg" \
+    || logger -t km-launch -- "notify-send failed; katmate-launch $* exited $rc: $msg"
+exit "$rc"

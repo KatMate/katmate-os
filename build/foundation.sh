@@ -10,6 +10,7 @@
 #   -> debootstrap trixie -> apt base -> custom kernel .deb
 #   -> waypipe 0.11 from source (ADR-008), build deps PURGED before freeze
 #   -> bake vm-agent + katmate-init (PID 1) -> bake user 1000
+#   -> bake the guest config tree (manifests/foundation.conf.d)
 #   -> extract vmlinuz for host -kernel boot -> umount -> RO-freeze
 #
 # Two things that bit before, both encoded here:
@@ -34,6 +35,10 @@ require_root
 
 MNT="$(mktemp -d)"
 trap 'cleanup; rmdir "$MNT" 2>/dev/null || true' EXIT
+
+# The guest config tree baked in step 7a, beside the manifests as netvm.sh's
+# netvm.conf.d is (ruling D1, 2026-10-04).
+FOUNDATION_CONFD="${FOUNDATION_CONFD:-$MANIFESTS/foundation.conf.d}"
 
 # Virtual size of the thin LV (thin-provisioned: only written extents consume
 # pool space — a ceiling, not a reservation). Override: FOUNDATION_SIZE=... make foundation
@@ -64,6 +69,7 @@ log "Kernel provenance: $KERNEL_PROVENANCE ($KERNEL_VMLINUZ)"
   Build the Rust vm-agent and copy it here (ADR-039):
     (cd agent && cargo build --release && cp target/release/vm-agent $VM_AGENT_BIN)"
 [[ -f "$INIT_SRC" ]] || die "Missing init source: $INIT_SRC"
+[[ -d "$FOUNDATION_CONFD" ]] || die "Missing guest config tree: $FOUNDATION_CONFD"
 
 command -v debootstrap >/dev/null || die "debootstrap not installed on host"
 
@@ -260,6 +266,48 @@ if ! grep -q '^user:' "$MNT/etc/shadow"; then
   # locked account (no usable password); !* = no login via password
   echo 'user:!*:20000:0:99999:7:::' >> "$MNT/etc/shadow"
 fi
+
+# ---- 7a. bake the guest config tree ----------------------------------------
+# Everything under manifests/foundation.conf.d/ is copied verbatim into the
+# foundation, so every app layer inherits it (ruling D1, 2026-10-04). Today it
+# is one file, /etc/xdg/gtk-3.0/settings.ini (dark GTK3). /home is the
+# per-instance LV, so a guest default goes in a system path, never in ~.
+# Deliberately absent (rulings D2-D4): foot, whose upstream default colours
+# are already dark (foot.ini(5); trixie's version not read); firefox-esr, which
+# is believed to follow GTK's prefer-dark, UNVERIFIED; and KeePassXC, which
+# reads no system-wide config (upstream src/core/Config.cpp: ~/.config only,
+# or KPXC_CONFIG). A fresh vault shows KeePassXC light until the user sets
+# ApplicationTheme=dark once in its settings; a known alpha limitation.
+#
+# The form is netvm.sh step 5's, for its reasons: `cp -a` keeps the tracked
+# modes, and `--no-preserve=ownership` lets the root cp create each file as
+# root instead of as the builder (the build tree is uid 1000; open problem #38).
+log "Baking guest config tree from $FOUNDATION_CONFD"
+cp -a --no-preserve=ownership "$FOUNDATION_CONFD/." "$MNT/"
+
+# Read back the outcome, not the flags. Every path the tree names must be in
+# the image, 0:0, and writable by its owner only (`cp -a` also applies the
+# build tree's directory modes to directories that already exist, /etc
+# included); every regular file must equal its source. The count is printed
+# beside the verdict, so a walk that found nothing cannot read as a walk that
+# found everything correct.
+FOUNDATION_CONFD_PATHS=0
+while IFS= read -r -d '' rel; do
+  meta="$(stat -c '%u:%g %a' -- "$MNT/$rel")" \
+    || die "step 7a read-back: $rel is in the conf tree but not in the image"
+  [[ "${meta%% *}" == "0:0" ]] \
+    || die "step 7a read-back: /$rel is owned ${meta%% *} in the image, expected 0:0"
+  (( (8#${meta##* } & 8#022) == 0 )) \
+    || die "step 7a read-back: /$rel is mode ${meta##* } in the image: group- or world-writable"
+  if [[ -f "$FOUNDATION_CONFD/$rel" ]]; then
+    cmp -s -- "$FOUNDATION_CONFD/$rel" "$MNT/$rel" \
+      || die "step 7a read-back: /$rel in the image differs from $FOUNDATION_CONFD/$rel"
+  fi
+  FOUNDATION_CONFD_PATHS=$((FOUNDATION_CONFD_PATHS + 1))
+done < <(cd "$FOUNDATION_CONFD" && find . -mindepth 1 -printf '%P\0')
+[[ $FOUNDATION_CONFD_PATHS -gt 0 ]] \
+  || die "step 7a read-back: the conf tree $FOUNDATION_CONFD yielded no paths"
+log "Read-back OK: $FOUNDATION_CONFD_PATHS conf-tree paths in the image, all 0:0, none group/world-writable, files equal"
 
 # ---- 8. (kernel vmlinuz already lives in out/ — no extraction needed) -------
 # Old qcow2/nbd pipeline extracted vmlinuz from the image's /boot. With the

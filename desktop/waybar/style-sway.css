@@ -30,3 +30,12 @@
 	background: transparent;
 	color: @re0;
 }
+
+/* The KatMate menu button (custom/katmate, modules-katmate.jsonc) carries no
+   background in the imported stylesheet and shows as transparent. Give it the
+   bar's black (operator ruling 3, 2026-10-04). A literal, sway's $no0, not a
+   @define-color from style.css: that file is untracked, so a name from it is
+   not something this tree can rely on (ruling D5). */
+#custom-katmate {
+	background-color: #030408;
+}

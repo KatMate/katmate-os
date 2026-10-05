@@ -98,7 +98,11 @@
     # Sway's default lays outputs out horizontally in discovery order.
     # Per-machine geometry belongs in an installer-generated file.
 
-    output * bg $no0 solid_color
+    # Wallpaper: desktop/wallpapers/default.jpg, installed as a system file
+    # (desktop/README.md). The trailing $no0 is sway's fallback_color: if the
+    # file cannot be accessed, sway uses it as a solid colour, which is the
+    # previous `output * bg $no0 solid_color`, and logs at debug level only.
+    output * bg /usr/share/backgrounds/katmate/default.jpg fill $no0
 
     include outputs.conf
 

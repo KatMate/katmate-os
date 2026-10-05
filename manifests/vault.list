@@ -6,6 +6,12 @@
 # qtwayland5: keepassxc is Qt5, and the foundation's GUI runtime is GTK. An
 # AppVM's only display is Wayland (through waypipe), and without Qt's wayland
 # platform plugin keepassxc falls back to xcb and aborts (ai4, 2026-10-02).
+# Dark theme: KeePassXC reads no system-wide config, so the foundation's dark
+# GTK setting does not reach it. A fresh vault shows it light until the user
+# sets the application theme to dark once in its settings (GUI/ApplicationTheme
+# in keepassxc.ini); the choice persists in the vault's /home (ruling D2,
+# 2026-10-04, a known alpha limitation). Post-alpha candidate:
+# qt5-gtk-platformtheme with QT_QPA_PLATFORMTHEME=gtk3.
 keepassxc
 qtwayland5
 foot
