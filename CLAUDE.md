@@ -274,6 +274,8 @@ of empirics-before-commitment, is the expensive thing.
 | Booting an instance without `lvchange -K -ay` | RO-frozen thin LVs keep the skip-activation `k` flag permanently; the device node is absent and QEMU fails quietly |
 | Trusting a fast `Finished` after an rsync | rsync preserves mtime, so cargo skips the rebuild and you are testing the old binary. Confirm with `strings <bin> \| grep` |
 
+Reboot procedure: systemctl disable katmate-sys-driver@netvm → reboot → build/netvm.sh → enable --now
+
 `state.md` § *Invariants & gotchas* carries these with their diagnoses, and
 roughly twenty more. It is not background reading.
 
