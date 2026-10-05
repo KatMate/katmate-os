@@ -31,6 +31,6 @@ bar uses the pruned copies above ([desktop/README.md](desktop/README.md) §
 
 ## KatMate branding
 
-The KatMate logos, including `desktop/plymouth/logo.png`, are original hand-made work by **Natasha Qualizza**, a professional designer, created for KatMate before and independently of any AI tooling.
+The KatMate logos, including `desktop/plymouth/logo.png` and its 256 px derivative `desktop/plymouth/logo-256.png`, are original hand-made work by **Natasha Qualizza**, a professional designer, created for KatMate before and independently of any AI tooling.
 
 The logos are **not** covered by the repository licence (GPL-3.0): all rights assigned to and held by the KatMate project; all rights reserved. Forks may use the code, but not the KatMate name or logos.

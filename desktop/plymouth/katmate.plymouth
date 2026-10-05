@@ -1,0 +1,30 @@
+# KatMate boot splash (operator ruling R15, 2026-10-05). GPL-3.0, like the
+# rest of this tree; the logo it shows is not (CREDITS.md).
+#
+# Plymouth's two-step module, the module the stock `spinner` theme uses, so
+# the LUKS passphrase prompt is two-step's own entry dialog. The installer
+# builds the theme directory /usr/share/plymouth/themes/katmate/ from this
+# file, the spinner theme's images (throbber, entry, lock, bullet) and
+# desktop/plymouth/logo-256.png as watermark.png.
+#
+# UNVERIFIED until the Cubi gate: how it renders, and that the passphrase is
+# taken through it. If plymouthd fails, the `encrypt` hook asks on the text
+# console instead.
+[Plymouth Theme]
+Name=KatMate
+Description=KatMate boot splash: two-step with the KatMate logo
+ModuleName=two-step
+
+[two-step]
+ImageDir=/usr/share/plymouth/themes/katmate
+WatermarkHorizontalAlignment=.5
+WatermarkVerticalAlignment=.35
+HorizontalAlignment=.5
+VerticalAlignment=.75
+DialogHorizontalAlignment=.5
+DialogVerticalAlignment=.75
+Transition=none
+TransitionDuration=0.0
+# $no0 of desktop/sway/config, the session's own background.
+BackgroundStartColor=0x030408
+BackgroundEndColor=0x030408

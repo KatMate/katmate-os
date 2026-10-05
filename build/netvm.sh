@@ -739,6 +739,22 @@ NETVM_KERNEL_VERSION=$KVER
 NETVM_BUILT=$NETVM_BUILT
 META
 
+# --- 9b. the unbooted marker (operator ruling R20, 2026-10-05) ---------------
+# The LAST write into the image. tools/make-release.sh exports a netVM image
+# only if it has never been booted since this build, and decides that by
+# reading the image: this file must exist and carry this build's NETVM_BUILT,
+# no file in the image may be newer than it, and there must be no journal, no
+# DHCP lease and no SSH host key. A boot writes all of the first and usually
+# the others. Nothing at runtime reads the marker, and a boot does not remove
+# it, so its presence alone proves nothing; the "nothing newer" rule is what
+# decides. Written after the meta above so that file is not newer than it.
+NETVM_MARKER="$NETVM_MNT/var/lib/katmate/build-unbooted"
+printf 'NETVM_BUILT=%s\n' "$NETVM_BUILT" > "$NETVM_MARKER"
+chmod 0644 "$NETVM_MARKER"
+[[ "$(cat "$NETVM_MARKER")" == "NETVM_BUILT=$NETVM_BUILT" ]] \
+  || die "step 9b read-back: $NETVM_MARKER does not carry NETVM_BUILT=$NETVM_BUILT"
+log "Unbooted marker written: /var/lib/katmate/build-unbooted (NETVM_BUILT=$NETVM_BUILT)"
+
 # --- 10. teardown -------------------------------------------------------------
 log "Unmounting"
 netvm_umount || log "WARNING: image built, but umount left the LV busy — see above"

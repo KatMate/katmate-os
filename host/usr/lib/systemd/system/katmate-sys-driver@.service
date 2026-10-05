@@ -180,13 +180,33 @@ EnvironmentFile=-/run/katmate/vm/%i.env
 # memory-backend-memfd/hugepages division between this VM and app_web, and
 # -overcommit mem-lock=off, which is probably inert since vfio pins the entire
 # guest RAM regardless. Both belong to the memory session.
+# [2026-10-05 (operator ruling, part 3): the division is settled for the alpha.
+# The AppVM templates moved to memory-backend-memfd,share=on as well, so no
+# unit uses hugepages. -overcommit mem-lock=off stays undecided.]
+#
+# (10) -cpu host${KM_CPU_FLAGS} (operator ruling R9, 2026-10-05). topoext is an
+#     AMD CPUID feature, and this template was written on an AMD host with
+#     `-cpu host,topoext=on`. The suffix is now a host fact, not an instance
+#     fact, so it comes from a per-machine drop-in the installer writes on AMD
+#     hosts only:
+#       /etc/systemd/system/katmate-sys-driver@.service.d/10-cpu.conf
+#       [Service]
+#       Environment=KM_CPU_FLAGS=,topoext=on
+#     The default below is empty, so an Intel host passes `-cpu host`. The
+#     braced form does not word-split (note at the top of this block), so the
+#     value can only extend -cpu's own argument. It is not projected by
+#     katmate-generate-env and not read from T1. A host without the drop-in,
+#     MINIS included until the operator adds it, runs WITHOUT topoext.
+#     UNVERIFIED: QEMU's behaviour with topoext on an Intel host was never
+#     read, which is why the flag is no longer unconditional.
+Environment=KM_CPU_FLAGS=
 ExecStart=/usr/bin/qemu-system-x86_64 \
     -enable-kvm \
     -nodefaults \
     -no-user-config \
     -object memory-backend-memfd,id=mem,size=${KM_MEM},share=on \
     -machine q35,accel=kvm,memory-backend=mem \
-    -cpu host,topoext=on \
+    -cpu host${KM_CPU_FLAGS} \
     -overcommit mem-lock=off \
     -smp ${KM_VCPUS} \
     -display none \

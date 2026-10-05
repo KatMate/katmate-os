@@ -30,6 +30,12 @@ zstd
 
 # --- NIC firmware (the last uplink blocker, 2026-07-08: rtl8125b-2.fw) ------
 firmware-realtek
+# firmware-misc-nonfree: blobs for the other common wired NICs a user may
+# assign to netVM at install (operator ruling R9, 2026-10-05: the installer
+# offers every PCI Ethernet controller, not only the RTL8125). Which package
+# carries a given NIC's blob is not checked here; the Cubi gate is the first
+# non-Realtek reading. Takes effect at the next netVM rebuild.
+firmware-misc-nonfree
 
 # --- networking core --------------------------------------------------------
 # dhcpcd holds the uplink's lease and writes /etc/resolv.conf (ADR-037 R6).

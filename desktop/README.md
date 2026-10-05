@@ -36,12 +36,17 @@ desktop/
 └── greetd/
     ├── config.toml                 reference copy of /etc/greetd/config.toml
     └── wayland-sessions/           reference copies of the .desktop entries
-        ├── sway.desktop
-        └── hyprland.desktop
+        └── sway.desktop
 ```
 
 
 ## Deployment
+
+This section is the **dev-host** procedure. A fresh install is deployed by
+`installer/install.sh`, which copies the same files to the same system paths
+(and `sway/config` to `/etc/sway/config`, KatMate's own; a `.pacnew` on a
+sway upgrade is accepted), so nothing below is run on an installed host
+(operator ruling R13, 2026-10-05).
 
 Two classes of file, deployed differently.
 
@@ -104,7 +109,7 @@ into a user's home directory there would be a mistake. The copies in
 it ([ROADMAP.md](../ROADMAP.md) step 5).
 
 ```sh
-sudo install -m 755 desktop/bin/sway-session /usr/local/bin/
+sudo install -m 755 desktop/bin/sway-session desktop/bin/sway-quiet /usr/local/bin/
 sudo install -m 644 desktop/greetd/config.toml /etc/greetd/
 sudo install -m 644 -D desktop/greetd/wayland-sessions/*.desktop -t /etc/greetd/sessions/
 sudo install -m 644 -D desktop/wallpapers/*.jpg -t /usr/share/backgrounds/katmate/

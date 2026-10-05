@@ -1,0 +1,18 @@
+# T1 template — /etc/katmate/vm/netvm.toml (ADR-015, ADR-030, ADR-032 §1, §3)
+#
+# NOT a T1 file. The installer creates /etc/katmate/vm/netvm.toml from this,
+# root:root 0644, and never overwrites a file it did not create in the same run
+# (ADR-032: the installer seeds T1; the file is the user's from then on).
+# Values are the alpha's frozen parameters, docs/PARAMETERS.md (operator ruling
+# R10, 2026-10-05). tools/make-release.sh validates these templates with
+# tools/validate-properties.fish --strict at release time.
+#
+# mem and vcpus are net-sys.con's argv (1G, -smp 1), the launcher this file
+# replaced at build-order step 3a; PARAMETERS.md has no netVM row.
+class = "sys"
+cid = 3
+manifest = "netvm"
+mem = "1G"
+vcpus = 1
+nic = "uplink0"
+provides_network = true

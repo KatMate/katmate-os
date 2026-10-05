@@ -133,6 +133,19 @@ sshd should bind to the LAN address, not to the VPN tunnel address.
 
 ## 3. RTL8125 bound to `vfio-pci` at boot
 
+**Note 2026-10-05 (operator ruling R9): the installer writes the binding for
+any PCI Ethernet card.** The user picks one controller (class `0x0200`) at
+install; the installer writes `/etc/modprobe.d/katmate-vfio.conf` with
+`options vfio-pci ids=<vendor>:<device>`, `disable_idle_d3=1` when the
+kernel lists no `flr` among the card's reset methods, and `softdep <driver>
+pre: vfio-pci`, and puts `vfio_pci vfio vfio_iommu_type1` in mkinitcpio
+`MODULES`. A card whose id another Ethernet controller shares is refused:
+the binding is by id, and `katmate-publish-nics` pairs one label with
+exactly one bound device. **What this does not settle:** the durable
+descriptor below (open problem #9 stays open), and a `vfio` group with a udev
+rule (QEMU runs as root; not needed until C1). The Scope line and the text
+below are left as written; `10ec:8125` is MINIS's value, not the installer's.
+
 **Scope:** MINIS (any host with a passed-through NIC) · **[LIVE]** · **[V]**
 
 **Requirement:** `0000:01:00.0` bound to `vfio-pci` rather than `r8169` from
@@ -224,6 +237,15 @@ does not duplicate the built-in line. MINIS was not installed by that path
 
 ## 4. mkinitcpio HOOKS and MODULES for the UKI pipeline
 
+**Note 2026-10-05 (operator ruling R15): the installer's values.**
+`HOOKS=(base udev autodetect modconf kms keyboard keymap plymouth block
+encrypt lvm2 filesystems fsck)` and `MODULES=(vfio_pci vfio
+vfio_iommu_type1)`, with `quiet splash` in the systemd-boot entry and the
+`encrypt` hook kept (no switch to `sd-encrypt`). The order is from secondary
+sources only (Arch's own pages were unreachable where it was written).
+**UNVERIFIED until the Cubi gate:** the graphical passphrase prompt, and a
+text prompt when Plymouth fails. MINIS's own lines (UKI) are still unread.
+
 **Scope:** MINIS · **[LIVE]** · **[?]** — exact values not re-checked
 
 **Requirement:** `plymouth` before `encrypt` in HOOKS, plus `kms`; `amdgpu` and
@@ -254,6 +276,19 @@ QEMU start, so no VM has a control path or a GUI path
 ([ADR-028](DECISIONS.md#adr-028)).
 
 ## 6. Hugepages backing for `/dev/hugepages`
+
+**Note 2026-10-05 (operator ruling, part 3): superseded — no hugepage pool is a
+host requirement any more.** Both AppVM templates, `katmate-app-routed@` and
+`katmate-app-offline@`, now use `memory-backend-memfd,share=on`, the backend
+netVM already ran on, and no unit names `/dev/hugepages`. The installer
+reserves no pool and writes no `vm.nr_hugepages`. Host RAM is taken only as
+guests touch it, so the alpha's minimum is 16 GB (the installer refuses below
+it). This settles the *"Probably allocated the wrong way round"* question
+below for the alpha. **On MINIS** `/etc/sysctl.d/hugepages.conf`
+(`vm.nr_hugepages = 6144`) now withholds 12 GiB that nothing uses; removing it
+is the operator's. **UNVERIFIED until the MINIS gate:** all four AppVMs launch
+on memfd with `HugePages_Total` = 0. The notes and text below are left as
+written.
 
 **Scope:** all · **[LIVE]** on MINIS · **[V]** 2026-09-26 (was `[?]` — not
 verified as a configured requirement)
@@ -358,6 +393,13 @@ MINIS.**]**
 
 ## 13. `/etc/sudoers.d/katmate-launch` — the menu's one sudo rule
 
+**Note 2026-10-05 (operator ruling R12): installer-provisioned.** The
+installer writes the rule for the user it creates, `root:root 0440`, and
+`postinstall.sh` runs `visudo -c -f` on it and `visudo -c` over the whole
+set. *"Not part of the installer-provisioned configuration"* below is
+superseded and left as written; the rule is still removed with the
+launcher (SECURITY-MODEL gap 17).
+
 **Scope:** MINIS · **[LIVE]** · **[V]** 2026-10-03 (`ai6`: `cmp` equal to the
 staged file, `root:root 440`, `visudo -c` parsed OK, listed by
 `sudo -l -U host`) · **dev/alpha only**
@@ -389,6 +431,14 @@ authored on the machine.
 (SECURITY-MODEL gap 17). Not part of the installer-provisioned configuration.
 
 ## 11. `waypipe-client` user unit — the host end of the GUI path
+
+**Note 2026-10-05 (operator ruling R12): tracked and installed.** The unit
+is `installer/files/waypipe-client.service`, installed as
+`/etc/systemd/user/waypipe-client.service` and enabled with `systemctl
+--global enable`. It carries the ExecStart above, `WAYLAND_DISPLAY=wayland-1`
+(MINIS's socket; UNVERIFIED elsewhere), and `ConditionUser=!@system`, so the
+greeter's user manager does not take vsock port 1024 first. That it accepts
+any CID is recorded in `README.md` § *Known limitations*.
 
 **Scope:** MINIS · **[LIVE]** · **[V]** 2026-09-26
 
@@ -426,6 +476,15 @@ session.
 
 ## 7. greetd session entries
 
+**Note 2026-10-05 (operator ruling R14): corrected — the entries are
+tracked, and the installer copies them.** `desktop/greetd/` is the
+reference: `config.toml` to `/etc/greetd/config.toml`, and the single
+`wayland-sessions/sway.desktop` to `/etc/greetd/sessions/`, whose Exec is
+`/usr/local/bin/sway-quiet` → `/usr/local/bin/sway-session`. The Hyprland
+entry was removed from the tree (its wrapper was never in it), so the
+login offers sway only. *"Generated, not tracked"* below is superseded and
+left as written.
+
 **Scope:** MINIS (any machine with a desktop) · **[LIVE]** · **[?]** — path and
 wrapper name not re-checked
 
@@ -441,6 +500,11 @@ with the anti-drift pattern. That is precisely why they must be installer
 output.
 
 ## 8. Sway output configuration
+
+**Note 2026-10-05 (operator ruling R13):** the installer writes an empty
+`/etc/sway/outputs.conf` beside `/etc/sway/config`, which includes it. Sway
+then lays the outputs out by its default; a machine's actual outputs are
+written into that file after install, by hand.
 
 **Scope:** per-machine · **[LIVE]** on MINIS and Acer · **[V]**
 
@@ -472,6 +536,10 @@ as ADR-031 says.**]**
 # VM description
 
 ## 16. `katmate-sys-driver@netvm` enabled — netVM starts at boot
+
+**Note 2026-10-05:** the installer enables it (`postinstall.sh`), and its
+verification reads `systemctl is-enabled` in the target. *"The installer does
+not deploy the KatMate units at all yet"* below is superseded.
 
 **Scope:** MINIS · **[OPEN]** — the template's `[Install]` carries
 `WantedBy=multi-user.target` since 2026-10-04 (operator ruling 1); the enable
@@ -569,6 +637,13 @@ it is to be stated here when the mechanism exists; ADR-037's gate G6 specifies
 the fallback it must show — netVM starting without the disk, on DHCP.
 
 ## 10. `/etc/katmate/vm/` — T1 instance properties
+
+**Note 2026-10-05 (operator ruling R10): the installer seeds the five
+alpha T1 files** from `installer/t1/*.toml.in`, `root:root 0644`, creating
+each and refusing any that already exists. The templates carry
+PARAMETERS.md's values and are validated with `validate-properties.fish
+--strict` at release time by `tools/make-release.sh`, since fish is not on
+the target.
 
 **Scope:** all · **[LIVE]** on MINIS · **[V]** 2026-08-11
 

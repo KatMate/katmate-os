@@ -1,0 +1,40 @@
+# waypipe-client — the host end of the AppVM GUI path (HOST-CONFIG §11)
+#
+# Installed by the installer as /etc/systemd/user/waypipe-client.service and
+# enabled for every user with `systemctl --global enable` (operator ruling
+# R12, 2026-10-05). Until then it lived only on MINIS, untracked, in
+# ~/.config/systemd/user/; the ExecStart below is the one HOST-CONFIG §11
+# verified against that file on 2026-09-26.
+#
+# The version-locked host binary of ADR-019, never the distro's
+# /usr/bin/waypipe: katmate-check-waypipe checks /opt/katmate/bin/waypipe at
+# every AppVM start, so a client running another binary would pass that check
+# while speaking a different version.
+#
+# No socket unit. waypipe's shipped socket unit opens TCP port 1024 on [::],
+# a network listener on a host whose design has only vsock (HOST-CONFIG §11).
+#
+# KNOWN LIMITATION (README, Known limitations): the vsock listener accepts a
+# connection from any CID, with no peer check before waypipe parses the
+# guest's Wayland stream (audit 2026-09-18, finding 7). Same boundary as the
+# shared clipboard; the fix is the next release's.
+[Unit]
+Description=KatMate: waypipe client, AppVM windows into this session (vsock port 1024)
+# A globally enabled user unit starts for every user manager, the greeter's
+# included. greetd's greeter is a system user (uid < 1000); without this
+# condition its instance would take vsock port 1024 first and the desktop
+# user's would fail to bind. UNVERIFIED: the greeter's user manager starting
+# at all under greetd was not observed.
+ConditionUser=!@system
+
+[Service]
+# The compositor's socket. wayland-1 is what sway uses on MINIS (HOST-CONFIG
+# §11). UNVERIFIED on any other host; if sway takes another name there, no
+# window opens and nothing fails.
+Environment=WAYLAND_DISPLAY=wayland-1
+ExecStart=/opt/katmate/bin/waypipe --vsock --socket 2:1024 client
+Restart=on-failure
+RestartSec=2
+
+[Install]
+WantedBy=default.target

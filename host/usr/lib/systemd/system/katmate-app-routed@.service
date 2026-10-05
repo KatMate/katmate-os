@@ -106,9 +106,14 @@ EnvironmentFile=-/run/katmate/vm/%i.env
 #     naming .../netvm as its peer (ADR-035 §5: identity crosses, not a path,
 #     and the path's structure stays here), on a virtio-net-device carrying
 #     the instance-derived identity MAC ${KM_MAC_INT} (ADR-035 §2, §9).
-# (5) The memory backend is carried UNCHANGED from app_web.con: a hugepage
-#     backed memory-backend-file. The division between this and netVM's memfd
-#     backend belongs to the memory session and is not decided here (R83).
+# (5) The memory backend is memory-backend-memfd,share=on, the backend netVM
+#     runs on (operator ruling, 2026-10-05, part 3). It replaces app_web.con's
+#     hugepage-backed memory-backend-file: the unit no longer needs
+#     /dev/hugepages or a reserved pool, so a host keeps all its RAM until a
+#     guest touches it, and the alpha's minimum host RAM drops to 16 GB. This
+#     settles, for the alpha, the hugetlbfs-versus-memfd question deferred on
+#     2026-10-02 (R126). UNVERIFIED until the MINIS gate: all four AppVMs
+#     launch on memfd with HugePages_Total = 0.
 # (6) -append gains km.name=%i (R125): katmate-init sets the guest hostname
 #     from it, so a window's prompt names its AppVM. %i is not projected: it
 #     is the unit's own instance name, already checked by
@@ -126,7 +131,7 @@ ExecStart=/usr/bin/qemu-system-x86_64 \
     -monitor none \
     -chardev stdio,id=console0,signal=off \
     -serial chardev:console0 \
-    -object memory-backend-file,id=mem,size=${KM_MEM},mem-path=/dev/hugepages,share=on \
+    -object memory-backend-memfd,id=mem,size=${KM_MEM},share=on \
     -kernel ${KM_KERNEL} \
     -append "root=/dev/vda rw rootfstype=${KM_ROOTFSTYPE} console=ttyS0 reboot=t km.ip=${KM_GUEST_ADDR} km.gw=10.100.1.1 km.dns=10.100.1.1 ipv6.disable=1 km.name=%i" \
     -object iothread,id=iothread0 \

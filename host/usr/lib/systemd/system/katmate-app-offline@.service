@@ -108,9 +108,14 @@ EnvironmentFile=-/run/katmate/vm/%i.env
 # (4) [offline] No network pair. -nodefaults builds no implicit NIC, so the
 #     guest has no network device of any kind: air-gap is the absence of an
 #     object (ADR-030 §2).
-# (5) The memory backend is carried UNCHANGED: a hugepage backed
-#     memory-backend-file. The division between this and netVM's memfd
-#     backend belongs to the memory session and is not decided here (R83).
+# (5) The memory backend is memory-backend-memfd,share=on, the backend netVM
+#     runs on (operator ruling, 2026-10-05, part 3). It replaces app_web.con's
+#     hugepage-backed memory-backend-file: the unit no longer needs
+#     /dev/hugepages or a reserved pool, so a host keeps all its RAM until a
+#     guest touches it, and the alpha's minimum host RAM drops to 16 GB. This
+#     settles, for the alpha, the hugetlbfs-versus-memfd question deferred on
+#     2026-10-02 (R126). UNVERIFIED until the MINIS gate: all four AppVMs
+#     launch on memfd with HugePages_Total = 0.
 # (6) -append carries km.name=%i (R125, and ADR-038's note of 2026-10-02: an
 #     offline template must carry it too, or the guest keeps "(none)").
 #     katmate-init sets the guest hostname from it, so a window's prompt names
@@ -130,7 +135,7 @@ ExecStart=/usr/bin/qemu-system-x86_64 \
     -monitor none \
     -chardev stdio,id=console0,signal=off \
     -serial chardev:console0 \
-    -object memory-backend-file,id=mem,size=${KM_MEM},mem-path=/dev/hugepages,share=on \
+    -object memory-backend-memfd,id=mem,size=${KM_MEM},share=on \
     -kernel ${KM_KERNEL} \
     -append "root=/dev/vda rw rootfstype=${KM_ROOTFSTYPE} console=ttyS0 reboot=t ipv6.disable=1 km.name=%i" \
     -object iothread,id=iothread0 \
