@@ -313,7 +313,7 @@ for f in "$OUTDIR"/*; do
 done
 (( ! too_big )) || die "at least one asset is 2 GiB or larger (above): GitHub refuses it"
 
-(cd "$OUTDIR" && find . -maxdepth 1 -type f ! -name SHA256SUMS -printf '%P\n' | LC_ALL=C sort | xargs -d '\n' sha256sum) > "$OUTDIR/SHA256SUMS.partial"
+(cd "$OUTDIR" && find . -maxdepth 1 -type f ! -name 'SHA256SUMS*' -printf '%P\n' | LC_ALL=C sort | xargs -d '\n' sha256sum) > "$OUTDIR/SHA256SUMS.partial"
 mv "$OUTDIR/SHA256SUMS.partial" "$OUTDIR/SHA256SUMS"
 log "SHA256SUMS: $(wc -l < "$OUTDIR/SHA256SUMS") files (partial: the tree archive is added on the Acer)"
 
