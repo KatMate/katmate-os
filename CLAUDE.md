@@ -1,5 +1,3 @@
-# CLAUDE.md — standing context for delegated sessions
-
 KatMate OS: a compartmentalized desktop OS — QEMU/KVM MicroVMs on a hardened
 Arch host, Debian guests, AF_VSOCK as the only host↔guest channel. Milestone
 v0.2, single developer, pre-alpha. `README.md` is the orientation; this file is
@@ -48,10 +46,16 @@ before you issue the first remote command, whatever the brief says.
 Anything an Acer session produces that belongs at a canonical path is a
 **reviewable artefact and a fixture, not live configuration**, and the report
 must say so in those words.
-Identity for every commit: `KatMate <git@katmate-os.org>`, GPG-signed (`-S`),
-key `3F49AE514562ACD3FF9D6049F8841B7B3D3AB436`. Remote
-`git@github.com:KatMate/katmate-os.git` (private; primary since 2026-10-03,
-Codeberg retired), branch `main` — the only long-lived branch.
+
+## Where the instance set is listed
+
+Adding, removing or renaming an instance touches more than its T1 template.
+`host/usr/lib/katmate/katmate-launch` holds static per-instance tables
+(`ALPHA_INSTANCES`, `APPS`, `LINK`); `installer/install.sh` and
+`tools/make-release.sh` carry counts and lists; the waybar menu has its own
+entries. `tools/check-run-whitelist` checks only the launch whitelist, and the
+validator does not check CID uniqueness. Find every place with `git grep`
+before the first change.
 
 ## Cloud sessions
 
@@ -129,6 +133,8 @@ step 3a found ADR-030's gate G2 misnamed because `app_web.con` carries no
 network device at all. The tree is not automatically right either. The operator
 rules; the session records the ruling and moves on.
 
+## Permissions and the classifier
+
 **Permission-classifier refusals** (operator rulings, 2026-09-29 and
 2026-10-02). A **refusal** stops *that action*: it is never retried in another
 form — a different form of a refused command is evasion, not a workaround.
@@ -148,7 +154,8 @@ change to `CLAUDE.md` is proposed in the report and committed by the operator.
 ## What a session may not decide
 
 - **The content of an ADR.** Propose a revision note in the report; do not write
-  one into `docs/DECISIONS.md`.
+  one into `docs/DECISIONS.md` — unless the operator authorises a note verbatim,
+  in which case the session writes exactly that text and nothing more.
 - **Anything in the tier model** (ADR-030, ADR-032): what is T1/T2/T3/T4, where
   it lives, or how the profile is derived. The profile is `f(class, netvm, nic)`
   and there is exactly one path to it. A second path is not a feature.
@@ -195,8 +202,16 @@ end. In this order:
 
 ## Commits
 
-One concern per commit. GPG-signed. The message states the reasoning, not the
-diff. `git rm`, never `rm`, on a tracked path — and check `git ls-files <path>`,
+One concern per commit. The message states the reasoning, not the diff.
+
+**Signing and identity.** On the Acer every commit is
+`KatMate <git@katmate-os.org>`, GPG-signed (`-S`), key
+`3F49AE514562ACD3FF9D6049F8841B7B3D3AB436`. A cloud session's commits are
+signed by the harness instead (*Cloud sessions*). Remote
+`git@github.com:KatMate/katmate-os.git` (private; primary since 2026-10-03,
+Codeberg retired), branch `main` — the only long-lived branch.
+
+**Hygiene.** `git rm`, never `rm`, on a tracked path — and check `git ls-files <path>`,
 not `find`, for what is actually tracked. Never `git add -A`, and never stage a
 file this session did not write: the operator edits the tree concurrently, and
 an unstaged modification in `git status` is usually his.
@@ -274,7 +289,11 @@ of empirics-before-commitment, is the expensive thing.
 | Booting an instance without `lvchange -K -ay` | RO-frozen thin LVs keep the skip-activation `k` flag permanently; the device node is absent and QEMU fails quietly |
 | Trusting a fast `Finished` after an rsync | rsync preserves mtime, so cargo skips the rebuild and you are testing the old binary. Confirm with `strings <bin> \| grep` |
 
-Reboot procedure: systemctl disable katmate-sys-driver@netvm → reboot → build/netvm.sh → enable --now
+**Reboot procedure for a netVM build:** `systemctl disable
+katmate-sys-driver@netvm` → reboot → `build/netvm.sh` → `systemctl enable --now
+katmate-sys-driver@netvm`. **For a release build**, `tools/make-release.sh` runs
+between the build and the enable: it refuses a netVM image that has been booted
+since its build.
 
 `state.md` § *Invariants & gotchas* carries these with their diagnoses, and
 roughly twenty more. It is not background reading.
