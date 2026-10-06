@@ -192,7 +192,8 @@ for img in foundation app-web app-office app-vault; do
   activate "$lv" thin
   mount_ro "$lv"
   epoch="$(date -u -d "${STAMP[$img]}" +%s)"
-  newer="$(find "$MNT" -xdev -newermt "@$epoch" -print)"
+  # The stamp has whole-second resolution and the build's own last writes (cleanup) can land inside that second; only the next second on counts as after the build.
+  newer="$(find "$MNT" -xdev -newermt "@$((epoch + 1))" -print)"
   total="$(find "$MNT" -xdev | wc -l)"
   umount "$MNT"
   if [[ -n "$newer" ]]; then
