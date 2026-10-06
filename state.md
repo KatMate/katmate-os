@@ -2343,8 +2343,8 @@ touched.
    necessity. The underlying `micro` hazard is unchanged and lives in
    *Invariants*.
 
-16. **`path_is_allowed` may not resolve symlinks (`vm-agent`) — HYPOTHESIS,
-   unproven, unrefuted.** The path check is believed to be lexical:
+16. ~~**`path_is_allowed` may not resolve symlinks (`vm-agent`) — HYPOTHESIS,
+   unproven, unrefuted.**~~ — **Closed 2026-10-06 by removal, not refuted.** The path check is believed to be lexical:
    `starts_with(HOME_PREFIX)` plus rejection of `..` components. If so, a
    symlink at `/home/user/x` → `/etc/passwd` would pass, permitting FILEGET
    exfiltration. **Not verified against the source tree** — an earlier draft
@@ -2359,6 +2359,11 @@ touched.
    resolve in the agent (`openat2(RESOLVE_BENEATH)` or canonicalise-then-check),
    **and** a `nosymfollow` mount on the exposed subtree. Blocks nothing
    currently scheduled.
+   **[2026-10-06: FILEGET, FILEPUT, `path_is_allowed` and `HOME_PREFIX` are
+   removed from `vm-agent`, so the path this hypothesis concerned no longer
+   exists. It was never tested. A file surface added later carries the
+   question with it, and the two candidate fixes above still apply to it.
+   The text above is left as written.]**
 
 17. **C-gate remainder — netVM VMM privilege (C1, C2, C3, C5a).**
    `net-sys.con` still runs QEMU as root under `sudo`, without chroot or
@@ -4209,6 +4214,10 @@ touched.
    question. ADR-039's revision note of 2026-10-03 records the change.
    **[2026-10-03, ai5: `vm-agent/src/main.rs:475` above is now `:513`
    (`2a9e638` added code above it). The text is left as written.]**
+   **[2026-10-06: the bound is now `MAX_PAYLOAD`, 64 KiB, which replaced
+   `MAX_FILE_SIZE` when FILEGET/FILEPUT were retired, so the allocation
+   above is at most 64 KiB. The open question, rejecting before the body,
+   is unchanged. Line numbers above are stale.]**
 
 57. **`katmate-update` maps an instance delta to its app type by the
    name's suffix.** Added 2026-10-03 (operator ruling R149; found by ai4,
@@ -4223,6 +4232,26 @@ touched.
    as refused. The code maps it.) The instance's T1 `manifest` key, or
    the delta's own backing file, would name the type. Which one the
    updater should read is the open question. It is not fixed here.
+   **[2026-10-06: `app_sandbox` adds a fifth delta that maps wrong:
+   `app_sandbox` → `sandbox`, which is not in `APP_TYPES`
+   (`build/katmate-update.sh:64`), and the preflight at `:159–165` dies on
+   it, as it does on `app_personal` and `app_work`. Read in the tree, not
+   run. Line numbers above are as of `799a79b`.]**
+
+58. **`tools/validate-properties.fish` has no CID uniqueness rule.**
+   Added 2026-10-06 (cloud session, app_sandbox; operator ruling the same
+   day). Shown on the six T1 templates, copied as `tools/make-release.sh`
+   copies them: with `app_sandbox.toml`'s `cid` set to `22`, the same as
+   `app_personal.toml`, `--strict` read *"skupaj: 0 napak, 0 opozoril"*
+   (0 errors, 0 warnings), exit 0. The control was `cid = 5`, which it
+   refused with exit 1 (*"cid=5 je v sysVM pasu 3–19"*, cid=5 is in the
+   sysVM band). Run under fish 3.7.0 in the cloud container, not on the
+   Acer. The cross-file rules run, *"pravila čez datoteke: ovrednotena nad
+   6 datotekami"* (cross-file rules evaluated over 6 files), and uniqueness
+   is not one of them. So nothing refuses two T1 files carrying one CID,
+   neither the validator nor the generator (`docs/PARAMETERS.md`, row
+   *CID*: *"None for uniqueness"*). The alpha's CIDs (3, 21–25) are unique
+   by reading. **Planned post-alpha.**
 
 ## Next steps
 
@@ -5066,10 +5095,9 @@ frozen `vm_home_skel` vs qcow2 branch.
     records it as a requirement; the unit file itself is still untracked (#31).
   - Do the single static waypipe build (direction ruled 2026-09-14) and any
     version bump together, through `katmate-update`.
-- **FILEPUT streaming** — still buffers the whole payload in memory
-  (`read_request` fills `RawRequest::payload`); the streaming helpers
-  (`write_response_header`/`write_raw`/`read_raw`) exist in `frame.rs` but
-  FILEPUT does not use them. FILEGET already streams.
+- ~~**FILEPUT streaming**~~ — **void 2026-10-06:** FILEPUT and FILEGET are
+  retired, and the streaming helpers left `frame.rs` with them. Every
+  payload is now bounded at 64 KiB (`MAX_PAYLOAD`).
 - **ISO bake pipeline** (ADR-020): download → verify → bake USB → boot →
   provision. Not yet designed; terminal step of the developer pipeline.
 - **Installer:** secrets removal (v0.2 blocker); create `/var/lib/katmate/`.

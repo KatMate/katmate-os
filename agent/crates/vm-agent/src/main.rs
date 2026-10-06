@@ -60,7 +60,7 @@ use op::Op;
 // --- appVM policy constants ----------------------------------------
 // Formerly in protocol.rs. They were never protocol: they describe what
 // THIS agent is permitted to do inside an appVM. netvm-agent has no
-// whitelist, no home subtree, and no init socket — not because it
+// whitelist and no init socket — not because it
 // declines to use them, but because they do not exist in that binary.
 
 /// VSOCK port used by waypipe for the GUI channel (RUN). Separate from
@@ -73,11 +73,6 @@ pub const DEFAULT_HOST_CID: u32 = 2;
 
 /// Apps that RUN may launch via waypipe.
 pub const WHITELIST: &[&str] = &["firefox-esr", "foot", "pcmanfm", "libreoffice", "keepassxc"];
-
-/// Path prefix that FILEGET / FILEPUT are confined to. Note: a prefix
-/// test alone is not traversal-safe; the handler additionally rejects
-/// ".." components (see the path guard below).
-pub const HOME_PREFIX: &str = "/home/user/";
 
 /// Unix socket on which PID 1 (katmate-init) listens for privileged
 /// requests. SHUTDOWN is delegated here rather than to a setuid helper:
@@ -127,30 +122,6 @@ fn log_error(context: &str, err: &AgentError) {
 // release builds discard it (quiet, and no information leak).
 const CHILD_STDERR_TO_DEVNULL: bool = !cfg!(debug_assertions);
 
-// --- path confinement ----------------------------------------------
-
-/// Check that `path` is confined under HOME_PREFIX and contains no
-/// parent-directory (`..`) components. This is traversal-safe without
-/// requiring the path to exist (FILEPUT targets may be new files), so
-/// it does not rely on canonicalize(), which fails on missing paths.
-///
-/// We reject `..` outright rather than trying to resolve it: inside the
-/// confined subtree there is no legitimate need for it, and rejecting
-/// is simpler to reason about than normalising.
-fn path_is_allowed(path: &str) -> bool {
-    use std::path::Component;
-
-    if !path.starts_with(HOME_PREFIX) {
-        return false;
-    }
-    // Absolute path with no `..` component anywhere. RootDir and Normal
-    // components are fine; ParentDir is not; CurDir is harmless but we
-    // allow it. A `Prefix` component cannot occur on Unix.
-    std::path::Path::new(path)
-        .components()
-        .all(|c| !matches!(c, Component::ParentDir))
-}
-
 // --- command handlers ----------------------------------------------
 // Each returns Result<()>. An Err is logged once by the caller and
 // turned into an ERR response; the connection stays open for the next
@@ -198,103 +169,6 @@ fn handle_run(fd: RawFd, req: &RawRequest, cfg: &Config) -> Result<()> {
             frame::write_err(fd)
         }
     }
-}
-
-/// FILEGET <path> → OK + file bytes, streamed (never fully buffered).
-fn handle_fileget(fd: RawFd, req: &RawRequest) -> Result<()> {
-    use std::io::Read;
-
-    let path = req.arg_str(0)?;
-    if !path_is_allowed(path) {
-        log_error("FILEGET", &AgentError::PathNotAllowed(path.to_string()));
-        return frame::write_err(fd);
-    }
-
-    let mut file = match std::fs::File::open(path) {
-        Ok(f) => f,
-        Err(e) => {
-            log_error("FILEGET open", &AgentError::Io(e));
-            return frame::write_err(fd);
-        }
-    };
-
-    let size = match file.metadata() {
-        Ok(m) => m.len(),
-        Err(e) => {
-            log_error("FILEGET stat", &AgentError::Io(e));
-            return frame::write_err(fd);
-        }
-    };
-
-    if size > frame::MAX_FILE_SIZE {
-        log_error("FILEGET", &AgentError::PayloadTooLarge(size));
-        return frame::write_err(fd);
-    }
-
-    // Announce the size, then stream the body in fixed-size chunks. If
-    // the file shrinks under us mid-stream we stop early; the announced
-    // length would then be wrong, so we surface that as an error to the
-    // caller (the connection is suspect at that point).
-    frame::write_response_header(fd, frame::STATUS_OK, size)?;
-
-    let mut buf = [0u8; 64 * 1024];
-    let mut sent: u64 = 0;
-    while sent < size {
-        let want = std::cmp::min(buf.len() as u64, size - sent) as usize;
-        let n = file.read(&mut buf[..want])?;
-        if n == 0 {
-            // File ended before the announced size — truncated read.
-            return Err(AgentError::UnexpectedEof);
-        }
-        frame::write_raw(fd, &buf[..n])?;
-        sent += n as u64;
-    }
-    Ok(())
-}
-
-/// FILEPUT <path> (+payload) → write payload to path, streamed.
-fn handle_fileput(fd: RawFd, req: &RawRequest) -> Result<()> {
-    use std::io::Write;
-
-    let path = req.arg_str(0)?;
-    if !path_is_allowed(path) {
-        log_error("FILEPUT", &AgentError::PathNotAllowed(path.to_string()));
-        return frame::write_err(fd);
-    }
-
-    // The payload was already read into req.payload by read_request,
-    // bounded by MAX_FILE_SIZE. Write it via a temp file + atomic
-    // rename so a failed transfer never leaves a partial file in place.
-    let tmp_path = format!("{path}.vm-agent.partial");
-
-    let mut tmp = match std::fs::File::create(&tmp_path) {
-        Ok(f) => f,
-        Err(e) => {
-            log_error("FILEPUT create", &AgentError::Io(e));
-            return frame::write_err(fd);
-        }
-    };
-
-    if let Err(e) = tmp.write_all(&req.payload) {
-        log_error("FILEPUT write", &AgentError::Io(e));
-        let _ = std::fs::remove_file(&tmp_path);
-        return frame::write_err(fd);
-    }
-
-    if let Err(e) = tmp.sync_all() {
-        log_error("FILEPUT sync", &AgentError::Io(e));
-        let _ = std::fs::remove_file(&tmp_path);
-        return frame::write_err(fd);
-    }
-    drop(tmp);
-
-    if let Err(e) = std::fs::rename(&tmp_path, path) {
-        log_error("FILEPUT rename", &AgentError::Io(e));
-        let _ = std::fs::remove_file(&tmp_path);
-        return frame::write_err(fd);
-    }
-
-    frame::write_ok(fd)
 }
 
 /// SHUTDOWN → OK, then ask PID 1 (katmate-init) to power the VM off.
@@ -559,8 +433,8 @@ fn handle_connection(fd: RawFd, cfg: &Config) {
         };
 
         // Map the raw opcode into THIS binary's op set. An opcode that
-        // exists on the wire but has no variant here — NETCFG — dies
-        // right at this line: the request is answered with ERR and no
+        // exists on the wire but has no variant here — NETCFG, or a
+        // retired value (opcode::RETIRED) — dies right at this line: the request is answered with ERR and no
         // handler is ever reached. Absent, not disabled (ADR-021).
         let op = match Op::try_from(req.opcode) {
             Ok(op) => op,
@@ -577,8 +451,6 @@ fn handle_connection(fd: RawFd, cfg: &Config) {
         let result = match op {
             Op::Ping => handle_ping(fd),
             Op::Run => handle_run(fd, &req, cfg),
-            Op::FileGet => handle_fileget(fd, &req),
-            Op::FilePut => handle_fileput(fd, &req),
             Op::Shutdown => handle_shutdown(fd),
         };
 
@@ -691,20 +563,77 @@ fn main() {
 mod tests {
     use super::*;
 
-    /// The path guard is the entire file-surface confinement. Pin it.
+    /// An opcode this binary has no variant for, a retired one included,
+    /// gets the ERR reply and the connection keeps serving: no panic, no
+    /// dropped connection. Driven through handle_connection itself over a
+    /// socketpair, so the dispatch path under test is the production one.
+    /// The PING sent last proves the connection survived the four refusals.
     #[test]
-    fn path_confinement() {
-        assert!(path_is_allowed("/home/user/doc.txt"));
-        assert!(path_is_allowed("/home/user/sub/dir/doc.txt"));
+    fn retired_and_unknown_opcodes_get_err_and_the_connection_survives() {
+        use katmate_protocol::opcode;
 
-        // Outside the subtree.
-        assert!(!path_is_allowed("/etc/passwd"));
-        assert!(!path_is_allowed("/home/other/doc.txt"));
-        // Prefix match without the trailing slash must not pass.
-        assert!(!path_is_allowed("/home/userX/doc.txt"));
-        // Traversal, even though the prefix matches.
-        assert!(!path_is_allowed("/home/user/../../etc/passwd"));
-        assert!(!path_is_allowed("/home/user/sub/../../../etc/passwd"));
+        let mut sv = [0 as RawFd; 2];
+        // SAFETY: sv is a valid two-element out-array for socketpair.
+        let rc = unsafe { libc::socketpair(libc::AF_UNIX, libc::SOCK_STREAM, 0, sv.as_mut_ptr()) };
+        assert_eq!(rc, 0, "socketpair: {}", std::io::Error::last_os_error());
+        let (agent, host) = (sv[0], sv[1]);
+
+        let sent = [0x03, 0x04, 0xFF, opcode::OP_NETCFG, opcode::OP_PING];
+        for op in sent {
+            frame::write_request(host, op, &[], &[]).unwrap();
+        }
+        // SAFETY: host is a valid socket fd; SHUT_WR gives the agent EOF at
+        // the frame boundary after the last request.
+        unsafe { libc::shutdown(host, libc::SHUT_WR) };
+
+        handle_connection(agent, &Config::from_env());
+        // SAFETY: agent is a valid fd we own; closed exactly once here.
+        unsafe { libc::close(agent) };
+
+        let got: Vec<u8> = sent
+            .iter()
+            .map(|_| frame::read_response(host).unwrap().status)
+            .collect();
+        assert_eq!(
+            got,
+            [frame::STATUS_ERR, frame::STATUS_ERR, frame::STATUS_ERR, frame::STATUS_ERR, frame::STATUS_OK]
+        );
+        // Exactly one reply per request, then the end of the stream.
+        assert!(frame::read_response(host).unwrap_err().is_disconnect());
+        // SAFETY: host is a valid fd we own; closed exactly once here.
+        unsafe { libc::close(host) };
+    }
+
+    /// A request declaring a payload of MAX_PAYLOAD + 1 bytes gets the ERR
+    /// reply, sent before any payload byte exists on the wire, and the agent
+    /// then closes: an over-limit length leaves the stream unframed, so it is
+    /// not served further (read_request's error path in handle_connection).
+    #[test]
+    fn oversized_payload_gets_err_before_any_payload_is_sent() {
+        let mut sv = [0 as RawFd; 2];
+        // SAFETY: sv is a valid two-element out-array for socketpair.
+        let rc = unsafe { libc::socketpair(libc::AF_UNIX, libc::SOCK_STREAM, 0, sv.as_mut_ptr()) };
+        assert_eq!(rc, 0, "socketpair: {}", std::io::Error::last_os_error());
+        let (agent, host) = (sv[0], sv[1]);
+
+        let mut header = vec![frame::PROTOCOL_VERSION, 0x01, 0];
+        header.extend_from_slice(&(frame::MAX_PAYLOAD + 1).to_le_bytes());
+        // SAFETY: header is a valid owned buffer; host is a valid socket fd.
+        let n = unsafe { libc::write(host, header.as_ptr().cast(), header.len()) };
+        assert_eq!(n, header.len() as isize);
+
+        // SAFETY: host is a valid socket fd. With the write side shut, an
+        // agent that tried to read the payload would meet EOF, which is a
+        // quiet disconnect with no reply, and the ERR assertion would fail.
+        unsafe { libc::shutdown(host, libc::SHUT_WR) };
+        handle_connection(agent, &Config::from_env());
+        // SAFETY: agent is a valid fd we own; closed exactly once here.
+        unsafe { libc::close(agent) };
+
+        assert_eq!(frame::read_response(host).unwrap().status, frame::STATUS_ERR);
+        assert!(frame::read_response(host).unwrap_err().is_disconnect());
+        // SAFETY: host is a valid fd we own; closed exactly once here.
+        unsafe { libc::close(host) };
     }
 
     /// RUN's whitelist is a compile-time constant for the alpha, so the set

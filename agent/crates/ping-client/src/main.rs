@@ -8,7 +8,7 @@
 //! a library crate do not fire dead_code).
 //!
 //! This is the one binary that legitimately spans BOTH agents — it drives
-//! appVM (run / fileget / fileput / shutdown) and netVM (netcfg / shutdown)
+//! appVM (run / shutdown) and netVM (netcfg / shutdown)
 //! — which is precisely why opcode VALUES live in a shared registry while
 //! enums and handlers do not. The client encodes raw `opcode::OP_*` values
 //! and has no `Op` enum of its own, because it executes nothing. It is a
@@ -148,8 +148,8 @@ fn main() {
                 label,
                 resp.payload.len()
             );
-            // FILEGET would carry a body; the others do not. Print it if it
-            // happens to be text, for convenience.
+            // No opcode answers with a body today. Should a reply carry one,
+            // print it if it happens to be text, for convenience.
             if !resp.payload.is_empty() {
                 if let Ok(s) = std::str::from_utf8(&resp.payload) {
                     println!("payload: {s}");

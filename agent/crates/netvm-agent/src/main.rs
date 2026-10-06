@@ -3,8 +3,8 @@
 //! Runs inside the netVM. Unlike vm-agent it is NOT the unprivileged
 //! session user: its systemd unit grants it CAP_NET_ADMIN (for NETCFG, the
 //! internal /32 route lifecycle) and CAP_KILL (for SHUTDOWN, signalling
-//! PID 1). RUN, FILEGET and FILEPUT have no variant in this binary's `Op`,
-//! so they die in `Op::try_from` at decode (op.rs is the security boundary;
+//! PID 1). RUN, and the retired 0x03 / 0x04, have no variant in this
+//! binary's `Op`, so they die in `Op::try_from` at decode (op.rs is the security boundary;
 //! ADR-021, ADR-024).
 //!
 //! This file is a deliberate SUBTRACTION from `vm-agent/src/main.rs`. It
@@ -15,13 +15,12 @@
 //!             the accept loop with its host-CID check, and the synchronous
 //!             single-client per-connection loop.
 //!   dropped — config.rs (no per-appVM config surface), the WHITELIST /
-//!             HOME_PREFIX / INIT_SOCK / SHUTDOWN_CMD policy constants,
+//!             INIT_SOCK / SHUTDOWN_CMD policy constants,
 //!             posix_spawn + environ (no child to launch — no spawn() at
-//!             all in this binary), path_is_allowed (no file surface), and
-//!             the SIGCHLD SIG_IGN (nothing here forks, so there are no
+//!             all in this binary), and the SIGCHLD SIG_IGN (nothing here forks, so there are no
 //!             children to reap).
 //!
-//! SHUTDOWN (ADR-024): unlike RUN/FILE*, SHUTDOWN is NOT dropped — it is
+//! SHUTDOWN (ADR-024): unlike RUN, SHUTDOWN is NOT dropped — it is
 //! handled here. It does NOT go through katmate-init (there is none; netVM
 //! runs systemd) and it does NOT go through vm-agent's INIT_SOCK. It asks
 //! netVM's own PID 1 — systemd — for a clean stop, by sending SIGRTMIN+4,
@@ -180,8 +179,9 @@ fn handle_connection(fd: RawFd) {
             }
         };
 
-        // Map the raw opcode into THIS binary's op set. RUN / FILEGET /
-        // FILEPUT exist on the wire but have no variant here, so they die
+        // Map the raw opcode into THIS binary's op set. RUN exists on the
+        // wire but has no variant here, and neither do the retired 0x03 /
+        // 0x04 (opcode::RETIRED), so they die
         // right at this line: answered with ERR, no handler ever reached.
         // Absent, not disabled (ADR-021). SHUTDOWN now DOES decode here
         // (ADR-024). An unmapped opcode is NOT fatal to the connection — the
@@ -302,5 +302,51 @@ fn main() {
 
         // SAFETY: client is a valid fd we own; closed exactly once here.
         unsafe { libc::close(client) };
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// An opcode this binary has no variant for — RUN, a retired one, an
+    /// unassigned one — gets the ERR reply and the connection keeps serving:
+    /// no panic, no dropped connection. Driven through handle_connection over
+    /// a socketpair, so the dispatch path under test is the production one.
+    /// The PING sent last proves the connection survived the refusals.
+    #[test]
+    fn retired_and_unknown_opcodes_get_err_and_the_connection_survives() {
+        use katmate_protocol::opcode;
+
+        let mut sv = [0 as RawFd; 2];
+        // SAFETY: sv is a valid two-element out-array for socketpair.
+        let rc = unsafe { libc::socketpair(libc::AF_UNIX, libc::SOCK_STREAM, 0, sv.as_mut_ptr()) };
+        assert_eq!(rc, 0, "socketpair: {}", std::io::Error::last_os_error());
+        let (agent, host) = (sv[0], sv[1]);
+
+        let sent = [opcode::OP_RUN, 0x03, 0x04, 0xFF, opcode::OP_PING];
+        for op in sent {
+            frame::write_request(host, op, &[], &[]).unwrap();
+        }
+        // SAFETY: host is a valid socket fd; SHUT_WR gives the agent EOF at
+        // the frame boundary after the last request.
+        unsafe { libc::shutdown(host, libc::SHUT_WR) };
+
+        handle_connection(agent);
+        // SAFETY: agent is a valid fd we own; closed exactly once here.
+        unsafe { libc::close(agent) };
+
+        let got: Vec<u8> = sent
+            .iter()
+            .map(|_| frame::read_response(host).unwrap().status)
+            .collect();
+        assert_eq!(
+            got,
+            [frame::STATUS_ERR, frame::STATUS_ERR, frame::STATUS_ERR, frame::STATUS_ERR, frame::STATUS_OK]
+        );
+        // Exactly one reply per request, then the end of the stream.
+        assert!(frame::read_response(host).unwrap_err().is_disconnect());
+        // SAFETY: host is a valid fd we own; closed exactly once here.
+        unsafe { libc::close(host) };
     }
 }

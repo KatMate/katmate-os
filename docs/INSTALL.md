@@ -4,9 +4,12 @@
 
 - x86-64 UEFI machine with VT-d / AMD-Vi (IOMMU required)
 - **RAM: 16 GB** (refused below; the check allows for what firmware and an
-  integrated GPU reserve, so `MemTotal` must be at least 14 GiB). netVM and
-  the four AppVMs run at once, and their memory is taken from the host as
-  the guests touch it (memfd; no hugepage pool is reserved).
+  integrated GPU reserve, so `MemTotal` must be at least 14 GiB). All guests
+  together commit up to 13 GiB (netVM 1, `app_web` 4, and four AppVMs at 2).
+  memfd memory without prealloc is allocated on use, so the sum is an upper
+  bound, not a requirement (netVM's 1 GiB is the exception: VFIO pins all of
+  it at start). No hugepage pool is reserved. **UNVERIFIED** until measured
+  on MINIS.
 - Disk ≥ 32 GB, and in practice more: after root (15 %, 20–60 G) and swap
   (= RAM), the thin pool must hold the images plus 8 GiB, and netVM's
   linear LV sits beside it. The installer computes this before it touches
@@ -173,7 +176,7 @@ Run as root, from the extracted archive: `bash installer/install.sh`.
     initrd in `/var/lib/katmate/netvm/`, the MicroVM kernel and its
     provenance sidecar (checked, [ADR-034](DECISIONS.md#adr-034)) in
     `/var/lib/katmate/kernels/`.
-17. **T1** — `/etc/katmate/vm/{netvm,app_web,app_personal,app_work,app_vault}.toml`
+17. **T1** — `/etc/katmate/vm/{netvm,app_web,app_personal,app_work,app_vault,app_sandbox}.toml`
     from `installer/t1/`, `root:root 0644`, created and never overwritten
     ([ADR-032](DECISIONS.md#adr-032) §1).
 18. **Home LVs and deltas** — `vm_<instance>_home`, 10G thin, ext4, `user/`

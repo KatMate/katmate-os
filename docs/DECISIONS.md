@@ -53,6 +53,12 @@ exclusively. No TCP between host and guests; no guest-to-guest channel.
 **Consequences:** vm-agent and waypipe must speak vsock; the firewall story
 stays trivial (vsock bypasses netfilter); inter-VM data flow only via the host.
 
+**Revision note (2026-10-06):** the control channel carries no file
+transfer. FILEGET/FILEPUT were retired before the first release
+([ADR-021](DECISIONS.md#adr-021)'s and [ADR-039](DECISIONS.md#adr-039)'s
+notes of the same date). Control and GUI cross AF_VSOCK as decided. The text
+above is not edited.
+
 ---
 
 ## ADR-004 — Host kernel: `linux-hardened` from the Arch repo
@@ -1536,6 +1542,15 @@ ruling (R146, on `ai5`'s read pass, D1) settles it. The source is
   are read from the unit's environment"* is stale for the same reason.
   katmate-init sets none of them, so the protocol defaults are what runs.
   Neither ADR's text is edited.
+
+**Revision note (2026-10-06, § *Decision* — the opcode model):** FILEGET
+(0x03) and FILEPUT (0x04) are retired. Nothing on the host called them.
+vm-agent no longer handles them, and the path guard (`HOME_PREFIX`,
+`path_is_allowed`) went with them, which closes `state.md` #16 by removal.
+The values stay in the registry as `opcode::RETIRED` and are never reused.
+Every binary answers them with ERR at decode and keeps the connection (a
+test per agent). vm-agent's set is PING, RUN, SHUTDOWN. The text above is
+not edited.
 
 ## ADR-022 — Network topology is a graph; the physical NIC is an assignable object
 
@@ -9884,6 +9899,20 @@ Changed after this decision, by later ADRs:
   for RUN only.
 
 The text above is not edited.
+
+**Revision note (2026-10-06):** (1) 0x03 FILEGET and 0x04 FILEPUT are
+retired and reserved (ADR-021's note); the path-confinement and
+atomic-FILEPUT sub-decisions describe removed code. (2) `MAX_FILE_SIZE`
+(100 MiB) is replaced by `MAX_PAYLOAD` = 64 KiB (operator ruling), one
+constant in `katmate-protocol/src/frame.rs` bounding request and response
+payloads alike. The largest payload a handler reads is a 57-byte NETCFG ADD
+at MAX_ROUTES, and v1 accepts 30. An over-limit `payload_len` is refused
+before any allocation (tested). The note of 2026-10-03 on an unhandled
+opcode being read before its ERR still holds, now bounded at 64 KiB. The
+frame layout and PROTOCOL_VERSION 0x01 are unchanged. **PROTOCOL_VERSION
+stays 0x01 by operator ruling (2026-10-06):** the frame layout is unchanged,
+and the host and the images ship in one release. The text above is not
+edited.
 
 ---
 

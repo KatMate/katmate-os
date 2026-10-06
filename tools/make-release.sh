@@ -61,7 +61,7 @@ HOST_WAYPIPE="/opt/katmate/bin/waypipe"
 HOST_PING_CLIENT="/usr/lib/katmate/ping-client"
 T1_TEMPLATES="$ROOT_DIR/installer/t1"
 VALIDATOR="$ROOT_DIR/tools/validate-properties.fish"
-APP_TYPES=(web office vault)       # the three layers; app_personal uses web
+APP_TYPES=(web office vault)       # the three layers; app_personal and app_sandbox use web
 
 usage() {
   echo "usage: $0 --tag <tag> --out <empty dir> --built-after <YYYY-MM-DDTHH:MM:SSZ>" >&2
@@ -229,7 +229,7 @@ n=0
 for f in "$T1_TEMPLATES"/*.toml.in; do
   cp -- "$f" "$T1_TMP/$(basename "$f" .in)"; n=$((n + 1))
 done
-(( n == 5 )) || die "$T1_TEMPLATES holds $n *.toml.in templates, expected 5 (netvm and the four alpha AppVMs)"
+(( n == 6 )) || die "$T1_TEMPLATES holds $n *.toml.in templates, expected 6 (netvm and the five alpha AppVMs)"
 fish "$VALIDATOR" --strict "$T1_TMP" || die "tools/validate-properties.fish --strict refused the templates in $T1_TEMPLATES (above)"
 rm -rf "$T1_TMP"
 log "  $n templates validated with --strict, cross-file rules included"

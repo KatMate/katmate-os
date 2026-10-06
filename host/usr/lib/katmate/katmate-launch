@@ -92,12 +92,13 @@ RUN_WHITELIST=(firefox-esr foot pcmanfm libreoffice keepassxc)
 # keepassxc foot pcmanfm), as read in the built layers on MINIS by ai5. A RUN of
 # a whitelisted app the layer lacks answers OK and opens nothing (the agent
 # answers when waypipe spawns), so it is refused here.
-ALPHA_INSTANCES=(app_web app_personal app_work app_vault)
+ALPHA_INSTANCES=(app_web app_personal app_work app_vault app_sandbox)
 declare -A APPS=(
     [app_web]="firefox-esr foot pcmanfm"
     [app_personal]="firefox-esr foot pcmanfm"
     [app_work]="libreoffice foot pcmanfm"
     [app_vault]="keepassxc foot pcmanfm"
+    [app_sandbox]="firefox-esr foot pcmanfm"
 )
 
 # The alpha's links, one row per routed instance: slot, LINK_ID, netVM's slot
@@ -113,6 +114,7 @@ declare -A LINK=(
     [app_web]="01 201 52:54:01:00:00:01 10.100.1.17"
     [app_personal]="02 202 52:54:01:00:00:02 10.100.1.18"
     [app_work]="03 203 52:54:01:00:00:03 10.100.1.19"
+    [app_sandbox]="04 204 52:54:01:00:00:04 10.100.1.20"
 )
 
 PING_TIMEOUT=30   # seconds; PING answers ~4.5 s after start (ai5: try 3 of 2 s)

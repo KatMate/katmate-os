@@ -140,14 +140,15 @@ Two binaries from one workspace, split by **absent-not-disabled**
 - VSOCK connections accepted from the host only
 - `RUN` restricted to an application whitelist (`firefox-esr`, `foot`, `pcmanfm`,
   `libreoffice`, `keepassxc`)
-- `FILEGET`/`FILEPUT` restricted by path whitelist and transfer size limits
+- No file-transfer surface: `FILEGET`/`FILEPUT` (`0x03`/`0x04`) were retired on
+  2026-10-06. The values are reserved, never reused, and answered with ERR
 - No arbitrary command execution path
 - **Contains no network-configuration code** — the least-trusted guest cannot
   even *name* the NETCFG opcode
 
 **`netvm-agent` (sysVM, `CAP_NET_ADMIN` + `CAP_KILL`, not root):**
 
-- **Contains no `RUN`, no `FILEPUT`/`FILEGET`** — no general execution path
+- **Contains no `RUN`** and no file surface — no general execution path
   exists inside the process holding network privilege
 - `NETCFG` is a **typed link description**, never a shell string and never a
   policy ([ADR-023](DECISIONS.md#adr-023)): interface match, local/peer address,

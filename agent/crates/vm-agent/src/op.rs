@@ -15,8 +15,6 @@ use katmate_protocol::opcode;
 pub enum Op {
     Ping,
     Run,
-    FileGet,
-    FilePut,
     /// appVMs are microvm: no ACPI, so the host has no power-button to press.
     /// The agent (uid 1000, cannot call reboot(2)) asks katmate-init — PID 1,
     /// the single root process in the guest — over its unix socket. netvm-agent
@@ -31,10 +29,9 @@ impl TryFrom<u8> for Op {
         match raw {
             opcode::OP_PING => Ok(Op::Ping),
             opcode::OP_RUN => Ok(Op::Run),
-            opcode::OP_FILEGET => Ok(Op::FileGet),
-            opcode::OP_FILEPUT => Ok(Op::FilePut),
             opcode::OP_SHUTDOWN => Ok(Op::Shutdown),
             // OP_NETCFG lands here: known to the wire, absent from this binary.
+            // So do the retired 0x03 / 0x04 (opcode::RETIRED).
             other => Err(AgentError::UnknownCommand(other)),
         }
     }
@@ -47,6 +44,13 @@ mod tests {
     #[test]
     fn netcfg_is_absent_from_the_appvm_agent() {
         assert!(Op::try_from(opcode::OP_NETCFG).is_err());
+    }
+
+    #[test]
+    fn retired_opcodes_do_not_decode() {
+        for &raw in opcode::RETIRED {
+            assert!(Op::try_from(raw).is_err(), "{raw:#04x} is retired");
+        }
     }
 
     #[test]

@@ -742,6 +742,19 @@ mod tests {
         assert!(parse(&many).is_err(), "route_count 5 must be rejected");
     }
 
+    /// The largest payload this parser reads, an ADD at MAX_ROUTES, is 57
+    /// bytes, and the frame's MAX_PAYLOAD (64 KiB) holds it with room to
+    /// spare. Measured on the bytes rather than from the constants alone.
+    /// v1 itself accepts at most 30 (one peer/32 route, `add_roundtrip`).
+    #[test]
+    fn largest_add_fits_max_payload() {
+        let four: Vec<([u8; 4], u8, u32)> = (0..MAX_ROUTES as u32).map(|i| (PEER, 32, i)).collect();
+        let p = add(MAC, INTERNAL_LOCAL, PEER, 32, &four);
+        assert_eq!(p.len(), ADD_FIXED_LEN + MAX_ROUTES * ROUTE_LEN);
+        assert_eq!(p.len(), 57);
+        assert!(p.len() as u64 <= katmate_protocol::frame::MAX_PAYLOAD);
+    }
+
     /// v1 tightness: the wire could carry a default route for a proxy, but the
     /// driver-domain validator admits only peer/32.
     #[test]

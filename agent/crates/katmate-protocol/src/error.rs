@@ -41,7 +41,7 @@ pub enum AgentError {
     /// An argument's declared length exceeded MAX_ARG_LEN.
     ArgumentTooLarge(u32),
 
-    /// The declared payload length exceeded MAX_FILE_SIZE.
+    /// The declared payload length exceeded MAX_PAYLOAD.
     PayloadTooLarge(u64),
 
     /// A required argument was absent (e.g. RUN with no app name).
@@ -53,14 +53,11 @@ pub enum AgentError {
     /// The requested app is not on the launch whitelist.
     AppNotAllowed(String),
 
-    /// The requested path failed the confinement / traversal check.
-    PathNotAllowed(String),
-
     /// A spawned child process could not be created.
     SpawnFailed(std::io::Error),
 
     /// Request was structurally valid but semantically rejected
-    /// (e.g. FILEPUT with a non-positive size). Carries a short reason
+    /// (e.g. a RUN argument containing a NUL byte). Carries a short reason
     /// for the journal.
     Rejected(&'static str),
 }
@@ -90,7 +87,6 @@ impl fmt::Display for AgentError {
                 write!(f, "argument {i} is not valid UTF-8")
             }
             AgentError::AppNotAllowed(a) => write!(f, "app not on whitelist: {a}"),
-            AgentError::PathNotAllowed(p) => write!(f, "path not allowed: {p}"),
             AgentError::SpawnFailed(e) => write!(f, "failed to spawn child: {e}"),
             AgentError::Rejected(why) => write!(f, "request rejected: {why}"),
         }

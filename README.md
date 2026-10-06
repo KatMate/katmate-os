@@ -22,13 +22,14 @@ templates, kernels, or forwarding layers. See [ADR-001](docs/DECISIONS.md#adr-00
 
 - **Host:** Arch Linux, `linux-hardened` kernel, LUKS2 full-disk encryption, LVM (thin pool for VM storage), systemd-boot
 - **Guests:** minimal Debian stable MicroVMs with a custom-built LTS kernel, direct kernel boot
-- **Communication:** AF_VSOCK only — control, file transfer, GUI; no guest network exposure for the control plane
+- **Communication:** AF_VSOCK only — control and GUI; no guest network exposure for the control plane. There is no host↔guest file-transfer opcode: FILEGET/FILEPUT were retired before the first release (2026-10-06)
 - **GUI forwarding:** Waypipe over VSOCK into the host Wayland compositor (Sway by default, Hyprland optional — [ADR-016](docs/DECISIONS.md#adr-016))
 - **Template model:** versioned immutable base images + per-AppVM overlays; updates handled by `katmate-update`, transparent to the user
 
 ## Known limitations (alpha)
 
 - **The clipboard is shared across all VMs and the host.** There is one compositor, and every AppVM's waypipe is one of its clients, so whatever is copied in one domain can be pasted in any other. Do not copy secrets between domains. KeePassXC clears the clipboard 10 s after a copy by default. Per-domain clipboard isolation is planned for the next release.
+- **The sandbox VM has no root: software installs into the home directory only.** `app_sandbox` is for trying software KatMate does not ship, from tarballs, extracted AppImages and static binaries unpacked into its persistent home. There is no `sudo` and no package manager access in it, as in every AppVM.
 - **Any VM can open windows on the desktop.** The host's GUI listener (waypipe on vsock port 1024) accepts a connection from any VM, netVM included, with no check of which VM is calling, before it parses that VM's Wayland stream (trust-boundary audit of 2026-09-18, finding 7). It is the same boundary as the shared clipboard above, and the fix ships with it in the next release.
 - **netVM needs a wired PCI Ethernet card.** The installer offers PCI Ethernet controllers only; a wireless card cannot be assigned to netVM in the alpha. Two cards with the same vendor and device id cannot be told apart and are refused.
 - **USB network adapters are not supported.** netVM takes its card by PCI passthrough only. A USB NIC (for example the RTL8153/r8152 used on development hosts) cannot be assigned to netVM in the alpha.

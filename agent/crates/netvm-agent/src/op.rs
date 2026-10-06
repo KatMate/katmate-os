@@ -7,7 +7,8 @@
 //!   * NO Run             — the privileged agent cannot launch a process. Not
 //!                          "refuses to": has no variant, so RUN dies in
 //!                          try_from. There is no spawn() in this binary at all.
-//!   * NO FileGet/FilePut — no file surface in the network domain.
+//!   * NO file surface — the retired 0x03 / 0x04 (FILEGET / FILEPUT, retired
+//!                          2026-10-06) were never in this binary either.
 //!
 //! What it DOES admit:
 //!
@@ -49,8 +50,8 @@ impl TryFrom<u8> for Op {
             opcode::OP_PING => Ok(Op::Ping),
             opcode::OP_NETCFG => Ok(Op::Netcfg),
             opcode::OP_SHUTDOWN => Ok(Op::Shutdown),
-            // RUN / FILEGET / FILEPUT all land here: they exist on the wire,
-            // but not in this binary.
+            // RUN lands here: it exists on the wire, but not in this binary.
+            // So do the retired 0x03 / 0x04 (opcode::RETIRED).
             other => Err(AgentError::UnknownCommand(other)),
         }
     }
@@ -63,11 +64,12 @@ mod tests {
     /// The security boundary as an executable assertion: a CAP_NET_ADMIN +
     /// CAP_KILL binary that STILL cannot be made to run a process or touch a
     /// file — because those opcodes do not decode here at all. SHUTDOWN is no
-    /// longer in this set (ADR-024 admitted it); RUN/FILE* remain absent. If
+    /// longer in this set (ADR-024 admitted it); RUN remains absent, and the
+    /// retired 0x03 / 0x04 are checked by value. If
     /// someone later adds one of these variants, this test fails and asks why.
     #[test]
     fn forbidden_opcodes_fail_at_decode() {
-        for raw in [opcode::OP_RUN, opcode::OP_FILEGET, opcode::OP_FILEPUT] {
+        for raw in [opcode::OP_RUN, 0x03, 0x04] {
             assert!(
                 Op::try_from(raw).is_err(),
                 "{} must not decode in netvm-agent",

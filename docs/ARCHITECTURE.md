@@ -312,13 +312,17 @@ Rust Cargo workspace ([ADR-021](DECISIONS.md#adr-021)): a shared
 wire-value registry) plus **two** bin crates. The split is a security measure —
 *absent code paths are stronger than disabled ones*. Opcode enums and handlers
 are per-binary; a forbidden opcode fails at **decode** (`TryFrom<u8>`), not at a
-runtime gate.
+runtime gate. An opcode a binary has no variant for — another binary's, or a
+retired value — is answered with ERR and the connection keeps serving. Every
+frame's payload, in either direction, is bounded by one constant,
+`MAX_PAYLOAD` = 64 KiB in `katmate-protocol`; the largest payload any handler
+reads is a 57-byte NETCFG ADD.
 
 | Opcode | `vm-agent` (AppVM, uid 1000) | `netvm-agent` (sysVM, `CAP_NET_ADMIN`) |
 |---|---|---|
 | `PING` | handler | handler |
 | `RUN` (whitelist: `firefox-esr`, `foot`, `pcmanfm`, `libreoffice`, `keepassxc`) | handler | **absent** |
-| `FILEGET` / `FILEPUT` (path-whitelisted, size-limited) | handler | **absent** |
+| `0x03` / `0x04` — `FILEGET` / `FILEPUT`, **retired 2026-10-06**; the values are reserved and never reused | **absent** (ERR) | **absent** (ERR) |
 | `SHUTDOWN` | handler (microvm has no ACPI) | handler — `kill(1, SIGRTMIN+4)` under `CAP_KILL` ([ADR-024](DECISIONS.md#adr-024)); the QMP `system_powerdown` path is inert without dbus |
 | `NETCFG` | **absent** | handler (privileged) |
 

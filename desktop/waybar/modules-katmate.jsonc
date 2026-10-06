@@ -33,6 +33,8 @@
 			"work-terminal":     "/usr/local/bin/km-launch app_work foot",
 			"vault-keepassxc":   "/usr/local/bin/km-launch app_vault keepassxc",
 			"vault-terminal":    "/usr/local/bin/km-launch app_vault foot",
+			"sandbox-terminal":  "/usr/local/bin/km-launch app_sandbox foot",
+			"sandbox-files":     "/usr/local/bin/km-launch app_sandbox pcmanfm",
 			"stop-all":          "/usr/local/bin/km-launch --stop-all"
 		}
 	}

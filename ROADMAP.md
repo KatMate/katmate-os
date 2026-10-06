@@ -12,10 +12,14 @@
 
 - [x] vm-agent in C (PING, RUN, FILEGET, FILEPUT, SHUTDOWN)
 - [x] vm-agent rewritten in Rust — versioned binary protocol, bounds-checked
-      framing, posix_spawn, atomic FILEPUT, traversal-safe paths (ADR-039)
+      framing, posix_spawn, atomic FILEPUT, traversal-safe paths (ADR-039;
+      FILEPUT and its path guard retired 2026-10-06)
 - [x] Agent split into a Cargo workspace — `katmate-protocol` + `vm-agent` +
       `netvm-agent` + `ping-client`; absent-not-disabled opcode model (ADR-021)
-- [x] File transfer over VSOCK
+- [x] File transfer over VSOCK — **retired 2026-10-06**, before the first
+      release: nothing on the host used FILEGET/FILEPUT. `0x03`/`0x04` stay
+      reserved; the frame's payload bound fell from 100 MiB to 64 KiB
+      (`MAX_PAYLOAD`)
 - [x] Waypipe version lock — guest 0.11.0 from source, clipboard functional
 - [x] Host kernel → `linux-hardened` (incl. `aio=threads` adaptation)
 - [x] Installer rewrite: systemd-boot, proportional LVM sizing, thin pool

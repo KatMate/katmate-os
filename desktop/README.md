@@ -102,6 +102,17 @@ and swaync, as for `km-shot`). So it also needs that executable and its
 sudoers rule ([HOST-CONFIG.md](../docs/HOST-CONFIG.md) § 13). Its
 `menu-file` is `/usr/share/katmate/waybar/katmate-menu.xml`.
 
+The menu's fourteen items, per AppVM: `web` and `personal` Firefox, Files,
+Terminal; `work` LibreOffice, Files, Terminal; `vault` KeePassXC, Terminal;
+`sandbox` Terminal, Files; and *Stop all AppVMs*. `sandbox` (`app_sandbox`, on
+the web layer) is where software from outside KatMate is tried: the user
+unpacks a tarball, an extracted AppImage or a static binary into the
+persistent home and starts it from the sandbox terminal. Its window then
+appears on the desktop like any other. It has no root and no sudo, as every
+AppVM, so nothing installs outside the home directory. The item ids in
+`katmate-menu.xml` and the keys of `menu-actions` in `modules-katmate.jsonc`
+must match one for one.
+
 **System files are copied**, never symlinked. `/etc/greetd/config.toml` is read
 by the unprivileged `greeter` user and sits on a privilege boundary; a symlink
 into a user's home directory there would be a mistake. The copies in

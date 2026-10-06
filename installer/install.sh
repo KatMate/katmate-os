@@ -6,8 +6,8 @@ set -euo pipefail
 # ---------------------------------------------------------------------------
 #
 # Installs the alpha system from a signed release onto a fresh disk: the Arch
-# host, the desktop, netVM and the four alpha AppVMs (ADR-020; operator
-# rulings of 2026-10-05). It builds nothing. The guest images, their T2
+# host, the desktop, netVM and the five alpha AppVMs (ADR-020; operator
+# rulings of 2026-10-05; app_sandbox, 2026-10-06). It builds nothing. The guest images, their T2
 # metadata, the kernels and the host binaries come prebuilt from the release,
 # and every one of them is checked against the signed SHA256SUMS before use.
 #
@@ -40,7 +40,7 @@ HOME_LV_SIZE=10G        # PARAMETERS.md, Home LV (state.md form of record)
 DELTA_SIZE=10G          # PARAMETERS.md, Instance delta
 NETVM_MARGIN_MB=1024    # free extents left in vg0 beside netVM's linear LV (R6)
 POOL_SLACK_MB=8192      # pool room above the images' allocated size
-ALPHA_INSTANCES=(app_web app_personal app_work app_vault)
+ALPHA_INSTANCES=(app_web app_personal app_work app_vault app_sandbox)
 
 # ---------------------------------------------------------------------------
 
@@ -287,7 +287,7 @@ echo "Images: 5; ${THIN_ALLOC_MB} MiB allocated in the thin pool after import; n
 
 RAM_KB="$(grep MemTotal /proc/meminfo | awk '{print $2}')"
 (( RAM_KB >= MIN_RAM_KB )) \
-  || die "RAM: MemTotal is $(( RAM_KB / 1024 )) MiB. The alpha needs 16 GB (MemTotal at least $(( MIN_RAM_KB / 1024 )) MiB): netVM and four AppVMs run at once."
+  || die "RAM: MemTotal is $(( RAM_KB / 1024 )) MiB. The alpha needs 16 GB (MemTotal at least $(( MIN_RAM_KB / 1024 )) MiB). All guests together commit up to 13 GiB; memfd memory without prealloc is allocated on use, so the sum is an upper bound, not a requirement (UNVERIFIED until measured on MINIS)."
 echo "RAM: MemTotal $(( RAM_KB / 1024 )) MiB (minimum $(( MIN_RAM_KB / 1024 )) MiB)"
 
 # ---------------------------------------------------------------------------
@@ -543,7 +543,7 @@ echo "Layout:"
 echo "  EFI:        512M"
 echo "  vg0/root:   ${ROOT_GB}G"
 echo "  vg0/swap:   ${SWAP_GB}G"
-echo "  vg0/${POOL}: ~$(( POOL_EST_MB / 1024 ))G thin pool (metadata ${TMETA_MB}M): images ${THIN_ALLOC_MB}M, four 10G home LVs"
+echo "  vg0/${POOL}: ~$(( POOL_EST_MB / 1024 ))G thin pool (metadata ${TMETA_MB}M): images ${THIN_ALLOC_MB}M, ${#ALPHA_INSTANCES[@]} 10G home LVs"
 echo "  vg0/vm_sys_netvm: ${NETVM_MB}M linear, plus ${NETVM_MARGIN_MB}M left free"
 echo ""
 read -rp "WIPE $DISK and apply this layout — everything on it will be erased (yes/no): " CONFIRM
@@ -852,7 +852,7 @@ for tpl in "$TREE"/installer/t1/*.toml.in; do
   install -m 0644 -o root -g root "$tpl" "$dst"
   T1_CREATED+=("$name")
 done
-(( ${#T1_CREATED[@]} == 5 )) || die "Created ${#T1_CREATED[@]} T1 files, expected 5."
+(( ${#T1_CREATED[@]} == 6 )) || die "Created ${#T1_CREATED[@]} T1 files, expected 6."
 echo "  created: ${T1_CREATED[*]}"
 
 # The manifest of each alpha instance, from its own T1 file: one source.
@@ -1094,14 +1094,15 @@ fi
 
 # The alpha's KatMate set.
 for lv in vm_tpl_foundation vm_app_web vm_app_office vm_app_vault vm_sys_netvm \
-          vm_app_web_home vm_app_personal_home vm_app_work_home vm_app_vault_home; do
+          vm_app_web_home vm_app_personal_home vm_app_work_home vm_app_vault_home \
+          vm_app_sandbox_home; do
   lvs "$VG/$lv" >/dev/null 2>&1 || die "LV $VG/$lv missing"
 done
-for f in /mnt/etc/katmate/vm/{netvm,app_web,app_personal,app_work,app_vault}.toml \
+for f in /mnt/etc/katmate/vm/{netvm,app_web,app_personal,app_work,app_vault,app_sandbox}.toml \
          /mnt/var/lib/katmate/{foundation,app-web,app-office,app-vault}.meta \
          /mnt/var/lib/katmate/netvm/{netvm.meta,vmlinuz,initrd.img} \
          "/mnt/var/lib/katmate/kernels/$KERNEL_FILE" \
-         /mnt/var/lib/katmate/instances/{app_web,app_personal,app_work,app_vault}.qcow2 \
+         /mnt/var/lib/katmate/instances/{app_web,app_personal,app_work,app_vault,app_sandbox}.qcow2 \
          /mnt/usr/lib/katmate/ping-client /mnt/opt/katmate/bin/waypipe \
          /mnt/etc/sudoers.d/katmate-launch /mnt/etc/modprobe.d/katmate-vfio.conf \
          /mnt/etc/sway/config /mnt/etc/sway/outputs.conf /mnt/etc/sway/config.d/10-keyboard.conf \

@@ -9,9 +9,10 @@
   Per AppVM, the apps its layer carries (manifests/<manifest>.list), in the
   menu's own order: web and personal (layer web) Firefox, Files, Terminal;
   work (layer office) LibreOffice, Files, Terminal; vault (layer vault)
-  KeePassXC, Terminal. A flat list with separators rather than submenus: the
-  alpha needs twelve items, and a flat list has one less GTK mechanism to go
-  wrong.
+  KeePassXC, Terminal; sandbox (layer web) Terminal, Files: software the user
+  brings in is started from its terminal (ruling of 2026-10-06). A flat list
+  with separators rather than submenus: the alpha needs fourteen items, and a
+  flat list has one less GTK mechanism to go wrong.
 -->
 <interface>
   <object class="GtkMenu" id="menu">
@@ -30,6 +31,9 @@
     <child><object class="GtkMenuItem" id="vault-keepassxc"><property name="label">vault · KeePassXC</property></object></child>
     <child><object class="GtkMenuItem" id="vault-terminal"><property name="label">vault · Terminal</property></object></child>
     <child><object class="GtkSeparatorMenuItem" id="sep-vault"/></child>
+    <child><object class="GtkMenuItem" id="sandbox-terminal"><property name="label">sandbox · Terminal</property></object></child>
+    <child><object class="GtkMenuItem" id="sandbox-files"><property name="label">sandbox · Files</property></object></child>
+    <child><object class="GtkSeparatorMenuItem" id="sep-sandbox"/></child>
     <child><object class="GtkMenuItem" id="stop-all"><property name="label">Stop all AppVMs</property></object></child>
   </object>
 </interface>

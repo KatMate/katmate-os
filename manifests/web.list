@@ -4,3 +4,18 @@
 firefox-esr
 foot
 pcmanfm
+# Added for app_sandbox (2026-10-06), which runs on this layer: software the
+# user brings from outside KatMate, from user space only. It arrives as
+# tarballs, extracted AppImages (--appimage-extract) and static binaries, so
+# the layer carries the extractors and the Wayland platform plugins that such
+# a Qt program needs. An AppVM's only display is Wayland (waypipe), and
+# without the plugin Qt falls back to xcb and aborts (vault.list, ai4).
+# vm-agent sets QT_QPA_PLATFORM=wayland for every RUN child (R146), and a
+# program started from foot inherits it. These also reach app_web and
+# app_personal, which share the layer. No python3, no pip, no sudo (ruling
+# of 2026-10-06). xz-utils is listed even if the foundation already carries
+# it, so this layer does not depend on that.
+qtwayland5
+qt6-wayland
+unzip
+xz-utils

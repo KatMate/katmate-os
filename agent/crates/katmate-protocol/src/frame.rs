@@ -22,9 +22,8 @@
 //! rather than at a runtime gate (ADR-021).
 //!
 //! What is NOT here — it was never protocol, it was appVM policy, and
-//! netvm-agent must not inherit it: WHITELIST, HOME_PREFIX, INIT_SOCK,
-//! SHUTDOWN_CMD, DEFAULT_WAYPIPE_PORT, DEFAULT_HOST_CID. Those live in
-//! `crates/vm-agent`.
+//! netvm-agent must not inherit it: WHITELIST, INIT_SOCK, SHUTDOWN_CMD,
+//! DEFAULT_WAYPIPE_PORT, DEFAULT_HOST_CID. Those live in `crates/vm-agent`.
 //!
 //! Wire format (PROTOCOL v1, little-endian, daemon-to-daemon):
 //!
@@ -32,7 +31,7 @@
 //!   u8    version        (PROTOCOL_VERSION)
 //!   u8    opcode         (a value from `crate::opcode`)
 //!   u8    argc           (number of arguments, <= MAX_ARGC)
-//!   u64   payload_len    (trailing payload size, <= MAX_FILE_SIZE)
+//!   u64   payload_len    (trailing payload size, <= MAX_PAYLOAD)
 //!   repeated argc times:
 //!     u32 arg_len        (<= MAX_ARG_LEN)
 //!     u8[arg_len] arg    (raw bytes; space / newline / NUL allowed)
@@ -41,7 +40,7 @@
 //! RESPONSE
 //!   u8    version        (PROTOCOL_VERSION)
 //!   u8    status         (0x00 OK, 0x01 ERR)
-//!   u64   payload_len    (<= MAX_FILE_SIZE; 0 if none)
+//!   u64   payload_len    (<= MAX_PAYLOAD; 0 if none)
 //!   u8[payload_len] payload   (present iff payload_len > 0)
 //!
 //! The reader always consumes the fixed-size header first, validates
@@ -75,9 +74,16 @@ pub const MAX_ARGC: u8 = 8;
 /// Maximum length of one argument, in bytes. Paths are not longer.
 pub const MAX_ARG_LEN: u32 = 4096;
 
-/// Maximum payload size, in bytes (100 MiB). Mirrors the original C
-/// MAX_FILE_SIZE and bounds both FILEPUT input and FILEGET output.
-pub const MAX_FILE_SIZE: u64 = 100 * 1024 * 1024;
+/// Maximum payload size, in bytes (64 KiB), in either direction: one
+/// constant, read by `read_request` and `read_response` alike. It replaced
+/// the C-era MAX_FILE_SIZE (100 MiB) when the file opcodes that sized it were
+/// retired (`crate::opcode::RETIRED`; operator ruling of 2026-10-06). The
+/// largest payload any handler reads is a NETCFG ADD at netvm-agent's
+/// MAX_ROUTES, 57 bytes (21 + 4 x 9; a test there pins it), and v1 accepts at
+/// most 30. RUN, PING and SHUTDOWN carry none, and no response carries one.
+/// An unhandled opcode is read in full before its ERR, so this is also the
+/// most such a request can make an agent allocate for its payload.
+pub const MAX_PAYLOAD: u64 = 64 * 1024;
 
 // --- transport default ---------------------------------------------
 
@@ -91,8 +97,8 @@ pub const DEFAULT_CONTROL_PORT: u32 = 1025;
 /// A decoded request, with the opcode left RAW. The shared codec has
 /// validated the frame but deliberately formed no opinion about what the
 /// opcode means — that is the caller's `Op` enum. `payload` holds the
-/// trailing bytes (for FILEPUT); for opcodes without a payload it is
-/// empty.
+/// trailing bytes (NETCFG's structured body); for opcodes without a
+/// payload it is empty.
 #[derive(Debug)]
 pub struct RawRequest {
     pub opcode: u8,
@@ -113,8 +119,9 @@ impl RawRequest {
 
 // --- decoded response (client side) --------------------------------
 
-/// A decoded response. The client cares about `status` (OK / ERR) and,
-/// for FILEGET, the returned `payload`. The mirror of the agent's
+/// A decoded response. The client cares about `status` (OK / ERR). No
+/// opcode answers with a payload today, but the frame carries a
+/// `payload_len`, so it is decoded and bounded. The mirror of the agent's
 /// write_response.
 #[derive(Debug)]
 pub struct Response {
@@ -231,7 +238,7 @@ pub fn read_request(fd: RawFd) -> Result<RawRequest> {
     }
 
     let payload_len = read_u64(fd)?;
-    if payload_len > MAX_FILE_SIZE {
+    if payload_len > MAX_PAYLOAD {
         return Err(AgentError::PayloadTooLarge(payload_len));
     }
 
@@ -249,7 +256,7 @@ pub fn read_request(fd: RawFd) -> Result<RawRequest> {
         args.push(arg);
     }
 
-    // Payload (validated above against MAX_FILE_SIZE).
+    // Payload (validated above against MAX_PAYLOAD).
     let payload = if payload_len > 0 {
         let mut p = vec![0u8; payload_len as usize];
         read_exact(fd, &mut p)?;
@@ -272,20 +279,13 @@ pub fn write_ok(fd: RawFd) -> Result<()> {
     write_response(fd, STATUS_OK, &[])
 }
 
-/// Write an OK response carrying a payload (e.g. FILEGET file bytes).
-pub fn write_ok_payload(fd: RawFd, payload: &[u8]) -> Result<()> {
-    write_response(fd, STATUS_OK, payload)
-}
-
 /// Write an ERR response with no payload.
 pub fn write_err(fd: RawFd) -> Result<()> {
     write_response(fd, STATUS_ERR, &[])
 }
 
-/// Encode and write a response header followed by its payload. The
-/// header is assembled in a small stack buffer and written first, then
-/// the payload streams out — so a large FILEGET does not require
-/// buffering the whole file plus a header copy.
+/// Encode and write a response header followed by its payload. Every
+/// response today is written with an empty payload (write_ok, write_err).
 fn write_response(fd: RawFd, status: u8, payload: &[u8]) -> Result<()> {
     let mut header = [0u8; 1 + 1 + 8];
     header[0] = PROTOCOL_VERSION;
@@ -296,36 +296,6 @@ fn write_response(fd: RawFd, status: u8, payload: &[u8]) -> Result<()> {
         write_all(fd, payload)?;
     }
     Ok(())
-}
-
-// --- streaming helpers for large file bodies -----------------------
-// FILEGET / FILEPUT must not hold an entire file in memory just to
-// frame it. These expose the validated low-level primitives so the
-// handlers can stream directly between a file and the socket while
-// still going through this module's bounds-checked reads/writes.
-
-/// Write a response header announcing `payload_len` bytes to follow,
-/// without sending the payload itself. The caller then streams exactly
-/// `payload_len` bytes via `write_raw`. Used by FILEGET to send a file
-/// without buffering it.
-pub fn write_response_header(fd: RawFd, status: u8, payload_len: u64) -> Result<()> {
-    let mut header = [0u8; 1 + 1 + 8];
-    header[0] = PROTOCOL_VERSION;
-    header[1] = status;
-    header[2..10].copy_from_slice(&payload_len.to_le_bytes());
-    write_all(fd, &header)
-}
-
-/// Stream raw bytes to the socket (post-header). Thin wrapper over the
-/// bounds-checked write loop.
-pub fn write_raw(fd: RawFd, buf: &[u8]) -> Result<()> {
-    write_all(fd, buf)
-}
-
-/// Read raw bytes from the socket into `buf` (used when streaming a
-/// FILEPUT payload to disk in chunks). Thin wrapper over read_exact.
-pub fn read_raw(fd: RawFd, buf: &mut [u8]) -> Result<()> {
-    read_exact(fd, buf)
 }
 
 // --- client-side codec (request encoding / response decoding) ------
@@ -369,7 +339,7 @@ pub fn write_request(fd: RawFd, op: u8, args: &[&[u8]], payload: &[u8]) -> Resul
 
 /// Read and decode one response from `fd`. The symmetric counterpart
 /// to the agent's write_response: it validates the version and bounds
-/// the payload length against MAX_FILE_SIZE before allocating, exactly
+/// the payload length against MAX_PAYLOAD before allocating, exactly
 /// as read_request does for the request direction.
 pub fn read_response(fd: RawFd) -> Result<Response> {
     let version = read_u8(fd)?;
@@ -383,7 +353,7 @@ pub fn read_response(fd: RawFd) -> Result<Response> {
     let status = read_u8(fd)?;
 
     let payload_len = read_u64(fd)?;
-    if payload_len > MAX_FILE_SIZE {
+    if payload_len > MAX_PAYLOAD {
         return Err(AgentError::PayloadTooLarge(payload_len));
     }
 
@@ -424,6 +394,72 @@ mod tests {
     /// property, because the moment the codec starts policing opcodes,
     /// the ADR-021 boundary has silently moved back into the shared
     /// crate, which is exactly what the split was for.
+    #[test]
+    fn max_payload_is_64_kib() {
+        assert_eq!(MAX_PAYLOAD, 65_536);
+    }
+
+    fn pair() -> (RawFd, RawFd) {
+        let mut sv = [0 as RawFd; 2];
+        // SAFETY: sv is a valid two-element out-array for socketpair.
+        let rc = unsafe { libc::socketpair(libc::AF_UNIX, libc::SOCK_STREAM, 0, sv.as_mut_ptr()) };
+        assert_eq!(rc, 0, "socketpair: {}", std::io::Error::last_os_error());
+        (sv[0], sv[1])
+    }
+
+    fn close(fds: [RawFd; 2]) {
+        // SAFETY: both are valid fds the caller owns; each closed once here.
+        unsafe {
+            libc::close(fds[0]);
+            libc::close(fds[1]);
+        }
+    }
+
+    fn request_header(len: u64) -> Vec<u8> {
+        let mut h = vec![PROTOCOL_VERSION, opcode::OP_PING, 0];
+        h.extend_from_slice(&len.to_le_bytes());
+        h
+    }
+
+    /// A request header declaring MAX_PAYLOAD + 1 is refused at the length
+    /// check, before the decoder allocates for or reads the payload. No
+    /// payload byte follows the header and the writer is shut, so a decoder
+    /// that allocated and read first would end in UnexpectedEof instead: the
+    /// variant is what tells the two orders apart.
+    #[test]
+    fn oversized_payload_len_is_refused_before_allocation() {
+        let (rx, tx) = pair();
+        write_all(tx, &request_header(MAX_PAYLOAD + 1)).unwrap();
+        // SAFETY: tx is a valid socket fd.
+        unsafe { libc::shutdown(tx, libc::SHUT_WR) };
+        match read_request(rx) {
+            Err(AgentError::PayloadTooLarge(n)) => assert_eq!(n, MAX_PAYLOAD + 1),
+            other => panic!("expected PayloadTooLarge, got {other:?}"),
+        }
+        close([rx, tx]);
+
+        // The response direction carries the same bound.
+        let (rx, tx) = pair();
+        let mut resp = vec![PROTOCOL_VERSION, STATUS_OK];
+        resp.extend_from_slice(&(MAX_PAYLOAD + 1).to_le_bytes());
+        write_all(tx, &resp).unwrap();
+        // SAFETY: tx is a valid socket fd.
+        unsafe { libc::shutdown(tx, libc::SHUT_WR) };
+        assert!(matches!(read_response(rx), Err(AgentError::PayloadTooLarge(_))));
+        close([rx, tx]);
+    }
+
+    /// The bound is inclusive: a payload of exactly MAX_PAYLOAD decodes.
+    #[test]
+    fn max_payload_itself_is_admitted() {
+        let (rx, tx) = pair();
+        let mut req = request_header(MAX_PAYLOAD);
+        req.extend(std::iter::repeat_n(0xA5u8, MAX_PAYLOAD as usize));
+        write_all(tx, &req).unwrap();
+        assert_eq!(read_request(rx).unwrap().payload.len() as u64, MAX_PAYLOAD);
+        close([rx, tx]);
+    }
+
     #[test]
     fn encoder_does_not_police_opcodes() {
         let buf = encode_request(0xFF, &[], &[]);

@@ -17,8 +17,8 @@
 //! |----------|----------------------------|-----------------------------|
 //! | PING     | handler                    | handler                     |
 //! | RUN      | handler (whitelist)        | absent                      |
-//! | FILEGET  | handler (HOME_PREFIX)      | absent                      |
-//! | FILEPUT  | handler (HOME_PREFIX)      | absent                      |
+//! | 0x03     | retired (was FILEGET)      | retired                     |
+//! | 0x04     | retired (was FILEPUT)      | retired                     |
 //! | SHUTDOWN | handler (-> katmate-init)  | handler (-> systemd, PID 1) |
 //! | NETCFG   | absent                     | handler (privileged)        |
 //!
@@ -28,6 +28,12 @@
 //! netvm-agent on the premise that the host powers q35 down over QMP
 //! `system_powerdown` -> ACPI -> logind; logind needs dbus, which netVM does not
 //! carry, so that path was proven inert and ADR-024 reversed the rule.
+//!
+//! 0x03 (FILEGET) and 0x04 (FILEPUT) were retired on 2026-10-06: nothing on
+//! the host called them, and a file surface into every AppVM was carried for
+//! no user. Their values are listed in `RETIRED` and are never reused, so an
+//! old host client that still sends one meets the plain ERR reply every agent
+//! gives an opcode it has no variant for — never a different handler.
 
 /// Liveness check. The only opcode BOTH agents handle.
 pub const OP_PING: u8 = 0x01;
@@ -35,11 +41,12 @@ pub const OP_PING: u8 = 0x01;
 /// Launch a whitelisted app under waypipe. appVM only.
 pub const OP_RUN: u8 = 0x02;
 
-/// Read a file from the guest's confined home subtree. appVM only.
-pub const OP_FILEGET: u8 = 0x03;
-
-/// Write a file into the guest's confined home subtree. appVM only.
-pub const OP_FILEPUT: u8 = 0x04;
+/// Values that once named an opcode and are retired: 0x03 (FILEGET) and
+/// 0x04 (FILEPUT), retired 2026-10-06. NEVER REUSE ONE. A value here has no
+/// variant in any binary's `Op`, so it is answered with ERR at decode; giving
+/// it a new meaning would let a client written against the old one drive the
+/// new handler. `retired_values_are_never_reused` below enforces it.
+pub const RETIRED: &[u8] = &[0x03, 0x04];
 
 /// Power the guest off from inside. Both agents handle it (ADR-024): vm-agent
 /// asks katmate-init, PID 1, to call `reboot(2)` (microvm has no ACPI);
@@ -60,10 +67,9 @@ pub fn name(op: u8) -> &'static str {
     match op {
         OP_PING => "PING",
         OP_RUN => "RUN",
-        OP_FILEGET => "FILEGET",
-        OP_FILEPUT => "FILEPUT",
         OP_SHUTDOWN => "SHUTDOWN",
         OP_NETCFG => "NETCFG",
+        v if RETIRED.contains(&v) => "RETIRED",
         _ => "UNKNOWN",
     }
 }
@@ -79,25 +85,29 @@ mod tests {
     fn wire_values_are_pinned() {
         assert_eq!(OP_PING, 0x01);
         assert_eq!(OP_RUN, 0x02);
-        assert_eq!(OP_FILEGET, 0x03);
-        assert_eq!(OP_FILEPUT, 0x04);
+        assert_eq!(RETIRED, &[0x03, 0x04]);
         assert_eq!(OP_SHUTDOWN, 0x05);
         assert_eq!(OP_NETCFG, 0x06);
+    }
+
+    /// The set of live opcodes, for the two tests below.
+    const LIVE: [u8; 4] = [OP_PING, OP_RUN, OP_SHUTDOWN, OP_NETCFG];
+
+    /// A retired value must never come back as a live opcode (0x03 and 0x04,
+    /// retired 2026-10-06). A new opcode takes the next free value, 0x07.
+    #[test]
+    fn retired_values_are_never_reused() {
+        for v in RETIRED {
+            assert!(!LIVE.contains(v), "retired opcode {v:#04x} reused");
+            assert_eq!(name(*v), "RETIRED");
+        }
     }
 
     /// No two opcodes may share a value (a collision would make one of them
     /// unreachable, or — worse — silently aliased onto the other's handler).
     #[test]
     fn wire_values_are_unique() {
-        let all = [
-            OP_PING,
-            OP_RUN,
-            OP_FILEGET,
-            OP_FILEPUT,
-            OP_SHUTDOWN,
-            OP_NETCFG,
-        ];
-        let mut seen = all;
+        let mut seen = LIVE;
         seen.sort_unstable();
         let before = seen.len();
         let mut dedup = seen.to_vec();
