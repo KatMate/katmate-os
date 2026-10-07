@@ -239,6 +239,50 @@ remove dev sshd (#4); ~~remove the `usermod -p` dev-root line from `netvm.sh`
 - [ ] Remove the leftover GRUB EFI entry
 - [ ] "Zero console" boot (no text frame between firmware and greeter)
 
+## Windows application windows via RDP RemoteApp (experimental backlog — not committed, no ADR yet)
+
+Windows apps as ordinary per-window Wayland surfaces next to the other
+domains. KatMate ships the **client side only**; the RDP server is the
+guest's business (the user's own Windows licence). The Windows guest is an
+untrusted domain like any other.
+
+**Compatibility target: the latest Microsoft RDP server** (current Windows
+Server / Windows 11 release). The client follows Microsoft's RDP protocol as
+it evolves — GFX pipeline, codecs, CredSSP/NLA, RAIL extensions — and is
+re-validated against each new Windows release; older servers are not a goal.
+
+- [ ] **RDP gateway VM** — a microVM image running `xfreerdp /app:` (RAIL,
+      MS-RDPERP) in its **own rootless XWayland**, so the X11 domain never
+      reaches the host and the RDP client, which parses data from an
+      untrusted server, stays outside the host TCB. RAIL windows leave the
+      gateway as Wayland surfaces over the existing waypipe path (guest-set
+      title label until per-VM `--secctx` lands, v0.3)
+- [ ] **Network shape** — Windows guest ↔ gateway on an isolated virtual link
+      (ADR-022 object model): no route to the host, no uplink except through
+      the chosen netVM. TCP/3389 only; no vsock relay inside Windows (extra
+      maintenance, no gain)
+- [ ] **Channel policy** — drive, USB, printer and smartcard redirection off;
+      clipboard off by default, per-domain opt-in (RDP channels are attack
+      surface in both directions)
+- [ ] **Protocol tracking** — client built against current FreeRDP; on each
+      new Windows release re-check GFX/AVC444, NLA/CredSSP and RAIL
+      behaviour, and record the validated server version
+- [ ] **Guest prerequisites documented** — Pro or higher (Home has no RDP
+      server); `fDisabledAllowList=1` under `TSAppAllowList` on client SKUs
+      (RemoteApp is officially Server/AVD only); one interactive session per
+      client SKU (an RDP logon displaces the console — harmless for a
+      headless guest)
+- [ ] **Domain indicator** — Windows windows carry the same host-drawn domain
+      border/label as other AppVMs (ADR-026)
+- [ ] **Watch, not blocker: Wayland-native RAIL** — whether FreeRDP's
+      Wayland/SDL3 clients reach usable RAIL support (check `client/Wayland`,
+      `client/SDL` and release notes before committing); if so, XWayland
+      drops out of the gateway
+
+Prior art: WinApps (Windows 10/11 in KVM or Docker + FreeRDP `/app:`).
+Depends on: AppVM domain model (ADR-014), network object model (ADR-022),
+per-VM waypipe listeners.
+
 ## Product requirements (not code milestones)
 
 - [ ] **Hardware Compatibility List (HCL)** + **installer IOMMU preflight
