@@ -103,7 +103,7 @@
     # leaves the rest. The file contract is in desktop/README.md.
     input type:keyboard {
         xkb_layout  "us"
-        xkb_options "compose:rctrl,level3:ralt_switch,grp:alt_space_toggle"
+        xkb_options "compose:rctrl,lv3:ralt_switch,grp:alt_space_toggle"
         xkb_numlock enabled
     }
     #   NOTE: grp:alt_space_toggle switches between layouts; it does something
