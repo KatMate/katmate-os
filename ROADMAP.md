@@ -277,7 +277,10 @@ re-validated against each new Windows release; older servers are not a goal.
 - [ ] **Watch, not blocker: Wayland-native RAIL** — whether FreeRDP's
       Wayland/SDL3 clients reach usable RAIL support (check `client/Wayland`,
       `client/SDL` and release notes before committing); if so, XWayland
-      drops out of the gateway
+      drops out of the gateway. *2026-10-08:* `sdl-freerdp3` RAIL worked
+      natively on Wayland on the host ([RAIL-TESTS](docs/RAIL-TESTS.md));
+      not yet verified inside the gateway microVM. The XWayland plan stays
+      as the fallback
 
 Prior art: WinApps (Windows 10/11 in KVM or Docker + FreeRDP `/app:`).
 Depends on: AppVM domain model (ADR-014), network object model (ADR-022),
