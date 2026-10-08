@@ -251,12 +251,15 @@ Server / Windows 11 release). The client follows Microsoft's RDP protocol as
 it evolves — GFX pipeline, codecs, CredSSP/NLA, RAIL extensions — and is
 re-validated against each new Windows release; older servers are not a goal.
 
-- [ ] **RDP gateway VM** — a microVM image running `xfreerdp /app:` (RAIL,
-      MS-RDPERP) in its **own rootless XWayland**, so the X11 domain never
-      reaches the host and the RDP client, which parses data from an
-      untrusted server, stays outside the host TCB. RAIL windows leave the
-      gateway as Wayland surfaces over the existing waypipe path (guest-set
-      title label until per-VM `--secctx` lands, v0.3)
+- [ ] **RDP gateway VM** — a microVM image running the Wayland-native
+      `sdl-freerdp3 /app:` (RAIL, MS-RDPERP), so the RDP client, which parses
+      data from an untrusted server, stays outside the host TCB. RAIL windows
+      leave the gateway as Wayland surfaces over the existing waypipe path
+      (guest-set title label until per-VM `--secctx` lands, v0.3). Native
+      Wayland because RAIL works there
+      ([RAIL-TESTS](docs/RAIL-TESTS.md), 2026-10-08), the `xfreerdp` path
+      under X11 was crashing, and it keeps an X11 server, with its weak
+      client isolation, out of the gateway
 - [ ] **Network shape** — Windows guest ↔ gateway on an isolated virtual link
       (ADR-022 object model): no route to the host, no uplink except through
       the chosen netVM. TCP/3389 only; no vsock relay inside Windows (extra
@@ -274,13 +277,10 @@ re-validated against each new Windows release; older servers are not a goal.
       headless guest)
 - [ ] **Domain indicator** — Windows windows carry the same host-drawn domain
       border/label as other AppVMs (ADR-026)
-- [ ] **Watch, not blocker: Wayland-native RAIL** — whether FreeRDP's
-      Wayland/SDL3 clients reach usable RAIL support (check `client/Wayland`,
-      `client/SDL` and release notes before committing); if so, XWayland
-      drops out of the gateway. *2026-10-08:* `sdl-freerdp3` RAIL worked
-      natively on Wayland on the host ([RAIL-TESTS](docs/RAIL-TESTS.md));
-      not yet verified inside the gateway microVM. The XWayland plan stays
-      as the fallback
+- [ ] **Open: verify `sdl-freerdp3` RAIL inside the gateway microVM** — it
+      worked natively on Wayland on the host on 2026-10-08
+      ([RAIL-TESTS](docs/RAIL-TESTS.md)); not yet verified in the gateway,
+      where its windows reach the host through waypipe
 
 Prior art: WinApps (Windows 10/11 in KVM or Docker + FreeRDP `/app:`).
 Depends on: AppVM domain model (ADR-014), network object model (ADR-022),
