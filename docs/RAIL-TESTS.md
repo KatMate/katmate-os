@@ -8,8 +8,8 @@ windows via RDP RemoteApp*. Newest first.
 
 **Context:** The remote mini PC is a validation testbed only. The goal is to verify RAIL
 behavior (FreeRDP client, window integration, Office as a stress test) before implementing
-Windows 11 as a local KatMate VM subsystem. Findings here inform that implementation;
-the network setup itself is not the target architecture.
+Windows 11 as a local KatMate VM, reached via the gateway microVM as planned in ROADMAP.md.
+Findings here inform that implementation; the network setup itself is not the target architecture.
 
 **Environment:** mini PC N95/16 GB, Win11 Pro, IP 10.3.1.101; client `sdl-freerdp3` (Wayland/SDL).
 
@@ -32,6 +32,7 @@ the network setup itself is not the target architecture.
 - Word: main window, backstage (File → Account), combobox (Office Theme), modal About dialog
   — all OK, correctly positioned in the tiling environment.
 - Clipboard (cliprdr) Win → Linux works.
+- Clipboard was enabled for this testbed only; channel policy default remains off.
 
 **Open items**
 - Keyboard: client sends US layout and overrides the session setting → `/kbd:layout:0x424` (SI), not yet verified.
