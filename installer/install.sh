@@ -634,34 +634,6 @@ mountpoint -q /mnt      || die "/mnt not mounted"
 mountpoint -q /mnt/boot || die "EFI /boot not mounted"
 
 # ---------------------------------------------------------------------------
-# Mirror refresh — reflector + ParallelDownloads before pacstrap
-# (the fastly mirror is unstable; without this pacstrap often fails the
-# first time)
-# ---------------------------------------------------------------------------
-
-log "Mirrorlist refresh"
-
-# ParallelDownloads speeds things up and makes one bad mirror matter less
-sed -i 's/^#\?ParallelDownloads.*/ParallelDownloads = 5/' /etc/pacman.conf
-grep -q '^ParallelDownloads' /etc/pacman.conf || \
-  echo 'ParallelDownloads = 5' >> /etc/pacman.conf
-
-# reflector: geo-close, https, fresh, sorted by rate
-if command -v reflector >/dev/null; then
-  reflector --country Switzerland,Germany,Austria \
-            --protocol https --age 12 --sort rate \
-            --save /etc/pacman.d/mirrorlist \
-    || echo "reflector failed, keeping existing mirrorlist"
-else
-  # fallback: a manual geo-close list (fastly is unstable)
-  cat >/etc/pacman.d/mirrorlist <<'MIRR'
-Server = https://mirror.init7.net/archlinux/$repo/os/$arch
-Server = https://geo.mirror.pkgbuild.com/$repo/os/$arch
-Server = https://mirror.pseudoform.org/$repo/os/$arch
-MIRR
-fi
-
-# ---------------------------------------------------------------------------
 # Pacman keyring
 # ---------------------------------------------------------------------------
 

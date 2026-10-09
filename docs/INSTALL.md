@@ -153,8 +153,8 @@ Run as root, from the extracted archive: `bash installer/install.sh`.
 12. **Partitioning, encryption, LVM, filesystems, mount** — GPT: ESP + LUKS2
     (`cryptlvm`) → `vg0` with `root`, `swap` and `vm_pool`; FAT32 ESP at
     `/boot`, ext4 root, swap on.
-13. **Mirror refresh and pacstrap** — `ParallelDownloads = 5`, `reflector`
-    (CH/DE/AT) with a static fallback; then `base linux-hardened
+13. **Pacstrap** — with the live environment's mirror and download
+    configuration as is (the installer does not change it): `base linux-hardened
     linux-hardened-headers linux-firmware <ucode> lvm2 e2fsprogs efibootmgr
     cryptsetup micro sudo nftables qemu-full plymouth`,
     and the desktop: `sway swaybg waybar swaync greetd greetd-tuigreet foot
