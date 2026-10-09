@@ -57,6 +57,26 @@ require() {
   command -v "$1" >/dev/null || die "Missing command: $1"
 }
 
+# retry <command> [args...]: run an external command up to 3 times, for the
+# network fetches (operator ruling, 2026-10-09). The command runs as an `||`
+# operand, so errexit does not end the script on a failed attempt; this is also
+# why it is for external commands only: a shell function passed here would run
+# its own body with errexit suspended.
+retry() {
+  local attempt rc
+  for attempt in 1 2 3; do
+    rc=0
+    "$@" || rc=$?
+    if (( rc == 0 )); then
+      return 0
+    fi
+    if (( attempt < 3 )); then
+      log "Attempt $attempt of 3 failed (exit $rc), retrying: $1"
+    fi
+  done
+  die "Failed 3 times (last exit $rc): $*"
+}
+
 TREE="$(cd "$(dirname "$(readlink -f -- "$0")")/.." && pwd)"
 
 # ---------------------------------------------------------------------------
@@ -639,8 +659,8 @@ mountpoint -q /mnt/boot || die "EFI /boot not mounted"
 
 log "Pacman keyring"
 
-pacman -Syy --noconfirm
-pacman -S --noconfirm archlinux-keyring
+retry pacman -Syy --noconfirm
+retry pacman -S --noconfirm archlinux-keyring
 
 # ---------------------------------------------------------------------------
 # Pacstrap
@@ -663,7 +683,11 @@ log "Pacstrap"
 UCODE_PKG=""
 [[ -n "$UCODE" ]] && UCODE_PKG="$UCODE"
 
-pacstrap /mnt \
+# retry: a large transfer can stall on some network paths and pacman then
+# aborts it. A re-run resumes from the target's package cache
+# (/mnt/var/cache/pacman/pkg), partial downloads included, so a retry does
+# not start the download over.
+retry pacstrap /mnt \
   base linux-hardened linux-hardened-headers linux-firmware ${UCODE_PKG} \
   lvm2 e2fsprogs \
   efibootmgr cryptsetup \
