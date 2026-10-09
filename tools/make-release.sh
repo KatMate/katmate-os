@@ -317,6 +317,11 @@ done
 mv "$OUTDIR/SHA256SUMS.partial" "$OUTDIR/SHA256SUMS"
 log "SHA256SUMS: $(wc -l < "$OUTDIR/SHA256SUMS") files (partial: the tree archive is added on the Acer)"
 
+# The archive is made with tar.umask=0022. Git's default is 0002, which
+# archives directories 775 and files 664; extracted as root, as on the Arch
+# live ISO, the tree keeps those modes, and the installer's KatMate host parts
+# step then refuses host/usr as group-writable (install.sh, the 8#022 check).
+# Found 2026-10-09 by the first alpha2 install on the Cubi.
 cat <<EOF
 
 ==> Done on this host. The release is NOT complete and NOT signed.
@@ -325,7 +330,7 @@ cat <<EOF
     cd ~/katmate-os
     git fetch origin && git tag -v $TAG
     mkdir -p ~/release-$TAG && cp <the copied SHA256SUMS> ~/release-$TAG/SHA256SUMS
-    git archive --format=tar.gz --prefix=katmate-os-$TAG/ -o ~/release-$TAG/$ARCHIVE $TAG
+    git -c tar.umask=0022 archive --format=tar.gz --prefix=katmate-os-$TAG/ -o ~/release-$TAG/$ARCHIVE $TAG
     (cd ~/release-$TAG && sha256sum $ARCHIVE >> SHA256SUMS && LC_ALL=C sort -k2 -o SHA256SUMS SHA256SUMS)
     gpg --local-user 3F49AE514562ACD3FF9D6049F8841B7B3D3AB436 --armor --detach-sign \\
         --output ~/release-$TAG/SHA256SUMS.asc ~/release-$TAG/SHA256SUMS

@@ -130,6 +130,19 @@ then *Stop all AppVMs*. `docs/PARAMETERS.md` has no empty cell. **Next:**
 the MSI Cubi as the reproducibility gate, and the launch daemon (build order
 step 3b), whose output specification is PARAMETERS.md with
 `katmate-launch`'s tables. See § *This session*.**]**
+**[Note 2026-10-10, `rec-alpha2`: KatMate OS has its first public release,
+`v0.2.0-alpha2`** (tag on `03bffaf`; GitHub prerelease published
+2026-10-09T21:27:39Z). The repository went public on 2026-10-10 00:35 CEST
+(2026-10-09T22:35Z), and that is the project's **inception date**
+(operator ruling 2026-10-10). alpha1 (`ca06ea8`) was installed on the Cubi
+on 2026-10-07 and never published. alpha2 carries alpha1's guest images
+unchanged (decision A, 2026-10-09). alpha2 installed on the Cubi on
+2026-10-09: PASS (the operator). The release record is in § *Next steps*,
+under the release note of 2026-10-05; the post-release backlog follows it,
+as candidates. Of ai6's **Next**, the launch daemon (build order step 3b)
+stands. Whether the alpha2 Cubi install is ai6's and the ROADMAP's *"MSI
+Cubi as the reproducibility gate"* is the operator's to rule, and is not
+ruled.**]**
 
 The **entire build chain remains scripted and proven from nothing**:
 `make foundation` builds the shared systemd-free base
@@ -157,7 +170,9 @@ its hash and the signature are added on the Acer. App layers ship as full
 images and install as standalone thin LVs, not snapshots (delta import is
 post-alpha). Nothing of it has run yet: the MINIS release and the Cubi
 install are the gates. *"Its output is a signed ISO … bake"* above is
-superseded and left as written.**]**
+superseded and left as written.**]** **[2026-10-10: *"Nothing of it has
+run yet"* is superseded. Two releases were made and both installed on the
+Cubi; see the note of 2026-10-10 above and § *Next steps*.]**
 
 What is open is the **VMM process itself**: ADR-027 defines a containment
 gate (C-gate) of which C4 (tightened seccomp) and C5b (no host filesystem export into netVM)
@@ -5112,6 +5127,146 @@ frozen `vm_home_skel` vs qcow2 branch.
   and a KatMate Plymouth theme to system paths. **Next here:** the first
   `make-release.sh` run on MINIS, then the Cubi install from it. The text
   above is left as written.**]**
+  **[Note 2026-10-10 (`rec-alpha2`): the first two releases.** *"Next
+  here"* above is done. Sources: **(op)** is the operator's account, relayed
+  in the rec-alpha2 brief and not observed by the session that wrote this
+  note; **(read)** was read by that cloud session on 2026-10-09, about
+  22:50Z, from the tree, the GitHub API or the downloaded release assets.
+  1. **Inception date: 2026-10-10**, the repository going public at 00:35
+     CEST (2026-10-09T22:35Z) (op; operator ruling 2026-10-10). It
+     supersedes the operator's ruling of 2026-10-09, which put it at
+     2026-10-09 and was never written into the tree. ADR-001's and ADR-002's
+     *"Accepted (project inception)"* in `docs/DECISIONS.md` use the word
+     for the project's start, and are not touched.
+  2. **alpha1 = `ca06ea8`.** Released and installed on the Cubi on
+     2026-10-07: LUKS with the `slovene` keymap, Plymouth, tuigreet, all
+     AppVMs from the menu, vault offline, Firefox browsing (op). Never
+     published: its tag is not on GitHub (read: `git ls-remote --tags
+     origin` lists `v0.2.0-alpha2` only). Superseded by alpha2. Its MINIS
+     half carries earlier stamps (read, from alpha2's assets, which reuse
+     that half; item 3): the four image metas and `netvm.meta` read build
+     times from 2026-10-06T12:03:30Z to 12:29:43Z, and `release.env` reads
+     `ASSEMBLED=2026-10-06T13:06:15Z`, three minutes after `ca06ea8`.
+  3. **alpha2 = `03bffaf`, decision A** (operator ruling 2026-10-09): its
+     guest images are alpha1's, bit-identical (op), because no
+     guest-affecting change landed in `ca06ea8..03bffaf`. This departs from
+     the letter of release ruling R20 of 2026-10-05 (*"built fresh for this
+     release"*, `make-release.sh --built-after`; not ADR-037's R20). **The
+     premise holds in the tree** (read): `git diff --stat ca06ea8 03bffaf`
+     changes 13 files: `CLAUDE.md`, `CREDITS.md`, `ROADMAP.md`, seven under
+     `desktop/` (README, sway config, three waybar files, two SVGs),
+     `docs/INSTALL.md`, `docs/RAIL-TESTS.md` and `installer/install.sh`.
+     None is under `build/`, `manifests/`, `agent/`, `init/`,
+     `third_party/`, `bin/`, `host/` or `tools/`, and the `Makefile` is
+     unchanged. The two commits between the image builds and `ca06ea8`
+     (`15431cb`, `ca06ea8`) change only `tools/make-release.sh`. The
+     MicroVM kernel's config is not in the repository, so this check does
+     not cover it. alpha2's `release.env` reads `RELEASE_TAG=v0.2.0-alpha2`
+     beside alpha1's `ASSEMBLED` stamp; how its tag field came to read
+     alpha2 is not recorded.
+  4. **The archive umask bug** (found 2026-10-09). `git archive` defaults to
+     `tar.umask` 0002, so directories are archived 775 and files 664. GNU
+     tar run as root keeps the archived modes, the installer runs as root on
+     the Arch live ISO, and the *KatMate host parts* step then refuses
+     `host/usr` as group-writable (the `8#022` read-back in
+     `installer/install.sh`), correctly. Measured on the tag (read; git
+     2.43, GNU tar 1.35): the default archive lists `61 drwxrwxr-x`, `115
+     -rw-rw-r--`, `32 -rwxrwxr-x`. Extracted as root, `host/usr/lib` is
+     `775`; extracted by an unprivileged user under umask 022, it is `755`.
+     **The check reads the running tree's modes, not the archive's:**
+     `rel_check_tree` compares content only (`diff -rq`), so the outcome
+     depends on who extracted the tree as well as on the archive. A first
+     alpha2 Cubi install died at *KatMate host parts* on `/usr/lib`, mode
+     775 (op). alpha1's install did not, from an archive made by the same
+     printed command and against the same check
+     (`ca06ea8:installer/install.sh:906`). The operator's account of why
+     was not relayed to this note. **UNVERIFIED.** alpha2's archive was
+     regenerated by hand with `tar.umask=0022`: `61 drwxr-xr-x`, `115
+     -rw-r--r--`, `32 -rwxr-xr-x` (op; the same counts read from the
+     published asset). `SHA256SUMS`, 19 entries, was re-signed by
+     `3F49AE514562ACD3FF9D6049F8841B7B3D3AB436`. The MINIS copy and the USB
+     copy both passed `sha256sum -c` with 0 failures, the USB copy after
+     `drop_caches` (op). The command `tools/make-release.sh` prints now
+     carries `-c tar.umask=0022` (`1091423`). The published archive's tar
+     stream is byte-identical to `git -c tar.umask=0022 archive` of the tag
+     (read). Its `.tar.gz` bytes are not: gzip output differs between git
+     versions, so a regenerated archive does not match `SHA256SUMS`.
+  5. **Cubi install of alpha2, 2026-10-09: PASS** (op). From
+     `install-alpha2.log`, as relayed, with the fingerprint abbreviated in
+     the relay:
+
+     ```
+     28: SHA256SUMS: good signature by 3F49…B436, 19 files listed.
+     34: Running tree equals the signed archive katmate-os-v0.2.0-alpha2.tar.gz.
+     6618: Attempt 1 of 3 failed (exit 1), retrying: pacstrap
+     19633: ==> KatMate host parts
+     19639: ==> Desktop
+     Script done on 2026-10-09 18:50:42+00:00 [COMMAND_EXIT_CODE="0"]
+     ```
+
+     pacstrap's attempt 2 succeeded, and no `ERROR:` line falls between
+     19633 and 19639. Reboot → LUKS → desktop: OK (op). `19503: WARNING:
+     sd-vconsole: "/etc/vconsole.conf" not found` comes from the mkinitcpio
+     run inside pacstrap, before the installer's keymap step writes the
+     file; the later mkinitcpio (~19674) has no warning. Noise, not a
+     fault. **A separate, earlier run the same day** needed two retries:
+     attempts 1 and 2 failed on a fastly/geo mirror with `Operation too
+     slow`, and attempt 3 succeeded (op). The cause on the lab's LTE uplink
+     is a hypothesis, MTU/PMTUD (WireGuard's MTU 1420 behaving as a clamp),
+     and is **not measured**.
+  6. **Publication.** GitHub Release `v0.2.0-alpha2`, prerelease, published
+     2026-10-09T21:27:39Z, 21 assets, 4 151 234 715 bytes (read, API). The
+     asset names are `SHA256SUMS`'s 19 entries plus `SHA256SUMS` and
+     `SHA256SUMS.asc`, and GitHub's sha256 digest of each of the 19 equals
+     its `SHA256SUMS` line (read, 19/19). The signature was verified from
+     the downloaded assets with the key from the archive (op; repeated by
+     this session: *"Good signature from "KatMate <git@katmate-os.org>""*,
+     primary key `3F49 AE51 4562 ACD3 FF9D 6049 F884 1B7B 3D3A B436`). The
+     repository has a description, the homepage `https://katmate-os.org`
+     and nine topics; it is public, and issues are disabled (op).
+     katmate-os.org, outside the repository, links the source, the release
+     and `docs/INSTALL.md` at the tag (op). `/releases/latest` returns 404
+     by design, because GitHub excludes prereleases from it, so links name
+     the tag.
+  7. **The commits of 2026-10-09**, none of them recorded here before:
+     - `8c1250f` CLAUDE.md: briefs and reports live in `~/Claude.assistent/`.
+     - `2d8dd71` waybar: the KatMate mark replaces the Arch glyph on the
+       power-menu button (operator ruling 2026-10-09, 1).
+     - `2ba0af6` waybar: chamfered bottom corners at the bar's group edges
+       (ruling 2026-10-09, 2).
+     - `3afe102` waybar: the host's network module shows a neutral netVM,
+       not an OFF alarm (ruling 2026-10-09, 3).
+     - `bf4a519` docs/INSTALL.md: an `outputs.conf` example under the
+       Desktop step.
+     - `f4ec03a` installer: the live environment's pacman mirror
+       configuration is kept; the reflector (CH/DE/AT) refresh is gone
+       (operator ruling 2026-10-09).
+     - `03bffaf` installer: `pacman -Syy`, the keyring and pacstrap run
+       under `retry`, up to three attempts (operator ruling 2026-10-09).
+  **]**
+- **Post-release backlog** (added 2026-10-10, `rec-alpha2`). **Every item is
+  a candidate, not a ruling**; none is scheduled.
+  - **UEFI boot entry name.** The NVRAM entry reads *"UEFI OS"*; wanted is
+    *"KatMate OS"*, by an `efibootmgr` entry after `bootctl install`
+    (`installer/install.sh`, ~l. 1030). The release notes list it as a
+    known issue.
+  - **Release download resilience.** `installer/lib/release.sh:66`: the
+    `curl` has `--retry 3`, but no resume (`-C -`) and no stall timeout.
+  - **Retry count 3 → 5?** `retry()` in `installer/install.sh`. Open; the
+    operator to rule.
+  - **`vconsole.conf` before pacstrap.** Write it in `installer/install.sh`
+    before pacstrap, so the mkinitcpio run inside pacstrap has it (the
+    `sd-vconsole` warning, item 5 of the release record above).
+  - **Intel targets: early KMS** (`MODULES=(i915)`). Observed on the Acer
+    (Apollo Lake N4200): display hang, `Atomic commit failed` / FIFO
+    underrun (op). Set there by hand: `MODULES=(i915)` with `mkinitcpio
+    -P`, and `i915.enable_psr=0 i915.enable_dc=0` in both loader entries.
+    **The effect after a reboot is not yet observed.** The release notes
+    list early KMS as a known issue for some Intel GPUs.
+  - **LTE path MTU.** One measurement, to settle the MTU/PMTUD hypothesis
+    of the release record's item 5.
+  - **GitHub issues for alpha feedback?** Disabled now. The operator's
+    call.
 - **Host uplink persistence** (dev-only, low priority): USB-NIC
   `enp195s0f3u1u1` / `10.3.1.3` is volatile (`ip addr`). If it should survive a
   reboot, add a persistent profile matched on MAC (`00:e0:4c:39:61:b8`), not the
