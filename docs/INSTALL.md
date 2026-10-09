@@ -191,6 +191,19 @@ Run as root, from the extracted archive: `bash installer/install.sh`.
     keyboard include), waybar and its menus, `km-launch`, `km-shot`,
     `sway-session` and `sway-quiet` in `/usr/local/bin/`, wallpapers, greetd
     with the sway session entry, and the KatMate Plymouth theme.
+
+    Monitors are configured by the user after install, in
+    `/etc/sway/outputs.conf` ([HOST-CONFIG.md § 8](HOST-CONFIG.md#8-sway-output-configuration)).
+    For example, to find the output names and rotate one output:
+
+    ```
+    swaymsg -t get_outputs -p | grep -E '^Output|Current mode'
+    echo 'output HDMI-A-2 transform 90' | sudo tee /etc/sway/outputs.conf
+    swaymsg reload
+    ```
+
+    `transform 270` rotates the other way. Where monitors overlap, `pos X Y`
+    on each output sets its placement. See `man 5 sway-output`.
 21. **Handoff** — writes `/root/install.env` (username, LUKS UUID, ucode,
     keymap; no secrets), copies and runs `postinstall.sh` inside the chroot,
     then removes both — `install.env` also on failure, from the exit trap.
