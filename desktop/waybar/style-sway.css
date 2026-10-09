@@ -38,3 +38,14 @@
 #custom-katmate {
 	background-color: @no1;
 }
+
+/* The power-menu button (custom/arch) shows the KatMate mark in place of the
+   Arch glyph (operator ruling 2026-10-09, 1). The module's text is three
+   spaces; the mark, svg/katmate-mark.svg, is its background image. The
+   colours and :hover of style-cybrbar.css are unchanged. */
+#custom-arch {
+	background-image: url('svg/katmate-mark.svg');
+	background-position: center;
+	background-repeat: no-repeat;
+	background-size: auto 19px;
+}

@@ -23,7 +23,8 @@ desktop/
 │   ├── modules-cybrbar.jsonc       CYBRland's module definitions, pruned to this bar
 │   ├── style-cybrbar.css           CYBRland's stylesheet, pruned to this bar
 │   ├── svg/no1-right.svg           the one powerline arrow the bar draws
-│   └── style-sway.css              @imports style-cybrbar.css, adds .focused
+│   ├── svg/katmate-mark.svg        the KatMate mark on custom/arch (not GPL; CREDITS.md)
+│   └── style-sway.css              @imports style-cybrbar.css, adds .focused and the KatMate overrides
 ├── bin/
 │   ├── sway-session                env wrapper — sway has no `env =`
 │   ├── sway-quiet                  greetd entry's Exec: clears the tty, execs sway-session
@@ -69,7 +70,7 @@ a user's home:
 
 | Path | From | Mode |
 |---|---|---|
-| `/etc/xdg/waybar/config-sway.jsonc`, `modules-cybrbar.jsonc`, `modules-sway.jsonc`, `modules-katmate.jsonc`, `style-cybrbar.css`, `style-sway.css`, `svg/no1-right.svg` | `desktop/waybar/` | 644 |
+| `/etc/xdg/waybar/config-sway.jsonc`, `modules-cybrbar.jsonc`, `modules-sway.jsonc`, `modules-katmate.jsonc`, `style-cybrbar.css`, `style-sway.css`, `svg/no1-right.svg`, `svg/katmate-mark.svg` | `desktop/waybar/` | 644 |
 | `/usr/share/katmate/waybar/katmate-menu.xml`, `power-menu.xml` | `desktop/waybar/` | 644 |
 | `/usr/local/bin/km-launch`, `/usr/local/bin/km-shot` | `desktop/bin/` | 755 |
 
@@ -83,7 +84,8 @@ sudo install -m 644 -D -t /etc/xdg/waybar/ \
     desktop/waybar/config-sway.jsonc desktop/waybar/modules-cybrbar.jsonc \
     desktop/waybar/modules-sway.jsonc desktop/waybar/modules-katmate.jsonc \
     desktop/waybar/style-cybrbar.css desktop/waybar/style-sway.css
-sudo install -m 644 -D -t /etc/xdg/waybar/svg/ desktop/waybar/svg/no1-right.svg
+sudo install -m 644 -D -t /etc/xdg/waybar/svg/ desktop/waybar/svg/no1-right.svg \
+    desktop/waybar/svg/katmate-mark.svg
 sudo install -m 644 -D -t /usr/share/katmate/waybar/ desktop/waybar/katmate-menu.xml desktop/waybar/power-menu.xml
 sudo install -m 755 -D -t /usr/local/bin/ desktop/bin/km-launch desktop/bin/km-shot
 ```
@@ -235,7 +237,9 @@ Two facts are untested and gate the ADR:
 Only swaync is shared now. The sway bar no longer reads
 `~/.config/waybar/{modules.jsonc,style.css,svg/}`: it uses pruned copies of
 them, tracked here (`modules-cybrbar.jsonc`, `style-cybrbar.css`, `svg/`,
-credited in `CREDITS.md`). The Hyprland profile's own copies stay in
+credited in `CREDITS.md`). The one file in `svg/` that is not from CYBRland
+is `katmate-mark.svg`, the KatMate mark, which is not GPL-3.0 (`CREDITS.md`
+§ *KatMate branding*). The Hyprland profile's own copies stay in
 `~/.config/` and remain scherrer-txt's files.
 
 The sway profile uses no rofi (operator ruling 2026-10-05): applications come

@@ -967,7 +967,8 @@ install -m 0644 -D -t /mnt/etc/xdg/waybar/ \
   "$DT/waybar/config-sway.jsonc" "$DT/waybar/modules-cybrbar.jsonc" \
   "$DT/waybar/modules-sway.jsonc" "$DT/waybar/modules-katmate.jsonc" \
   "$DT/waybar/style-cybrbar.css" "$DT/waybar/style-sway.css"
-install -m 0644 -D -t /mnt/etc/xdg/waybar/svg/ "$DT/waybar/svg/no1-right.svg"
+install -m 0644 -D -t /mnt/etc/xdg/waybar/svg/ "$DT/waybar/svg/no1-right.svg" \
+  "$DT/waybar/svg/katmate-mark.svg"
 install -m 0644 -D -t /mnt/usr/share/katmate/waybar/ "$DT/waybar/katmate-menu.xml" "$DT/waybar/power-menu.xml"
 install -m 0755 -D -t /mnt/usr/local/bin/ \
   "$DT/bin/km-launch" "$DT/bin/km-shot" "$DT/bin/sway-session" "$DT/bin/sway-quiet"

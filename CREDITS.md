@@ -33,4 +33,6 @@ bar uses the pruned copies above ([desktop/README.md](desktop/README.md) §
 
 The KatMate logos, including `desktop/plymouth/logo.png` and its 256 px derivative `desktop/plymouth/logo-256.png`, are original hand-made work by **Natasha Qualizza**, a professional designer, created for KatMate before and independently of any AI tooling.
 
-The logos are **not** covered by the repository licence (GPL-3.0): all rights assigned to and held by the KatMate project; all rights reserved. Forks may use the code, but not the KatMate name or logos.
+`desktop/waybar/svg/katmate-mark.svg`, the mark on the bar's power-menu button, is not a new design: it is a mechanical single-colour trace of `desktop/plymouth/logo.png`'s alpha channel (bitmap tracing with potrace), made in an AI-assisted orchestrator session on 2026-10-09. As a derivative of the logo it falls under the same terms as the logos.
+
+The logos and their derivatives named above are **not** covered by the repository licence (GPL-3.0): all rights assigned to and held by the KatMate project; all rights reserved. Forks may use the code, but not the KatMate name or logos.

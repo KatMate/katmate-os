@@ -16,6 +16,9 @@
 # are gone; pulseaudio keeps wpctl, which only changes the host's mixer.
 # custom/arch opens the power menu, power-menu.xml (rule 1), in place of the
 # rofi powermenu; its right-click rofi launcher is gone, not replaced.
+# Its Arch glyph is replaced by the KatMate mark (operator ruling 2026-10-09,
+# 1): the format is three spaces, so waybar keeps the module, and the mark is
+# drawn as a background image by style-sway.css.
 # ---------------------------------------
 */
 {
@@ -134,7 +137,7 @@
 	},
 	/* LOGO */
 	"custom/arch": {
-		"format": "  ",
+		"format": "   ",
 		"tooltip": false,
 		"menu": "on-click",
 		"menu-file": "/usr/share/katmate/waybar/power-menu.xml",
