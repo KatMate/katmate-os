@@ -10,8 +10,8 @@ automatically; the per-session **brief** is not. The division:
 
 - **This file** — what is always true: machine roles, hard constraints, reading
   order, report contract. **It never contains a task.**
-- **The brief** (`~/<step>-brief.md`, untracked) — what this session is to do.
-- **The report** (`~/<step>-report.md`, untracked) — what it did, and where the
+- **The brief** (`~/Claude.assistent/<step>-brief.md`, untracked) — what this session is to do.
+- **The report** (`~/Claude.assistent/<step>-report.md`, untracked) — what it did, and where the
   brief was wrong.
 
 **This file routes; it does not restate.** Every fact in this project lives in
