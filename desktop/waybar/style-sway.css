@@ -73,3 +73,20 @@
 	background-image: url('svg/no1-cut-br.svg');
 	background-position: left;
 }
+
+/* The installed host has no network by design: its NIC is passed through to
+   netVM and it persists no network profile, so the network module is
+   disconnected in normal operation. It shows that in the bar's neutral
+   colours, not the orange alarm style-cybrbar.css gives .disconnected
+   (operator ruling 2026-10-09, 3). Because this file comes after the
+   import, the override would also outrank #network:hover there, so the
+   hover is restated to keep it as before. */
+#network.disconnected {
+	color: @re0;
+	background-color: @no1;
+}
+
+#network.disconnected:hover {
+	color: @re0;
+	background-color: @re2;
+}
