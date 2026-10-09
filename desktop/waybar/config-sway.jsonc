@@ -30,13 +30,16 @@
 		"modules-left": [
 			"custom/katmate",
 			"custom/arch",
-			"sway/workspaces"
+			"sway/workspaces",
+			"custom/cut-left-end"
 		],
 
 		"modules-center": [
+			"custom/cut-center-start",
 			"clock#date",
 			"sway/window",
-			"clock#time"
+			"clock#time",
+			"custom/cut-center-end"
 		],
 
 		"modules-right": [
@@ -46,7 +49,8 @@
 			"network",
 			"battery",
 			"bluetooth",
-			"pulseaudio"
+			"pulseaudio",
+			"custom/cut-right-end"
 		]
 	}
 ]

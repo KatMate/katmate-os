@@ -19,6 +19,7 @@ Files based on CYBRland:
 | `desktop/waybar/modules-cybrbar.jsonc` | CYBRland's waybar module definitions (`modules.jsonc`), pruned to the modules the sway bar shows, with their application-launching click handlers removed |
 | `desktop/waybar/style-cybrbar.css` | CYBRland's waybar stylesheet (`style.css`), pruned to the rules and colours of those modules |
 | `desktop/waybar/svg/no1-right.svg` | CYBRland's `svg/no1-right.svg`, unchanged |
+| `desktop/waybar/svg/no1-cut-br.svg` | CYBRland's `svg/no1-right.svg`, mirrored (cut at the bottom right) |
 | `desktop/bin/sway-session` | the environment section of CYBRland's `hyprland.conf`, whose values it carries over |
 | `desktop/wallpapers/*.jpg` | wallpapers from **cybrpapers** (<https://github.com/cybrcore/cybrpapers>, CC0 1.0, the collection CYBRland uses), reworked by the operator for dark, text-oriented sessions with transparent windows |
 

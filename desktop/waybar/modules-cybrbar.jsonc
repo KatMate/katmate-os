@@ -27,6 +27,24 @@
 		"format": "  ",
 		"tooltip": false
 	},
+	/* Chamfered group edges (operator ruling 2026-10-09, 2), drawn by
+	   style-sway.css in the manner of custom/arrow-right-no1. */
+	"custom/cut-left-end": {
+		"format": "  ",
+		"tooltip": false
+	},
+	"custom/cut-center-start": {
+		"format": "  ",
+		"tooltip": false
+	},
+	"custom/cut-center-end": {
+		"format": "  ",
+		"tooltip": false
+	},
+	"custom/cut-right-end": {
+		"format": "  ",
+		"tooltip": false
+	},
 	/* BATTERY */
 	"battery": {
 		"format": "{capacity}% {icon}",

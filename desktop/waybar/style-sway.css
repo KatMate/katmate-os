@@ -49,3 +49,27 @@
 	background-repeat: no-repeat;
 	background-size: auto 19px;
 }
+
+/* Chamfered bottom corners at four group edges (operator ruling 2026-10-09,
+   2), drawn like #custom-arrow-right-no1 in style-cybrbar.css. The centre
+   group opens with that arrow's no1-right.svg (cut bottom-left); the three
+   group ends use its mirror, no1-cut-br.svg (cut bottom-right). */
+#custom-cut-left-end,
+#custom-cut-center-start,
+#custom-cut-center-end,
+#custom-cut-right-end {
+	background-repeat: no-repeat;
+	background-size: contain;
+}
+
+#custom-cut-center-start {
+	background-image: url('svg/no1-right.svg');
+	background-position: right;
+}
+
+#custom-cut-left-end,
+#custom-cut-center-end,
+#custom-cut-right-end {
+	background-image: url('svg/no1-cut-br.svg');
+	background-position: left;
+}
