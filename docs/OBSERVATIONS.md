@@ -334,7 +334,7 @@ directory is not secure against symlink attacks, and proposed either
 withdrawing write access or mounting a subdirectory `nosymfollow`.
 
 *Bearing on us:* the same class as our open question about
-`path_is_allowed` in `vm-agent` ([`state.md` Open problem #13](https://github.com/KatMate/katmate-os/blob/v0.2.0-alpha2/state.md)). It gives us
+`path_is_allowed` in `vm-agent` ([`state.md` open problem #16](https://github.com/KatMate/katmate-os/blob/v0.2.0-alpha2/state.md), closed). It gives us
 a second candidate remedy — a `nosymfollow` mount on the exposed subtree
 — alongside in-code resolution with `openat2(RESOLVE_BENEATH)` or
 canonicalise-then-check. Our own instance remains **unverified**; the

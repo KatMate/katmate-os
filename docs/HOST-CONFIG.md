@@ -296,7 +296,7 @@ verified as a configured requirement)
 **Note 2026-10-02 (`ai2`, R126): the pool is 6144 × 2 MiB = 12 GiB.**
 On MINIS, `/etc/sysctl.d/hugepages.conf` sets `vm.nr_hugepages = 6144` and
 takes effect at the next boot. ai2 applies the change and reboots, and the
-`HugePages_Total` read after that boot is in [`state.md` § *Live state*](DEV-ENV.md).
+`HugePages_Total` read after that boot is in [`docs/DEV-ENV.md`](DEV-ENV.md).
 **Capacity:** the four alpha AppVMs take `web` 4G plus `personal`, `office`
 and `vault` at 2G each, 10 GiB in all. That does not fit 8 GiB and does fit
 12 GiB, with 2 GiB to spare. Reserved pages are withheld from the host
@@ -469,7 +469,7 @@ distro `waypipe` was removed from MINIS the same day (`pacman -Rs waypipe`);
   `[::]`, not a vsock listener. That is a network-reachable listener on the
   host, where the design has only vsock.
 
-See [`../state.md` open problem #31](OPEN-PROBLEMS.md) (location; tracking still open),
+See [open problem #31](OPEN-PROBLEMS.md) (location; tracking still open),
 [ADR-019](adr/ADR-019.md), and [ADR-036](adr/ADR-036.md)
 (PROPOSED), which would place the ingress in the system rather than the user
 session.
@@ -723,6 +723,7 @@ notifies rather than overwrites.
 
 - Dev-only scaffolding that must be **removed** before release — host sshd
   (open problem #4), the `usermod -p` line in `netvm.sh` (#12), installer
-  secrets (#3). Those are release blockers tracked in [`../state.md`](OPEN-PROBLEMS.md), not host
-  requirements.
+  secrets (#3, resolved: the installer carries none since 2026-10-04). Release
+  blockers are tracked in [`docs/OPEN-PROBLEMS.md`](OPEN-PROBLEMS.md), not
+  host requirements.
 - Anything tracked in git. If it is in the repo, it is not host configuration.

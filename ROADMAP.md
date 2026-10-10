@@ -52,7 +52,7 @@
       foundation` exercises them.
       **[Note 2026-09-27: step 10's field and step 11's install executed** in
       the foundation rebuild of 2026-09-26 (`KERNEL_PROVENANCE=recorded`;
-      [`state.md` open problem #22](docs/OPEN-PROBLEMS.md)). The item stays open, because nothing
+      [open problem #22](docs/OPEN-PROBLEMS.md)). The item stays open, because nothing
       checks the record yet.**]**
 - [ ] Kernel provenance: the release orchestrator's presence check (ADR-034
       § A.3) — **blocked by open problem #25**, not deferred. `KERNEL_SRC_DIR`

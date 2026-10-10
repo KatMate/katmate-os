@@ -24,7 +24,7 @@ repository.
 
 8. **VPN key co-located with the NIC driver (v1, accepted).** In the v1 graph
    the WireGuard private key and `r8169` + the non-free Realtek blob share one
-   address space. ADR-022 already permits the fix (driver domain q35 =
+   address space. [ADR-022](adr/ADR-022.md) already permits the fix (driver domain q35 =
    hardware, no secrets; proxy netVM microvm = secrets, no hardware);
    deliberately post-v1. SECURITY-MODEL gap 7.
 
@@ -39,9 +39,9 @@ repository.
      xHCI shares group 5 with the Shared SRAM.
    - **MINIS** (`7.2.8-hardened`): AMD-Vi IR enabled, `amd_iommu=on` an
      unknown option, default domain Passthrough from `iommu=pt` (since removed,
-     ADR-040). RTL8125 alone in group 12, on `vfio-pci`.
+     [ADR-040](adr/ADR-040.md)). RTL8125 alone in group 12, on `vfio-pci`.
    - **Both** Realtek NICs report the same PCIe DSN `01-00-00-00-68-4c-e0-00`;
-     a fact bearing on ADR-030 §5's descriptor question, nothing concluded.
+     a fact bearing on [ADR-030](adr/ADR-030.md) §5's descriptor question, nothing concluded.
 
    **Open:** the HCL half.
 
@@ -56,8 +56,8 @@ repository.
    line is gone (`23e4268`), so the original debt is discharged. **Open:**
    `netvm-agent` has no RUN opcode or equivalent, so in-guest checks cost the
    dev console (a FIFO on the VM's stdin; scaffolding on the removal list).
-   The cost was shown at ADR-027's C5b gate (2026-07-28), settled host-side
-   instead; ADR-025's live gate relied on the console. Closes with a
+   The cost was shown at [ADR-027](adr/ADR-027.md)'s C5b gate (2026-07-28), settled host-side
+   instead; [ADR-025](adr/ADR-025.md)'s live gate relied on the console. Closes with a
    structured observation path in `netvm-agent`. Removed with the dev sshd (#4).
 
 14. **`netvm.sh` does not fully verify agent binary freshness.** The `die` half
@@ -70,7 +70,7 @@ repository.
 17. **C-gate remainder — netVM VMM privilege (C1, C2, C3, C5a).** QEMU runs as
    root, without chroot or Landlock, in `init_netns` (written against
    `net-sys.con` under `sudo`). C4 and C5b passed 2026-07-28. **Blocks all
-   axis-2 work** (ADR-027). Re-scoped by ADR-029: C1, C3, C5a are unit
+   axis-2 work** ([ADR-027](adr/ADR-027.md)). Re-scoped by [ADR-029](adr/ADR-029.md): C1, C3, C5a are unit
    directives (`User=`, `LimitMEMLOCK=infinity`, a `setpriv`-style Landlock
    wrapper in `ExecStart=`; Landlock is inherited across `execve`, no QEMU
    patch), privileged preparation in `ExecStartPre=+`, cleanup in
@@ -81,31 +81,31 @@ repository.
 
 18. **vsock CID space is global on the host (C6).** Any host process can reach
    any VM's agent on port 1025. Fix: per-VM netns with `child_ns_mode=local`
-   (Linux ≥ 7.0). Measured (ADR-029 G0/G1): `child_ns_mode` is write-once and
+   (Linux ≥ 7.0). Measured ([ADR-029](adr/ADR-029.md) G0/G1): `child_ns_mode` is write-once and
    `ns_mode` immutable, so this is a one-time preparation on a dedicated
-   `katmate-root` namespace, not a daemon-start decision as ADR-028 states;
+   `katmate-root` namespace, not a daemon-start decision as [ADR-028](adr/ADR-028.md) states;
    `init_netns` is never written. `ip netns add` does not nest, so the daemon
    creates namespaces itself (`setns` → `unshare` → bind-mount) and hands the
    named result to the unit via `NetworkNamespacePath=`. Per-netns sysctls
    need `/proc` remounted, or the old namespace's value is read. **Open:** how
    the daemon reaches every VM (`setns` on demand vs per-namespace sockets).
    With CID reuse the domain indicator's identity becomes (netns, CID), so C6
-   and ADR-026 are revisited together. SECURITY-MODEL gap 12; mechanism in
+   and [ADR-026](adr/ADR-026.md) are revisited together. SECURITY-MODEL gap 12; mechanism in
    ADR-028.
 
 21. **Every stop is a hard termination; the clean path is not wired.** The
    clean path exists: `netvm-agent`'s SHUTDOWN `0x05` signals PID 1 with
-   `SIGRTMIN+4` under `CAP_KILL` (ADR-024), dbus-free. Missing:
+   `SIGRTMIN+4` under `CAP_KILL` ([ADR-024](adr/ADR-024.md)), dbus-free. Missing:
    `katmate-sys-driver@.service` has no `ExecStop=` invoking it, so `stop` is
    SIGTERM to QEMU. Measured once: the next boot replayed the ext4 journal;
    the initrd carries no `fsck`, so the filesystem is never checked, and that
    stays true after wiring (a `TimeoutStopSec` miss falls back to SIGTERM).
    **Order:** (a) gate PING and SHUTDOWN from the host, (b) add `ExecStop=`,
    (c) re-measure the stop path; wiring first would repeat the failure that
-   killed ADR-021's QMP→ACPI→logind shutdown and ADR-025's Path A. Also: the
+   killed [ADR-021](adr/ADR-021.md)'s QMP→ACPI→logind shutdown and [ADR-025](adr/ADR-025.md)'s Path A. Also: the
    stop deactivates no LV (disposable AppVMs will need it); the measurement was
-   taken with QEMU as root and is retaken after the `User=` split (ADR-027
-   C1/C3/C5a). An init refusal (ADR-038 §9) is expected to end inactive like a
+   taken with QEMU as root and is retaken after the `User=` split ([ADR-027](adr/ADR-027.md)
+   C1/C3/C5a). An init refusal ([ADR-038](adr/ADR-038.md) §9) is expected to end inactive like a
    clean stop; `systemctl show` reads defaults after a clean stop, and the
    journal shape (*"Deactivated successfully"*, no *"Main process exited"*) is
    the record; an init refusal's shape is not observed.
@@ -128,7 +128,7 @@ repository.
      one bit; neither form carries a commit SHA.
    - **Acer:** broken; `auto.conf` was overwritten 47 days after the link
      (`.config.old` `4e30950b…` is post-build), so no sidecar, deliberately.
-   - **Mechanism (ADR-034, accepted):** `tools/capture-kernel-provenance`
+   - **Mechanism ([ADR-034](adr/ADR-034.md), accepted):** `tools/capture-kernel-provenance`
      (`5b1f16c3…`); `kernel_provenance_check()` in `build/lib.sh`, run in
      `build/foundation.sh`'s preflight; `KERNEL_PROVENANCE` in
      `foundation.meta` (step 10); the sidecar installed at step 11
@@ -139,31 +139,22 @@ repository.
    - **Open:** nothing reads or checks the sidecar at install or launch;
      ADR-034 § A.3's presence check is blocked by #25. Closes when the
      pipeline carries and checks the record. A release-blocker candidate: a
-     filename asserting an identity that does not hold (cf. ADR-032's
+     filename asserting an identity that does not hold (cf. [ADR-032](adr/ADR-032.md)'s
      2026-08-22 note).
    - Side facts: a config is not environment-independent
      (`CONFIG_PAHOLE_VERSION` differed in a spare copy, `499a53a2…`, deleted
      2026-09-27, as was the stray `linux-6.12.94` tree, #42). The MINIS config
      header reads 6.12.87 with `IP_PNP`, `IPV6`, `VIRTIO_NET` =y, consistent
-     with boots (ADR-035's note of 2026-09-28). `netconsole` is #52.
+     with boots ([ADR-035](adr/ADR-035.md)'s note of 2026-09-28). `netconsole` is #52.
 
-23. **A link's socket outlives its process, including on a failed start.**
-   QEMU `unlink()`s before `bind()` but never at exit; three failed `N`=32
-   starts (device realisation) left 96 sockets. So `ExecStopPost=` unlinks the
-   slot's socket, and file presence is not liveness, systemd's unit state is
-   (the same rule as ADR-032's 2026-08-22 note for `/run/katmate/`, where the
-   projection is deliberately kept). Both halves written: netVM's sixteen
-   `netvm` paths (`1597445`, R74; ADR-037) and the AppVM's `appvm` (`d6feb9c`,
-   R81, R84). The AppVM half is observed (ADR-035's note of 2026-09-29).
-   **Open as of 2026-09-29:** netVM's half had not executed.
 
 24. **IPv6 router solicitations from AppVM guests; RAs from netVM.** An answering
    RA would give an AppVM SLAAC addressing outside NETCFG, the only source
-   (ADR-023, ADR-025). **AppVM half closed:** ADR-038 (R77) makes AppVMs
+   ([ADR-023](adr/ADR-023.md), [ADR-025](adr/ADR-025.md)). **AppVM half closed:** [ADR-038](adr/ADR-038.md) (R77) makes AppVMs
    IPv4-only via `ipv6.disable=1` (R66, R76), observed in G1 (R89). R49 is no
-   witness for RS (R76; ADR-035's note of 2026-09-28). **Open:** whether netVM
+   witness for RS (R76; [ADR-035](adr/ADR-035.md)'s note of 2026-09-28). **Open:** whether netVM
    sends RAs on internal links is unread; netVM's `accept_ra=1` stands; *no RA
-   from netVM* is not taken (carried by ADR-037).
+   from netVM* is not taken (carried by [ADR-037](adr/ADR-037.md)).
 
 25. **`KERNEL_SRC_DIR` derives from `$HOME` and resolves under `/root`.**
    `build/config.sh:33` defaults to `$HOME/katmate-kernels`; both scripts that
@@ -171,7 +162,7 @@ repository.
    `build/katmate-update.sh:114` dies there with a wrong cause (`:115`) and
    `:121` logs the wrong path; `build/foundation.sh:52,53,132` prints it in
    diagnostics only; `Makefile:23,45,47` hardcodes the right path and is
-   unaffected. Fails safe (dies before any mutation). Blocks ADR-034 § A.3's
+   unaffected. Fails safe (dies before any mutation). Blocks [ADR-034](adr/ADR-034.md) § A.3's
    presence check (pointer in `ROADMAP.md`). Not fixed.
 
 26. **`katmate-update.sh` refuses an instance delta of unknown app type.** The
@@ -182,38 +173,38 @@ repository.
 28. **No bound on an instance name's length.** `km_check_instance`
    (`host/usr/lib/katmate/katmate-lib.sh:67`, `^[a-z][a-z0-9_]*$`) is the only
    check `katmate-generate-env:48` applies; `tools/validate-properties.fish`
-   never reads the name. Under ADR-035 §5 the name reaches
+   never reads the name. Under [ADR-035](adr/ADR-035.md) §5 the name reaches
    `/run/katmate/link/<netvm>/<kk>/netvm`, and `sun_path` is 108 bytes: fixed
    part 27, so the netVM name bound is **80** (81 without the NUL). A longer
-   name fails at `bind()`, silently (ADR-033). ADR-035 §5 says *"roughly
+   name fails at `bind()`, silently ([ADR-033](adr/ADR-033.md)). ADR-035 §5 says *"roughly
    seventy"*; the discrepancy awaits the operator. Where the bound goes is a
    decision; none was added.
 
 30. **The host kernel's required-symbol set is recorded nowhere.** Load-bearing
-   symbols: `vsock_diag` (ADR-026 E4/E6), the vsock namespace symbols (ADR-028
-   C6, ADR-029 G0/G1; Linux ≥ 7.0), `TMPFS_POSIX_ACL` (ADR-035's note of
+   symbols: `vsock_diag` ([ADR-026](adr/ADR-026.md) E4/E6), the vsock namespace symbols ([ADR-028](adr/ADR-028.md)
+   C6, [ADR-029](adr/ADR-029.md) G0/G1; Linux ≥ 7.0), `TMPFS_POSIX_ACL` ([ADR-035](adr/ADR-035.md)'s note of
    2026-09-15), KVM/VFIO/IOMMU, and whatever boot hardening adds. The host
-   ran stock `7.0.12-arch1-1`, outside ADR-004's `linux-hardened`, for an
-   unrecorded interval (2026-08-02 gates). **Open sub-question:** whether the
-   host config is readable at runtime (`/proc/config.gz`) or only from the
-   package. `state.md` (alpha2) `:68`, `:1118`, `:1269` are the old
-   citations; #22's `extract-ikconfig` result is the guest image. Distinct
-   from #22. From ADR-036 § 7, G4.
+   ran stock `7.0.12-arch1-1`, outside [ADR-004](adr/ADR-004.md)'s `linux-hardened`, for an
+   unrecorded interval (2026-08-02 gates). **Sub-question closed:**
+   `/proc/config.gz` is readable at runtime on the host ([ADR-040](adr/ADR-040.md)'s note,
+   `7.2.8-hardened`); the open part is that the set is still recorded
+   nowhere. `state.md` (alpha2) `:68`, `:1118`, `:1269` are the old citations; #22's `extract-ikconfig` result is the guest image. Distinct
+   from #22. From [ADR-036](adr/ADR-036.md) § 7, G4.
 
-31. **The GUI ingress is not in version control.** ADR-036 § 2 makes locating
+31. **The GUI ingress is not in version control.** [ADR-036](adr/ADR-036.md) § 2 makes locating
    it a precondition. On 2026-09-18 `git ls-files` found two units
    (`host/usr/lib/systemd/system/katmate-publish-nics.service`,
    `host/usr/lib/systemd/system/katmate-sys-driver@.service`), neither the
-   listener; `waypipe-client` occurred only in ADR-019 (then in
+   listener; `waypipe-client` occurred only in [ADR-019](adr/ADR-019.md) (then in
    `docs/DECISIONS.md`). Located 2026-09-26: the unit files exist only on
    MINIS, in `~/.config/systemd/user/`, untracked; `docs/HOST-CONFIG.md` § 11
    now carries the requirement. **Open:** tracking the unit, and ADR-036's
    placement of it (PROPOSED).
 
 32. **Whether user theming reaches the domain-indicator carriers is unmeasured.**
-   ADR-026's two carriers (bar module, focused border colour) are both
+   [ADR-026](adr/ADR-026.md)'s two carriers (bar module, focused border colour) are both
    theme-settable values, and nothing shows a user theme cannot reach them; if
-   one can, the identity path is user-modifiable today. ADR-036 asks for a
+   one can, the identity path is user-modifiable today. [ADR-036](adr/ADR-036.md) asks for a
    measurement. Nothing was run.
 
 35. **Foundation dependency debt.** The foundation carries `systemd`,
@@ -249,7 +240,7 @@ repository.
    `Path=pci-0000:00:04.0` in `60-katmate-uplink.link` (`netvm.meta`
    `UPLINK_PCI_ADDR`, R13) are one constant on two update tracks. A mismatch
    is predicted to fail closed (no `uplink0`, no dhcpcd R14, no egress),
-   caught by G2 (ADR-037). Both agree today, read by hand. **Open:** an
+   caught by G2 ([ADR-037](adr/ADR-037.md)). Both agree today, read by hand. **Open:** an
    automated preflight.
 
 46. **Parts of networking arc step 3 have not run as installed.** Written and
@@ -287,14 +278,14 @@ repository.
 
 55. **An AppVM reaches the host's own LAN address (development configuration
    only).** The product host has no NIC of its own. On MINIS the dev NIC
-   `10.3.1.3` shares the LAN with netVM's uplink (ADR-037 G5; R99). The host's
+   `10.3.1.3` shares the LAN with netVM's uplink ([ADR-037](adr/ADR-037.md) G5; R99). The host's
    `inet filter input` accepts ICMP and TCP 22 (sshd, #4) and rejects or drops
    the rest (`wp-0929e`'s P-check). **Open, undecided:** a host drop for netVM's
    uplink address, or a netVM `forward` drop for segment → host LAN address.
 
 56. **The shared decoder reads the body before rejecting an unhandled opcode.**
-   ADR-039 specified validating the command in the fixed header first; since
-   the workspace split (ADR-021) `read_request`
+   [ADR-039](adr/ADR-039.md) specified validating the command in the fixed header first; since
+   the workspace split ([ADR-021](adr/ADR-021.md)) `read_request`
    (`agent/crates/katmate-protocol/src/frame.rs:215`) reads the opcode unmapped
    and each binary maps it afterwards. Cost: a read and allocation up to
    `MAX_PAYLOAD` (64 KiB) before ERR. The peer is the host (TCB; see #18).

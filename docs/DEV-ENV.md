@@ -12,14 +12,6 @@ netVM) · `20–99` fixed persistent AppVMs · `≥100` disposable pool. Applied
 `tools/validate-properties.fish`. Allocated: netVM 3, `app_web` 21,
 `app_personal` 22, `app_work` 23, `app_vault` 24.
 
-- **MINIS `~/` housekeeping, 2026-07-25 (historical).** The pre-sysVM launchers,
-  overlays and LVs were removed (~131 G). `~/net-sys.con` is a symlink into
-  `~/katmate-build/`.
-
-- **personalVM artefacts removed, 2026-08-02 (historical).** `vm_personal_home`
-  was absent by 2026-08-17 (`ROADMAP.md` repeats the removal). The `personal`
-  archetype (ADR-014) returned as `app_personal`.
-
 - **Host** (Arch): Ryzen 7 8745H, AMD-Vi + vfio. `vg0`: `root` 100G, `swap` 12G,
   `vm_pool` thin pool. Kernel `7.2.8-hardened1-1-hardened`, booted 2026-10-02
   14:03:24 (stock `linux 7.2.6.arch2-1` also installed). Guest microVM kernel
@@ -63,11 +55,6 @@ netVM) · `20–99` fixed persistent AppVMs · `≥100` disposable pool. Applied
   - **Build launch form:** a netVM build runs as a transient `systemd-run` unit
     started through `sudo -n bash`, so an ssh drop cannot kill it; followed by
     journal and log file. It has no `HOME` (`docs/INVARIANTS.md`).
-
-- **[CLOSED] Installed vs tree, 2026-08-22 (historical).** The one deliberate
-  difference (`katmate-generate-env`'s wording) ended 2026-09-27, when the set
-  was re-installed equal to the tree at `c37f9d1`. G6's transcript in
-  `3a2-g6h1-report.md` § B.4 quotes the old wording.
 
 - **foundation** (`vm_tpl_foundation`, thin RO): katmate-init is
   `/usr/sbin/init`, systemd's binary diverted to `/usr/sbin/init.systemd`
@@ -130,17 +117,6 @@ netVM) · `20–99` fixed persistent AppVMs · `≥100` disposable pool. Applied
     netVM restart, not stated); `host/usr` re-synced at `49a172d`, and the
     hash-first check against it is the next session's first action. Deltas stay
     `host:host`, T1 files hand-installed.
-  - Superseded states (full text at the pinned link): installed sets equal to
-    `c37f9d1`, `5bc028a`, `81e0736`, `46f8a26`, `a64c13d`, `6023a86`,
-    `f9c98a7`, `8acd433` (with `8cb5fb9` not installed), `431ab9e` (R133) and
-    `87bd0ff`; foundations from `647a380`, `a64c13d` (R91, R93 → R98) and
-    `db1d153` (R125); vm-agent `87ebdcaa…` (R130); the gated AppVM (ADR-038);
-    `app_web.con` never beside the routed unit (R61); the pre-ADR-037 image,
-    its internal tap and the AppVM link (ADR-029 C2); `manifests/netvm.conf.d`
-    baked by step 5.
-
-- **personalVM: gone (historical).** The last pre-foundation artefact; returned
-  as a domain, not as this VM.
 
 - **app_web** (CID 21, slot 01, `LINK_ID` 201): routed T1 (`be542506…`,
   `identity = false` with its NEEDS REVIEW comment); delta
@@ -195,10 +171,6 @@ netVM) · `20–99` fixed persistent AppVMs · `≥100` disposable pool. Applied
     `qtwayland5`, foot, pcmanfm. RUN `keepassxc` opens a window since vm-agent
     sets the Qt platform (R146; R139 and R140 tests). Values:
     `docs/PARAMETERS.md`.
-
-- **Set aside 2026-09-26 (`_pre0926`) (historical).** Removed 2026-09-27; the
-  non-LV parts are in `~/katmate-dev/removed-0927b/` on MINIS. Nothing
-  `_pre0926` remains.
 
 - **Host GUI ingress (`waypipe-client`, user unit).** The unit files live only
   on MINIS, in `~/.config/systemd/user/`, untracked (#31). `ExecStart` is
