@@ -261,7 +261,7 @@ while IFS= read -r -d '' rel; do
   owner="$(stat -c '%u:%g' -- "$NETVM_MNT/$rel")" \
     || die "step 5 read-back: $rel is in the conf tree but not in the image"
   [[ "$owner" == "0:0" ]] \
-    || die "step 5 read-back: /$rel is owned $owner in the image, expected 0:0 (open problem #38)"
+    || die "step 5 read-back: /$rel is owned $owner in the image, expected 0:0 (step 5 copies with --no-preserve=ownership)"
   NETVM_CONFD_PATHS=$((NETVM_CONFD_PATHS + 1))
 done < <(cd "$NETVM_CONFD" && find . -mindepth 1 -printf '%P\0')
 [[ $NETVM_CONFD_PATHS -gt 0 ]] || die "step 5 read-back: the conf tree $NETVM_CONFD yielded no paths"

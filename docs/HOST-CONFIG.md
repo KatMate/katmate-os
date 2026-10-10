@@ -722,8 +722,9 @@ notifies rather than overwrites.
 # Not in this file
 
 - Dev-only scaffolding that must be **removed** before release — host sshd
-  (open problem #4), the `usermod -p` line in `netvm.sh` (#12), installer
-  secrets (#3, resolved: the installer carries none since 2026-10-04). Release
-  blockers are tracked in [`docs/OPEN-PROBLEMS.md`](OPEN-PROBLEMS.md), not
+  (open problem #4), netVM's root unlock (dev-only, opt-in via
+  `KATMATE_DEV_ROOT_HASH`; `tools/make-release.sh` refuses an image with
+  `NETVM_ROOT_UNLOCKED=yes`), installer secrets (#3, resolved: the installer
+  carries none since 2026-10-04). Release blockers are tracked in [`docs/OPEN-PROBLEMS.md`](OPEN-PROBLEMS.md), not
   host requirements.
 - Anything tracked in git. If it is in the repo, it is not host configuration.

@@ -304,7 +304,7 @@ if CMDLINE="$(cat /proc/cmdline 2>/dev/null)"; then
   set +f
   say "  IOMMU-related parameters this kernel was booted with: ${IOMMU_PARAMS:-none}"
   if [[ " $IOMMU_PARAMS " == *" amd_iommu=on "* ]]; then
-    say "  note: 'on' is not an amd_iommu= option; the kernel logs 'AMD-Vi: Unknown option' and ignores it (state.md, Invariants)"
+    say "  note: 'on' is not an amd_iommu= option; the kernel logs 'AMD-Vi: Unknown option' and ignores it (ADR-040)"
   fi
   record "cmdline" PASS "IOMMU parameters: ${IOMMU_PARAMS:-none}"
 else
