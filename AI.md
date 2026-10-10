@@ -38,8 +38,9 @@ it first. In short:
   it.
 - **Gates are passed by observation only.** An observation is quoted
   verbatim, or the gate is not passed. What was not run is not claimed.
-- **Every commit on `main` is reviewed and GPG-signed by me**, with the one
-  exception recorded under *Provenance*.
+- **Every commit on `main` is reviewed and GPG-signed by me**, except five
+  documentation commits of 2026-10-08 (`cf580a4` to `c878a2f`) that reached
+  `main` unsigned from a cloud session.
 
 ## What else this project is
 
