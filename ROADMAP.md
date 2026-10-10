@@ -52,7 +52,7 @@
       foundation` exercises them.
       **[Note 2026-09-27: step 10's field and step 11's install executed** in
       the foundation rebuild of 2026-09-26 (`KERNEL_PROVENANCE=recorded`;
-      `state.md` open problem #22). The item stays open, because nothing
+      [`state.md` open problem #22](docs/OPEN-PROBLEMS.md)). The item stays open, because nothing
       checks the record yet.**]**
 - [ ] Kernel provenance: the release orchestrator's presence check (ADR-034
       § A.3) — **blocked by open problem #25**, not deferred. `KERNEL_SRC_DIR`
@@ -168,7 +168,7 @@ depends on that daemon staying alive.
    **[Note 2026-09-27: not "at install time".** Under ADR-037 R2 the VPN is a
    post-install option the user enables by supplying a WireGuard config. VPN
    mode is **networking arc step 5**, under its own ADR (R30, in ADR-037's
-   note on the step-3 rulings; `state.md` § *Next steps*). That is the
+   note on the step-3 rulings; [`state.md` § *Next steps*](https://github.com/KatMate/katmate-os/blob/v0.2.0-alpha2/state.md)). That is the
    networking arc's numbering, not this build order's step 5. The text above
    is left as written.**]**
 5. **Default AppVMs** — instantiate the domains from two manifests + properties;
@@ -211,14 +211,14 @@ complementing the per-mechanism gates.
   (the operator, 4–6 s from click to window). `docs/PARAMETERS.md` has no
   empty cell (12 rows). **The engineering of the alpha is done.** Not done:
   the MSI Cubi as the reproducibility gate (*Order* above), and the launch
-  daemon that replaces `katmate-launch` (step 3b). See `state.md`.**]**
+  daemon that replaces `katmate-launch` (step 3b). See [`state.md`](https://github.com/KatMate/katmate-os/blob/v0.2.0-alpha2/state.md).**]**
 - **Framing:** it demonstrates a wider isolation framework, and shows which
   parameters are still hand-set, why, and where in the path they sit.
 
 **Parallel (off critical path, before releasing step 6):** remove installer
 secrets (still open) + ~~rotate burned WG key~~ **done (R162)** + drop `Hidden=true` (SECURITY-MODEL #1–2);
 remove dev sshd (#4); ~~remove the `usermod -p` dev-root line from `netvm.sh`
-(#12)~~ **done in `23e4268` (2026-09-03)** — see the operational note in `state.md`.
+(#12)~~ **done in `23e4268` (2026-09-03)** — see the operational note in [`state.md`](https://github.com/KatMate/katmate-os/blob/v0.2.0-alpha2/state.md).
 **Opportunistic:** suspend/resume under linux-hardened; hibernation decision
 (resume hook or shrink swap); `qemu-full` → `qemu-base`.
 

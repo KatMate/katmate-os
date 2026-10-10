@@ -22,7 +22,7 @@
 #
 # Interni podukazi (__locked_*) tečejo ŽE pod lockom — ne kliči jih neposredno.
 
-# CID mapa (ADR-022, avtoritativna v state.md):
+# CID mapa (ADR-022, avtoritativna v docs/DEV-ENV.md):
 #   2 host · 3–19 sysVM · 20–99 fiksni AppVM (avtorirani v properties.toml) ·
 #   >=100 dinamični disposable pool. To orodje upravlja IZKLJUČNO zadnji pas;
 #   CID_FLOOR je njegovo dno in ga preštevilčenje fiksnega pasu ne premakne.

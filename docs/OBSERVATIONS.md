@@ -27,7 +27,7 @@ can be re-examined without re-doing the research.
 - **Provenance is mandatory.** Every claim carries its source and date.
 - **Confidence markers:** `[V]` verified at a primary source ·
   `[S]` secondary source only · `[H]` hypothesis, unproven.
-- Corrections to our own earlier statements belong in `docs/SESSIONS.md`
+- Corrections to our own earlier statements belong in [`docs/SESSIONS.md`](https://github.com/KatMate/katmate-os/blob/v0.2.0-alpha2/docs/SESSIONS.md)
   (session record), not here. This file holds external material only.
 
 ---
@@ -36,7 +36,7 @@ can be re-examined without re-doing the research.
 
 ## 1. KatMate's network backend is one this tree exercises nowhere else — bearing on ADR-033
 
-**Decision under review:** [ADR-033](DECISIONS.md#adr-033) — a link is a pair
+**Decision under review:** [ADR-033](adr/ADR-033.md) — a link is a pair
 of AF_UNIX datagram sockets, carried by QEMU's `-netdev dgram`.
 
 **`[V]` `dgram` is the only network backend in this project that no other
@@ -71,7 +71,7 @@ not close this either.
 
 ## 2. QEMU 11.1.0's printed synopsis and its runtime disagree, from one binary — bearing on ADR-033
 
-**Decision under review:** [ADR-033](DECISIONS.md#adr-033) — every link slot
+**Decision under review:** [ADR-033](adr/ADR-033.md) — every link slot
 names a peer path whether or not the peer exists.
 
 **`[V]` The synopsis brackets `remote` as optional.** From
@@ -115,7 +115,7 @@ by this session.
 ## 1. Asynchronous block I/O — bearing on the `aio=threads` choice
 
 **Decision under review:** VM launchers use `aio=threads`
-([ADR-004](DECISIONS.md#adr-004), live on MINIS since 2026-07-23). The
+([ADR-004](adr/ADR-004.md), live on MINIS since 2026-07-23). The
 immediate cause was `kernel.io_uring_disabled = 2` on `linux-hardened`,
 with the secondary reasoning that io_uring is defect-dense and this path
 runs host-side driven by guest I/O patterns.
@@ -167,7 +167,7 @@ captured; the write-up is the primary source.
    VMM's device models have produced guest-to-host escapes in the same
    period. What follows is not "we chose the safe VMM" but "device
    models are the escape surface, ours included" — which is the argument
-   for [ADR-027](DECISIONS.md#adr-027), not against it.
+   for [ADR-027](adr/ADR-027.md), not against it.
 3. **It independently supports a decision we had already parked for
    other reasons.** The audio design (VSOCK port 1026, `snd-aloop` plus a
    thin daemon feeding PipeWire on the host) means **no `virtio-snd` in
@@ -180,7 +180,7 @@ captured; the write-up is the primary source.
 
 ## 2. Host-side vsock API differs by VMM — bearing on ADR-003 and ADR-028
 
-**Decision under review:** [ADR-003](DECISIONS.md#adr-003) fixes
+**Decision under review:** [ADR-003](adr/ADR-003.md) fixes
 `AF_VSOCK` as the exclusive host↔guest channel. The question raised was
 whether that decision constrains the choice of VMM.
 
@@ -220,7 +220,7 @@ a citation.
 VMM choice and the deciding factor is `waypipe`, not device support:
 waypipe speaks `AF_VSOCK` on the host, so a hybrid-model VMM requires
 either a proxy inside the TCB on the GUI channel or a behavioural fork
-of waypipe. This is recorded in [ADR-028](DECISIONS.md#adr-028) as the
+of waypipe. This is recorded in [ADR-028](adr/ADR-028.md) as the
 criterion to apply if the VMM question is ever reopened. It is not a
 quality judgement about any VMM: hybrid vsock is a reasonable design for
 its intended context, which is not this one.
@@ -231,7 +231,7 @@ its intended context, which is not this one.
 
 **Decision under review:** none yet; this is new capability bearing on
 `SECURITY-MODEL.md` gap #12 and on
-[ADR-026](DECISIONS.md#adr-026)'s identity model.
+[ADR-026](adr/ADR-026.md)'s identity model.
 
 Primary source: Stefano Garzarella (co-author), 2026-02-11, updated
 2026-04-17. Series: *vsock: add namespace support to vhost-vsock and
@@ -256,7 +256,7 @@ Two sysctls:
 
 **`[V]` Covered transports:** `vhost-vsock` (H2G) **and**
 `vsock_loopback` (local). This is what makes
-[ADR-028](DECISIONS.md#adr-028) H1 plausible.
+[ADR-028](adr/ADR-028.md) H1 plausible.
 
 **`[V]` Not covered:** G2H transports (virtio, hyperv, vmci). These run
 in the guest as device drivers and there is no way yet to assign a vsock
@@ -274,14 +274,14 @@ fails to start.
 for gap #12, on the host kernel already running (7.0.12-arch1-1). It
 also introduces a coupling that must not be discovered late: **if CIDs
 may repeat, the domain indicator's identity is (netns, CID), not CID**
-([ADR-026](DECISIONS.md#adr-026)). Both are tracked as C6 in
-[ADR-027](DECISIONS.md#adr-027).
+([ADR-026](adr/ADR-026.md)). Both are tracked as C6 in
+[ADR-027](adr/ADR-027.md).
 
 ---
 
 ## 4. `vhost-user-vsock` availability in QEMU
 
-**Decision under review:** [ADR-028](DECISIONS.md#adr-028) placement 3.
+**Decision under review:** [ADR-028](adr/ADR-028.md) placement 3.
 
 **`[V]` The device exists in QEMU** and has since v5.1
 (`vhost-user-vsock-pci`, `-chardev socket,…`), with the rust-vmm
@@ -316,7 +316,7 @@ backend.
 **What this says about our decisions.** Placement 3 is reachable without
 changing VMM, and `--forward-cid` preserves ADR-003. It is gated behind
 the C-gate, because a backend daemon that is not confined is a lateral
-move rather than an improvement ([ADR-027](DECISIONS.md#adr-027)).
+move rather than an improvement ([ADR-027](adr/ADR-027.md)).
 
 ---
 
@@ -333,7 +333,7 @@ directory is not secure against symlink attacks, and proposed either
 withdrawing write access or mounting a subdirectory `nosymfollow`.
 
 *Bearing on us:* the same class as our open question about
-`path_is_allowed` in `vm-agent` (`state.md` Open problem #13). It gives us
+`path_is_allowed` in `vm-agent` ([`state.md` Open problem #13](https://github.com/KatMate/katmate-os/blob/v0.2.0-alpha2/state.md)). It gives us
 a second candidate remedy — a `nosymfollow` mount on the exposed subtree
 — alongside in-code resolution with `openat2(RESOLVE_BENEATH)` or
 canonicalise-then-check. Our own instance remains **unverified**; the
@@ -344,7 +344,7 @@ app VM and net VM roots through dm-verity over EROFS and enables the IPE
 (Integrity Policy Enforcement) LSM.
 
 *Bearing on us:* a concrete reference implementation for the problem
-[ADR-013](DECISIONS.md#adr-013) (base image signing and integrity
+[ADR-013](adr/ADR-013.md) (base image signing and integrity
 verification) leaves Proposed, and for gap #5. Worth reading before that
 ADR is promoted.
 

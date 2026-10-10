@@ -36,7 +36,7 @@ MIN_RAM_KB=$(( 14 * 1024 * 1024 ))
 
 VG=vg0
 POOL=vm_pool            # build/config.sh POOL (operator ruling R5)
-HOME_LV_SIZE=10G        # PARAMETERS.md, Home LV (state.md form of record)
+HOME_LV_SIZE=10G        # PARAMETERS.md, Home LV (docs/DEV-ENV.md form of record)
 DELTA_SIZE=10G          # PARAMETERS.md, Instance delta
 NETVM_MARGIN_MB=1024    # free extents left in vg0 beside netVM's linear LV (R6)
 POOL_SLACK_MB=8192      # pool room above the images' allocated size
@@ -463,7 +463,7 @@ if [[ -z "$NIC_DRIVER" ]]; then
 fi
 [[ "$NIC_DRIVER" =~ ^[A-Za-z0-9_-]+$ && "$NIC_DRIVER" != vfio-pci ]] \
   || die "Cannot determine the host driver of $NIC_BDF (got '${NIC_DRIVER:-none}'): the softdep that keeps it off the card needs its name."
-# disable_idle_d3=1 is the RTL8125 workaround (state.md Invariants, FLReset-):
+# disable_idle_d3=1 is the RTL8125 workaround (docs/INVARIANTS.md, FLReset-):
 # a card without function-level reset is left half-initialised by vfio's
 # reset, and the next VFIO_MAP_DMA fails. Set it when the kernel lists no
 # `flr` among the card's reset methods, or cannot say.
@@ -857,7 +857,7 @@ t1_manifest() { sed -n 's/^manifest[[:space:]]*=[[:space:]]*"\([a-z]*\)".*/\1/p'
 # ---------------------------------------------------------------------------
 # Home LVs and instance deltas (operator ruling R7)
 # ---------------------------------------------------------------------------
-# The state.md form of record: vm_<instance>_home, 10G thin in vm_pool,
+# The docs/DEV-ENV.md form of record: vm_<instance>_home, 10G thin in vm_pool,
 # ext4 with default options, user/ 1000:1000 0700. The delta is a qcow2 over
 # the instance's app layer, as PARAMETERS.md records it, root:root 0644
 # (QEMU runs as root; on MINIS they were made as `host`).

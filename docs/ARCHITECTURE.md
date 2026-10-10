@@ -24,7 +24,7 @@ data. All host↔guest communication crosses explicitly exposed VSOCK channels.
 
 ## Object model
 
-([ADR-022](DECISIONS.md#adr-022))
+([ADR-022](adr/ADR-022.md))
 
 The core defines five object classes. The network is a **graph of VMs**; the
 physical NIC is an **assignable host resource**. Topology is data, not structure
@@ -35,7 +35,7 @@ baked into code.
 | `Nic` | host inventory | PCI address, IOMMU group, binding (host / `vfio-pci`), `assigned_to: Option<VmRef>`. Assignable to **at most one** VM. The same shape later serves USB controllers and audio. |
 | `Image` | build artifact | foundation (thin, RO) / `app-<type>` (thin snapshot, RO) / sysVM image (linear RW LV) / instance qcow2 delta. Orthogonal to runtime. |
 | `Vm` | runtime unit | name, class (`app` \| `sys`), CID, image ref, resources, **`netvm: Option<VmRef>`**, **`provides_network: bool`**. |
-| `Link` | runtime, host-owned | one p2p segment: a pair of AF_UNIX datagram sockets, `/32` addressing, the fragment delivered by NETCFG. Created at launch, destroyed at teardown. Owned by the launch daemon; never by a guest ([ADR-033](DECISIONS.md#adr-033)). |
+| `Link` | runtime, host-owned | one p2p segment: a pair of AF_UNIX datagram sockets, `/32` addressing, the fragment delivered by NETCFG. Created at launch, destroyed at teardown. Owned by the launch daemon; never by a guest ([ADR-033](adr/ADR-033.md)). |
 | `Policy` | two-layer | (a) compile-time opcode set per VM class (absent-not-disabled); (b) the static nft ruleset **baked into a netVM image**. |
 
 The entire topology is two fields on `Vm`: `netvm` (whom do I route through) and
@@ -48,10 +48,10 @@ The entire topology is two fields on `Vm`: `netvm` (whom do I route through) and
   (`netvm-vpn`, `netvm-clearnet`, `netvm-lan-only`, …). The nft ruleset inside a
   netVM never changes as AppVMs come and go; isolation is carried by **topology**
   (per-AppVM `/32` p2p links), never by per-AppVM firewall rules
-  ([ADR-021](DECISIONS.md#adr-021)).
+  ([ADR-021](adr/ADR-021.md)).
 - **`netvm: None` is a first-class offline AppVM.** No `Link`, no socket pair,
   no route. Air-gap is the *absence of an object*, not a rule denying traffic —
-  and under [ADR-033](DECISIONS.md#adr-033)'s mechanism that is more literally
+  and under [ADR-033](adr/ADR-033.md)'s mechanism that is more literally
   true than it was under a tap: there is no host-side network object for the
   link to be an absence *of*. Nothing is created, so there is nothing to deny.
 - **One physical NIC = one q35 driver domain.** A VM holding a passed-through NIC
@@ -67,14 +67,14 @@ The entire topology is two fields on `Vm`: `netvm` (whom do I route through) and
   down a `provides_network` VM while dependents run. Agents stay dumb executors.
 - **v1 instantiates the simplest graph:** one driver domain terminating the
   uplink — exactly the netVM running today. VPN mode is a post-install
-  option, not implemented ([ADR-037](DECISIONS.md#adr-037)); when enabled it
+  option, not implemented ([ADR-037](adr/ADR-037.md)); when enabled it
   runs in that same domain. The split driver/VPN chain is a post-v1
   *paranoid profile*, not a v1 blocker.
 
 ## Host
 
-- Arch Linux with the `linux-hardened` kernel ([ADR-004](DECISIONS.md#adr-004)),
-  systemd-boot (no menu: `timeout 0`, `editor no` — [ADR-006](DECISIONS.md#adr-006)).
+- Arch Linux with the `linux-hardened` kernel ([ADR-004](adr/ADR-004.md)),
+  systemd-boot (no menu: `timeout 0`, `editor no` — [ADR-006](adr/ADR-006.md)).
 - Core stack: systemd, systemd-networkd/-resolved, nftables, QEMU/KVM.
 - QEMU is currently installed as `qemu-full`; reduction to `qemu-base` is under
   evaluation to shrink the TCB (MicroVM machine type needs no GUI frontends).
@@ -99,12 +99,12 @@ GPT
 ```
 
 VM storage uses a three-level LVM-thin chain for AppVM images and raw thin LVs
-for persistent home ([ADR-010](DECISIONS.md#adr-010)): `foundation` (thin, RO)
+for persistent home ([ADR-010](adr/ADR-010.md)): `foundation` (thin, RO)
 ← `app-<type>` (thin snapshot of foundation, RO-frozen) ← per-instance qcow2 RW
 delta. See **Base image & template model** below.
 
 sysVMs are **outside** this chain: a netVM lives on a **standalone linear RW LV**
-(not thin, not frozen, nobody's backing store — [ADR-021](DECISIONS.md#adr-021)),
+(not thin, not frozen, nobody's backing store — [ADR-021](adr/ADR-021.md)),
 so none of the `-K -ay` skip-activation handling applies to it.
 
 ## VM classes
@@ -119,7 +119,7 @@ so none of the `-K -ay` skip-activation handling applies to it.
 
 - Debian stable (trixie), minimal userspace, treated as an **appliance**:
   stability and predictability over freshness
-  ([ADR-002](DECISIONS.md#adr-002), [ADR-005](DECISIONS.md#adr-005)).
+  ([ADR-002](adr/ADR-002.md), [ADR-005](adr/ADR-005.md)).
 - Custom kernel built from Debian LTS sources
   (`vmlinuz-katmate-microvm-amd64-6.12.x`), MicroVM-optimized config:
   virtio-blk / virtio-net / virtio-vsock, ext4, tmpfs, user namespaces, cgroups.
@@ -128,7 +128,7 @@ so none of the `-K -ay` skip-activation handling applies to it.
   the build machine, and enters as a file. A **provenance sidecar** written
   beside it in that tree by `tools/capture-kernel-provenance` records its
   identity (image and config hashes, banner) and its pairing to the tree that
-  produced it ([ADR-034](DECISIONS.md#adr-034)). Pairing is perishable: the
+  produced it ([ADR-034](adr/ADR-034.md)). Pairing is perishable: the
   evidence lives in the build tree and the next reconfigure deletes it, so
   capture is meaningful only while that tree still holds the generated config
   from that build. A kernel with no sidecar still builds — the foundation
@@ -140,7 +140,7 @@ so none of the `-K -ay` skip-activation handling applies to it.
 - `CONFIG_HW_RANDOM_VIRTIO` and `CONFIG_SECURITY_LANDLOCK` are **live** (built
   2026-07-01, re-confirmed in the 2026-07-13 boot log: `landlock: Up and
   running`, `crng init done` @ 0.010s). No rebuild pending.
-- Proxy sysVMs ([ADR-022](DECISIONS.md#adr-022)) will require `CONFIG_WIREGUARD`
+- Proxy sysVMs ([ADR-022](adr/ADR-022.md)) will require `CONFIG_WIREGUARD`
   + the nft/netfilter set in this same shared kernel. That code is unreachable
   from an AppVM (uid 1000, no `CAP_NET_ADMIN`) but *present* — a conscious
   departure from absent-not-disabled at the kernel level, taken up when the first
@@ -148,8 +148,8 @@ so none of the `-K -ay` skip-activation handling applies to it.
 
   # Base image & template model
 
-([ADR-007](DECISIONS.md#adr-007), [ADR-010](DECISIONS.md#adr-010),
-[ADR-011](DECISIONS.md#adr-011))
+([ADR-007](adr/ADR-007.md), [ADR-010](adr/ADR-010.md),
+[ADR-011](adr/ADR-011.md))
 
 The base is an **LVM thin volume** (`foundation`), not a `.img` file. AppVM
 system layers are thin snapshots of it; user data is a separate RW delta.
@@ -181,7 +181,7 @@ custom MicroVM kernel             external to the image, passed via -kernel
 | Custom MicroVM kernel | host filesystem, passed via `-kernel` |
 | Kernel provenance sidecar | beside the kernel, `<vmlinuz>.provenance` |
 
-Update flow ([ADR-019](DECISIONS.md#adr-019)):
+Update flow ([ADR-019](adr/ADR-019.md)):
 
 Waypipe is a project-maintained component: a pinned upstream tag plus a small
 KatMate patch queue, built into **both** binaries from the same tree — guest
@@ -204,13 +204,13 @@ pacman hook and nothing to detect.
    that do not build on trixie are backported onto the pinned tag (same
    practice).
    Provenance is captured in the kernel tree at build time
-   ([ADR-034](DECISIONS.md#adr-034)), before the image leaves it; a capture
+   ([ADR-034](adr/ADR-034.md)), before the image leaves it; a capture
    taken after that tree has been reconfigured cannot establish pairing, and
    the correct action is then to record nothing and say so.
 
 `katmate-update` **never touches sysVMs**: netVM has no waypipe and no shared
 foundation. It has its own track, `netvm-update`, driven by Debian security
-updates and network-configuration changes ([ADR-021](DECISIONS.md#adr-021)).
+updates and network-configuration changes ([ADR-021](adr/ADR-021.md)).
 
 Principles: immutability, reproducibility (foundation rebuilt from defined
 sources, never hand-edited), strict system/data separation, user transparency,
@@ -219,9 +219,9 @@ minimal TCB.
 ### Guest waypipe build (part of the base image pipeline)
 
 Waypipe in the guest is built from source, version-locked to the host
-([ADR-008](DECISIONS.md#adr-008)); both binaries come from the same
+([ADR-008](adr/ADR-008.md)); both binaries come from the same
 project-pinned tree — upstream tag + KatMate patch queue
-([ADR-019](DECISIONS.md#adr-019)). Built inside the foundation chroot so it
+([ADR-019](adr/ADR-019.md)). Built inside the foundation chroot so it
 links against the foundation's own (trixie) libraries. The host binary is
 built from the identical tree on the host and installed at
 `/opt/katmate/bin/waypipe`.
@@ -271,7 +271,7 @@ lib means reinstalling the non-`-dev` variant before freeze.
 ### sysVM build
 
 netVM is built by its own declarative pipeline, `build/netvm.sh`
-([ADR-021](DECISIONS.md#adr-021)): debootstrap onto a standalone linear RW LV →
+([ADR-021](adr/ADR-021.md)): debootstrap onto a standalone linear RW LV →
 mount → chroot → bake from a netVM-specific package + config manifest → export
 `vmlinuz` + `initrd` to a host-side artifact → unmount. Full systemd (not
 `--variant=minbase`), `non-free-firmware` enabled (`firmware-realtek` is
@@ -281,7 +281,7 @@ at all — every internal route arrives at runtime via NETCFG.
 
 ## Communication
 
-AF_VSOCK exclusively ([ADR-003](DECISIONS.md#adr-003)). No TCP exposure; guests
+AF_VSOCK exclusively ([ADR-003](adr/ADR-003.md)). No TCP exposure; guests
 have no network path to the host control plane.
 
 | Port | Channel |
@@ -292,7 +292,7 @@ have no network path to the host control plane.
 
 ### CID allocation
 
-([ADR-017](DECISIONS.md#adr-017), re-scoped by [ADR-022](DECISIONS.md#adr-022))
+([ADR-017](adr/ADR-017.md), re-scoped by [ADR-022](adr/ADR-022.md))
 
 | Range | Class |
 |---|---|
@@ -307,7 +307,7 @@ earlier single-sysVM scheme (3 = netVM, 4–8 = fixed AppVM): fixed AppVMs move 
 
 ### VM agents
 
-Rust Cargo workspace ([ADR-021](DECISIONS.md#adr-021)): a shared
+Rust Cargo workspace ([ADR-021](adr/ADR-021.md)): a shared
 `katmate-protocol` crate (framing, VSOCK transport, error types, opcode
 wire-value registry) plus **two** bin crates. The split is a security measure —
 *absent code paths are stronger than disabled ones*. Opcode enums and handlers
@@ -323,10 +323,10 @@ reads is a 57-byte NETCFG ADD.
 | `PING` | handler | handler |
 | `RUN` (whitelist: `firefox-esr`, `foot`, `pcmanfm`, `libreoffice`, `keepassxc`) | handler | **absent** |
 | `0x03` / `0x04` — `FILEGET` / `FILEPUT`, **retired 2026-10-06**; the values are reserved and never reused | **absent** (ERR) | **absent** (ERR) |
-| `SHUTDOWN` | handler (microvm has no ACPI) | handler — `kill(1, SIGRTMIN+4)` under `CAP_KILL` ([ADR-024](DECISIONS.md#adr-024)); the QMP `system_powerdown` path is inert without dbus |
+| `SHUTDOWN` | handler (microvm has no ACPI) | handler — `kill(1, SIGRTMIN+4)` under `CAP_KILL` ([ADR-024](adr/ADR-024.md)); the QMP `system_powerdown` path is inert without dbus |
 | `NETCFG` | **absent** | handler (privileged) |
 
-`NETCFG` describes **a link, never an AppVM** ([ADR-023](DECISIONS.md#adr-023)):
+`NETCFG` describes **a link, never an AppVM** ([ADR-023](adr/ADR-023.md)):
 a structured p2p link payload (interface match, local/peer address, `/32`
 prefix, route, metric) with `add` / `remove` operations and no `modify`. It
 carries **no policy** — no nft rule, no shell string, no VM name, no role. The
@@ -339,21 +339,21 @@ Security controls: [SECURITY-MODEL.md](SECURITY-MODEL.md#controls-by-component).
 
 Waypipe over AF_VSOCK (port 1024); host side is a socket-activated systemd user
 service. Guest runs waypipe built from source; the version **must** match the
-host ([ADR-008](DECISIONS.md#adr-008)) — mismatched versions negotiate
+host ([ADR-008](adr/ADR-008.md)) — mismatched versions negotiate
 incompatible compression and the connection is refused or crashes. Both
 binaries are built from the same project-pinned tree and the launch preflight
 enforces the match against `foundation.meta`
-([ADR-019](DECISIONS.md#adr-019)).
+([ADR-019](adr/ADR-019.md)).
 Benefits: no X11, no network listener, native Wayland path. Clipboard
 (copy/paste) between guest applications and host is functional.
 
 ## Networking
 
 **Live state (MINIS/UM870, v0.2):** netVM is operational and is the sole
-network-facing domain ([ADR-009](DECISIONS.md#adr-009)). Vanilla egress
+network-facing domain ([ADR-009](adr/ADR-009.md)). Vanilla egress
 leaves netVM directly through its uplink, `uplink0`, masqueraded, with no VPN
-([ADR-037](DECISIONS.md#adr-037)). netVM is a **sysVM**
-([ADR-021](DECISIONS.md#adr-021)) and, in [ADR-022](DECISIONS.md#adr-022) terms,
+([ADR-037](adr/ADR-037.md)). netVM is a **sysVM**
+([ADR-021](adr/ADR-021.md)) and, in [ADR-022](adr/ADR-022.md) terms,
 a **driver domain**.
 
 netVM topology:
@@ -363,7 +363,7 @@ netVM topology:
   down. The guest names it `uplink0` through `60-katmate-uplink.link`, matched
   on **`Path=pci-0000:00:04.0`**, not on the MAC: the unit pins that slot with
   `addr=0x4` on `vfio-pci`, and the name is load-bearing. `dhcpcd` holds the
-  uplink (`allowinterfaces uplink0`) ([ADR-037](DECISIONS.md#adr-037)).
+  uplink (`allowinterfaces uplink0`) ([ADR-037](adr/ADR-037.md)).
 - **Egress and DNS:** forward from the internal segment out `uplink0`, with the
   return path by conntrack; NAT masquerade out `uplink0`; `ip_forward=1`. AppVM
   DNS is `dnsmasq` in netVM, answering on the slots only and forwarding to the
@@ -375,23 +375,23 @@ netVM topology:
   supplies one (on the reference host, MINIS, it does), in a canonical form
   the host re-emits from T1 (R35); with none, it carries only its version and
   dhcpcd leases (R36). The guest writes dhcpcd's configuration from it under
-  `/run` ([ADR-037](DECISIONS.md#adr-037)'s step-3 gates note, G6; `state.md`
-  open problem #40).
+  `/run` ([ADR-037](adr/ADR-037.md)'s step-3 gates note, G6; [`state.md`
+  open problem #40](https://github.com/KatMate/katmate-os/blob/v0.2.0-alpha2/state.md)).
 - **Internal segment:** `10.100.1.0/24`. Each AppVM gets its own p2p `Link`.
   **netVM's end** — its address on the slot and the link-scoped `/32` route to
   the AppVM — is delivered by **NETCFG at launch** and withdrawn at teardown.
   **The AppVM's end** is configured by katmate-init from typed `km.*` kernel
-  parameters, not by NETCFG ([ADR-038](DECISIONS.md#adr-038)): a `/32`, an
+  parameters, not by NETCFG ([ADR-038](adr/ADR-038.md)): a `/32`, an
   on-link default route via `10.100.1.1`, and the resolver `10.100.1.1`,
   IPv4 only (`ipv6.disable=1`). NETCFG stays absent in `vm-agent`.
   **Nothing is baked** — on a clean boot netVM has no internal route,
   which is correct: with no AppVMs running there is nowhere to route.
-- **What carries a link** ([ADR-033](DECISIONS.md#adr-033)): a link is a pair of
+- **What carries a link** ([ADR-033](adr/ADR-033.md)): a link is a pair of
   **AF_UNIX datagram sockets**, one end opened by each QEMU by path at start.
   **The host holds no network object for it** — no tap, no bridge, no namespace,
   and no privileged network step in an AppVM's start path. netVM starts with a
   **fixed pool of link slots**, allocated and reconciled the way CIDs are
-  ([ADR-017](DECISIONS.md#adr-017)); an AppVM takes a free slot at launch and
+  ([ADR-017](adr/ADR-017.md)); an AppVM takes a free slot at launch and
   releases it at teardown. **The pool holds 16 slots**, bounded by netVM's PCI
   slot count rather than by anything the link mechanism costs. A datagram socket
   carries no link state, so the absence of a peer is invisible to the guest and
@@ -403,18 +403,18 @@ netVM topology:
   `uplink0`, with the return path by conntrack. Its per-slot rules are
   `slot_guard`'s: sixteen static slot↔address pairs (`km<kk>` ↔
   `10.100.1.(16+k)`) and the drops behind them
-  ([ADR-037](DECISIONS.md#adr-037) R48–R50). They are pool constants,
+  ([ADR-037](adr/ADR-037.md) R48–R50). They are pool constants,
   identical in every installation, and they do not change as AppVMs come
   and go: **a per-slot rule is not a per-AppVM rule**
-  ([ADR-035](DECISIONS.md#adr-035)'s note of 2026-09-20). Per-`/32`
+  ([ADR-035](adr/ADR-035.md)'s note of 2026-09-20). Per-`/32`
   isolation is **topology**, not firewall.
 
 AppVMs have no direct host network access and no guest-to-guest path.
 
-**Known v1 co-location** ([ADR-022](DECISIONS.md#adr-022)): when VPN mode is
+**Known v1 co-location** ([ADR-022](adr/ADR-022.md)): when VPN mode is
 enabled, the WireGuard key and the `r8169` driver + Realtek firmware blob share
 one address space. Today there is no key: vanilla netVM carries no VPN
-([ADR-037](DECISIONS.md#adr-037)). Resolved post-v1 by splitting into a driver
+([ADR-037](adr/ADR-037.md)). Resolved post-v1 by splitting into a driver
 domain (hardware, no secrets) and a proxy netVM (secrets, no hardware).
 
 ## Disposable VMs (planned, v0.3)
@@ -431,7 +431,7 @@ indicator must be drawn by trusted host-side code keyed on **waypipe CID
 identity** — never on guest-controlled properties (`app_id`, window title are
 spoofable).
 
-**Sway is the single shipped profile** ([ADR-016](DECISIONS.md#adr-016)): stable
+**Sway is the single shipped profile** ([ADR-016](adr/ADR-016.md)): stable
 config format, conservative churn, one implementation of the security-critical
 indicator to write and audit. greetd + tuigreet → Sway, Plymouth boot splash,
 fish shell.
@@ -456,7 +456,7 @@ Plymouth.
 
 x86-64 UEFI with **VT-d / AMD-Vi** (IOMMU required). Because a driver domain
 requires the NIC to sit in a **cleanly isolable IOMMU group**
-([ADR-022](DECISIONS.md#adr-022)), IOMMU-group quality is a hard hardware
+([ADR-022](adr/ADR-022.md)), IOMMU-group quality is a hard hardware
 requirement, not an implementation detail — implying an HCL and an installer
 preflight check. Performance floor: Apollo Lake-class (Pentium N6000, 8 GB RAM).
 Reference machines: [INSTALL.md](INSTALL.md#tested--reference-hardware).

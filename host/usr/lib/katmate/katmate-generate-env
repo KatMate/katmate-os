@@ -173,7 +173,7 @@ VCPUS="${KM_T1[vcpus]}"
     || km_die "$KM_T1_FILE: vcpus='$VCPUS' must be a positive integer"
 
 # The CID band is a function of class (ADR-022, bands authoritative in
-# state.md): 0–2 reserved, 3–19 sysVM, 20–99 fixed AppVM, ≥100 disposable pool.
+# docs/DEV-ENV.md): 0–2 reserved, 3–19 sysVM, 20–99 fixed AppVM, ≥100 disposable pool.
 CID="${KM_T1[cid]}"
 case "$CLASS" in
 sys)

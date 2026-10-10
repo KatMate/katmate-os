@@ -269,7 +269,7 @@ function validate_file
     end
 
     # --- 5) CID pas kot funkcija razreda -------------------------------------
-    # Pasovi (ADR-022, avtoritativno v state.md): 0–2 rezervirani ·
+    # Pasovi (ADR-022, avtoritativno v docs/DEV-ENV.md): 0–2 rezervirani ·
     # 3–19 sysVM · 20–99 fiksni AppVM · ≥100 dinamični disposable pool.
     # class=app obdrži VSE TRI oblike ADR-015: 20–99, "auto" in ≥100. Branje
     # "app = samo 20–99" izbriše disposable arhetip ob parsanju — četrti

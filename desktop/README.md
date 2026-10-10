@@ -1,7 +1,7 @@
 # Desktop layer
 
 The desktop profile for KatMate OS. Sway is the single shipped compositor
-([ADR-016](../docs/DECISIONS.md#adr-016)); the host compositor is inside the
+([ADR-016](../docs/adr/ADR-016.md)); the host compositor is inside the
 TCB because it draws the domain indicator.
 
 This tree holds the *user-facing* half of the desktop, and the wallpapers.
@@ -255,7 +255,7 @@ profile's alone.
   nothing in `sway/config` reads them. The shipped wallpapers are tracked in
   `wallpapers/` since 2026-10-04 (`CREDITS.md` names their source).
 - the Hyprland/CYBRland profile itself — a dev/demo profile, not a release
-  artifact ([ADR-016](../docs/DECISIONS.md#adr-016))
+  artifact ([ADR-016](../docs/adr/ADR-016.md))
 
 
 ## Reference machine

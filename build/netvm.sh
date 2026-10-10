@@ -271,8 +271,8 @@ log "Read-back OK: $NETVM_CONFD_PATHS conf-tree paths in the image, all owned 0:
 # /etc/nftables.conf, in the build chroot, as root. A ruleset that fails to
 # load at boot leaves netVM forwarding with no firewall (open problem #48),
 # so a parse failure stops the build here instead. Root is required: run
-# unprivileged, `nft -c` fails on every input, valid or not (state.md
-# Invariants), so it could not tell a broken file from a good one.
+# unprivileged, `nft -c` fails on every input, valid or not
+# (docs/INVARIANTS.md), so it could not tell a broken file from a good one.
 #
 # THIS IS NOT GATE F12a. The chroot shares the build host's kernel, so this
 # checks the file against the HOST kernel's nf_tables through the image's

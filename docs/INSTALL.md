@@ -136,7 +136,7 @@ Run as root, from the extracted archive: `bash installer/install.sh`.
    `si,us`; default `us`), separate from the console keymap, whose names
    differ.
 8. **CPU detection** — vendor → `amd-ucode` / `intel-ucode`, the IOMMU
-   parameter ([ADR-040](DECISIONS.md#adr-040)), and on AMD the `topoext`
+   parameter ([ADR-040](adr/ADR-040.md)), and on AMD the `topoext`
    drop-in for netVM's unit.
 9. **netVM's card** — every PCI Ethernet controller is listed (address,
    vendor:device, driver, IOMMU group); you pick one. A card whose
@@ -175,11 +175,11 @@ Run as root, from the extracted archive: `bash installer/install.sh`.
     are then made read-only.
 16. **T2** — the images' metadata in `/var/lib/katmate/`, netVM's kernel and
     initrd in `/var/lib/katmate/netvm/`, the MicroVM kernel and its
-    provenance sidecar (checked, [ADR-034](DECISIONS.md#adr-034)) in
+    provenance sidecar (checked, [ADR-034](adr/ADR-034.md)) in
     `/var/lib/katmate/kernels/`.
 17. **T1** — `/etc/katmate/vm/{netvm,app_web,app_personal,app_work,app_vault,app_sandbox}.toml`
     from `installer/t1/`, `root:root 0644`, created and never overwritten
-    ([ADR-032](DECISIONS.md#adr-032) §1).
+    ([ADR-032](adr/ADR-032.md) §1).
 18. **Home LVs and deltas** — `vm_<instance>_home`, 10G thin, ext4, `user/`
     `1000:1000 0700`; `/var/lib/katmate/instances/<instance>.qcow2` over the
     instance's app layer.
@@ -233,7 +233,7 @@ even on failure. Downloaded release files are removed either way.
   prompt (`/etc/vconsole.conf`)
 - nftables: default-drop ruleset (see [SECURITY-MODEL.md](SECURITY-MODEL.md#controls-by-component)), enabled
 - `vhost_vsock` module autoload via `/etc/modules-load.d/katmate-vsock.conf`
-  (AF_VSOCK sole host↔guest channel per [ADR-003](DECISIONS.md#adr-003))
+  (AF_VSOCK sole host↔guest channel per [ADR-003](adr/ADR-003.md))
 - mkinitcpio: `HOOKS=(base udev autodetect modconf kms keyboard keymap
   plymouth block encrypt lvm2 filesystems fsck)`, `MODULES=(vfio_pci vfio
   vfio_iommu_type1)` → `mkinitcpio -P`. The LUKS passphrase is asked through

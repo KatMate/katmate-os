@@ -8,7 +8,7 @@ within each section.
 
 Some of what makes KatMate work is not in git. It is in `/etc`, in firmware
 settings, in kernel command lines, and in per-machine generated files that
-[the anti-drift pattern](../state.md) deliberately keeps out of version control.
+[the anti-drift pattern](https://github.com/KatMate/katmate-os/blob/v0.2.0-alpha2/state.md) deliberately keeps out of version control.
 Each such item was discovered by running the system, applied by hand on one
 machine, and is invisible to a fresh install.
 
@@ -57,7 +57,7 @@ bridge, and networkd manages no link.** The last six networkd-managed links
 are gone from the host: `tap-int0` (moved out that morning) and `br-personal`,
 `tap0`, `tap-outer`, `tap-personal` and `tap-work`. Their files are
 in `~/katmate-dev/removed-0927/` and `removed-0927b/`. `/etc/systemd/network/` is empty.
-Readings (`../state.md`, 2026-09-27 *host-cleanup* entry):
+Readings ([`../state.md`](https://github.com/KatMate/katmate-os/blob/v0.2.0-alpha2/state.md), 2026-09-27 *host-cleanup* entry):
 `networkctl list` shows `lo`, `enp195s0f3u1u1` (routable) and `proton`
 (routable), **all three `unmanaged`**. `networkctl status` gives `State: routable` and
 `Online state: unknown`. `network-online.target` and
@@ -107,7 +107,7 @@ without an error.
 
 **Bearing on ADR-029.** VM units must not depend on `network-online.target`.
 An AppVM's connectivity arrives through netVM and NETCFG
-([ADR-023](DECISIONS.md#adr-023), [ADR-025](DECISIONS.md#adr-025)), never
+([ADR-023](adr/ADR-023.md), [ADR-025](adr/ADR-025.md)), never
 through the host's networkd; and on this host that dependency is unsatisfiable
 in a way that produces no diagnostic. Recorded as an ADR-029 constraint, not
 merely as host hygiene.
@@ -154,13 +154,13 @@ boot; a `vfio` group and a udev rule granting the desktop user access.
 **Failure mode.** If the host driver claims the NIC first, netVM cannot take it
 and `net-sys.con` fails at `-device vfio-pci`. If the group/udev rule is
 missing, the launcher requires root for the device node — which conflicts with
-C1/C2 of the [C-gate](DECISIONS.md#adr-027).
+C1/C2 of the [C-gate](adr/ADR-027.md).
 
 **Generalisation needed.** IOMMU-group quality is unverified at install time
 (open problem #9): a driver domain is only safe where the NIC sits in a cleanly
 isolable group. The installer needs a preflight, not just a binding step.
 
-**A BDF is not a durable name.** [ADR-030](DECISIONS.md#adr-030) §5 makes the
+**A BDF is not a durable name.** [ADR-030](adr/ADR-030.md) §5 makes the
 `Vm` carry a label (`nic = "uplink0"`) and requires the boot-time binding step
 to publish the resolution at `/run/katmate/nics/<label>`. What that label
 resolves *from* is unspecified and must be measured, not chosen at a desk:
@@ -186,7 +186,7 @@ descriptor question once.
 
 **Scope:** MINIS · **[LIVE]** · **[V]** 2026-10-04
 
-**Requirement** ([ADR-040](DECISIONS.md#adr-040)): no `iommu=pt` and no
+**Requirement** ([ADR-040](adr/ADR-040.md)): no `iommu=pt` and no
 `amd_iommu=on`. On AMD no IOMMU parameter is needed. An Intel host carries
 `intel_iommu=on`.
 
@@ -273,7 +273,7 @@ exist. The installer should not reproduce it.
 
 **Failure mode if the module is absent.** `-device vhost-vsock-device` fails at
 QEMU start, so no VM has a control path or a GUI path
-([ADR-028](DECISIONS.md#adr-028)).
+([ADR-028](adr/ADR-028.md)).
 
 ## 6. Hugepages backing for `/dev/hugepages`
 
@@ -296,7 +296,7 @@ verified as a configured requirement)
 **Note 2026-10-02 (`ai2`, R126): the pool is 6144 × 2 MiB = 12 GiB.**
 On MINIS, `/etc/sysctl.d/hugepages.conf` sets `vm.nr_hugepages = 6144` and
 takes effect at the next boot. ai2 applies the change and reboots, and the
-`HugePages_Total` read after that boot is in `state.md` § *Live state*.
+`HugePages_Total` read after that boot is in [`state.md` § *Live state*](DEV-ENV.md).
 **Capacity:** the four alpha AppVMs take `web` 4G plus `personal`, `office`
 and `vault` at 2G each, 10 GiB in all. That does not fit 8 GiB and does fit
 12 GiB, with 2 GiB to spare. Reserved pages are withheld from the host
@@ -336,7 +336,7 @@ what the installer would have to reproduce.
 MINIS carries an explicit reservation or relies on a default is **unchecked** —
 verify before this becomes a requirement, and note that a reservation
 interacts with `memlock` (C3) and with the transparent-hugepage behaviour noted
-in `../state.md`.
+in [`../state.md`](https://github.com/KatMate/katmate-os/blob/v0.2.0-alpha2/state.md).
 
 **Probably allocated the wrong way round.** `app_web` (no vfio) takes
 hugepages; `net-sys` (vfio) takes `memory-backend-memfd`. The vfio VM is the
@@ -444,7 +444,7 @@ any CID is recorded in `README.md` § *Known limitations*.
 
 **Requirement:** a systemd user unit for the desktop user whose `ExecStart` is
 `/opt/katmate/bin/waypipe --vsock --socket 2:1024 client`. That is the
-version-locked binary of [ADR-019](DECISIONS.md#adr-019), not the distro's
+version-locked binary of [ADR-019](adr/ADR-019.md), not the distro's
 `/usr/bin/waypipe`. There is **no socket unit**. The service's
 `WAYLAND_DISPLAY` must name the compositor's actual socket (on MINIS,
 `wayland-1`, matching `/run/user/1000/wayland-1`). On MINIS today the unit
@@ -469,8 +469,8 @@ distro `waypipe` was removed from MINIS the same day (`pacman -Rs waypipe`);
   `[::]`, not a vsock listener. That is a network-reachable listener on the
   host, where the design has only vsock.
 
-See `../state.md` open problem #31 (location; tracking still open),
-[ADR-019](DECISIONS.md#adr-019), and [ADR-036](DECISIONS.md#adr-036)
+See [`../state.md` open problem #31](OPEN-PROBLEMS.md) (location; tracking still open),
+[ADR-019](adr/ADR-019.md), and [ADR-036](adr/ADR-036.md)
 (PROPOSED), which would place the ingress in the system rather than the user
 session.
 
@@ -492,7 +492,7 @@ wrapper name not re-checked
 invoked through a `sway-quiet` wrapper.
 
 **Failure mode.** Without them greetd pins a single hardcoded command, so the
-Sway/Hyprland choice of [ADR-016](DECISIONS.md#adr-016) is not offered and the
+Sway/Hyprland choice of [ADR-016](adr/ADR-016.md) is not offered and the
 machine boots whichever session was compiled into the config.
 
 **Deliberately per-machine.** These are generated, not tracked — consistent
@@ -593,7 +593,7 @@ and the notes below are left as written.
 - **Not measured:** whether the static T1 holds across a host reboot. No
   reboot was taken with the file in place.
 - **The installer** may create `<instance>.d/` and its files only under
-  [ADR-032](DECISIONS.md#adr-032)'s rule for T1: it creates, and it never
+  [ADR-032](adr/ADR-032.md)'s rule for T1: it creates, and it never
   overwrites a file it did not create in the same run.
 
 **Note 2026-09-28, after networking arc step 3a: the static T1 held across
@@ -624,11 +624,11 @@ follows. The heading and the text below are left as written.
 
 **Requirement:** a directory `/etc/katmate/netvm/` holding the per-installation
 configuration of netVM — T1, the user's and never the image's
-([ADR-032](DECISIONS.md#adr-032)). It carries the **static uplink**
+([ADR-032](adr/ADR-032.md)). It carries the **static uplink**
 configuration, where the uplink is not configured by DHCP, and the **WireGuard
 config** the user supplies to enable a VPN. The host assembles a read-only
 config disk from it, which netVM attaches as an extra `virtio-blk`
-([ADR-037](DECISIONS.md#adr-037), R7 and R8; Accepted).
+([ADR-037](adr/ADR-037.md), R7 and R8; Accepted).
 
 **Failure mode: none yet, because the mechanism is not implemented.** No
 config disk is built, attached or read today, so nothing can fail for the
@@ -681,7 +681,7 @@ five staged files, in plain and in `--strict` mode, with the cross-file
 rules evaluated.
 
 **Requirement:** one `<name>.toml` per VM at `/etc/katmate/vm/`, flat, one file
-per VM, `root:root` `0644` ([ADR-032](DECISIONS.md#adr-032) §1). MINIS carries
+per VM, `root:root` `0644` ([ADR-032](adr/ADR-032.md) §1). MINIS carries
 `netvm.toml` and `app_web.toml`.
 
 **Failure mode, and part of it is silent.** `tools/validate-properties.fish`
@@ -690,7 +690,7 @@ was validated") rather than 0, which is deliberate — an empty run reporting
 success would look like a pass. The unit path is the unsilent half: no T1 means
 `katmate-generate-env` has nothing to project and the VM does not start. The
 silent half is the **cross-file** rule: the "no two VMs may claim the same `nic`
-label" check ([ADR-030](DECISIONS.md#adr-030) §4, gate G5) is only evaluated
+label" check ([ADR-030](adr/ADR-030.md) §4, gate G5) is only evaluated
 over a directory, because only a directory guarantees every VM's file was seen.
 Validating individual files instead skips it, and a skipped cross-file rule
 looks exactly like a passing one.
@@ -723,6 +723,6 @@ notifies rather than overwrites.
 
 - Dev-only scaffolding that must be **removed** before release — host sshd
   (open problem #4), the `usermod -p` line in `netvm.sh` (#12), installer
-  secrets (#3). Those are release blockers tracked in `../state.md`, not host
+  secrets (#3). Those are release blockers tracked in [`../state.md`](OPEN-PROBLEMS.md), not host
   requirements.
 - Anything tracked in git. If it is in the repo, it is not host configuration.

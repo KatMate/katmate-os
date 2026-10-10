@@ -42,7 +42,7 @@ made on MINIS is removed at the next sync, without a diagnostic.
 
 **Reaching MINIS is not `ssh 10.3.1.3`, and the shell that answers does not run
 sh.** The account, the key, and how a bash or sh snippet has to be delivered are
-in `state.md` § *Live state*, under *Dev access to MINIS*. A brief that hands you
+in `docs/DEV-ENV.md`, under *Dev access to MINIS*. A brief that hands you
 an `ssh <ip> '…'` one-liner for MINIS is wrong on both counts; read that entry
 before you issue the first remote command, whatever the brief says.
 
@@ -98,11 +98,16 @@ the two machines above, and narrower than either:
 
 ## Reading order, before the first change
 
-1. **`state.md`** — current focus, the two most recent sessions, live state,
-   open problems, next steps, and **§ *Invariants & gotchas* in full**. Volatile
-   by design, and also where the traps that cost a host reboot are written down.
+1. **`state.md`** — current focus, active open problems, next steps, what
+   waits on the operator. At most ~50 lines; **rewritten, not appended, at the
+   end of every session**. Then
+   **`docs/INVARIANTS.md` in full** — where the traps that cost a host reboot
+   are written down — and `docs/OPEN-PROBLEMS.md` and `docs/DEV-ENV.md` where
+   the brief or a grep hit points. Session records are not in the repository;
+   the early days are at the tag `v0.2.0-alpha2`.
 2. **The brief.**
-3. **The ADRs the brief names**, in `docs/DECISIONS.md` — including their
+3. **The ADRs the brief names**, one file each in `docs/adr/` (index:
+   `docs/DECISIONS.md`) — including their
    **revision notes**. Several ADRs have been corrected by later ones, and the
    note *is* the correction; an ADR read without its notes will be read wrong.
 4. **The files the brief touches.** Read them. Do not infer a file's contents
@@ -159,7 +164,7 @@ change to `CLAUDE.md` is proposed in the report and committed by the operator.
 ## What a session may not decide
 
 - **The content of an ADR.** Propose a revision note in the report; do not write
-  one into `docs/DECISIONS.md` — unless the operator authorises a note verbatim,
+  one into `docs/adr/` — unless the operator authorises a note verbatim,
   in which case the session writes exactly that text and nothing more.
 - **Anything in the tier model** (ADR-030, ADR-032): what is T1/T2/T3/T4, where
   it lives, or how the profile is derived. The profile is `f(class, netvm, nic)`
@@ -266,8 +271,8 @@ passing.
 Sessions run on a metered budget. Spend it on evidence, not on re-reading.
 
 - **Read surgically.** Locate with `grep -n` / `git grep -n`, then read the
-  range (`sed -n 'a,bp'`, Read with offset/limit). `state.md` is ~6000 lines:
-  read § *Invariants & gotchas* in full (reading order), every other section
+  range (`sed -n 'a,bp'`, Read with offset/limit). `docs/INVARIANTS.md` is
+  read in full (reading order); `docs/DEV-ENV.md` and `docs/OPEN-PROBLEMS.md`
   only where the brief or a grep hit points. Never read a whole large file to
   find one thing.
 - **Read once.** Do not re-read a file already read in this session unless it
@@ -307,7 +312,7 @@ katmate-sys-driver@netvm`. **For a release build**, `tools/make-release.sh` runs
 between the build and the enable: it refuses a netVM image that has been booted
 since its build.
 
-`state.md` § *Invariants & gotchas* carries these with their diagnoses, and
+`docs/INVARIANTS.md` carries these with their diagnoses, and
 roughly twenty more. It is not background reading.
 
 ## Ask before, unless the brief names it explicitly

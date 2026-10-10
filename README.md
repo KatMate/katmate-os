@@ -4,7 +4,7 @@ A security- and privacy-oriented desktop operating system built on compartmental
 Application workloads run in isolated QEMU/KVM MicroVMs; the host remains a minimal,
 auditable trusted computing base.
 
-**Status:** pre-alpha · milestone **v0.2** in development · single developer · not ready for production use
+**Status:** alpha · first public prerelease [`v0.2.0-alpha2`](https://github.com/KatMate/katmate-os/releases/tag/v0.2.0-alpha2) (milestone **v0.2**) · single developer · not ready for production use
 
 ## Why
 
@@ -16,14 +16,14 @@ compromise the rest of the system.
 The approach is inspired by Qubes OS, but deliberately built on a standard Linux
 stack (QEMU/KVM instead of Xen) with **usability for ordinary users** as an explicit
 design goal: updates and VM plumbing must work without the user administering
-templates, kernels, or forwarding layers. See [ADR-001](docs/DECISIONS.md#adr-001).
+templates, kernels, or forwarding layers. See [ADR-001](docs/adr/ADR-001.md).
 
 ## Key properties
 
 - **Host:** Arch Linux, `linux-hardened` kernel, LUKS2 full-disk encryption, LVM (thin pool for VM storage), systemd-boot
 - **Guests:** minimal Debian stable MicroVMs with a custom-built LTS kernel, direct kernel boot
 - **Communication:** AF_VSOCK only — control and GUI; no guest network exposure for the control plane. There is no host↔guest file-transfer opcode: FILEGET/FILEPUT were retired before the first release (2026-10-06)
-- **GUI forwarding:** Waypipe over VSOCK into the host Wayland compositor (Sway by default, Hyprland optional — [ADR-016](docs/DECISIONS.md#adr-016))
+- **GUI forwarding:** Waypipe over VSOCK into the host Wayland compositor (Sway by default, Hyprland optional — [ADR-016](docs/adr/ADR-016.md))
 - **Template model:** versioned immutable base images + per-AppVM overlays; updates handled by `katmate-update`, transparent to the user
 
 ## Known limitations (alpha)
@@ -46,15 +46,24 @@ templates, kernels, or forwarding layers. See [ADR-001](docs/DECISIONS.md#adr-00
 | [docs/SECURITY-MODEL.md](docs/SECURITY-MODEL.md) | Threat model, trust boundaries, controls per component, known gaps |
 | [docs/HOST-CONFIG.md](docs/HOST-CONFIG.md) | Host configuration KatMate depends on that lives outside git — an input to the installer |
 | [docs/INSTALL.md](docs/INSTALL.md) | Requirements, installer walkthrough, disk layout, tested hardware, caveats |
-| [docs/DECISIONS.md](docs/DECISIONS.md) | Architecture Decision Records (Accepted / Proposed) |
+| [docs/DECISIONS.md](docs/DECISIONS.md) | Index of the Architecture Decision Records (Accepted / Proposed); one file per ADR in [docs/adr/](docs/adr/) |
+| [docs/OPEN-PROBLEMS.md](docs/OPEN-PROBLEMS.md) | Open problems, by number |
+| [docs/INVARIANTS.md](docs/INVARIANTS.md) | Invariants and gotchas: the traps, with their diagnoses |
+| [docs/DEV-ENV.md](docs/DEV-ENV.md) | The development machines, dev network and dev access |
 | [docs/PARAMETERS.md](docs/PARAMETERS.md) | Per-instance parameters the alpha integration sets by hand, and the component that will own each |
 | [ROADMAP.md](ROADMAP.md) | Milestones v0.1 → v1.0 |
-| [state.md](state.md) | Volatile working state: open problems, next steps (regenerated per session) |
+| [state.md](state.md) | Current state: focus, active open problems, next steps (~50 lines, rewritten every session) |
+| [AI.md](AI.md) | How AI is used in this project |
+| [Early days](https://github.com/KatMate/katmate-os/tree/v0.2.0-alpha2) | The tree at `v0.2.0-alpha2`, with the session record (`docs/SESSIONS.md`) and the long `state.md` |
 
 Maintenance rules: every fact lives in exactly one document (others link to it);
-every decision with alternatives becomes an ADR; `state.md` never holds permanent
-truths; anything the host must be configured to do, but git does not carry,
-belongs in `docs/HOST-CONFIG.md` with its failure mode stated.
+every decision with alternatives becomes an ADR, one file in `docs/adr/`, listed
+in `docs/DECISIONS.md`; `state.md` never holds permanent truths, stays under ~50
+lines and is rewritten, not appended, at the end of every session; open problems
+live in `docs/OPEN-PROBLEMS.md` under numbers that are never reused; session
+notes, briefs and reports are kept outside the repository; anything the host
+must be configured to do, but git does not carry, belongs in
+`docs/HOST-CONFIG.md` with its failure mode stated.
 
 ## Development philosophy
 
@@ -68,7 +77,7 @@ dependencies.
 
 Katmate OS is licensed under the GNU General Public License, version 3 only
 (GPL-3.0-only). The full text is in [LICENSE](LICENSE); the decision is
-[ADR-031](docs/DECISIONS.md#adr-031). Third-party work the project derives
+[ADR-031](docs/adr/ADR-031.md). Third-party work the project derives
 from is credited in [CREDITS.md](CREDITS.md).
 
 ## Contributing

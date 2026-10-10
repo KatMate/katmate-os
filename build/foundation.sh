@@ -137,7 +137,8 @@ cp /etc/resolv.conf "$MNT/etc/resolv.conf"
 # katmate-init is PID 1, yet systemd, systemd-sysv, dbus and dbus-daemon end up
 # installed, as dependency debt accepted for the alpha; nothing starts them:
 #   GTK3 -> dconf-service -> dbus-user-session -> libpam-systemd -> systemd-sysv
-# Removing them is state.md's Next-steps item "systemd purge from foundation".
+# Removing them is the Next-steps item "systemd purge from foundation" of
+# state.md at v0.2.0-alpha2.
 log "Base userspace (shared GUI runtime; systemd installed as debt, never PID 1)"
 chroot_run "$MNT" apt-get update
 chroot_run "$MNT" apt-get install -y \

@@ -286,7 +286,7 @@ ExecStopPost=/usr/bin/rm -f /run/katmate/link/%i/00/netvm /run/katmate/link/%i/0
 # removed before release (ADR-030 §6). It is NEVER placed under /etc (ruling R9,
 # 2026-09-27). The FIFO it points StandardInput= at lives in /run and dies with a
 # reboot; a drop-in in /etc survives it, and the next start then fails above
-# ExecStart= with 208/STDIN before any ExecStartPre= runs (state.md, Invariants).
+# ExecStart= with 208/STDIN before any ExecStartPre= runs (docs/INVARIANTS.md).
 # In /run the drop-in and its FIFO share one lifetime.
 StandardInput=null
 StandardOutput=journal

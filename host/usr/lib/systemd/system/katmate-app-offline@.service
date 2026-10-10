@@ -104,7 +104,7 @@ EnvironmentFile=-/run/katmate/vm/%i.env
 #     `net: offline (no km.ip), lo up` (§11). ipv6.disable=1 is kept, verbatim:
 #     AppVMs are IPv4-only (ADR-037 R66, R76), and an offline one has no
 #     reason to differ. The kernel still creates sit0 (CONFIG_IPV6_SIT), down
-#     and unaddressed (state.md § Invariants).
+#     and unaddressed (docs/INVARIANTS.md).
 # (4) [offline] No network pair. -nodefaults builds no implicit NIC, so the
 #     guest has no network device of any kind: air-gap is the absence of an
 #     object (ADR-030 §2).

@@ -6,13 +6,13 @@
 >
 > **Line numbers are against that day's HEAD**, which was the `audit-fable`
 > branch, and are not corrected as the tree moves. A finding is resolved by a
-> later record, never by editing this file: like `docs/SESSIONS.md`, this is a
+> later record, never by editing this file: like [`docs/SESSIONS.md`](https://github.com/KatMate/katmate-os/blob/v0.2.0-alpha2/docs/SESSIONS.md), this is a
 > record of what was true on the day it was written.
 >
 > Thirteen findings, ordered most severe first. The report is reproduced
 > verbatim below, exactly as the audit emitted it.
 >
-> Cited by [ADR-036](../DECISIONS.md#adr-036), which reasons from these findings
+> Cited by [ADR-036](../adr/ADR-036.md), which reasons from these findings
 > about *placement* and uses none of them as a task.
 
 ## The report, verbatim
