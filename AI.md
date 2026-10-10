@@ -11,12 +11,14 @@ Every architectural decision is mine. Each is recorded as an ADR in
 
 After 40 years of systems engineering and coding, I currently trust a good
 coding model working under my supervision more than a human developer to
-write my architecture. AI is essential here, for development, for testing
+implement my architecture. AI is essential here, for development, for testing
 and for documentation.
 
 ## What the AI does
 
 - It writes code to my specifications.
+- It drafts ADRs and session briefs from my rulings. The text may be the
+  model's; the design, architecture and decisions in it are mine.
 - It runs measurements on my hardware, under my supervision.
 - It writes and audits documentation.
 
@@ -30,16 +32,14 @@ it first. In short:
 - **Halt on divergence.** Before its first change, the agent reads the brief,
   the documents and the tree. Where they disagree, it stops and lists the
   divergences instead of resolving them.
-- **I rule on every divergence.** The ruling is numbered and recorded, and
-  the work continues from it.
+- **I rule on every divergence**, including code design (variables,
+  functions, code input/output pipes, code interactions and algorithm logic
+  flows). The ruling is numbered and recorded, and the work continues from
+  it.
 - **Gates are passed by observation only.** An observation is quoted
   verbatim, or the gate is not passed. What was not run is not claimed.
-- **Every commit on `main` is reviewed and GPG-signed by me.**
-
-## Provenance
-
-AI-assisted commits carry a `Co-Authored-By:` trailer. On 2026-10-03, 271 of
-the 458 commits on `main` carried one.
+- **Every commit on `main` is reviewed and GPG-signed by me**, with the one
+  exception recorded under *Provenance*.
 
 ## What else this project is
 

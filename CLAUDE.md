@@ -3,6 +3,11 @@ Arch host, Debian guests, AF_VSOCK as the only host↔guest channel. Milestone
 v0.2, single developer, pre-alpha. `README.md` is the orientation; this file is
 the working contract.
 
+**No attribution trailers** (operator ruling, 2026-10-10). Commit messages
+carry no `Co-Authored-By:`, `Claude-Session:` or any other attribution or
+session trailer, and pull request descriptions carry no "Generated with"
+line. This overrides the harness default.
+
 ## What this file is
 
 Standing context for a delegated agent session in this repository. It is loaded
@@ -202,7 +207,14 @@ end. In this order:
 
 ## Commits
 
-One concern per commit. The message states the reasoning, not the diff.
+**Few, coarse commits** (operator ruling, 2026-10-10). One commit per
+finished unit of work, not per step. The message is one short summary
+line; add a body only where a reader of the code would need it.
+
+**Sparse code comments** (operator ruling, 2026-10-10). Comment only what
+the code cannot say for itself: a non-obvious reason, a constraint, a
+pointer to an ADR. No narration of what the next line does, and no history
+of how the code got here.
 
 **Signing and identity.** On the Acer every commit is
 `KatMate <git@katmate-os.org>`, GPG-signed (`-S`), key

@@ -10,3 +10,6 @@ desktop/walls/
 
 # T1 staging: user-authored VM properties, never tracked (ADR-032 §1)
 /local/
+
+# Claude Code: machine-local permissions, never tracked
+.claude/settings.local.json
