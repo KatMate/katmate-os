@@ -18,33 +18,34 @@ and [docs/DECISIONS.md](docs/DECISIONS.md).
   inception date.
 - Cubi reproducibility gate: PASS — alpha2 installed on the MSI Cubi on
   2026-10-09 (the operator).
-- Documentation reset in progress: one file per ADR, a short `state.md`,
-  session records out of the repository.
+- Documentation reset merged (`a92b3ef`); `docs/INVARIANTS.md`,
+  `docs/DEV-ENV.md` and `docs/OPEN-PROBLEMS.md` condensed, each pinning its
+  full earlier text to `a92b3ef`.
 
 ## Active open problems
 
 Full list, with text: [docs/OPEN-PROBLEMS.md](docs/OPEN-PROBLEMS.md).
 
-- #3 — Installer secrets, recorded as a v0.2 blocker; status after alpha2 unruled.
 - #17 — netVM VMM privilege, C-gate remainder (C1, C2, C3, C5a).
 - #18 — vsock CID space is global on the host (C6).
 - #21 — Every stop is a hard termination; the clean path is not wired.
-- #31 — The GUI ingress cannot be located in version control.
+- #31 — The GUI ingress is not in version control.
 - #58 — The validator has no CID uniqueness rule.
 
 ## Next steps
 
 1. Launch daemon, build order step 3b (`ROADMAP.md`); its output
    specification is `docs/PARAMETERS.md` with `katmate-launch`'s tables.
-2. Finish the documentation reset: the operator's squash-merge, then the
-   rulings it raised.
-3. Rule on the post-release backlog (UEFI entry name, download resume,
-   retry count, `vconsole.conf` before pacstrap, Intel early KMS, LTE MTU).
-4. Translate `tools/validate-properties.fish` and `bin/katmate-cid` to
+2. Code fix, next Acer session: two runtime strings still name old
+   locations — `installer/preflight.sh:307` (*"state.md, Invariants"*, now
+   `docs/INVARIANTS.md`) and `build/netvm.sh:264` (open problem #38, closed,
+   recorded only in the alpha2 `state.md`).
+3. Translate `tools/validate-properties.fish` and `bin/katmate-cid` to
    en_US, with the `LC_ALL=C` pin, in one commit.
 
 ## Waits on the operator
 
-- Squash-merge of the documentation reset branch.
-- Rulings: open problems #3 and #13; the post-release backlog; ROADMAP
-  candidates from the old *Next steps*; GitHub issues for alpha feedback.
+- Ruling on the post-release backlog (UEFI entry name, download resume,
+  retry count, `vconsole.conf` before pacstrap, Intel early KMS, LTE MTU).
+- ROADMAP candidates from the old *Next steps*.
+- GitHub issues for alpha feedback.

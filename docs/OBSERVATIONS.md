@@ -27,8 +27,9 @@ can be re-examined without re-doing the research.
 - **Provenance is mandatory.** Every claim carries its source and date.
 - **Confidence markers:** `[V]` verified at a primary source ·
   `[S]` secondary source only · `[H]` hypothesis, unproven.
-- Corrections to our own earlier statements belong in [`docs/SESSIONS.md`](https://github.com/KatMate/katmate-os/blob/v0.2.0-alpha2/docs/SESSIONS.md)
-  (session record), not here. This file holds external material only.
+- Corrections to our own earlier statements go as a dated note at the place
+  where the corrected statement lives (an ADR revision note, or the document
+  that holds it), not here. This file holds external material only.
 
 ---
 
