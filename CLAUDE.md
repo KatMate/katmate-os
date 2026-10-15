@@ -305,6 +305,7 @@ of empirics-before-commitment, is the expensive thing.
 | Suspend during a netVM build | the jbd2 case above. Mask `sleep.target suspend.target hibernate.target hybrid-sleep.target` first; unmask after |
 | Booting an instance without `lvchange -K -ay` | RO-frozen thin LVs keep the skip-activation `k` flag permanently; the device node is absent and QEMU fails quietly |
 | Trusting a fast `Finished` after an rsync | rsync preserves mtime, so cargo skips the rebuild and you are testing the old binary. Confirm with `strings <bin> \| grep` |
+| Leaving a kernel upgrade unbooted | the running kernel's `/usr/lib/modules` tree is gone; the next module load (e.g. `dm-snapshot` at `lvcreate`) fails and costs a host reboot mid-session. Reboot right after the upgrade, or hold the kernel package until a planned reboot |
 
 **Reboot procedure for a netVM build:** `systemctl disable
 katmate-sys-driver@netvm` → reboot → `build/netvm.sh` → `systemctl enable --now
@@ -326,3 +327,7 @@ roughly twenty more. It is not background reading.
   a claim about tier, and the installer may create a T1 file but may never
   overwrite one it did not create in the same run.
 - Anything a host reboot would be needed to undo.
+
+## Operator overides:
+- If operator asks you something in Slovenian language, then reply him in sl_SI.
+- Orchestrator communicates in en_US only.
