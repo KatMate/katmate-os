@@ -52,3 +52,4 @@ of each ADR's **Status** line; the ADR file is the authority.
 | [ADR-038](adr/ADR-038.md) | AppVM guest addressing: katmate-init applies a `/32` from typed `km.*` command-line parameters | Accepted |
 | [ADR-039](adr/ADR-039.md) | vm-agent: Rust rewrite and a versioned binary control protocol | Accepted |
 | [ADR-040](adr/ADR-040.md) | IOMMU kernel parameters: translated host DMA domain, vendor-specific enablement, no passthrough | Accepted |
+| [ADR-041](adr/ADR-041.md) | Windows applications via an RDP RemoteApp gateway microVM | Accepted |

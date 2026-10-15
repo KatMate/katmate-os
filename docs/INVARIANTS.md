@@ -268,12 +268,18 @@ that found nothing** — make the condition true on purpose and see it noticed.
   with `pacman -Syu`, and a host-side measurement is tied to the kernel it ran
   under: `7.0.12-arch1-1` (stock) read 2026-08-02; `7.1.9-hardened` read
   2026-08-28 and running through the ADR-035 gate arc to 2026-09-19; `7.2.5`
-  from that reboot; `7.2.7` booted 2026-09-25; `7.2.8` by 2026-10-02
-  (`docs/DEV-ENV.md`).
+  from that reboot; `7.2.7` booted 2026-09-25; `7.2.8` by 2026-10-02;
+  `7.2.10-hardened1-1` installed 2026-10-13 and running since the reboot of
+  2026-10-14 (`docs/DEV-ENV.md`).
 - **An Arch kernel upgrade without a reboot removes the running kernel's
   `/usr/lib/modules` tree;** unloaded modules cannot load. `overlay` is `=m` and
   not autoloaded: test availability (`modinfo -n overlay`), not loaded state.
-  Sources: `appweb-m1-report.md` § 3.1, `appweb-m1-rerun-report.md` § R5.4.
+  Repeated on 2026-10-14: `lvcreate` of a thin snapshot failed on
+  *"modprobe: FATAL: Module dm-snapshot not found"* under 7.2.8 after 7.2.10
+  was installed, and cost a host reboot mid-spike. **Rule on MINIS: reboot
+  right after a kernel upgrade, or hold the kernel package until a planned
+  reboot.** Sources: `appweb-m1-report.md` § 3.1, `appweb-m1-rerun-report.md`
+  § R5.4, `w2-report.md` S2.3, H2.
 - **Check a config's header line before reading symbols from it** (line 3:
   `# Linux/x86 6.12.87 Kernel Configuration`); a `.config` in a tree need not
   belong to its last build.
@@ -360,6 +366,14 @@ that found nothing** — make the condition true on purpose and see it noticed.
 - **A quotation that wraps is not a search string.** On a `grep -F` miss of
   quoted tree text, read the line range; quote unwrappable fragments. Source:
   `adr035-writepass-a-report.md`.
+- **`/proc/stat` `btime` is whole seconds,** so a boot-relative time origin
+  taken from it starts early by the fractional part (0.536 s on the host boot
+  of 2026-10-14). Correct the origin, or do not use `btime`; w1b's M1 values
+  carry this error (< 1 s, not recoverable). Source: `w2-report.md` S3.14.
+- **A guest reboot inside a QEMU without `-no-reboot` is invisible from the
+  host process list:** *"same QEMU pid"* is not evidence of *"no reboot"*
+  (Windows rebooted itself overnight under an unchanged pid). Read the guest's
+  own boot record. Source: `w2-report.md` S3.32, S3.36.
 - **The clock is evidence.** The fixtures' `PEER: seq=` line carries no
   timestamp; adding one before the next measuring session is required and not
   done. Source: `g2-add-report.md`.

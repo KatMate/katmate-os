@@ -13,8 +13,9 @@ netVM) · `20–99` fixed persistent AppVMs · `≥100` disposable pool. Applied
 `app_personal` 22, `app_work` 23, `app_vault` 24.
 
 - **Host** (Arch): Ryzen 7 8745H, AMD-Vi + vfio. `vg0`: `root` 100G, `swap` 12G,
-  `vm_pool` thin pool. Kernel `7.2.8-hardened1-1-hardened`, booted 2026-10-02
-  14:03:24 (stock `linux 7.2.6.arch2-1` also installed). Guest microVM kernel
+  `vm_pool` thin pool. Kernel `7.2.10-hardened1-1-hardened`, booted 2026-10-14
+  10:43:16 (the w2 spike's reboot); a stock Arch kernel is also installed
+  (`7.2.9-arch1-1` tree in `/usr/lib/modules` on 2026-10-14). Guest microVM kernel
   `6.12.87` at `/home/host/katmate-kernels/` (monolithic, `-kernel`). nft input
   drop; SSH open (open problem #4).
   - **NICs:** the RTL8125 (`01:00.0`) is bound to `vfio-pci` at boot and belongs

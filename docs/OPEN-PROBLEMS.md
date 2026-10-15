@@ -233,7 +233,8 @@ repository.
    `vg0/vm_*` device `host:host 0660`, the thin pool's `_tdata`/`_tmeta`
    included. Likely consumer `app_web.con` (inferred). Kept by operator
    ruling; the fix belongs to C1 (#17): per-LV DAC in `ExecStartPre=+`.
-   SECURITY-MODEL gap 16.
+   SECURITY-MODEL gap 16. On MINIS `host` is also in `disk`, which reaches the
+   whole disk regardless of the rule (gap 16's note of 2026-10-14; #63).
 
 44. **Nothing checks that the unit's `addr=` and the image's uplink `Path=`
    agree.** `addr=0x4` in `katmate-sys-driver@.service` and
@@ -307,3 +308,50 @@ repository.
    uniqueness (`docs/PARAMETERS.md`, row *CID*). Shown on the six templates as
    `tools/make-release.sh` copies them, fish 3.7.0, cloud container. The
    alpha's CIDs (3, 21–25) are unique by reading. Planned post-alpha.
+
+59. **Why the Windows guest rebooted itself overnight in w2 is not known.**
+   Windows ended the RAIL session at 00:11:07 (report time, zone not
+   stated), *"initiated by an administrative tool on the server"*, and
+   rebooted at 00:12:49Z (2026-10-15);
+   the host saw nothing (no `-no-reboot`). Hypotheses, neither observed:
+   Windows Update's automatic restart; RTC skew for the System events that
+   are missing. The prepared event read `ev2.ps1` (outside the repository)
+   was not run and is UNVERIFIED. **Open:** run it read-only at the next
+   Windows boot. Product items 9–13 of [ADR-041](adr/ADR-041.md) depend on
+   the answer. Source: `w2-report.md` S3.33, S3.36, S3.39.
+
+60. **katmate-init cannot express a link-only address.** `km.ip`, `km.gw`
+   and `km.dns` are all three or none (`init/katmate-init.c:13–15`, `:346`)
+   and always install an on-link default route via `km.gw` and a resolver.
+   On a link whose peer is not a router (the RDP gateway's 1:1 link to its
+   Windows guest, [ADR-041](adr/ADR-041.md)) the default route and
+   `resolv.conf` point at the peer. Accepted for the w2 spike. **Open:** an
+   address-only form. Source: `w2-report.md` H1 D5.
+
+61. **A failed deactivation after a layer build is silent.**
+   `build/lib.sh:70–74` `lv_deactivate` runs `lvchange -an … 2>/dev/null ||
+   true`. After both w2 gateway layer builds the LV still showed the `o`
+   (open) flag right after the build; later reads were not open. **Open:**
+   report the failure (it is the jbd2 class of INVARIANTS). Source:
+   `w2-report.md` S2.6, S3.23.
+
+62. **Why `lvcreate` of a thin snapshot of a thin origin probed
+   `dm-snapshot`.** Observed on 2026-10-14 (module tree absent after a kernel
+   upgrade, INVARIANTS); a thin snapshot should need `dm-thin-pool` only. Not
+   investigated. Source: `w2-report.md` S2.3, H2.
+
+63. **The installer does not refuse a desktop user in the `disk` group.**
+   Membership in `disk` gives write access to the LUKS mapping, the host root
+   LV and the raw NVMe device (SECURITY-MODEL gap 16, note of 2026-10-14).
+   `installer/postinstall.sh:28` creates the user with `-G wheel` only, so a
+   fresh install is not affected today; nothing checks it.
+   **Open:** a check that refuses ([ADR-041](adr/ADR-041.md) item 3).
+
+64. **No product unit sets `panic=`, so a guest that panics at boot leaves its
+   QEMU and unit running indefinitely.** Not Windows-specific. The AppVM units
+   (`katmate-app-routed@`, `katmate-app-offline@`) carry `-no-reboot`, so
+   `panic=1` on their command line would end the QEMU.
+   **`katmate-sys-driver@` has no `-no-reboot`:** `panic=1` alone would make a
+   panic loop; it needs both. Observed in w2 with a gateway whose delta was
+   smaller than its layer. Recorded, not fixed ([ADR-041](adr/ADR-041.md)
+   item 4). Source: `w2-report.md` H4, S3.3.

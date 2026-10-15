@@ -239,7 +239,7 @@ remove dev sshd (#4); ~~remove the `usermod -p` dev-root line from `netvm.sh`
 - [ ] Remove the leftover GRUB EFI entry
 - [ ] "Zero console" boot (no text frame between firmware and greeter)
 
-## Windows application windows via RDP RemoteApp (experimental backlog — not committed, no ADR yet)
+## Windows application windows via RDP RemoteApp (experimental backlog — user opt-in, [ADR-041](docs/adr/ADR-041.md))
 
 Windows apps as ordinary per-window Wayland surfaces next to the other
 domains. KatMate ships the **client side only**; the RDP server is the
@@ -252,7 +252,7 @@ it evolves — GFX pipeline, codecs, CredSSP/NLA, RAIL extensions — and is
 re-validated against each new Windows release; older servers are not a goal.
 
 - [ ] **RDP gateway VM** — a microVM image running the Wayland-native
-      `sdl-freerdp3 /app:` (RAIL, MS-RDPERP), so the RDP client, which parses
+      `sdl-freerdp /app:` (RAIL, MS-RDPERP), so the RDP client, which parses
       data from an untrusted server, stays outside the host TCB. RAIL windows
       leave the gateway as Wayland surfaces over the existing waypipe path
       (guest-set title label until per-VM `--secctx` lands, v0.3). Native
@@ -277,10 +277,9 @@ re-validated against each new Windows release; older servers are not a goal.
       headless guest)
 - [ ] **Domain indicator** — Windows windows carry the same host-drawn domain
       border/label as other AppVMs (ADR-026)
-- [ ] **Open: verify `sdl-freerdp3` RAIL inside the gateway microVM** — it
-      worked natively on Wayland on the host on 2026-10-08
-      ([RAIL-TESTS](docs/RAIL-TESTS.md)); not yet verified in the gateway,
-      where its windows reach the host through waypipe
+- [x] **Verify `sdl-freerdp` RAIL inside the gateway microVM** — done in
+      w2 (2026-10-14): Word as a RemoteApp window through waypipe
+      ([RAIL-TESTS](docs/RAIL-TESTS.md), evidence in ADR-041)
 
 Prior art: WinApps (Windows 10/11 in KVM or Docker + FreeRDP `/app:`).
 Depends on: AppVM domain model (ADR-014), network object model (ADR-022),
