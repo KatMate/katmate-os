@@ -328,7 +328,11 @@ roughly twenty more. It is not background reading.
   overwrite one it did not create in the same run.
 - Anything a host reboot would be needed to undo.
 
-## Operator overides:for code cli bot only:
+## Operator overrides (all sessions, CLI and cloud)
 
-- If operator asks you (code cli bot) about something in Slovenian language, then reply him in sl_SI.
-- Orchestrator (Claude chat) communicates with code cli bot in en_US only.
+- When the operator writes to a session in Slovenian, the session may answer
+  him in Slovenian in chat.
+- Everything else stays en_US: repository content, commit messages, and the
+  session's reports and halts — a report is the input to en_US repository
+  text, so it is written in en_US whatever language the chat uses.
+- The orchestrator (Claude chat) writes to sessions in en_US only.
