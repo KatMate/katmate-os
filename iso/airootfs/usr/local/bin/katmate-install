@@ -1,0 +1,35 @@
+#!/usr/bin/env bash
+# KatMate install medium: unpack the medium's copy of the release archive and
+# run its installer. install.sh compares that tree with the signed archive of
+# the release it finds, so a medium and a release of different tags refuse
+# each other. The archive is unpacked here, not shipped unpacked, because
+# mkarchiso copies airootfs without file modes and install.sh copies host/usr
+# with its modes.
+set -euo pipefail
+
+ISO_ENV=/etc/katmate-iso/iso.env
+TAG="$(sed -n 's/^ISO_RELEASE_TAG=//p' "$ISO_ENV")"
+[[ "$TAG" =~ ^[A-Za-z0-9][A-Za-z0-9._-]*$ ]] \
+  || { echo "ERROR: $ISO_ENV: malformed ISO_RELEASE_TAG '$TAG'." >&2; exit 1; }
+ARCHIVE="/usr/share/katmate-iso/katmate-os-$TAG.tar.gz"
+TREE="/root/katmate-os-$TAG"
+
+echo "KatMate OS install medium, release $TAG."
+if [[ "${1:-}" != --now ]]; then
+  if read -rsn 1 -t 5 -p "The installer starts in 5 s. Press any key for a shell instead. " _; then
+    echo ""
+    echo "Shell. Start the installer with: katmate-install --now"
+    exit 0
+  fi
+  echo ""
+fi
+
+# pacstrap verifies against the live keyring; pacman-init populates it.
+systemctl start pacman-init.service
+
+[[ -d "$TREE" ]] || tar -xzf "$ARCHIVE" -C /root
+cd /root
+rc=0
+bash "$TREE/installer/install.sh" || rc=$?
+echo "install.sh exited with status $rc. Start it again with: katmate-install --now"
+exit "$rc"

@@ -1,0 +1,32 @@
+# The live system only. The installed host's packages are not here: they are
+# in installer/lib/packages.sh and reach the medium as its offline repository.
+
+# Base and the archiso live boot.
+base
+linux
+mkinitcpio
+mkinitcpio-archiso
+# Early microcode for the live kernel (mkinitcpio 'microcode' hook).
+amd-ucode
+intel-ucode
+# Network firmware only, for the live system's own NICs and Wi-Fi when the
+# release comes from a URL. The target gets the full linux-firmware from the
+# offline repository.
+linux-firmware-atheros
+linux-firmware-broadcom
+linux-firmware-intel
+linux-firmware-mediatek
+linux-firmware-realtek
+# install.sh's required tools that base does not carry.
+arch-install-scripts
+cryptsetup
+dosfstools
+e2fsprogs
+lvm2
+parted
+# install.sh's Wi-Fi path (iwctl), only when the release comes from a URL.
+iwd
+wireless-regdb
+# preflight.sh: lspci (names, DSN) and ethtool -P.
+pciutils
+ethtool

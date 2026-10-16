@@ -711,6 +711,16 @@ if have lsblk; then
       record "live-medium" PASS "$LM_DISK, excluded from the install candidates"
     fi
   fi
+  # The release medium install.sh reads (label KMRELEASE): never a target either.
+  lm_release_disks
+  for l in "${LM_REL_LINES[@]}"; do say "  $l"; done
+  if [[ -n "$LM_REL_DEVS" ]]; then
+    if (( LM_REL_UNRESOLVED )); then
+      record "release-medium" WARN "$LM_REL_DEVS labelled $LM_RELEASE_LABEL, not all resolved to a disk; excluding ${LM_REL_DISKS:-none}"
+    else
+      record "release-medium" PASS "${LM_REL_DISKS}, excluded from the install candidates"
+    fi
+  fi
   DISKS="$(lsblk -d -b -n -o NAME,TYPE,SIZE,TRAN,MODEL 2>/dev/null || true)"
   say "  lsblk -d -b (NAME TYPE SIZE TRAN MODEL):"
   printf '%s\n' "$DISKS" | grep -v '^$' | quote || true
@@ -725,8 +735,10 @@ if have lsblk; then
     # Read per disk: an empty TRAN column would shift the table's fields.
     tran="$(lsblk -n -d -o TRAN "/dev/$name" 2>/dev/null | head -n 1 || true)"
     tran="${tran//[[:space:]]/}"
-    say "  $name: ${gb}G by install.sh's arithmetic, transport ${tran:-unknown}$( [[ "$name" == "$LIVE_DISK" ]] && echo ' (live boot medium)')"
-    if [[ "$name" != "$LIVE_DISK" ]] && (( gb >= MIN_DISK_GB )); then
+    is_rel=0
+    [[ " $LM_REL_DISKS " == *" $name "* ]] && is_rel=1
+    say "  $name: ${gb}G by install.sh's arithmetic, transport ${tran:-unknown}$( [[ "$name" == "$LIVE_DISK" ]] && echo ' (live boot medium)')$( (( is_rel )) && echo ' (release medium)')"
+    if [[ "$name" != "$LIVE_DISK" ]] && (( ! is_rel && gb >= MIN_DISK_GB )); then
       fit+="$name(${gb}G,${tran:-unknown}) "
       nfit=$(( nfit + 1 ))
       [[ "$tran" == usb ]] && nusb=$(( nusb + 1 ))

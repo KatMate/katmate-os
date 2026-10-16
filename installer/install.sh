@@ -14,7 +14,9 @@ set -euo pipefail
 # Run it from the verified release archive (docs/INSTALL.md), as root, on the
 # Arch live ISO, with a network (pacstrap; and the release itself when its
 # source is a URL). It refuses to run from a tree that differs from the
-# signed archive.
+# signed archive. On the KatMate install medium (iso/) pacstrap is offline
+# from the medium's repository, and a network is needed only for a URL
+# release source.
 #
 # The installed host keeps no network profile (operator ruling R11): its NIC
 # belongs to netVM from the first boot on.
@@ -102,6 +104,7 @@ cleanup() {
   rm -rf "$TARGET_STAGE" "$LIVE_STAGE" 2>/dev/null || true
 
   swapoff -a 2>/dev/null || true
+  (( ${REL_MOUNTED:-0} )) && { umount "$REL_MNT" 2>/dev/null || true; }
 
   if [[ "${KEEP_MOUNTS:-no}" == "yes" ]]; then
     echo "KEEP_MOUNTS=yes, leaving /mnt mounted for inspection."
@@ -128,14 +131,44 @@ for c in loadkeys curl ip openssl parted cryptsetup pvcreate vgcreate vgs lvcrea
   require "$c"
 done
 
-# Shared with preflight.sh (live-medium.sh); release handling (release.sh).
-for l in live-medium.sh release.sh; do
+# Shared with preflight.sh (live-medium.sh); release handling (release.sh);
+# the host's package set, shared with build/iso.sh (packages.sh).
+for l in live-medium.sh release.sh packages.sh; do
   [[ -r "$TREE/installer/lib/$l" ]] || die "Missing installer/lib/$l: run the installer from the whole release tree."
 done
 # shellcheck source=installer/lib/live-medium.sh
 source "$TREE/installer/lib/live-medium.sh"
 # shellcheck source=installer/lib/release.sh
 source "$TREE/installer/lib/release.sh"
+# shellcheck source=installer/lib/packages.sh
+source "$TREE/installer/lib/packages.sh"
+
+# ---------------------------------------------------------------------------
+# Install medium
+# ---------------------------------------------------------------------------
+# On the KatMate install medium (iso/, build/iso.sh) pacstrap reads the
+# medium's own repository, and the release URL is pinned to the tag the
+# medium was built from. Anywhere else both stay as they were.
+
+ISO_ENV=/etc/katmate-iso/iso.env
+ISO_PACMAN_CONF=/etc/katmate-iso/pacman-offline.conf
+ON_ISO=0
+if [[ -e "$ISO_ENV" ]]; then
+  ISO_TAG="$(rel_env_get "$ISO_ENV" ISO_RELEASE_TAG)"
+  [[ "$ISO_TAG" =~ ^[A-Za-z0-9][A-Za-z0-9._-]*$ ]] || die "$ISO_ENV: malformed ISO_RELEASE_TAG '$ISO_TAG'."
+  [[ -r "$ISO_PACMAN_CONF" ]] || die "Install medium without its offline pacman config $ISO_PACMAN_CONF."
+  # From ISO_VALID_UNTIL on, a key that signs the medium's packages has
+  # expired and pacstrap fails (build/iso.sh). Before any question; no override.
+  ISO_VALID_UNTIL="$(rel_env_get "$ISO_ENV" ISO_VALID_UNTIL)"
+  [[ "$ISO_VALID_UNTIL" =~ ^[0-9]{4}-[0-9]{2}-[0-9]{2}$ ]] \
+    || die "$ISO_ENV: malformed ISO_VALID_UNTIL '$ISO_VALID_UNTIL'."
+  TODAY="$(date -u +%F)"
+  [[ "$TODAY" < "$ISO_VALID_UNTIL" ]] \
+    || die "This install medium expired on $ISO_VALID_UNTIL (UTC); the clock says $TODAY. Its packages are signed by keys that are no longer valid. Get a newer medium, or check the clock."
+  ON_ISO=1
+  DEFAULT_RELEASE_URL="https://github.com/KatMate/katmate-os/releases/download/$ISO_TAG"
+  echo "KatMate install medium, release $ISO_TAG: packages come from the medium."
+fi
 
 # ---------------------------------------------------------------------------
 # Keymap
@@ -172,14 +205,51 @@ done
 echo "Keymap: $KEYMAP (loaded in the live console)"
 
 # ---------------------------------------------------------------------------
+# Release source
+# ---------------------------------------------------------------------------
+# Resolved before the network check, because a local release on the install
+# medium needs no network. A filesystem labelled KMRELEASE (live-medium.sh)
+# holding the release files at its root is used without a question;
+# KM_RELEASE_SRC overrides it.
+
+log "Release source"
+
+REL_MNT=/run/katmate/release
+REL_MOUNTED=0
+lm_release_disks
+for l in "${LM_REL_LINES[@]}"; do echo "  $l"; done
+if [[ -n "${KM_RELEASE_SRC:-}" ]]; then
+  REL_SOURCE="$KM_RELEASE_SRC"
+elif [[ -n "$LM_REL_DEVS" ]]; then
+  [[ "$LM_REL_DEVS" != *" "* ]] \
+    || die "More than one filesystem labelled $LM_RELEASE_LABEL ($LM_REL_DEVS): attach exactly one release medium."
+  mkdir -p "$REL_MNT"
+  mount -o ro "$LM_REL_DEVS" "$REL_MNT" || die "Cannot mount the release medium $LM_REL_DEVS read-only at $REL_MNT."
+  REL_MOUNTED=1
+  REL_SOURCE="$REL_MNT"
+  echo "Release medium $LM_REL_DEVS, mounted read-only at $REL_MNT."
+else
+  echo "Release source: a directory holding the release files (USB), or a URL."
+  read -rp "Release source [$DEFAULT_RELEASE_URL]: " REL_SOURCE
+  REL_SOURCE="${REL_SOURCE:-$DEFAULT_RELEASE_URL}"
+fi
+REL_SOURCE="${REL_SOURCE%/}"
+rel_open "$REL_SOURCE" "$LIVE_STAGE"
+echo "Source: $REL_SOURCE"
+
+# ---------------------------------------------------------------------------
 # Network
 # ---------------------------------------------------------------------------
 # A check, not a configuration: if the live system is already online (UTP,
 # DHCP by archiso), nothing is done. Wi-Fi is set up only when it is offline.
 # Nothing about the install-time network is written to the target.
 # The test is HTTPS, not ICMP: ICMP is filtered on some segments.
+# On the install medium only a URL release source needs it.
 
 log "Network"
+
+NEED_NET=1
+if (( ON_ISO && ! REL_IS_URL )); then NEED_NET=0; fi
 
 online() {
   curl -fsS -m 5 -o /dev/null https://archlinux.org >/dev/null 2>&1
@@ -190,7 +260,9 @@ default_route_dev() {
     | awk '{for (i = 1; i < NF; i++) if ($i == "dev") { print $(i + 1); exit }}'
 }
 
-if online; then
+if (( ! NEED_NET )); then
+  echo "Install medium with a local release: no network needed, check skipped."
+elif online; then
   echo "Online (HTTPS to archlinux.org): default route via $(default_route_dev || true). Wi-Fi skipped."
 else
   echo "Offline: HTTPS to archlinux.org failed."
@@ -239,17 +311,6 @@ fi
 # the target once it exists (a URL source) and checked one by one there.
 
 log "Release"
-
-if [[ -n "${KM_RELEASE_SRC:-}" ]]; then
-  REL_SOURCE="$KM_RELEASE_SRC"
-else
-  echo "Release source: a directory holding the release files (USB), or a URL."
-  read -rp "Release source [$DEFAULT_RELEASE_URL]: " REL_SOURCE
-  REL_SOURCE="${REL_SOURCE:-$DEFAULT_RELEASE_URL}"
-fi
-REL_SOURCE="${REL_SOURCE%/}"
-rel_open "$REL_SOURCE" "$LIVE_STAGE"
-echo "Source: $REL_SOURCE"
 
 rel_verify_sums "$TREE/installer/katmate-release.asc" "$RELEASE_KEY_FPR"
 
@@ -497,7 +558,7 @@ log "Disk selection"
 # The archiso stick this system booted from is never a target. Any other
 # disk, USB included, may be (operator, 2026-10-04).
 lm_resolve "$(cat /proc/cmdline)"
-for l in "${LM_LINES[@]}"; do echo "  $l"; done
+for l in "${LM_LINES[@]}" "${LM_REL_LINES[@]}"; do echo "  $l"; done
 if (( LM_ARCHISO )) && [[ -z "$LM_DISK" ]]; then
   die "Archiso boot ($LM_PARAMS), but the boot medium resolves to no disk: cannot prove the target is not the boot stick."
 fi
@@ -516,6 +577,17 @@ if (( LM_ARCHISO )); then
   # Every disk any method resolved to is refused, not only the first.
   if [[ " $LM_SEEN " == *" $TARGET_DISK "* ]]; then
     die "$DISK is on $TARGET_DISK, the live boot medium this system booted from. Refusing."
+  fi
+fi
+
+# The release medium is never a target either (Release source, above).
+if [[ -n "$LM_REL_DEVS" ]]; then
+  (( ! LM_REL_UNRESOLVED )) \
+    || die "A filesystem labelled $LM_RELEASE_LABEL resolves to no disk: cannot prove $DISK is not the release medium."
+  REL_TARGET_DISK="$(lm_disk_of "$DISK")" \
+    || die "Cannot resolve $DISK to a disk: cannot prove it is not the release medium."
+  if [[ " $LM_REL_DISKS " == *" $REL_TARGET_DISK "* ]]; then
+    die "$DISK is on $REL_TARGET_DISK, which holds a filesystem labelled $LM_RELEASE_LABEL (the release medium). Refusing."
   fi
 fi
 
@@ -659,47 +731,33 @@ mountpoint -q /mnt/boot || die "EFI /boot not mounted"
 
 log "Pacman keyring"
 
-retry pacman -Syy --noconfirm
-retry pacman -S --noconfirm archlinux-keyring
+# On the install medium the repository and the live keyring are built
+# together, and there may be no network.
+if (( ON_ISO )); then
+  echo "Install medium: keyring refresh skipped; pacstrap uses $ISO_PACMAN_CONF."
+else
+  retry pacman -Syy --noconfirm
+  retry pacman -S --noconfirm archlinux-keyring
+fi
 
 # ---------------------------------------------------------------------------
 # Pacstrap
 # ---------------------------------------------------------------------------
-# Desktop and session (operator ruling R16): sway with swaybg for its
-# wallpaper, waybar, swaync, greetd with tuigreet, foot (R6 of the brief),
-# PipeWire with WirePlumber (wpctl) and pipewire-pulse (waybar's volume module
-# talks to a pulse server), brightnessctl, playerctl, grim, slurp,
-# wl-clipboard, wf-recorder, libnotify (notify-send), xdg-utils (xdg-open, for
-# km-shot), polkit, plymouth, and the GeistMono and Symbols Nerd fonts.
-# e2fsprogs for the home LVs' ext4. Package names were checked by a web search
-# only for otf-geist-mono-nerd, ttf-nerd-fonts-symbols, greetd-tuigreet,
-# swaync and wf-recorder; the rest are UNVERIFIED until the Cubi install.
-# No iwd and no wireguard-tools (operator ruling, 2026-10-05): the host has no
-# network, its NIC is netVM's, and a VPN is the user's config in netVM
-# (ADR-037). The live system's iwctl above is install-time only.
+# The package set and why each is there: installer/lib/packages.sh.
 
 log "Pacstrap"
 
 UCODE_PKG=""
 [[ -n "$UCODE" ]] && UCODE_PKG="$UCODE"
 
+PACSTRAP_OPTS=()
+if (( ON_ISO )); then PACSTRAP_OPTS=(-C "$ISO_PACMAN_CONF"); fi
+
 # retry: a large transfer can stall on some network paths and pacman then
 # aborts it. A re-run resumes from the target's package cache
 # (/mnt/var/cache/pacman/pkg), partial downloads included, so a retry does
 # not start the download over.
-retry pacstrap /mnt \
-  base linux-hardened linux-hardened-headers linux-firmware ${UCODE_PKG} \
-  lvm2 e2fsprogs \
-  efibootmgr cryptsetup \
-  micro sudo \
-  nftables \
-  qemu-full \
-  plymouth \
-  sway swaybg waybar swaync greetd greetd-tuigreet foot \
-  pipewire wireplumber pipewire-pulse \
-  brightnessctl playerctl grim slurp wl-clipboard wf-recorder libnotify xdg-utils \
-  polkit \
-  otf-geist-mono-nerd ttf-nerd-fonts-symbols
+retry pacstrap "${PACSTRAP_OPTS[@]}" /mnt "${KM_HOST_PKGS[@]}" ${UCODE_PKG}
 
 # ---------------------------------------------------------------------------
 # fstab

@@ -15,7 +15,13 @@
 # auto) the hook unmounts it after copying the image to RAM.
 #
 # Needs: lsblk, readlink. findmnt is optional (bootmnt is then not consulted).
+#
+# The release medium (lm_release_disks) is excluded the same way: a filesystem
+# labelled KMRELEASE holding the release files, read by install.sh. Needs
+# blkid.
 # ---------------------------------------------------------------------------
+
+LM_RELEASE_LABEL=KMRELEASE
 
 # lm_disk_of <path>: the disk a block device (or a link to one) belongs to.
 lm_disk_of() {
@@ -91,5 +97,39 @@ lm_resolve() {
     fi
   done
   LM_SEEN="${LM_SEEN% }"
+  return 0
+}
+
+# lm_release_disks
+#   LM_REL_DEVS        every block device carrying LM_RELEASE_LABEL, space-separated
+#   LM_REL_DISKS       the distinct disks they are on, space-separated
+#   LM_REL_UNRESOLVED  1 if any of them resolves to no disk, else 0
+#   LM_REL_LINES       the evidence, one line per element, unindented
+# blkid probes every device (-c /dev/null: no cache), so two filesystems with
+# the label are both seen; /dev/disk/by-label would name one of them.
+# shellcheck disable=SC2034
+lm_release_disks() {
+  local dev d
+  LM_REL_DEVS="" LM_REL_DISKS="" LM_REL_UNRESOLVED=0
+  LM_REL_LINES=()
+  if ! command -v blkid >/dev/null 2>&1; then
+    LM_REL_UNRESOLVED=1
+    LM_REL_LINES+=("release medium: blkid not installed: not determinable")
+    return 0
+  fi
+  while IFS= read -r dev; do
+    [[ -n "$dev" ]] || continue
+    LM_REL_DEVS+="$dev "
+    if d="$(lm_disk_of "$dev")"; then
+      LM_REL_LINES+=("release medium: $dev (LABEL=$LM_RELEASE_LABEL) -> disk $d")
+      [[ " $LM_REL_DISKS " == *" $d "* ]] || LM_REL_DISKS+="$d "
+    else
+      LM_REL_UNRESOLVED=1
+      LM_REL_LINES+=("release medium: $dev (LABEL=$LM_RELEASE_LABEL) does not resolve to a disk")
+    fi
+  done < <(blkid -c /dev/null -t "LABEL=$LM_RELEASE_LABEL" -o device 2>/dev/null || true)
+  [[ -n "$LM_REL_DEVS" ]] || LM_REL_LINES+=("release medium: no filesystem labelled $LM_RELEASE_LABEL")
+  LM_REL_DEVS="${LM_REL_DEVS% }"
+  LM_REL_DISKS="${LM_REL_DISKS% }"
   return 0
 }
