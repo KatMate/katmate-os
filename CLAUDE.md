@@ -328,6 +328,7 @@ roughly twenty more. It is not background reading.
   overwrite one it did not create in the same run.
 - Anything a host reboot would be needed to undo.
 
-## Operator overides:
-- If operator asks you something in Slovenian language, then reply him in sl_SI.
-- Orchestrator communicates in en_US only.
+## Operator overides:for code cli bot only:
+
+- If operator asks you (code cli bot) about something in Slovenian language, then reply him in sl_SI.
+- Orchestrator (Claude chat) communicates with code cli bot in en_US only.
