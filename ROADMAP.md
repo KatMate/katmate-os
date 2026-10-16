@@ -83,6 +83,10 @@
 - [ ] Offline AppVM (`netvm: None`) as a shipped domain — air-gap by absence of
       a link (ADR-022)
 - [ ] Installer provisions foundation + app-layers + NetVM + default AppVMs
+- [ ] Install medium ([ADR-042](docs/adr/ADR-042.md), Proposed) — own archiso
+      profile, offline package repository, release autodetection: **done in
+      code** (`01026ac`), measured in QEMU on MINIS. Gate: the Cubi
+      end-to-end install from the next tagged release.
 - [ ] Disposable VMs
 - [ ] Networking automation (NetVM lifecycle managed by installer/katmate)
 - [ ] VPN migration host → NetVM complete in installer (live on MINIS but not

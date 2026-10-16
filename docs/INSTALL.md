@@ -17,11 +17,14 @@
 - **One PCI Ethernet card for netVM.** It is passed through to netVM and the
   host keeps no network of its own after installation. A wireless card cannot
   be assigned in the alpha.
-- Arch Linux live ISO environment, online over UTP (archiso DHCP) or, failing
-  that, a Wi-Fi network the installer can join (pacstrap needs a network,
-  and so does a release fetched from a URL)
-- A KatMate release (below), either on a USB stick or reachable as GitHub
-  release assets
+- The **KatMate install medium** of the release's tag on a USB stick
+  (*The install medium*, below). It installs offline. The fallback is the
+  stock Arch Linux live ISO, which needs a network for pacstrap
+  (*Fallback: the stock Arch ISO*).
+- A KatMate release (below), either on a `KMRELEASE` filesystem (a second
+  stick, or a partition on the medium's stick) or reachable as GitHub release
+  assets. A release from a URL needs a network: UTP (archiso DHCP) or, failing
+  that, a Wi-Fi network the installer can join.
 
 > **Do not mount anything at `/mnt`** before running the installer (e.g. the
 > script USB) — the installer requires `/mnt` free and will abort otherwise.
@@ -56,7 +59,89 @@ cd /root/katmate-os-<tag>
 
 Run the installer only from that extracted archive. It compares the tree it
 runs from with the signed archive and refuses on any difference, so a clone
-or an edited copy will not install.
+or an edited copy will not install. The install medium carries the archive of
+its own tag and unpacks it itself; the same comparison makes a medium and a
+release of different tags refuse each other.
+
+## The install medium
+
+The decision and its measurements: [ADR-042](adr/ADR-042.md). The medium is
+UEFI only. It carries the installer (the tag's archive) and an offline
+package repository, and no guest images: those stay in the release files.
+
+**Where it comes from.** `build/iso.sh`, run as root on an Arch host from the
+release tag's archive:
+
+```
+sudo build/iso.sh --archive <dir>/katmate-os-<tag>.tar.gz --out <empty dir>
+```
+
+It writes `katmate-install-<tag>-x86_64.iso` and its `.sha256`. The ISO's
+detached signature by the release key is **not yet part of the release**
+([open problem #67](OPEN-PROBLEMS.md)).
+
+**Write it to a stick** (this erases the stick; check the device name with
+`lsblk` first):
+
+```
+dd if=katmate-install-<tag>-x86_64.iso of=/dev/sdX bs=4M conv=fsync oflag=direct status=progress
+```
+
+**Put the release files on a `KMRELEASE` filesystem**, all of them at its
+root (`SHA256SUMS`, `SHA256SUMS.asc`, the archive, the images and the rest).
+A second stick:
+
+```
+parted -s /dev/sdY mklabel gpt mkpart KMRELEASE fat32 1MiB 100%
+mkfs.fat -F 32 -n KMRELEASE /dev/sdY1
+mkdir -p /tmp/kmrel && mount /dev/sdY1 /tmp/kmrel
+cp <release dir>/* /tmp/kmrel/ && umount /tmp/kmrel
+```
+
+or a third partition in the free space behind the ISO on the medium's own
+stick (`sgdisk -e /dev/sdX` moves the backup GPT header to the end of the
+stick; then `sgdisk -n 0:0:0 -t 0:0700 /dev/sdX`, and `mkfs.fat -F 32 -n
+KMRELEASE` on the new partition as `lsblk` names it). **UNVERIFIED:** iso1
+measured a separate release disk only; the same-stick layout has not been
+built or booted. FAT32 limits a single file to 4 GiB.
+
+The installer uses exactly one `KMRELEASE` filesystem without asking, and
+refuses if there is more than one; `KM_RELEASE_SRC` overrides it. With none,
+it asks for a source and offers the GitHub release of the medium's own tag.
+A disk holding a `KMRELEASE` filesystem is never an install target.
+
+**Booting it.** The boot entry already carries `intel_iommu=on`
+([ADR-040](adr/ADR-040.md)); nothing needs to be edited. On tty1, root is
+logged in and a launcher starts the installer after 5 s; any key gives a
+shell instead, and `katmate-install --now` starts it from there. tty2–6 offer
+a root login with an **empty password**, as on the Arch ISO.
+
+**The live system's firmware is network firmware only**
+(`linux-firmware-{intel,realtek,atheros,mediatek,broadcom}`), for its own NIC
+and Wi-Fi when the release comes from a URL. The installed host gets the full
+`linux-firmware` from the offline repository.
+
+**Validity window.** The medium's packages are signed by Arch packager keys
+that expire. `build/iso.sh` records the earliest expiry as `ISO_VALID_UNTIL`
+(UTC) and refuses to build a medium with fewer than 60 days left. From that
+date on, `install.sh` refuses before the first question and before touching
+any disk, with no override:
+
+```
+This install medium expired on <date> (UTC); the clock says <today>. Its packages are signed by keys that are no longer valid. Get a newer medium, or check the clock.
+```
+
+`build/iso.sh` prints the date on every build, and the medium carries it in
+`/etc/katmate-iso/iso.env`.
+
+## Fallback: the stock Arch ISO
+
+The Arch Linux live ISO still works. It needs a network for the keyring
+refresh and for pacstrap, which then uses the live environment's mirrors; the
+release may come from a URL, a `KMRELEASE` filesystem or a directory. On
+Intel, the IOMMU parameter is added to the boot entry by hand (*Preflight*).
+Verify the release and extract the archive as shown above, then run
+`bash installer/install.sh` from it.
 
 ## Preflight
 
@@ -67,15 +152,20 @@ IOMMU (ACPI table, activity, interrupt remapping), every IOMMU group, the
 isolation of each Ethernet, Wi-Fi and USB controller, NIC identity (MAC,
 slot path, udev path), the GPU, RAM, CPUs and disks.
 
-**Boot the live ISO with the IOMMU on, or the result is not meaningful.** On
-Intel, edit the ISO's boot entry and append `intel_iommu=on`. On AMD the IOMMU
-is on by default (`amd_iommu=on` is not a valid option; the kernel logs it as
+**Boot the live system with the IOMMU on, or the result is not meaningful.**
+The install medium's boot entry already carries `intel_iommu=on`. On the stock
+Arch ISO on Intel, edit its boot entry and append `intel_iommu=on`. On AMD the
+IOMMU is on by default (`amd_iommu=on` is not a valid option; the kernel logs it as
 unknown). If the IOMMU is off because of the boot line, the preflight says so,
 distinctly from a firmware with VT-d / AMD-Vi disabled.
 
-**It writes one file, and it needs a writable place for it.** The Arch ISO
+**It writes one file, and it needs a writable place for it.** The live
 medium is read-only, and the live system's `/tmp` is in RAM and lost at
-reboot. Run it as root from the script USB, if that stick is mounted
+reboot. On the install medium, take the shell (any key at the launcher) and
+unpack the tree first if the launcher has not:
+`tar -xzf /usr/share/katmate-iso/katmate-os-<tag>.tar.gz -C /root`; the
+preflight is then `/root/katmate-os-<tag>/installer/preflight.sh`. On the
+stock Arch ISO, run it as root from the script USB, if that stick is mounted
 read-write:
 
 ```
@@ -89,8 +179,9 @@ or write to `/tmp` and copy the file to a second stick before rebooting:
 bash /installer/preflight.sh -o /tmp/preflight.txt
 ```
 
-The default name is `katmate-preflight-<hostname>-<UTC time>.txt` in the
-current directory. If the file cannot be created, or already exists, the
+A disk holding a `KMRELEASE` filesystem is marked `(release medium)` and is
+not counted as an install candidate. The default name is
+`katmate-preflight-<hostname>-<UTC time>.txt` in the current directory. If the file cannot be created, or already exists, the
 preflight stops before any check.
 
 **Reading the result.** Every check prints `PASS`, `WARN`, `FAIL` or
@@ -105,90 +196,99 @@ preflight stops before any check.
 
 ## What `install.sh` does
 
-Run as root, from the extracted archive: `bash installer/install.sh`.
+Run as root, from the extracted archive: `bash installer/install.sh`. On the
+install medium the launcher does this (*The install medium*).
 
 1. **Sanity checks** — `/mnt` unoccupied, all required tools present
    (`curl`, `gpg`, `zstd`, `openssl` and `loadkeys` among them; `iwctl` only
-   if Wi-Fi is needed).
+   if Wi-Fi is needed). On the install medium also its offline pacman
+   configuration and the validity window, before the first question
+   (*The install medium*).
 2. **Keymap** — prompted, default `us`, checked against `localectl
    list-keymaps` when available, and loaded into the live console at once,
    so every passphrase that follows — the LUKS one above all — is typed under
    the layout the installed system's initramfs will use.
-3. **Network** — a check, not a configuration. Online test over HTTPS
-   (`curl` to `archlinux.org`, 5 s; ICMP is not used). If online, the
-   interface carrying the default route is logged and Wi-Fi is skipped. If
-   offline, an iwd station device is required (otherwise: connect UTP), SSID
-   and passphrase are prompted (passphrase not echoed), a visible and then a
-   hidden connect is tried, and the HTTPS check is repeated. Nothing about
-   the install-time network is written to the target.
-4. **Release** — the source is a directory or a URL (default: the latest
-   GitHub release; `KM_RELEASE_SRC` overrides the prompt). `SHA256SUMS.asc`
-   must verify with the release key alone, by the pinned fingerprint; the
-   running tree must equal the signed archive; `netvm.meta` must record
+3. **Release source** — resolved before the network, because a local release
+   on the install medium needs none. `KM_RELEASE_SRC` if set; else exactly one
+   `KMRELEASE` filesystem, mounted read-only at `/run/katmate/release` without
+   a question (more than one: refused); else a prompt for a directory or a
+   URL. The default URL is the latest GitHub release, or on the install medium
+   the release of the medium's own tag.
+4. **Network** — on the install medium only for a URL source; elsewhere
+   always, because pacstrap needs it. A check, not a configuration. Online
+   test over HTTPS (`curl` to `archlinux.org`, 5 s; ICMP is not used). If
+   online, the interface carrying the default route is logged and Wi-Fi is
+   skipped. If offline, an iwd station device is required (otherwise: connect
+   UTP), SSID and passphrase are prompted (passphrase not echoed), a visible
+   and then a hidden connect is tried, and the HTTPS check is repeated.
+   Nothing about the install-time network is written to the target.
+5. **Release** — `SHA256SUMS.asc` must verify with the release key alone,
+   by the pinned fingerprint; the running tree must equal the signed archive; `netvm.meta` must record
    `NETVM_ROOT_UNLOCKED=no`; `images.list` must carry exactly the five
    images. Every file is checked against `SHA256SUMS` before it is used.
-5. **RAM** — refused below 16 GB, before any disk is touched.
-6. **Identity** — hostname (RFC 1123 label), username
+6. **RAM** — refused below 16 GB, before any disk is touched.
+7. **Identity** — hostname (RFC 1123 label), username
    (`^[a-z_][a-z0-9_-]{0,31}$`, not `root`) and password (twice, not echoed,
    non-empty), hashed in the live system (`openssl passwd -6`). **root gets
    no password and is locked**; administration is through `sudo` (wheel).
-7. **Desktop keyboard layout** — XKB layout name(s) for sway (`si`, `de`,
+8. **Desktop keyboard layout** — XKB layout name(s) for sway (`si`, `de`,
    `si,us`; default `us`), separate from the console keymap, whose names
    differ.
-8. **CPU detection** — vendor → `amd-ucode` / `intel-ucode`, the IOMMU
+9. **CPU detection** — vendor → `amd-ucode` / `intel-ucode`, the IOMMU
    parameter ([ADR-040](adr/ADR-040.md)), and on AMD the `topoext`
    drop-in for netVM's unit.
-9. **netVM's card** — every PCI Ethernet controller is listed (address,
+10. **netVM's card** — every PCI Ethernet controller is listed (address,
    vendor:device, driver, IOMMU group); you pick one. A card whose
    vendor:device another Ethernet controller shares is refused; a card that
    shares its IOMMU group with other devices asks for confirmation.
-10. **Disk selection** — interactive; the live boot stick is never offered.
-11. **Proportional layout** (computed, then confirmed together with the wipe):
+11. **Disk selection** — interactive; the live boot stick and any disk
+    holding a `KMRELEASE` filesystem are refused as targets.
+12. **Proportional layout** (computed, then confirmed together with the wipe):
     - ESP: 512M
     - root: 15% of disk, clamped to 20–60 G
     - swap: sized = RAM (rounded up)
     - netVM: a linear LV of its image's size, plus 1 GiB left free in `vg0`
     - thin pool `vm_pool`: the rest; metadata 1% of it, clamped 64M–1G;
       refused if it cannot hold the images plus 8 GiB
-12. **Partitioning, encryption, LVM, filesystems, mount** — GPT: ESP + LUKS2
+13. **Partitioning, encryption, LVM, filesystems, mount** — GPT: ESP + LUKS2
     (`cryptlvm`) → `vg0` with `root`, `swap` and `vm_pool`; FAT32 ESP at
     `/boot`, ext4 root, swap on.
-13. **Pacstrap** — with the live environment's mirror and download
-    configuration as is (the installer does not change it), retrying the
-    download up to three times: `base linux-hardened
-    linux-hardened-headers linux-firmware <ucode> lvm2 e2fsprogs efibootmgr
-    cryptsetup micro sudo nftables qemu-full plymouth`,
-    and the desktop: `sway swaybg waybar swaync greetd greetd-tuigreet foot
-    pipewire wireplumber pipewire-pulse brightnessctl playerctl grim slurp
-    wl-clipboard wf-recorder libnotify xdg-utils polkit otf-geist-mono-nerd
-    ttf-nerd-fonts-symbols`. No `iwd` and no `wireguard-tools`: the host
-    has no network (until 2026-10-05 both were installed, `iwd` not enabled).
-14. **Base config** — fstab, hostname, timezone `Europe/Zurich`, wheel
+14. **Pacstrap** — the package set in
+    [`installer/lib/packages.sh`](../installer/lib/packages.sh), with the
+    vendor's microcode, each package with its reason there. On the install
+    medium it is offline, from the medium's repository
+    (`/etc/katmate-iso/pacman-offline.conf`), and the keyring refresh is
+    skipped. Elsewhere `pacman -Syy` and `archlinux-keyring` come first, and
+    pacstrap uses the live environment's mirror and download configuration as
+    is (the installer does not change it). Retried up to three times. No
+    `iwd` and no `wireguard-tools`: the host has no network (until
+    2026-10-05 both were installed, `iwd` not enabled).
+15. **Base config** — fstab, hostname, timezone `Europe/Zurich`, wheel
     sudoers. **No network profile**: no wired or Wi-Fi unit, and neither
     `systemd-networkd` nor `systemd-resolved` is enabled; the host's card
     belongs to netVM. *(Until 2026-10-05 this step wrote a wired DHCP unit,
     `20-wired.network`, and enabled both; operator ruling R11 removed them.)*
-15. **Guest images** — each image is fetched into the target's `/var/tmp`
+16. **Guest images** — each image is fetched into the target's `/var/tmp`
     (URL source), checked, written to its LV (`vm_tpl_foundation`,
     `vm_app_web`, `vm_app_office`, `vm_app_vault` thin, written sparse;
     `vm_sys_netvm` linear) and read back byte for byte; the four thin images
     are then made read-only.
-16. **T2** — the images' metadata in `/var/lib/katmate/`, netVM's kernel and
+17. **T2** — the images' metadata in `/var/lib/katmate/`, netVM's kernel and
     initrd in `/var/lib/katmate/netvm/`, the MicroVM kernel and its
     provenance sidecar (checked, [ADR-034](adr/ADR-034.md)) in
     `/var/lib/katmate/kernels/`.
-17. **T1** — `/etc/katmate/vm/{netvm,app_web,app_personal,app_work,app_vault,app_sandbox}.toml`
+18. **T1** — `/etc/katmate/vm/{netvm,app_web,app_personal,app_work,app_vault,app_sandbox}.toml`
     from `installer/t1/`, `root:root 0644`, created and never overwritten
     ([ADR-032](adr/ADR-032.md) §1).
-18. **Home LVs and deltas** — `vm_<instance>_home`, 10G thin, ext4, `user/`
+19. **Home LVs and deltas** — `vm_<instance>_home`, 10G thin, ext4, `user/`
     `1000:1000 0700`; `/var/lib/katmate/instances/<instance>.qcow2` over the
     instance's app layer.
-19. **KatMate host parts** — `host/usr/` (units and `/usr/lib/katmate/`),
+20. **KatMate host parts** — `host/usr/` (units and `/usr/lib/katmate/`),
     `ping-client` and the host `waypipe` (`/opt/katmate/bin/`); vfio-pci for
     the chosen card in `/etc/modprobe.d/katmate-vfio.conf`;
     `/etc/sudoers.d/katmate-launch` for the user; the `waypipe-client` user
     unit in `/etc/systemd/user/`.
-20. **Desktop** — `/etc/sway/config` (with an empty `outputs.conf` and the
+21. **Desktop** — `/etc/sway/config` (with an empty `outputs.conf` and the
     keyboard include), waybar and its menus, `km-launch`, `km-shot`,
     `sway-session` and `sway-quiet` in `/usr/local/bin/`, wallpapers, greetd
     with the sway session entry, and the KatMate Plymouth theme.
@@ -205,16 +305,16 @@ Run as root, from the extracted archive: `bash installer/install.sh`.
 
     `transform 270` rotates the other way. Where monitors overlap, `pos X Y`
     on each output sets its placement. See `man 5 sway-output`.
-21. **Handoff** — writes `/root/install.env` (username, LUKS UUID, ucode,
+22. **Handoff** — writes `/root/install.env` (username, LUKS UUID, ucode,
     keymap; no secrets), copies and runs `postinstall.sh` inside the chroot,
     then removes both — `install.env` also on failure, from the exit trap.
-22. **Password** — the hash is piped to `chpasswd -e` in the chroot for the
+23. **Password** — the hash is piped to `chpasswd -e` in the chroot for the
     user only; it reaches the target only in `/etc/shadow`.
-23. **systemd-boot** — `bootctl install`; `loader.conf` with `timeout 0`,
+24. **systemd-boot** — `bootctl install`; `loader.conf` with `timeout 0`,
     `editor no`; boot entry with
     `cryptdevice=UUID=<luks>:cryptlvm root=/dev/vg0/root rw quiet splash loglevel=3`
     and the vendor's IOMMU parameter.
-24. **Verification** — the boot files, the IOMMU parameters, `splash`; the
+25. **Verification** — the boot files, the IOMMU parameters, `splash`; the
     user's `$6$` hash and root's lock; no `install.env`; an empty
     `/etc/systemd/network`; every LV, T1 file, meta, kernel, delta, binary
     and desktop file; `katmate-sys-driver@netvm` and `greetd` enabled, and

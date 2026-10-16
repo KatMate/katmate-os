@@ -53,3 +53,4 @@ of each ADR's **Status** line; the ADR file is the authority.
 | [ADR-039](adr/ADR-039.md) | vm-agent: Rust rewrite and a versioned binary control protocol | Accepted |
 | [ADR-040](adr/ADR-040.md) | IOMMU kernel parameters: translated host DMA domain, vendor-specific enablement, no passthrough | Accepted |
 | [ADR-041](adr/ADR-041.md) | Windows applications via an RDP RemoteApp gateway microVM | Accepted |
+| [ADR-042](adr/ADR-042.md) | KatMate install medium: own archiso profile, offline package repository, release kept separate | Proposed |

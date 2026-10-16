@@ -355,3 +355,41 @@ repository.
    panic loop; it needs both. Observed in w2 with a gateway whose delta was
    smaller than its layer. Recorded, not fixed ([ADR-041](adr/ADR-041.md)
    item 4). Source: `w2-report.md` H4, S3.3.
+
+65. **install.sh's IOMMU-group listing for netVM's card has an unguarded
+   glob.** *netVM's card* sets
+   `GRP_DIR="/sys/bus/pci/devices/$NIC_BDF/iommu_group/devices"` and loops
+   over `"$GRP_DIR"/*` without `nullglob`. With no IOMMU group (no IOMMU, or a
+   VM without a vIOMMU) the loop sees the literal `…/devices/*`, `OTHERS`
+   becomes ` *`, and the user is asked `Continue with this card anyway
+   (yes/no)` for a group that does not exist. Read, not run. Recorded, not
+   fixed. Source: `iso1-report.md` H2.7, H3.6.
+
+66. **Install-medium builds are refused from about 2026-11-01 until
+   `archlinux-keyring` extends two packager keys.** With today's keyring the
+   earliest expiry among the keys that sign the offline repository is
+   2026-12-31 (`A85E811EB4CA2E08`, `539DFD48135182EF`), and `build/iso.sh`
+   refuses a medium with fewer than 60 days left
+   ([ADR-042](adr/ADR-042.md) Decision 5). A constraint on the release date,
+   not a defect: a release medium planned for November or December depends on
+   a newer keyring that extends or replaces those keys. Source:
+   `iso1-report.md` H3.7.
+
+67. **The install medium's signature is not part of the release process.**
+   [ADR-042](adr/ADR-042.md) Decision 7: the ISO is covered by the release
+   key ([ADR-020](adr/ADR-020.md)) as a detached signature, listed in
+   `SHA256SUMS`. `tools/make-release.sh` neither takes nor lists an ISO
+   today, and `build/iso.sh` writes an unsigned `.sha256` only. **Open:** add
+   the ISO to the release set and its signing on the Acer.
+
+68. **The install medium's unexecuted branches.** Written in `01026ac`, not
+   run in iso1 (UNVERIFIED): install.sh's own offline pacstrap line
+   (`PACSTRAP_OPTS`; iso1 ran the same arguments by hand); the URL path on
+   the medium (tag-pinned default URL, the network step for a URL, Wi-Fi via
+   iwd, the live network firmware); the refusals for more than one
+   `KMRELEASE` filesystem, for a release disk chosen as target, and for a
+   `KMRELEASE` filesystem that resolves to no disk; preflight's
+   `release-medium` record and exclusion; real hardware, and whether the five
+   live firmware subpackages cover the Cubi's NIC and Wi-Fi. **Closes with**
+   the Cubi gate: an end-to-end install from the next tagged release
+   ([ADR-042](adr/ADR-042.md)). Source: `iso1-report.md` H2.6, H3.5.
