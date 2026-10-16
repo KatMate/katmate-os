@@ -327,12 +327,3 @@ roughly twenty more. It is not background reading.
   a claim about tier, and the installer may create a T1 file but may never
   overwrite one it did not create in the same run.
 - Anything a host reboot would be needed to undo.
-
-## Operator overrides (all sessions, CLI and cloud)
-
-- When the operator writes to a session in Slovenian, the session may answer
-  him in Slovenian in chat.
-- Everything else stays en_US: repository content, commit messages, and the
-  session's reports and halts — a report is the input to en_US repository
-  text, so it is written in en_US whatever language the chat uses.
-- The orchestrator (Claude chat) writes to sessions in en_US only.
