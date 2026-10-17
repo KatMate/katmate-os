@@ -128,6 +128,9 @@ repository.
      one bit; neither form carries a commit SHA.
    - **Acer:** broken; `auto.conf` was overwritten 47 days after the link
      (`.config.old` `4e30950b…` is post-build), so no sidecar, deliberately.
+     2026-10-17: the Acer's `~/katmate-kernels/` (`a7581389…` and its config
+     `4e30950b…`) was deleted; nothing read it. The archived config of the
+     MINIS image is in the repository (`kernel/`, ADR-034's note of 2026-10-17).
    - **Mechanism ([ADR-034](adr/ADR-034.md), accepted):** `tools/capture-kernel-provenance`
      (`5b1f16c3…`); `kernel_provenance_check()` in `build/lib.sh`, run in
      `build/foundation.sh`'s preflight; `KERNEL_PROVENANCE` in
@@ -393,3 +396,16 @@ repository.
    live firmware subpackages cover the Cubi's NIC and Wi-Fi. **Closes with**
    the Cubi gate: an end-to-end install from the next tagged release
    ([ADR-042](adr/ADR-042.md)). Source: `iso1-report.md` H2.6, H3.5.
+
+69. **The canonical `MANIFEST_SHA256` path has not run.** cu1 changed
+    `build/app-layer-vm.sh` after its last build so that the meta records the
+    hash of the host's canonical package list — the bytes written to the
+    builder's data disk — instead of the manifest file. The three `_cu1`
+    metas were rewritten by hand from each run's data disk. The changed code
+    first runs at the next build. Closes with ADR-043's gate B2.
+
+70. **The layer builder is dev scaffolding.** `build/app-layer-vm.sh`
+    (`57f6a22`) runs the builder as transient `systemd-run` units, with
+    slot 06's values as static constants and `KMB_WORK` required. ADR-043's
+    decision 3 — a T3 unit template, a T4 program, slot 06 reserved — is not
+    implemented.

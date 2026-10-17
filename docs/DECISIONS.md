@@ -54,3 +54,4 @@ of each ADR's **Status** line; the ADR file is the authority.
 | [ADR-040](adr/ADR-040.md) | IOMMU kernel parameters: translated host DMA domain, vendor-specific enablement, no passthrough | Accepted |
 | [ADR-041](adr/ADR-041.md) | Windows applications via an RDP RemoteApp gateway microVM | Accepted |
 | [ADR-042](adr/ADR-042.md) | KatMate install medium: own archiso profile, offline package repository, release kept separate | Proposed |
+| [ADR-043](adr/ADR-043.md) | App layers are built in a builder VM from a manifest; the manifest carries the RUN list | Proposed |

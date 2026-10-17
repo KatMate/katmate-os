@@ -217,6 +217,18 @@ Minimal Debian userspace, minimal services, direct kernel boot, custom
 MicroVM kernel with a reduced config surface. Nothing persists outside the
 per-AppVM overlay.
 
+**Builder VMs** ([ADR-043](adr/ADR-043.md)) build app layers with network
+access through netVM. The host never mounts a layer after a builder has
+written to it, and nothing a builder reports reaches T2: layer metadata comes
+from the host's own inputs.
+
+**A Windows guest is isolated as a whole OS.** A WinVM
+([ADR-041](adr/ADR-041.md); ADR-043, decision 8) is one domain: the Windows
+applications in it share files, registry, profile and network policy, and a
+compromise of one is a compromise of all. The gateway keeps the host off the
+WinVM's network; it does not isolate Windows applications from one another.
+Separating them takes separate WinVMs.
+
 ### VMM process
 
 Both launchers run QEMU with

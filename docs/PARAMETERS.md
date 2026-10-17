@@ -83,7 +83,7 @@ slots come from `katmate-launch`'s `LINK` table.
 | `03` | `203` | `23` | `app_work` | shipped | `katmate-launch:116`; CID from T1 `app_work.toml` |
 | `04` | `204` | `25` | `app_sandbox` | shipped | `katmate-launch:117` (slot not read back); CID from T1 `app_sandbox.toml` |
 | `05` | `205` | none | `win_w1`, the Windows guest of w1b and w2 (no vsock device). Kept: the guest `vm_win_w1` and its leftovers (`state.md` § *Leftovers*) | reserved | `w1b-report.md` (NETCFG ADD/REMOVE 205, released 2026-10-13); `w2-report.md` (taken again, released 2026-10-15). Reserved until the leftovers are removed |
-| `06` | `206` | none | Layer builder (no vsock device) | reserved | cu1 ruling, 2026-10-17 |
+| `06` | `206` | none | Layer builder (no vsock device) | reserved | cu1 ruling, 2026-10-17; [ADR-043](adr/ADR-043.md) |
 | `07` | `207` | `26` | `cu1_web`, cu1's H3 instance | dev, released 2026-10-16 | `cu1-report.md` §§ 25, 28 (NETCFG ADD/REMOVE 207, CID 26) |
 | `08` | none | none | none | free | Live slot tree: no owner. Not in the `LINK` table |
 | `09` | none | none | none | free | Live slot tree: no owner. Not in the `LINK` table |

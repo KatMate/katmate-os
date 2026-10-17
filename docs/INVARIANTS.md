@@ -114,6 +114,11 @@ that found nothing** — make the condition true on purpose and see it noticed.
 - **`Type=simple` returns at QEMU's fork, before the netdevs bind**: read slot
   bindings after the guest answers PING (0/16 straight after `start`, 16/16 26 s
   later). Source: `pool-fold-report.md` §§ 2.6, 2.7.
+- **QEMU `microvm` appends `virtio_mmio.device=` after `-append`.** Anything
+  after a `--` in `-append` goes to init as argv, so the transports never
+  reach the kernel and the guest finds no disk (no root, panic). Never put
+  `--` in a microvm `-append`; an argument without `=` or `.` already reaches
+  init. (cu1, 2026-10-16)
 - **After a clean stop, `systemctl show` on a template instance returns
   defaults** (`Result=success`, `ExecMainStatus=0`, `pid=0`); the journal is the
   record: *"Deactivated successfully."* with no *"Main process exited"*. A failed
