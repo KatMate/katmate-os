@@ -126,8 +126,9 @@
 
 ### KEYBINDINGS — LAUNCHERS ######################################
 
-    # No rofi (operator ruling 2026-10-05, rule 1 and D2): applications come
-    # from the waybar KatMate menu, power actions from the menu on custom/arch.
+    # The launcher is km-menu over fuzzel, the same as the bar's KatMate
+    # button; the power menu is on custom/arch.
+    bindsym $mod+d       exec /usr/local/bin/km-menu apps
 
     bindsym $mod+n       exec swaync-client -t -sw
     bindsym $mod+Shift+r exec swaync-client -R && swaync-client -rs
@@ -283,7 +284,7 @@
     #   Removed (operator ruling 2026-10-05, rule 2): cliphist, the
     #   polkit-gnome agent, udiskie, swayosd-server, easyeffects. polkitd
     #   itself is a system service and stays: logind needs it for the power
-    #   menu's poweroff, reboot and suspend.
+    #   menu's Reboot and Shutdown.
 
     # hypridle → swayidle. Left commented: hypridle.conf was not supplied, so
     # the timeouts are unknown and an unexpected lock mid-test is unwelcome.

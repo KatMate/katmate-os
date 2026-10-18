@@ -9,6 +9,7 @@
 #
 # Desktop and session (operator ruling R16): sway with swaybg for its
 # wallpaper, waybar, swaync, greetd with tuigreet, foot (R6 of the brief),
+# fuzzel (launcher and menus) and swaylock (the power menu's Lock; fz1),
 # PipeWire with WirePlumber (wpctl) and pipewire-pulse (waybar's volume module
 # talks to a pulse server), brightnessctl, playerctl, grim, slurp,
 # wl-clipboard, wf-recorder, libnotify (notify-send), xdg-utils (xdg-open, for
@@ -30,7 +31,7 @@ KM_HOST_PKGS=(
   nftables
   qemu-full
   plymouth
-  sway swaybg waybar swaync greetd greetd-tuigreet foot
+  sway swaybg waybar swaync greetd greetd-tuigreet foot fuzzel swaylock
   pipewire wireplumber pipewire-pulse
   brightnessctl playerctl grim slurp wl-clipboard wf-recorder libnotify xdg-utils
   polkit

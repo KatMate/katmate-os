@@ -1,0 +1,86 @@
+#!/usr/bin/env bash
+# km-menu — the fuzzel menus of the bar's two KatMate buttons and of $mod+d.
+# Requires: fuzzel swaylock sway systemd
+#
+#   km-menu apps    the generated (AppVM, app) entries, and nothing else
+#   km-menu vms     the AppVMs with their unit state; stop one, or all
+#   km-menu power   Lock, Logout, Reboot, Shutdown
+#
+# Launch and stop run km-launch, the path the waybar menu used before
+# (katmate-launch through sudo -n, with its failure notification). There is no
+# start here: an AppVM starts by launching an app in it. A stop, a logout, a
+# reboot and a shutdown kill unsaved work, so each asks a second time, with No
+# as the default line.
+
+set -u
+
+DATA=/usr/share/katmate          # applications/: installer/gen-desktop-entries
+KM_LAUNCH=/usr/local/bin/km-launch
+
+# Prints the chosen line, or nothing. Lines on stdin.
+pick() {
+    local prompt="$1" n="$2"
+    fuzzel --dmenu --prompt="$prompt " --lines="$n"
+}
+
+confirm() {
+    local yes="$1"
+    [[ "$(printf 'No\n%s\n' "$yes" | pick "Sure?" 2)" == "$yes" ]]
+}
+
+state_of() {
+    local t s
+    for t in app-routed app-offline; do
+        s="$(systemctl is-active "katmate-$t@$1.service" 2>/dev/null)"
+        [[ "$s" == inactive ]] || { printf '%s' "$s"; return; }
+    done
+    printf 'inactive'
+}
+
+apps() {
+    # XDG_DATA_HOME too, or ~/.local/share/applications would be listed.
+    XDG_DATA_DIRS="$DATA" XDG_DATA_HOME="$DATA" exec fuzzel
+}
+
+vms() {
+    local -a insts lines states
+    local inst st i choice all="Stop all AppVMs"
+    shopt -s nullglob
+    local files=("$DATA"/applications/km-*.desktop)
+    (( ${#files[@]} )) || { notify-send --app-name=KatMate -u critical "KatMate" "no entries in $DATA/applications"; exit 1; }
+    mapfile -t insts < <(sed -n 's/^X-KatMate-Instance=//p' "${files[@]}" | awk '!seen[$0]++')
+    for inst in "${insts[@]}"; do
+        st="$(state_of "$inst")"
+        states+=("$st")
+        lines+=("$(printf '[%s]  %s' "${inst#app_}" "$st")")
+    done
+    choice="$(printf '%s\n' "${lines[@]}" "$all" | pick "AppVM" $(( ${#lines[@]} + 1 )))"
+    [[ -n "$choice" ]] || exit 0
+    if [[ "$choice" == "$all" ]]; then
+        confirm "Yes, stop every AppVM: unsaved work is lost" && exec "$KM_LAUNCH" --stop-all
+        exit 0
+    fi
+    for i in "${!lines[@]}"; do
+        [[ "$choice" == "${lines[i]}" ]] || continue
+        [[ "${states[i]}" == active ]] || exit 0
+        confirm "Yes, stop ${insts[i]#app_}: unsaved work in it is lost" \
+            && exec "$KM_LAUNCH" --stop "${insts[i]}"
+        exit 0
+    done
+}
+
+power() {
+    local lost="running AppVMs' unsaved work is lost"
+    case "$(printf '%s\n' Lock Logout Reboot Shutdown | pick "Power" 4)" in
+        Lock)     exec swaylock -f -c 000000 ;;
+        Logout)   confirm "Yes, log out: $lost" && exec swaymsg exit ;;
+        Reboot)   confirm "Yes, reboot: $lost" && exec systemctl reboot ;;
+        Shutdown) confirm "Yes, shut down: $lost" && exec systemctl poweroff ;;
+    esac
+    exit 0
+}
+
+case "${1-}" in
+    apps|vms|power) "$1" ;;
+    *) echo "usage: km-menu apps|vms|power" >&2; exit 2 ;;
+esac

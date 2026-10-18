@@ -36,7 +36,7 @@ templates, kernels, or forwarding layers. See [ADR-001](docs/adr/ADR-001.md).
 - **Window labels are guest-set, so a VM can spoof them.** An AppVM window's title starts with `[<instance>]`, for example `[app_web] …`. The guest's own waypipe adds that prefix, so a compromised VM can show any label it likes. It is a hint, not a security boundary. Labels the host assigns are planned for the next release.
 - **KeePassXC starts in the light theme on a fresh install.** It reads no system-wide setting, so the guests' dark GTK theme does not reach it. Set the theme to dark once in KeePassXC's settings in the vault; the choice persists.
 - **No Wi-Fi UI.** The network uplink is a physical NIC passed through to netVM. The host has no network of its own to configure, and there is no Wi-Fi settings panel.
-- **No screen lock.** No screen locker ships yet, so neither the power menu nor idle can lock the screen.
+- **No idle lock, no suspend.** The power menu's Lock runs swaylock; nothing locks the screen on idle. The power menu offers no suspend: suspend with the network card passed through to netVM has not been tested.
 
 ## Documentation map
 

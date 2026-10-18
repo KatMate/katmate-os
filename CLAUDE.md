@@ -57,8 +57,9 @@ must say so in those words.
 Adding, removing or renaming an instance touches more than its T1 template.
 `host/usr/lib/katmate/katmate-launch` holds static per-instance tables
 (`ALPHA_INSTANCES`, `APPS`, `LINK`); `installer/install.sh` and
-`tools/make-release.sh` carry counts and lists; the waybar menu has its own
-entries. `tools/check-run-whitelist` checks only the launch whitelist, and the
+`tools/make-release.sh` carry counts and lists; the launcher's desktop
+entries are generated from `APPS` at install (`installer/gen-desktop-entries`)
+and must be regenerated on a dev host. `tools/check-run-whitelist` checks only the launch whitelist, and the
 validator does not check CID uniqueness. Find every place with `git grep`
 before the first change.
 

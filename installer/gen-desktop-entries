@@ -1,0 +1,81 @@
+#!/usr/bin/env bash
+# gen-desktop-entries — the launcher's desktop entries, one per (AppVM, app)
+#
+# Usage: gen-desktop-entries <katmate-launch> <outdir>
+#
+# The source is katmate-launch's APPS table, the point that enforces which app
+# may be launched in which instance, so the launcher offers exactly that set.
+# read_apps is the only reader of the source; it is to be replaced by the
+# per-AppVM manifests (ADR-043). km-menu shows <outdir> to fuzzel as the only
+# applications directory, and reads X-KatMate-Instance for its AppVM list.
+#
+# Exit: 0 written, 1 refused (the message says why), 2 usage.
+
+set -euo pipefail
+
+die() { printf '[gen-desktop-entries] FATAL: %s\n' "$*" >&2; exit 1; }
+
+(( $# == 2 )) || { echo "usage: gen-desktop-entries <katmate-launch> <outdir>" >&2; exit 2; }
+LAUNCH="$1"
+OUT="$2"
+
+# Prints "<instance> <app>" lines, in the table's order.
+read_apps() {
+    local line inst apps app n=0 inside=0
+    while IFS= read -r line; do
+        if (( ! inside )); then
+            [[ "$line" == 'declare -A APPS=(' ]] && inside=1
+            continue
+        fi
+        [[ "$line" == ')' ]] && { inside=2; break; }
+        [[ "$line" =~ ^[[:space:]]+\[([a-z0-9_]+)\]=\"([a-z0-9 -]+)\"$ ]] \
+            || die "$LAUNCH: unexpected line in APPS: '$line'"
+        inst="${BASH_REMATCH[1]}"
+        apps="${BASH_REMATCH[2]}"
+        for app in $apps; do printf '%s %s\n' "$inst" "$app"; done
+        n=$(( n + 1 ))
+    done <"$LAUNCH"
+    (( inside == 2 )) || die "$LAUNCH: no complete 'declare -A APPS=(' … ')' block"
+    (( n > 0 )) || die "$LAUNCH: APPS parsed to 0 instances"
+}
+
+label() {
+    case "$1" in
+        firefox-esr) echo Firefox ;;
+        foot)        echo Terminal ;;
+        pcmanfm)     echo Files ;;
+        libreoffice) echo LibreOffice ;;
+        keepassxc)   echo KeePassXC ;;
+        *) die "no display name for app '$1'; add it to label() in $0" ;;
+    esac
+}
+
+[[ -r "$LAUNCH" ]] || die "$LAUNCH is not readable"
+if [[ -e "$OUT" ]]; then
+    [[ -d "$OUT" && -z "$(ls -A "$OUT")" ]] || die "$OUT exists and is not an empty directory"
+fi
+pairs="$(read_apps)"
+# Every app named before the first file, so a refusal leaves no partial set.
+while read -r _ app; do label "$app" >/dev/null; done <<<"$pairs"
+install -d -m 0755 "$OUT"
+
+# The file name's index keeps the table's instance order for km-menu's list.
+declare -A idx=()
+count=0
+while read -r inst app; do
+    [[ "$inst" == app_* ]] || die "instance '$inst' does not begin with app_"
+    [[ -v idx[$inst] ]] || idx[$inst]=$(printf '%02d' "${#idx[@]}")
+    name="$(label "$app")"
+    f="$OUT/km-${idx[$inst]}-$inst-$app.desktop"
+    printf '%s\n' \
+        '[Desktop Entry]' \
+        'Type=Application' \
+        "Name=[${inst#app_}] $name" \
+        "Exec=/usr/local/bin/km-launch $inst $app" \
+        'Terminal=false' \
+        "X-KatMate-Instance=$inst" >"$f"
+    chmod 0644 "$f"
+    count=$(( count + 1 ))
+done <<<"$pairs"
+
+echo "[gen-desktop-entries] $count entries for ${#idx[@]} instances in $OUT"

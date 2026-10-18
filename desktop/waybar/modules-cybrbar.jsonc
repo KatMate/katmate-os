@@ -14,8 +14,8 @@
 # not ship (ruling D4). The click handlers that opened btop, nvtop,
 # blueman-manager, nm-connection-editor and pavucontrol in a kitty scratchpad
 # are gone; pulseaudio keeps wpctl, which only changes the host's mixer.
-# custom/arch opens the power menu, power-menu.xml (rule 1), in place of the
-# rofi powermenu; its right-click rofi launcher is gone, not replaced.
+# custom/arch opens the power menu, km-menu power (fuzzel: Lock, Logout,
+# Reboot, Shutdown).
 # Its Arch glyph is replaced by the KatMate mark (operator ruling 2026-10-09,
 # 1): the format is three spaces, so waybar keeps the module, and the mark is
 # drawn as a background image by style-sway.css.
@@ -158,13 +158,6 @@
 	"custom/arch": {
 		"format": "   ",
 		"tooltip": false,
-		"menu": "on-click",
-		"menu-file": "/usr/share/katmate/waybar/power-menu.xml",
-		"menu-actions": {
-			"poweroff": "systemctl poweroff",
-			"reboot":   "systemctl reboot",
-			"suspend":  "systemctl suspend",
-			"exit":     "swaymsg exit"
-		}
+		"on-click": "/usr/local/bin/km-menu power"
 	}
 }

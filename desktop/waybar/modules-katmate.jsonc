@@ -1,41 +1,20 @@
 /*
 # ---------------------------------------
-# KatMate launcher menu, the alpha's (R152, R157)
-# A plain-text label. A click opens katmate-menu.xml, and each item runs
-# km-launch (desktop/bin/km-launch), which runs katmate-launch through sudo:
-# `sudo -n` with the one NOPASSWD rule in /etc/sudoers.d/katmate-launch (R151;
-# SECURITY-MODEL gap 17). The launch daemon replaces all three. waybar shows no
-# output from an action, so km-launch turns a non-zero exit into a critical
-# desktop notification carrying the last FATAL line (operator ruling 2,
-# 2026-10-04). The full record is in the journal: journalctl -t katmate-launch
-#
-# menu-file and km-launch are absolute system paths, the layout the installer
-# deploys and desktop/README.md describes (operator ruling 2026-10-05, D8):
-# menu files under /usr/share/katmate/waybar/, km-launch in /usr/local/bin/.
-# Neither depends on the user's name or on waybar expanding ~.
+# KatMate launcher button
+# Left click (and $mod+d in sway/config): fuzzel over the generated
+# (AppVM, app) entries in /usr/share/katmate/applications/, each of which
+# runs km-launch, which runs katmate-launch through sudo (R151; SECURITY-MODEL
+# gap 17) and turns a non-zero exit into a critical desktop notification
+# (operator ruling 2, 2026-10-04). Right click: the AppVMs with their state,
+# to stop one or all. Both are desktop/bin/km-menu.
+# The full record is in the journal: journalctl -t katmate-launch
 # ---------------------------------------
 */
 {
 	"custom/katmate": {
 		"format": "KatMate",
 		"tooltip": false,
-		"menu": "on-click",
-		"menu-file": "/usr/share/katmate/waybar/katmate-menu.xml",
-		"menu-actions": {
-			"web-firefox":       "/usr/local/bin/km-launch app_web firefox-esr",
-			"web-files":         "/usr/local/bin/km-launch app_web pcmanfm",
-			"web-terminal":      "/usr/local/bin/km-launch app_web foot",
-			"personal-firefox":  "/usr/local/bin/km-launch app_personal firefox-esr",
-			"personal-files":    "/usr/local/bin/km-launch app_personal pcmanfm",
-			"personal-terminal": "/usr/local/bin/km-launch app_personal foot",
-			"work-libreoffice":  "/usr/local/bin/km-launch app_work libreoffice",
-			"work-files":        "/usr/local/bin/km-launch app_work pcmanfm",
-			"work-terminal":     "/usr/local/bin/km-launch app_work foot",
-			"vault-keepassxc":   "/usr/local/bin/km-launch app_vault keepassxc",
-			"vault-terminal":    "/usr/local/bin/km-launch app_vault foot",
-			"sandbox-terminal":  "/usr/local/bin/km-launch app_sandbox foot",
-			"sandbox-files":     "/usr/local/bin/km-launch app_sandbox pcmanfm",
-			"stop-all":          "/usr/local/bin/km-launch --stop-all"
-		}
+		"on-click": "/usr/local/bin/km-menu apps",
+		"on-click-right": "/usr/local/bin/km-menu vms"
 	}
 }

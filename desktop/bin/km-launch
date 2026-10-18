@@ -1,8 +1,9 @@
 #!/usr/bin/env bash
-# km-launch — the waybar menu's front end to katmate-launch (operator ruling 2,
+# km-launch — the launcher's front end to katmate-launch (operator ruling 2,
 # 2026-10-04). Requires: sudo libnotify (notify-send) swaync
 #
-# Every custom/katmate menu item runs this with katmate-launch's own arguments.
+# Every generated desktop entry and every km-menu stop runs this with
+# katmate-launch's own arguments.
 # It runs katmate-launch through `sudo -n` exactly as the menu did before (the
 # one NOPASSWD rule, HOST-CONFIG § 13), and does nothing on success. On a
 # non-zero exit it shows a critical desktop notification carrying the last
