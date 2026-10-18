@@ -131,12 +131,22 @@ fn handle_ping(fd: RawFd) -> Result<()> {
     frame::write_ok(fd)
 }
 
+/// RUN's allow/refuse decision, taken before anything is spawned. Kept
+/// apart from the handler so it is tested without a spawn, whose own
+/// failure would answer the same ERR.
+fn run_permitted(runlist: &RunList, app: &str) -> Result<()> {
+    if !runlist.allows(app) {
+        return Err(AgentError::AppNotAllowed(app.to_string()));
+    }
+    Ok(())
+}
+
 /// RUN <app> → launch `app` under waypipe (GUI forwarded over VSOCK).
 fn handle_run(fd: RawFd, req: &RawRequest, cfg: &Config, runlist: &RunList) -> Result<()> {
     let app = req.arg_str(0)?;
 
-    if !runlist.allows(app) {
-        log_error("RUN", &AgentError::AppNotAllowed(app.to_string()));
+    if let Err(e) = run_permitted(runlist, app) {
+        log_error("RUN", &e);
         return frame::write_err(fd);
     }
 
@@ -639,6 +649,26 @@ mod tests {
         assert!(frame::read_response(host).unwrap_err().is_disconnect());
         // SAFETY: host is a valid fd we own; closed exactly once here.
         unsafe { libc::close(host) };
+    }
+
+    /// The decision itself, with no spawn anywhere: an unlisted app and any
+    /// app under an unavailable list are refused as AppNotAllowed, a listed
+    /// one is permitted. Independent of what is installed on the machine.
+    #[test]
+    fn run_permitted_refuses_before_any_spawn() {
+        let listed = RunList::Loaded(vec!["foot".into(), "firefox-esr".into()]);
+        assert!(run_permitted(&listed, "foot").is_ok());
+        assert!(run_permitted(&listed, "firefox-esr").is_ok());
+        for (list, app) in [
+            (&listed, "libreoffice"),
+            (&listed, "foo"),
+            (&RunList::Unavailable("missing".into()), "foot"),
+        ] {
+            match run_permitted(list, app) {
+                Err(AgentError::AppNotAllowed(a)) => assert_eq!(a, app),
+                other => panic!("{app} under {list:?}: expected AppNotAllowed, got {other:?}"),
+            }
+        }
     }
 
     /// Without a readable list every RUN is refused, and with one an app it

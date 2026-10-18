@@ -239,8 +239,11 @@ set_manifest app_vault vault
 A() { PATH="$T/bin:$PATH" "$T/lib/katmate-activate-lvs" app_vault; }
 expect_ok "activate-lvs: frozen layer" "block devices ready" A
 echo 'Vwi-a-tz--' >"$T/attr/vg0_vm_app_vault"
-expect_fail "activate-lvs: writable layer refused" 1 "not read-only" A
+expect_fail "activate-lvs: writable layer refused" 1 "app layer LV: vg0/vm_app_vault has lv_attr 'Vwi-a-tz--', not read-only" A
 echo 'Vri-a-tz-k' >"$T/attr/vg0_vm_app_vault"
+echo 'Vwi-a-tz--' >"$T/attr/vg0_vm_tpl_foundation"
+expect_fail "activate-lvs: writable foundation refused" 1 "foundation LV: vg0/vm_tpl_foundation has lv_attr 'Vwi-a-tz--', not read-only" A
+echo 'Vri-a-tz--' >"$T/attr/vg0_vm_tpl_foundation"
 
 # --- 6. installer/gen-desktop-entries ----------------------------------------
 D() { rm -rf "$T/apps"; "$ROOT/installer/gen-desktop-entries" "$K/katmate-launch" "$T/etc/katmate/vm" "$T/var/lib/katmate" "$T/apps"; }

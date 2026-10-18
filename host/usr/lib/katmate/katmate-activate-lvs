@@ -63,6 +63,15 @@ activate() {
     km_log "  $kind: $node"
 }
 
+require_ro() {
+    local kind="$1" spec="$2" attr
+    attr="$(lvs --noheadings -o lv_attr "$spec" | tr -d ' ')" \
+        || km_die "$kind: cannot read lv_attr of $spec"
+    [[ "${attr:1:1}" == r ]] \
+        || km_die "$kind: $spec has lv_attr '$attr', not read-only. An instance is started only on a frozen foundation and layer (ADR-043 §7)."
+    km_log "  $kind is read-only (lv_attr $attr)"
+}
+
 case "$CLASS" in
 sys)
     META="$KM_STATE_DIR/$MANIFEST/$MANIFEST.meta"
@@ -87,13 +96,11 @@ app)
     activate "foundation LV" "$BASE_LV" -K
     activate "app layer LV"  "$APP_LV"  -K
 
-    # The instance must start on a frozen layer (ADR-043 §7): lv_attr's second
-    # character is the permission, `r` once lv_freeze has run.
-    attr="$(lvs --noheadings -o lv_attr "$APP_LV" | tr -d ' ')" \
-        || km_die "app layer LV: cannot read lv_attr of $APP_LV"
-    [[ "${attr:1:1}" == r ]] \
-        || km_die "app layer LV: $APP_LV has lv_attr '$attr', not read-only. A layer is started only once it is frozen (ADR-043 §7)."
-    km_log "  app layer LV is read-only (lv_attr $attr)"
+    # The instance must start on a frozen chain (ADR-043 §7; cu2 ruling on
+    # the Phase B report, item 10): lv_attr's second character is the
+    # permission, `r` once lv_freeze has run.
+    require_ro "foundation LV" "$BASE_LV"
+    require_ro "app layer LV"  "$APP_LV"
 
     PERSISTENCE="$(km_t1_require persistence)"
     case "$PERSISTENCE" in
