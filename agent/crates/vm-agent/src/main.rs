@@ -48,6 +48,7 @@
 
 mod config;
 mod op;
+mod runlist;
 
 use std::os::fd::RawFd;
 
@@ -56,11 +57,12 @@ use katmate_protocol::frame::{self, RawRequest};
 
 use config::Config;
 use op::Op;
+use runlist::RunList;
 
 // --- appVM policy constants ----------------------------------------
 // Formerly in protocol.rs. They were never protocol: they describe what
 // THIS agent is permitted to do inside an appVM. netvm-agent has no
-// whitelist and no init socket — not because it
+// RUN list (runlist.rs) and no init socket — not because it
 // declines to use them, but because they do not exist in that binary.
 
 /// VSOCK port used by waypipe for the GUI channel (RUN). Separate from
@@ -70,9 +72,6 @@ pub const DEFAULT_WAYPIPE_PORT: u32 = 1024;
 /// Host CID. On a standard QEMU/KVM setup the host is CID 2. Used as the
 /// waypipe target, not by the protocol itself.
 pub const DEFAULT_HOST_CID: u32 = 2;
-
-/// Apps that RUN may launch via waypipe.
-pub const WHITELIST: &[&str] = &["firefox-esr", "foot", "pcmanfm", "libreoffice", "keepassxc"];
 
 /// Unix socket on which PID 1 (katmate-init) listens for privileged
 /// requests. SHUTDOWN is delegated here rather than to a setuid helper:
@@ -133,10 +132,10 @@ fn handle_ping(fd: RawFd) -> Result<()> {
 }
 
 /// RUN <app> → launch `app` under waypipe (GUI forwarded over VSOCK).
-fn handle_run(fd: RawFd, req: &RawRequest, cfg: &Config) -> Result<()> {
+fn handle_run(fd: RawFd, req: &RawRequest, cfg: &Config, runlist: &RunList) -> Result<()> {
     let app = req.arg_str(0)?;
 
-    if !WHITELIST.contains(&app) {
+    if !runlist.allows(app) {
         log_error("RUN", &AgentError::AppNotAllowed(app.to_string()));
         return frame::write_err(fd);
     }
@@ -417,7 +416,7 @@ fn spawn(argv: &[&str], envp: &[Vec<u8>]) -> Result<libc::pid_t> {
 /// stream error occurs. Each request is dispatched; per-request errors
 /// are logged and answered with ERR, but the connection continues. A
 /// disconnect (EOF at a frame boundary) ends the loop quietly.
-fn handle_connection(fd: RawFd, cfg: &Config) {
+fn handle_connection(fd: RawFd, cfg: &Config, runlist: &RunList) {
     loop {
         let req = match frame::read_request(fd) {
             Ok(r) => r,
@@ -450,7 +449,7 @@ fn handle_connection(fd: RawFd, cfg: &Config) {
 
         let result = match op {
             Op::Ping => handle_ping(fd),
-            Op::Run => handle_run(fd, &req, cfg),
+            Op::Run => handle_run(fd, &req, cfg, runlist),
             Op::Shutdown => handle_shutdown(fd),
         };
 
@@ -470,6 +469,12 @@ fn handle_connection(fd: RawFd, cfg: &Config) {
 fn main() {
     let cfg = Config::from_env();
     log_debug!("config: {cfg:?}");
+
+    // Read once, before the listener exists (ADR-043 §5).
+    let runlist = RunList::load(runlist::RUN_WHITELIST_PATH);
+    if let RunList::Unavailable(why) = &runlist {
+        eprintln!("[vm-agent] RUN whitelist unavailable, every RUN is refused: {why}");
+    }
 
     // Reap children automatically: with SIGCHLD ignored, the kernel
     // does not keep zombies for us, and we never need waitpid.
@@ -552,7 +557,7 @@ fn main() {
             continue;
         }
 
-        handle_connection(client, &cfg);
+        handle_connection(client, &cfg, &runlist);
 
         // SAFETY: client is a valid fd we own; closed exactly once here.
         unsafe { libc::close(client) };
@@ -586,7 +591,7 @@ mod tests {
         // the frame boundary after the last request.
         unsafe { libc::shutdown(host, libc::SHUT_WR) };
 
-        handle_connection(agent, &Config::from_env());
+        handle_connection(agent, &Config::from_env(), &RunList::Unavailable("test".into()));
         // SAFETY: agent is a valid fd we own; closed exactly once here.
         unsafe { libc::close(agent) };
 
@@ -626,7 +631,7 @@ mod tests {
         // agent that tried to read the payload would meet EOF, which is a
         // quiet disconnect with no reply, and the ERR assertion would fail.
         unsafe { libc::shutdown(host, libc::SHUT_WR) };
-        handle_connection(agent, &Config::from_env());
+        handle_connection(agent, &Config::from_env(), &RunList::Unavailable("test".into()));
         // SAFETY: agent is a valid fd we own; closed exactly once here.
         unsafe { libc::close(agent) };
 
@@ -636,14 +641,38 @@ mod tests {
         unsafe { libc::close(host) };
     }
 
-    /// RUN's whitelist is a compile-time constant for the alpha, so the set
-    /// is pinned here: a change to it is a foundation rebuild (ADR-021).
+    /// Without a readable list every RUN is refused, and with one an app it
+    /// does not name is refused; neither reaches spawn, and the connection
+    /// keeps serving (the PING sent last). Driven through handle_connection.
     #[test]
-    fn run_whitelist() {
-        assert_eq!(
-            WHITELIST,
-            &["firefox-esr", "foot", "pcmanfm", "libreoffice", "keepassxc"]
-        );
+    fn run_is_refused_without_a_list_and_for_an_unlisted_app() {
+        let lists = [
+            RunList::Unavailable("missing".into()),
+            RunList::Loaded(vec!["foot".into()]),
+        ];
+        let apps: [&[u8]; 2] = [b"foot", b"firefox-esr"];
+        for (list, app) in lists.iter().zip(apps) {
+            let mut sv = [0 as RawFd; 2];
+            // SAFETY: sv is a valid two-element out-array for socketpair.
+            let rc = unsafe { libc::socketpair(libc::AF_UNIX, libc::SOCK_STREAM, 0, sv.as_mut_ptr()) };
+            assert_eq!(rc, 0, "socketpair: {}", std::io::Error::last_os_error());
+            let (agent, host) = (sv[0], sv[1]);
+
+            frame::write_request(host, katmate_protocol::opcode::OP_RUN, &[app], &[]).unwrap();
+            frame::write_request(host, katmate_protocol::opcode::OP_PING, &[], &[]).unwrap();
+            // SAFETY: host is a valid socket fd.
+            unsafe { libc::shutdown(host, libc::SHUT_WR) };
+
+            handle_connection(agent, &Config::from_env(), list);
+            // SAFETY: agent is a valid fd we own; closed exactly once here.
+            unsafe { libc::close(agent) };
+
+            assert_eq!(frame::read_response(host).unwrap().status, frame::STATUS_ERR, "{list:?}");
+            assert_eq!(frame::read_response(host).unwrap().status, frame::STATUS_OK);
+            assert!(frame::read_response(host).unwrap_err().is_disconnect());
+            // SAFETY: host is a valid fd we own; closed exactly once here.
+            unsafe { libc::close(host) };
+        }
     }
 
     /// The RUN child's environment (R146): the input, minus any inherited
