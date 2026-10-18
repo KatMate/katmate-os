@@ -162,8 +162,9 @@ netVM) · `20–99` fixed persistent AppVMs · `≥100` disposable pool. Applied
   otherwise as `app_personal`. The June 2026 build-only layer is gone; its
   nautilus → pcmanfm change is `adc217f`, and keepassxc was on the
   compile-time RUN whitelist from `af6e9d3` (R130). Since cu2 the list is the
-  layer's `run` (ADR-043 §5); the installed layer predates that and carries no
-  `RUN` in its meta and no `/etc/katmate/run-whitelist`.
+  layer's `run` (ADR-043 §5); the layer rebuilt in cu2 (2026-10-18) carries
+  `RUN=keepassxc foot pcmanfm` in its meta and the same list in
+  `/etc/katmate/run-whitelist`.
   - **Unit** `katmate-app-offline@app_vault` (R135): no network device,
     `km.name=app_vault`, the home drive.
   - **T1** `/etc/katmate/vm/app_vault.toml`, `root:root 0644`, `675a2614…`.

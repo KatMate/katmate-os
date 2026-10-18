@@ -12,24 +12,22 @@ and [docs/DECISIONS.md](docs/DECISIONS.md).
 
 ## Current focus
 
-- cu2 (ADR-043 §5–7, step 1 of user-created AppVMs): manifests are TOML
-  (`manifests/<layer>.toml`, T3 `/usr/lib/katmate/layer/`), the RUN list is
-  the layer's `run`, `manifest` names a layer, stale layers refuse to start.
-  Phase B in the tree, tested on fixtures; Phase C (MINIS rebuild of the
-  foundation and three layers) waits on review.
-- fz1: fuzzel replaces the waybar GTK menus. Launcher on `$mod+space` (no bar
-  button; generated entries, plus *KatMate: AppVMs* for state and stop); power
-  menu on the mark (Lock, Logout, Reboot, Shutdown; no Suspend). Deployed on
-  MINIS, menus operator-observed. Done: on `main` as `5104568` and `538f112`.
-- cu1: [ADR-043](docs/adr/ADR-043.md) **Proposed**, gates B1–B4.
-  iso1: [ADR-042](docs/adr/ADR-042.md) (**Proposed**). w2: [ADR-041](docs/adr/ADR-041.md).
-- MINIS: `pacman -Syu` on 2026-10-18 (fourth attempt; the mirror stalled
-  three times), rebooted into `7.2.10-hardened1-3` the same day; `libnotify`
-  installed, km-launch's failure notification observed. netVM `enabled`
-  and `active` (it was found `disabled` after the reboot). Four TPM units
-  (`systemd-pcrlogin@*`, `-pcrproduct`, `-tpm2-setup-early`) fail at boot,
-  cause unread. `/var/lib/katmate/instances/` is empty, so no installed
-  AppVM starts (w2 H1 D10).
+- cu2 done (verdict PASS): [ADR-043](docs/adr/ADR-043.md) §5–7, step 1 of
+  user-created AppVMs. Manifests are `manifests/<layer>.toml` (T3
+  `/usr/lib/katmate/layer/`); what an instance may run is its layer's `run`,
+  as `RUN=` in the layer meta (`katmate-launch`) and
+  `/etc/katmate/run-whitelist` in the layer (vm-agent); `manifest` names a
+  layer; a stale or writable layer or foundation does not start. On MINIS the
+  foundation and three layers were rebuilt; the five AppVMs started, each with
+  one listed app (operator-observed); unlisted apps were refused by both sides.
+- ADR-043 stays **Proposed**, gates B1–B4. iso1: [ADR-042](docs/adr/ADR-042.md)
+  (**Proposed**). w2: [ADR-041](docs/adr/ADR-041.md). fz1 done.
+- MINIS: booted 2026-10-18 16:51 into `7.2.10-hardened1-3`. Foundation
+  `BUILD_DATE=2026-10-18T17:27:21Z`; five fresh instance deltas; all AppVMs
+  stopped, netVM active. Four TPM units fail at boot, cause unread.
+- MINIS: `katmate-sys-driver@.service` and `katmate-app-offline@.service`
+  drift from the tree by one comment line (`49a172d` vs `a92b3ef`); they get
+  reinstalled at the next netVM restart.
 
 ## Active open problems
 
@@ -41,14 +39,15 @@ Full list: [docs/OPEN-PROBLEMS.md](docs/OPEN-PROBLEMS.md).
 - #65–#68 install medium: IOMMU-group glob; builds refused from about
   2026-11-01 (keyring); ISO signing not in the release; unexecuted branches.
 - #69, #70 layer builder: canonical `MANIFEST_SHA256` path not run (gate B2);
-  the builder is dev scaffolding.
+  the builder is dev scaffolding and writes no guest whitelist yet.
 
 ## Next steps
 
-1. fz1 on the Cubi install: a real launch, a stop with Yes, Lock (swaylock);
-   the installer's desktop block.
-2. ADR-043: cu2 Phase C on MINIS; then the CID/slot allocator, the
-   `katmate-vm-create` CLI, T1 menu entries; the builder unit and program.
+1. Step 2 of user-created AppVMs: the CID/slot allocator (replaces
+   `katmate-launch`'s `ALPHA_INSTANCES` and `LINK`; #58). Then step 3, the
+   `katmate-vm-create`/`delete`/`status` CLI (T1 manifest ownership lands
+   there), and step 4, T1 menu entries; the builder unit and program.
+2. fz1 on the Cubi install: a real launch, a stop with Yes, Lock (swaylock).
 3. Gate B1 on the Cubi; then the Windows class ADR (`class = win`).
 4. A tagged release from `main` with its medium (before ~2026-11-01, #66),
    then the Cubi install gate (#68).
@@ -60,9 +59,10 @@ Full list: [docs/OPEN-PROBLEMS.md](docs/OPEN-PROBLEMS.md).
 - **Guest `vm_win_w1`:** rule `KatMate-RDP-baseline`, the baseline adapter's
   address config, `w2-events.txt`; `rail` admin until `kmadmin` is verified.
 - **MINIS, kept by ruling:** `vm_app_gw_w2` (broken, no EGL/GLES),
-  `vm_app_gw_w2b` (working), `vm_gw_w2_home`,
-  both gateway deltas, the FreeRDP chroot and `~/katmate-dev/w2/`;
-  `~/katmate-iso/dev/`; `~/.local/bin/menu-power` and
+  `vm_app_gw_w2b` (working; both origin-less since cu2 removed the old
+  foundation), `vm_gw_w2_home`, both gateway deltas, the FreeRDP chroot and
+  `~/katmate-dev/w2/`; `~/katmate-iso/dev/`; `~/.local/bin/menu-power` and
   `~/.config/waybar/config.disabled` (fz1). fz1 scripts in `~/katmate-dev/fz1/`.
-- **Operator:** ISO signing (#67); the post-release backlog; ROADMAP
-  candidates; GitHub issues for alpha feedback.
+- **Operator:** `CLAUDE.md` § *Where the instance set is listed* (text in the
+  cu2 Phase B report, §6); ISO signing (#67); the post-release backlog;
+  ROADMAP candidates; GitHub issues for alpha feedback.
