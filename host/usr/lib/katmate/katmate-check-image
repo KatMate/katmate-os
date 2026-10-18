@@ -74,7 +74,11 @@ sys)
 app)
     # T2 for an AppVM: app-<type>.meta, named after the IMAGE and not after the
     # manifest file it was built from (build/config.sh states why).
+    [[ "$MANIFEST" =~ $KM_LAYER_NAME_RE ]] \
+        || km_die "$KM_T1_FILE: manifest='$MANIFEST' does not match the layer-name pattern $KM_LAYER_NAME_RE (ADR-043 §7)"
     META="$KM_STATE_DIR/app-$MANIFEST.meta"
+    [[ -e "$META" ]] \
+        || km_die "$KM_T1_FILE: manifest='$MANIFEST' names no built layer: $META does not exist (ADR-043 §7)"
     km_meta_open "$META"
     km_log "checking $CLASS/$MANIFEST payload from $META"
 
@@ -95,6 +99,17 @@ app)
     # (ADR-032 §7), so the delta is <instance>.qcow2 — the development artefact
     # test_web.qcow2 follows the instance to app_web.
     require_payload "instance delta" "$KM_INSTANCES_DIR/$INSTANCE.qcow2"
+
+    # A layer built on another foundation is stale and does not start; it is
+    # rebuilt from its manifest (ADR-043 §7). The layer's foundation is
+    # BASE_BUILT, the installed one is foundation.meta's BUILD_DATE (cu2 D1).
+    FMETA="$KM_STATE_DIR/foundation.meta"
+    km_meta_open "$FMETA"
+    BASE_BUILT="$(km_meta_require "$META" BASE_BUILT)"
+    F_BUILT="$(km_meta_require "$FMETA" BUILD_DATE)"
+    [[ "$BASE_BUILT" == "$F_BUILT" ]] \
+        || km_die "layer '$MANIFEST' is stale: $META records BASE_BUILT=$BASE_BUILT, the installed foundation ($FMETA) BUILD_DATE=$F_BUILT. Rebuild the layer from its manifest (ADR-043 §7)."
+    km_log "  foundation generation: $F_BUILT (the layer's BASE_BUILT matches)"
 
     km_log "  app layer LV (existence checked by katmate-activate-lvs): $(km_meta_require "$META" APP_LV)"
     km_log "  foundation LV (likewise): $(km_meta_require "$META" BASE_LV)"

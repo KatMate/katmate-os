@@ -160,15 +160,17 @@ netVM) · `20–99` fixed persistent AppVMs · `≥100` disposable pool. Applied
 - **app_vault** (CID 24, no slot, no `LINK_ID`, no owner; `ai4`, R137).
   `manifest = vault`, `netvm = ""` (derives `app-offline`), `identity = false`,
   otherwise as `app_personal`. The June 2026 build-only layer is gone; its
-  nautilus → pcmanfm change is `adc217f`, and keepassxc is on the compile-time
-  RUN whitelist since `af6e9d3` (R130, ADR-021's note).
+  nautilus → pcmanfm change is `adc217f`, and keepassxc was on the
+  compile-time RUN whitelist from `af6e9d3` (R130). Since cu2 the list is the
+  layer's `run` (ADR-043 §5); the installed layer predates that and carries no
+  `RUN` in its meta and no `/etc/katmate/run-whitelist`.
   - **Unit** `katmate-app-offline@app_vault` (R135): no network device,
     `km.name=app_vault`, the home drive.
   - **T1** `/etc/katmate/vm/app_vault.toml`, `root:root 0644`, `675a2614…`.
     **Delta** `/var/lib/katmate/instances/app_vault.qcow2` on
     `/dev/vg0/vm_app_vault`; **home** `vm_app_vault_home` (holds
     `user/test.kdbx`).
-  - **`vault` layer** (`manifests/vault.list`): foundation plus keepassxc,
+  - **`vault` layer** (`manifests/vault.toml`, then `vault.list`): foundation plus keepassxc,
     `qtwayland5`, foot, pcmanfm. RUN `keepassxc` opens a window since vm-agent
     sets the Qt platform (R146; R139 and R140 tests). Values:
     `docs/PARAMETERS.md`.

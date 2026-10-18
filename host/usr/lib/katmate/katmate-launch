@@ -28,7 +28,7 @@
 # dev/alpha shortcut that the launch daemon replaces (SECURITY-MODEL gap 17).
 # So everything it takes from the caller is checked before it is used: the
 # instance name by km_check_instance and against the alpha table, and the app
-# name against the RUN whitelist and the instance's layer.
+# name against the RUN line of the instance's layer meta (ADR-043 §5).
 #
 # The menu starts it with no terminal, through desktop/bin/km-launch, which on a
 # non-zero exit shows the last FATAL line (else the last stderr line) as a
@@ -80,26 +80,10 @@ km_usage() { printf '[%s] USAGE: %s\n' "$KM_PROG" "$*" >&2; jlog "USAGE: $*"; ex
 USAGE="katmate-launch <instance> <app> | --stop <instance> | --stop-all"
 
 # --- the static tables (alpha only) -----------------------------------------
-# The RUN whitelist, a copy. Its one source is vm-agent's compile-time constant,
-# `pub const WHITELIST` in agent/crates/vm-agent/src/main.rs. The agent
-# enforces it; this copy only refuses earlier and with a reason.
-# tools/check-run-whitelist compares the two and fails on any difference
-# (R150).
-RUN_WHITELIST=(firefox-esr foot pcmanfm libreoffice keepassxc)
-
-# The apps each alpha instance's layer carries, from manifests/<manifest>.list
-# (web: firefox-esr foot pcmanfm; office: libreoffice foot pcmanfm; vault:
-# keepassxc foot pcmanfm), as read in the built layers on MINIS by ai5. A RUN of
-# a whitelisted app the layer lacks answers OK and opens nothing (the agent
-# answers when waypipe spawns), so it is refused here.
+# What an instance may run is not here: it is the RUN line of its layer's T2
+# meta, which the build wrote from the manifest's `run` (ADR-043 §5). vm-agent
+# checks the same list from the layer's /etc/katmate/run-whitelist.
 ALPHA_INSTANCES=(app_web app_personal app_work app_vault app_sandbox)
-declare -A APPS=(
-    [app_web]="firefox-esr foot pcmanfm"
-    [app_personal]="firefox-esr foot pcmanfm"
-    [app_work]="libreoffice foot pcmanfm"
-    [app_vault]="keepassxc foot pcmanfm"
-    [app_sandbox]="firefox-esr foot pcmanfm"
-)
 
 # The alpha's links, one row per routed instance: slot, LINK_ID, netVM's slot
 # MAC and the guest's address. Literals copied from docs/PARAMETERS.md (rows
@@ -140,19 +124,20 @@ show_journal() {
 # --- the instance --------------------------------------------------------------
 check_alpha_instance() {
     km_check_instance "$1"
-    [[ -v APPS[$1] ]] \
+    in_list "$1" "${ALPHA_INSTANCES[@]}" \
         || km_die "instance '$1' is not one of the alpha's AppVMs (${ALPHA_INSTANCES[*]}); katmate-launch carries static tables for those only (R150)"
 }
 
 # read_instance <instance>: T1 through katmate-lib.sh's reader, never a parser
-# of its own (R150). Sets CID, NETVM, UNIT and, for a routed instance, SLOT,
-# LINK_ID, SLOT_MAC, PEER and NETVM_CID.
+# of its own (R150). Sets CID, NETVM, MANIFEST, UNIT and, for a routed
+# instance, SLOT, LINK_ID, SLOT_MAC, PEER and NETVM_CID.
 read_instance() {
     local inst="$1" class nclass
     km_t1_read "$inst"
     class="$(km_t1_require class)"
     [[ "$class" == app ]] \
         || km_die "$KM_T1_FILE: class='$class'; katmate-launch starts AppVMs only (class = app)"
+    MANIFEST="$(km_t1_require manifest)"
     CID="$(km_t1_require cid)"
     [[ "$CID" =~ ^[0-9]+$ ]] \
         || km_die "$KM_T1_FILE: cid='$CID' is not a fixed integer; the launcher has no allocator"
@@ -335,6 +320,21 @@ wait_ping() {
     km_die "no PING answer from CID $CID ($inst) in ${PING_TIMEOUT} s, $try tries; last: $(oneline "$out"). $UNIT is left as it is; 'katmate-launch --stop $inst' stops it."
 }
 
+# check_run <instance> <app>: the host is the authority (ADR-043 §5). A RUN the
+# layer's list lacks is refused here, before any unit is started.
+check_run() {
+    local inst="$1" app="$2" meta run
+    local -a words=()
+    [[ "$MANIFEST" =~ $KM_LAYER_NAME_RE ]] \
+        || km_die "$KM_ETC_VM/$inst.toml: manifest='$MANIFEST' does not match $KM_LAYER_NAME_RE"
+    meta="$KM_STATE_DIR/app-$MANIFEST.meta"
+    km_meta_open "$meta"
+    run="$(km_meta_require "$meta" RUN)"
+    read -r -a words <<<"$run"
+    in_list "$app" "${words[@]}" \
+        || km_die "app '$app' is not in the RUN list of layer '$MANIFEST' that $inst runs on ($meta: RUN=$run)"
+}
+
 run_app() {
     local inst="$1" app="$2" out
     if out="$("$PING_CLIENT" run "$CID" "$app" 2>&1)"; then
@@ -347,12 +347,10 @@ run_app() {
 launch() {
     local inst="$1" app="$2" st
     check_alpha_instance "$inst"
-    in_list "$app" "${RUN_WHITELIST[@]}" \
-        || km_die "app '$app' is not on vm-agent's RUN whitelist (${RUN_WHITELIST[*]})"
-    # shellcheck disable=SC2086  # the table's value is a word list
-    in_list "$app" ${APPS[$inst]} \
-        || km_die "app '$app' is whitelisted, but $inst's layer does not carry it (it carries: ${APPS[$inst]}); a RUN of it would answer OK and open nothing"
+    [[ "$app" =~ $KM_PKG_NAME_RE ]] \
+        || km_die "app '$app' does not match $KM_PKG_NAME_RE"
     read_instance "$inst"
+    check_run "$inst" "$app"
 
     km_log "launch $inst $app (unit $UNIT, CID $CID, invoked by ${SUDO_USER:-<no SUDO_USER>})"
     st="$(unit_state "$UNIT")"

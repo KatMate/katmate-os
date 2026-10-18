@@ -47,10 +47,10 @@ source "$BUILD_DIR/lib.sh"   # neutral helpers only; NOT lib.sh's cleanup/trap
 NETVM_LV="${NETVM_LV:-vm_sys_netvm}"          # standalone linear RW LV
 NETVM_LV_SIZE="${NETVM_LV_SIZE:-4G}"          # rootfs + runtime state
 NETVM_MNT="${NETVM_MNT:-/mnt/netvm-build}"
-# Manifest follows the app-layer convention: a flat <name>.list of packages
-# (same format/parser as manifests/web.list). netVM additionally needs a config
-# tree, which app-layers do not (they inherit config from the foundation); that
-# is the one net-new element, kept beside the .list as netvm.conf.d/.
+# Manifest: a flat <name>.list of packages, one per line. The app layers moved
+# to TOML manifests (ADR-043 §6); netvm.list keeps the older format and its own
+# parser here. netVM also needs a config tree, which app-layers do not (they
+# inherit config from the foundation), kept beside the .list as netvm.conf.d/.
 NETVM_PKGS="${NETVM_PKGS:-$MANIFESTS/netvm.list}"
 NETVM_CONFD="${NETVM_CONFD:-$MANIFESTS/netvm.conf.d}"   # config tree baked verbatim
 NETVM_OUT="${NETVM_OUT:-$OUT/netvm}"          # BUILD tree export (never read at runtime)

@@ -843,6 +843,9 @@ log "T2 metadata and kernels"
 KS=/mnt/var/lib/katmate
 install -d -m 0755 "$KS" "$KS/kernels" "$KS/netvm" "$KS/instances"
 
+# The release's shipped set of layers (prebuilt until ADR-043 gate B1), not
+# a rule about which layers may exist: an instance's manifest names any layer
+# that has a meta (ADR-043 §7). make-release.sh's APP_TYPES is the same set.
 for m in foundation.meta app-web.meta app-office.meta app-vault.meta; do
   rel_check "$m"
   install -m 0644 "$(rel_path "$m")" "$KS/$m"
@@ -935,7 +938,7 @@ for inst in "${ALPHA_INSTANCES[@]}"; do
   umount "$HM"
 
   manifest="$(t1_manifest "$inst")"
-  [[ "$manifest" =~ ^(web|office|vault)$ ]] || die "/etc/katmate/vm/$inst.toml: manifest '$manifest' has no app layer."
+  [[ -n "$manifest" && -f "$KS/app-$manifest.meta" ]] || die "/etc/katmate/vm/$inst.toml: manifest '$manifest' has no app layer: app-$manifest.meta was not installed."
   arch-chroot /mnt qemu-img create -q -f qcow2 -F raw -b "/dev/$VG/vm_app_$manifest" \
     "/var/lib/katmate/instances/$inst.qcow2" "$DELTA_SIZE"
   chmod 0644 "/mnt/var/lib/katmate/instances/$inst.qcow2"
@@ -961,6 +964,20 @@ while IFS= read -r -d '' rel; do
   HOSTN=$((HOSTN + 1))
 done < <(cd "$TREE/host/usr" && find . -mindepth 1 -printf '%P\0')
 echo "  $HOSTN paths from host/usr, all 0:0, none group/world-writable"
+
+# T3 layer manifests (ADR-043 §6): manifests/<name>.toml in the tree, read back.
+LAYER_T3=/mnt/usr/lib/katmate/layer
+install -d -m 0755 -o root -g root "$LAYER_T3"
+LAYERN=0
+for f in "$TREE"/manifests/*.toml; do
+  [[ -f "$f" ]] || die "no manifests/*.toml in $TREE"
+  dst="$LAYER_T3/$(basename "$f")"
+  install -m 0644 -o root -g root "$f" "$dst"
+  cmp -s "$f" "$dst" || die "$dst differs from $f after install."
+  [[ "$(stat -c '%u:%g %a' "$dst")" == "0:0 644" ]] || die "$dst is not root:root 0644."
+  LAYERN=$((LAYERN + 1))
+done
+echo "  $LAYERN T3 layer manifests in /usr/lib/katmate/layer, root:root 0644"
 
 rel_check ping-client
 rel_check waypipe
@@ -1025,6 +1042,7 @@ install -m 0644 -D -t /mnt/etc/xdg/waybar/svg/ "$DT/waybar/svg/no1-right.svg" \
   "$DT/waybar/svg/no1-cut-br.svg" "$DT/waybar/svg/katmate-mark.svg"
 install -m 0644 -D "$DT/fuzzel/fuzzel.ini" /mnt/usr/share/katmate/fuzzel/fuzzel.ini
 "$TREE/installer/gen-desktop-entries" "$TREE/host/usr/lib/katmate/katmate-launch" \
+  /mnt/etc/katmate/vm /mnt/var/lib/katmate \
   /mnt/usr/share/katmate/applications || die "the launcher's desktop entries were not generated"
 install -m 0755 -D -t /mnt/usr/local/bin/ \
   "$DT/bin/km-launch" "$DT/bin/km-menu" "$DT/bin/km-shot" "$DT/bin/sway-session" "$DT/bin/sway-quiet"
@@ -1157,6 +1175,7 @@ for lv in vm_tpl_foundation vm_app_web vm_app_office vm_app_vault vm_sys_netvm \
 done
 for f in /mnt/etc/katmate/vm/{netvm,app_web,app_personal,app_work,app_vault,app_sandbox}.toml \
          /mnt/var/lib/katmate/{foundation,app-web,app-office,app-vault}.meta \
+         /mnt/usr/lib/katmate/layer/{web,office,vault}.toml \
          /mnt/var/lib/katmate/netvm/{netvm.meta,vmlinuz,initrd.img} \
          "/mnt/var/lib/katmate/kernels/$KERNEL_FILE" \
          /mnt/var/lib/katmate/instances/{app_web,app_personal,app_work,app_vault,app_sandbox}.qcow2 \

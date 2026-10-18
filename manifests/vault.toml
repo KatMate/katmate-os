@@ -1,8 +1,5 @@
 # vault domain (ADR-014)
-# Offline (no network), persistent secret store. keepassxc is on the vm-agent
-# RUN whitelist, a compile-time constant shared by every AppVM for the alpha
-# (R130; ADR-021's revision note). A per-manifest whitelist is post-alpha and
-# is not a vault blocker.
+# Offline (no network), persistent secret store.
 # qtwayland5: keepassxc is Qt5, and the foundation's GUI runtime is GTK. An
 # AppVM's only display is Wayland (through waypipe), and without Qt's wayland
 # platform plugin keepassxc falls back to xcb and aborts (ai4, 2026-10-02).
@@ -12,7 +9,9 @@
 # in keepassxc.ini); the choice persists in the vault's /home (ruling D2,
 # 2026-10-04, a known alpha limitation). Post-alpha candidate:
 # qt5-gtk-platformtheme with QT_QPA_PLATFORMTHEME=gtk3.
-keepassxc
-qtwayland5
-foot
-pcmanfm
+#
+# `run` is what this layer may RUN (ADR-043 §5).
+
+kind = "debian-manifest"
+packages = ["keepassxc", "qtwayland5", "foot", "pcmanfm"]
+run = ["keepassxc", "foot", "pcmanfm"]

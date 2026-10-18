@@ -75,7 +75,7 @@ FOUNDATION_META="$KATMATE_STATE_DIR/foundation.meta"
 # --- app-layer metadata, one per image (ADR-030 T2, ADR-032 §5) --------------
 # Naming: app-<type>.meta, after the IMAGE (app-<type>, ADR-010/ADR-014), NOT
 # after the manifest. A bare `web.meta` sitting beside foundation.meta would
-# read as metadata about manifests/web.list. Composed by app-layer.sh, which
+# read as metadata about manifests/web.toml. Composed by app-layer.sh, which
 # owns the <type>; kept here so the location is stated in one place.
 #   $KATMATE_STATE_DIR/app-<type>.meta
 # KatMate waypipe patch queue (ADR-019, strip & harden only). May not exist

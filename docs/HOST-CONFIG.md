@@ -395,7 +395,8 @@ MINIS.**]**
 `power-menu.xml` are replaced by fuzzel, run by `/usr/local/bin/km-menu`,
 with `/usr/share/katmate/fuzzel/fuzzel.ini` and the desktop entries that
 `installer/gen-desktop-entries` writes into
-`/usr/share/katmate/applications/` from `katmate-launch`'s `APPS` table.
+`/usr/share/katmate/applications/` from `katmate-launch`'s `APPS` table
+(since cu2: from `ALPHA_INSTANCES` and the `RUN` lines of the layer metas).
 `/usr/share/katmate/waybar/` is no longer read, and the bar has no launcher
 module (`modules-katmate.jsonc` is gone; the launcher is `$mod+space`). A
 missing `km-menu` is as silent as a missing menu file was: sway's or waybar's

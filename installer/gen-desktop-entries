@@ -2,13 +2,14 @@
 # gen-desktop-entries — the launcher's desktop entries, one per (AppVM, app),
 # and one that opens the AppVM list
 #
-# Usage: gen-desktop-entries <katmate-launch> <outdir>
+# Usage: gen-desktop-entries <katmate-launch> <t1-vm-dir> <t2-dir> <outdir>
 #
-# The source is katmate-launch's APPS table, the point that enforces which app
-# may be launched in which instance, so the launcher offers exactly that set.
-# read_apps is the only reader of the source; it is to be replaced by the
-# per-AppVM manifests (ADR-043). km-menu shows <outdir> to fuzzel as the only
-# applications directory, and reads X-KatMate-Instance for its AppVM list.
+# The instances are those katmate-launch accepts (its ALPHA_INSTANCES), in that
+# order. What each may run is the RUN line of its layer's T2 meta, the list
+# katmate-launch enforces (ADR-043 §5): each instance's T1 file names the
+# layer, and <t2-dir>/app-<layer>.meta carries RUN. km-menu shows <outdir> to
+# fuzzel as the only applications directory, and reads X-KatMate-Instance for
+# its AppVM list.
 #
 # Exit: 0 written, 1 refused (the message says why), 2 usage.
 
@@ -16,30 +17,54 @@ set -euo pipefail
 
 die() { printf '[gen-desktop-entries] FATAL: %s\n' "$*" >&2; exit 1; }
 
-(( $# == 2 )) || { echo "usage: gen-desktop-entries <katmate-launch> <outdir>" >&2; exit 2; }
+(( $# == 4 )) || { echo "usage: gen-desktop-entries <katmate-launch> <t1-vm-dir> <t2-dir> <outdir>" >&2; exit 2; }
 LAUNCH="$1"
-OUT="$2"
+T1_DIR="$2"
+T2_DIR="$3"
+OUT="$4"
 
-# Prints "<instance> <app>" lines, in the table's order.
+[[ -r "$LAUNCH" ]] || die "$LAUNCH is not readable"
+LIB="$(dirname -- "$LAUNCH")/katmate-lib.sh"
+[[ -r "$LIB" ]] || die "$LIB is not readable"
+# shellcheck disable=SC2034
+KM_PROG="gen-desktop-entries"
+# shellcheck source=host/usr/lib/katmate/katmate-lib.sh
+source "$LIB"
+
+# Prints "<instance> <app>" lines, in ALPHA_INSTANCES order and RUN order.
 read_apps() {
-    local line inst apps app n=0 inside=0
-    while IFS= read -r line; do
-        if (( ! inside )); then
-            [[ "$line" == 'declare -A APPS=(' ]] && inside=1
-            continue
-        fi
-        [[ "$line" == ')' ]] && { inside=2; break; }
-        [[ "$line" =~ ^[[:space:]]+\[([a-z0-9_]+)\]=\"([a-z0-9 -]+)\"$ ]] \
-            || die "$LAUNCH: unexpected line in APPS: '$line'"
-        inst="${BASH_REMATCH[1]}"
-        apps="${BASH_REMATCH[2]}"
-        for app in $apps; do printf '%s %s\n' "$inst" "$app"; done
+    local line inst layer meta app n=0
+    local -a insts=() run=()
+    local -A t1=()
+    line="$(grep -E '^ALPHA_INSTANCES=\(' "$LAUNCH")" \
+        || die "$LAUNCH: no 'ALPHA_INSTANCES=(…)' line"
+    [[ "$(grep -c -E '^ALPHA_INSTANCES=\(' "$LAUNCH")" == 1 ]] \
+        || die "$LAUNCH: more than one 'ALPHA_INSTANCES=(…)' line"
+    [[ "$line" =~ ^ALPHA_INSTANCES=\(([a-z0-9_ ]+)\)$ ]] \
+        || die "$LAUNCH: unexpected ALPHA_INSTANCES line: '$line'"
+    read -r -a insts <<<"${BASH_REMATCH[1]}"
+    for inst in "${insts[@]}"; do
+        km_flat_read "$T1_DIR/$inst.toml" t1
+        [[ "${t1[class]-}" == app ]] || die "$T1_DIR/$inst.toml: class='${t1[class]-}', not app"
+        layer="${t1[manifest]-}"
+        [[ "$layer" =~ $KM_LAYER_NAME_RE ]] \
+            || die "$T1_DIR/$inst.toml: manifest='$layer' does not match $KM_LAYER_NAME_RE"
+        meta="$T2_DIR/app-$layer.meta"
+        km_meta_open "$meta"
+        # read_apps runs in $(…), where set -e does not hold: exit explicitly.
+        line="$(km_meta_require "$meta" RUN)" || exit 1
+        read -r -a run <<<"$line"
+        for app in "${run[@]}"; do
+            [[ "$app" =~ $KM_PKG_NAME_RE ]] || die "$meta: RUN entry '$app' does not match $KM_PKG_NAME_RE"
+            printf '%s %s\n' "$inst" "$app"
+        done
         n=$(( n + 1 ))
-    done <"$LAUNCH"
-    (( inside == 2 )) || die "$LAUNCH: no complete 'declare -A APPS=(' … ')' block"
-    (( n > 0 )) || die "$LAUNCH: APPS parsed to 0 instances"
+    done
+    (( n > 0 )) || die "$LAUNCH: ALPHA_INSTANCES lists no instance"
 }
 
+# Cosmetic only: the RUN list is the authority, so a binary without a display
+# name is shown by its own name (cu2 ruling D9).
 label() {
     case "$1" in
         firefox-esr) echo Firefox ;;
@@ -47,20 +72,18 @@ label() {
         pcmanfm)     echo Files ;;
         libreoffice) echo LibreOffice ;;
         keepassxc)   echo KeePassXC ;;
-        *) die "no display name for app '$1'; add it to label() in $0" ;;
+        *)           echo "$1" ;;
     esac
 }
 
-[[ -r "$LAUNCH" ]] || die "$LAUNCH is not readable"
 if [[ -e "$OUT" ]]; then
     [[ -d "$OUT" && -z "$(ls -A "$OUT")" ]] || die "$OUT exists and is not an empty directory"
 fi
+# Read in full before the first file, so a refusal leaves no partial set.
 pairs="$(read_apps)"
-# Every app named before the first file, so a refusal leaves no partial set.
-while read -r _ app; do label "$app" >/dev/null; done <<<"$pairs"
 install -d -m 0755 "$OUT"
 
-# The file name's index keeps the table's instance order for km-menu's list.
+# The file name's index keeps ALPHA_INSTANCES order for km-menu's list.
 declare -A idx=()
 count=0
 while read -r inst app; do

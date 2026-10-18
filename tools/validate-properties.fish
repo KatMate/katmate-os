@@ -76,7 +76,9 @@ set -g enum_persist  persistent ephemeral
 # (ADR-032 §3): skupni enum bi naredil manifest=netvm veljaven na AppVM-u —
 # veljavna vrednost, ki zgradi napačno sliko.
 set -g enum_man_sys  netvm
-set -g enum_man_app  vault web office
+# For class=app, 'manifest' names a layer (ADR-043 §7): any name matching the
+# layer-name pattern; whether that layer exists is decided at start.
+set -g layer_name_re '^[a-z][a-z0-9]*$'
 set -g bool_keys     identity disposable reset_on_shutdown provides_network
 
 # --- akumulatorji ČEZ datoteke (ADR-032 §4) ----------------------------------
@@ -222,8 +224,8 @@ function validate_file
                 in_list $kv_manifest $enum_man_sys
                 or err "manifest='$kv_manifest' pri class=sys ni v {$enum_man_sys}"
             case app
-                in_list $kv_manifest $enum_man_app
-                or err "manifest='$kv_manifest' pri class=app ni v {$enum_man_app}"
+                string match -qr -- $layer_name_re $kv_manifest
+                or err "manifest='$kv_manifest' at class=app does not match the layer-name pattern $layer_name_re (ADR-043 §7)"
         end
     end
 

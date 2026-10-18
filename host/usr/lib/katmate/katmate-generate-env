@@ -154,7 +154,10 @@ done
 MANIFEST="${KM_T1[manifest]}"
 case "$CLASS" in
 sys) in_list "$MANIFEST" netvm      || km_die "$KM_T1_FILE: manifest='$MANIFEST' is not in {netvm} for class=sys (ADR-032 §3)" ;;
-app) in_list "$MANIFEST" vault web office || km_die "$KM_T1_FILE: manifest='$MANIFEST' is not in {vault, web, office} for class=app (ADR-032 §3)" ;;
+# For class=app the value names a layer, not an enum member (ADR-043 §7). It
+# must resolve to a layer meta with a KIND valid for the class; that is
+# checked with the rest of T2 below.
+app) [[ "$MANIFEST" =~ $KM_LAYER_NAME_RE ]] || km_die "$KM_T1_FILE: manifest='$MANIFEST' does not match the layer-name pattern $KM_LAYER_NAME_RE (ADR-043 §7)" ;;
 esac
 
 for key in "${BOOL_KEYS[@]}"; do
@@ -266,7 +269,21 @@ sys)
     ;;
 app)
     META="$KM_STATE_DIR/app-$MANIFEST.meta"
+    [[ -e "$META" ]] \
+        || km_die "$KM_T1_FILE: manifest='$MANIFEST' names no built layer: $META does not exist (ADR-043 §7)"
     km_meta_open "$META"
+    # The meta is written only after the freeze, so it is the record of a frozen
+    # layer; katmate-activate-lvs reads the LV's permission itself.
+    LAYER_KIND="$(km_meta_require "$META" KIND)"
+    [[ "$LAYER_KIND" == debian-manifest ]] \
+        || km_die "$META: KIND='$LAYER_KIND' is not valid for class=app; only debian-manifest is (ADR-043 §8)"
+    # Assigned first: a km_die inside a here-string's substitution is lost.
+    LAYER_RUN_LINE="$(km_meta_require "$META" RUN)"
+    read -r -a LAYER_RUN <<<"$LAYER_RUN_LINE"
+    for app in "${LAYER_RUN[@]}"; do
+        [[ "$app" =~ $KM_PKG_NAME_RE ]] \
+            || km_die "$META: RUN entry '$app' does not match $KM_PKG_NAME_RE"
+    done
     # <image>.meta records WHICH kernel, never where it lies (ADR-032 §5); the
     # path composes from the shared kernels directory and the recorded version.
     # `amd64` is build/config.sh's ARCH — see katmate-check-image, which

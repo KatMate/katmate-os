@@ -113,13 +113,16 @@ is started with waybar's `-c`. The fuzzel package's
 - **`$mod+space`** (`km-menu apps`): fuzzel in desktop-entry mode with
   `XDG_DATA_DIRS` and `XDG_DATA_HOME` both `/usr/share/katmate`, so it lists
   the generated entries and no host application. There is one entry per
-  (AppVM, app) in `katmate-launch`'s `APPS` table, named `[web] Firefox` and
+  AppVM `katmate-launch` accepts (its `ALPHA_INSTANCES`, in that order) and
+  per app on the `RUN` line of that AppVM's layer meta, named `[web] Firefox` and
   so on; each runs `/usr/local/bin/km-launch <instance> <app>`, which runs
   `sudo -n /usr/lib/katmate/katmate-launch …` and, on a non-zero exit, shows
   the last FATAL line as a critical notification (`notify-send`, so libnotify
   and swaync, as for `km-shot`). So it also needs that executable and its
   sudoers rule ([HOST-CONFIG.md](../docs/HOST-CONFIG.md) § 13). The entries
-  are generated at install; a change to `APPS` needs them generated again.
+  are generated at install; a rebuilt layer with another `run` list, or a
+  changed `ALPHA_INSTANCES`, needs them generated again. An app with no display
+  name in the generator is listed by its binary name.
 - **The launcher's *KatMate: AppVMs* entry** (`km-menu vms`): the AppVMs with their state
   (`systemctl is-active` on both AppVM unit templates) and *Stop all
   AppVMs*. Choosing a running AppVM, or *Stop all*, asks again, with *No* as

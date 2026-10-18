@@ -12,12 +12,15 @@ and [docs/DECISIONS.md](docs/DECISIONS.md).
 
 ## Current focus
 
+- cu2 (ADR-043 §5–7, step 1 of user-created AppVMs): manifests are TOML
+  (`manifests/<layer>.toml`, T3 `/usr/lib/katmate/layer/`), the RUN list is
+  the layer's `run`, `manifest` names a layer, stale layers refuse to start.
+  Phase B in the tree, tested on fixtures; Phase C (MINIS rebuild of the
+  foundation and three layers) waits on review.
 - fz1: fuzzel replaces the waybar GTK menus. Launcher on `$mod+space` (no bar
-  button; generated entries from `katmate-launch`'s `APPS`, plus *KatMate:
-  AppVMs* for state and stop); power menu on the mark (Lock, Logout, Reboot,
-  Shutdown; no Suspend). Deployed on MINIS, menus operator-observed. Its
-  first unit is on `main` as `5104568` under cu1's copied message (operator,
-  by accident); the rest is on branch `fz1`.
+  button; generated entries, plus *KatMate: AppVMs* for state and stop); power
+  menu on the mark (Lock, Logout, Reboot, Shutdown; no Suspend). Deployed on
+  MINIS, menus operator-observed. Done: on `main` as `5104568` and `538f112`.
 - cu1: [ADR-043](docs/adr/ADR-043.md) **Proposed**, gates B1–B4.
   iso1: [ADR-042](docs/adr/ADR-042.md) (**Proposed**). w2: [ADR-041](docs/adr/ADR-041.md).
 - MINIS: `pacman -Syu` on 2026-10-18 (fourth attempt; the mirror stalled
@@ -44,7 +47,8 @@ Full list: [docs/OPEN-PROBLEMS.md](docs/OPEN-PROBLEMS.md).
 
 1. fz1 on the Cubi install: a real launch, a stop with Yes, Lock (swaylock);
    the installer's desktop block.
-2. ADR-043 code pass: builder unit and program, manifest schema, T1/T3 paths.
+2. ADR-043: cu2 Phase C on MINIS; then the CID/slot allocator, the
+   `katmate-vm-create` CLI, T1 menu entries; the builder unit and program.
 3. Gate B1 on the Cubi; then the Windows class ADR (`class = win`).
 4. A tagged release from `main` with its medium (before ~2026-11-01, #66),
    then the Cubi install gate (#68).
@@ -61,4 +65,4 @@ Full list: [docs/OPEN-PROBLEMS.md](docs/OPEN-PROBLEMS.md).
   `~/katmate-iso/dev/`; `~/.local/bin/menu-power` and
   `~/.config/waybar/config.disabled` (fz1). fz1 scripts in `~/katmate-dev/fz1/`.
 - **Operator:** ISO signing (#67); the post-release backlog; ROADMAP
-  candidates; GitHub issues for alpha feedback; squash of `fz1` onto `main`.
+  candidates; GitHub issues for alpha feedback.

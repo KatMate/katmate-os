@@ -3,9 +3,10 @@
 #
 # Installed at /usr/lib/katmate/katmate-lib.sh, mode 0644. It is SOURCED, never
 # executed, and it is not one of the five T4 executables: it carries no check,
-# no policy and no decision. Only three things live here — the canonical paths,
-# a diagnostic style, and the two readers (T1 and T2) that three of the four
-# executables would otherwise each carry a copy of. The T1 reader is a flat
+# no policy and no decision. Only these things live here — the canonical paths,
+# a diagnostic style, the two readers (T1 and T2) that three of the four
+# executables would otherwise each carry a copy of, and the layer-manifest
+# reader (ADR-043 §6), which the build scripts source by path. The T1 reader is a flat
 # key = value parser that takes a path (km_flat_read), and km_t1_read is its
 # wrapper for <instance>.toml.
 #
@@ -169,6 +170,133 @@ km_t1_require() {
     [[ -v KM_T1[$key] ]] \
         || km_die "$KM_T1_FILE: missing required key '$key'"
     printf '%s' "${KM_T1[$key]}"
+}
+
+# --- layer manifests (ADR-043 §6) ---------------------------------------------
+# One schema, two tiers, and the path is the tier. Flat TOML with exactly three
+# keys, all required, none empty: kind (a string), packages and run (arrays of
+# strings on one line; a multi-line array is refused, cu2 ruling D2). Names in
+# both lists match the package regex, which `run` shares (D5).
+# shellcheck disable=SC2034
+KM_LAYER_T3_DIR="/usr/lib/katmate/layer"
+# shellcheck disable=SC2034
+KM_LAYER_T1_DIR="/etc/katmate/layer"
+KM_LAYER_NAME_RE='^[a-z][a-z0-9]*$'
+KM_PKG_NAME_RE='^[a-z0-9][a-z0-9+.-]*$'
+KM_LAYER_KINDS=(debian-manifest)
+
+declare -g KM_MF_FILE="" KM_MF_TIER="" KM_MF_KIND=""
+declare -ga KM_MF_PACKAGES=() KM_MF_RUN=() KM_MF_LIST=()
+
+# km_manifest_list <where> <key> <value>: one single-line array into KM_MF_LIST.
+km_manifest_list() {
+    local where="$1" key="$2" val="$3" inner rest part name
+    local -a parts=()
+    local -A seen=()
+    KM_MF_LIST=()
+    [[ "$val" == \[* ]] \
+        || km_die "$where: '$key' must be an array of strings: [\"a\", \"b\"]"
+    [[ "$val" == *']'* ]] \
+        || km_die "$where: '$key' opens an array that does not close on this line. Multi-line arrays are not part of the manifest schema: write the array on one line."
+    inner="${val#\[}"
+    inner="${inner%%]*}"
+    rest="${val#*]}"
+    [[ "$rest" =~ ^[[:space:]]*(#.*)?$ ]] \
+        || km_die "$where: unexpected text after the array of '$key': '$rest'"
+    [[ ! "$inner" =~ ,[[:space:]]*$ ]] \
+        || km_die "$where: '$key' ends with a comma"
+    [[ ! "$inner" =~ ^[[:space:]]*$ ]] || return 0
+    IFS=, read -r -a parts <<<"$inner"
+    for part in "${parts[@]}"; do
+        [[ "$part" =~ ^[[:space:]]*\"([^\"]*)\"[[:space:]]*$ ]] \
+            || km_die "$where: '$key' has an element that is not a \"string\": '$part'"
+        name="${BASH_REMATCH[1]}"
+        [[ "$name" =~ $KM_PKG_NAME_RE ]] \
+            || km_die "$where: '$key' entry '$name' does not match $KM_PKG_NAME_RE"
+        [[ ! -v seen[$name] ]] \
+            || km_die "$where: '$key' lists '$name' twice"
+        seen[$name]=1
+        KM_MF_LIST+=("$name")
+    done
+}
+
+# km_manifest_parse <file>: sets KM_MF_FILE, KM_MF_KIND, KM_MF_PACKAGES, KM_MF_RUN.
+km_manifest_parse() {
+    local file="$1" line key val lineno=0
+    local -A seen=()
+    KM_MF_FILE="$file" KM_MF_KIND=""
+    KM_MF_PACKAGES=() KM_MF_RUN=()
+    [[ -f "$file" && -r "$file" ]] \
+        || km_die "$file is not a readable regular file"
+
+    while IFS= read -r line || [[ -n "$line" ]]; do
+        lineno=$(( lineno + 1 ))
+        line="${line%$'\r'}"
+        if [[ "$line" =~ ^[[:space:]]*(#.*)?$ ]]; then continue; fi
+        if [[ "$line" =~ ^[[:space:]]*\[ ]]; then
+            km_die "$file:$lineno: TOML tables are not part of the manifest schema — every key is top-level"
+        fi
+        [[ "$line" =~ ^[[:space:]]*([A-Za-z_][A-Za-z0-9_]*)[[:space:]]*=[[:space:]]*(.*)$ ]] \
+            || km_die "$file:$lineno: not a 'key = value' line: $line"
+        key="${BASH_REMATCH[1]}"
+        val="${BASH_REMATCH[2]}"
+        [[ ! -v seen[$key] ]] \
+            || km_die "$file:$lineno: duplicate key '$key'"
+        seen[$key]=1
+        case "$key" in
+        kind)
+            [[ "$val" =~ ^\"([^\"]*)\"[[:space:]]*(#.*)?$ ]] \
+                || km_die "$file:$lineno: 'kind' must be a \"string\""
+            KM_MF_KIND="${BASH_REMATCH[1]}"
+            ;;
+        packages)
+            km_manifest_list "$file:$lineno" "$key" "$val"
+            KM_MF_PACKAGES=("${KM_MF_LIST[@]}")
+            ;;
+        run)
+            km_manifest_list "$file:$lineno" "$key" "$val"
+            KM_MF_RUN=("${KM_MF_LIST[@]}")
+            ;;
+        *)
+            km_die "$file:$lineno: unknown key '$key'; a manifest has kind, packages and run only (ADR-043 §6)"
+            ;;
+        esac
+    done < "$file"
+
+    for key in kind packages run; do
+        [[ -v seen[$key] ]] || km_die "$file: missing required key '$key' (ADR-043 §6)"
+    done
+    [[ -n "$KM_MF_KIND" ]] || km_die "$file: 'kind' is empty"
+    local k ok=""
+    for k in "${KM_LAYER_KINDS[@]}"; do [[ "$KM_MF_KIND" == "$k" ]] && ok=1; done
+    [[ -n "$ok" ]] \
+        || km_die "$file: kind='$KM_MF_KIND' is not one of {${KM_LAYER_KINDS[*]}} (ADR-043 §8)"
+    (( ${#KM_MF_PACKAGES[@]} > 0 )) || km_die "$file: 'packages' is empty"
+    (( ${#KM_MF_RUN[@]} > 0 )) || km_die "$file: 'run' is empty: a layer that may run nothing is refused (ADR-043 §6)"
+}
+
+# km_manifest_read <name> <t3-dir> <t1-dir>: resolves a layer name to its one
+# manifest. An empty <t1-dir> means no T1 tier (the dev build from manifests/).
+# A T1 name equal to a T3 name is refused: release names are reserved, and two
+# sources for one name is the failure class ADR-043 §6 names. Sets KM_MF_TIER.
+km_manifest_read() {
+    local name="$1" t3="$2" t1="$3" f3 f1=""
+    [[ "$name" =~ $KM_LAYER_NAME_RE ]] \
+        || km_die "layer name '$name' does not match $KM_LAYER_NAME_RE"
+    f3="$t3/$name.toml"
+    [[ -n "$t1" ]] && f1="$t1/$name.toml"
+    if [[ -n "$f1" ]] && [[ -e "$f1" || -L "$f1" ]]; then
+        if [[ -e "$f3" || -L "$f3" ]]; then
+            km_die "$f1: layer name '$name' is a release name ($f3). Release names are reserved; a T1 manifest may not take one (ADR-043 §6)."
+        fi
+        km_manifest_parse "$f1"
+        KM_MF_TIER=T1
+    elif [[ -e "$f3" || -L "$f3" ]]; then
+        km_manifest_parse "$f3"
+        KM_MF_TIER=T3
+    else
+        km_die "no manifest for layer '$name': neither $f3 nor ${f1:-<no T1 tier>} exists"
+    fi
 }
 
 # --- T2: <image>.meta --------------------------------------------------------

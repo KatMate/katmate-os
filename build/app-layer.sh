@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Katmate OS — generic app-layer builder (ADR-014, ADR-011, LVM-thin per ADR-010)
-# Usage: app-layer.sh <type>     (reads manifests/<type>.list)
+# Usage: app-layer.sh <type>     (reads manifests/<type>.toml, ADR-043 §6)
 #
 # Produces an RO-frozen thin SNAPSHOT  vm_app_<type>  of vm_tpl_foundation:
 #   lvcreate -s  ->  lvchange -K -ay  ->  mount  ->  chroot apt install
@@ -12,16 +12,31 @@ set -euo pipefail
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 source "$HERE/config.sh"
 source "$HERE/lib.sh"
+# The manifest reader is katmate-lib.sh's, sourced from the tree (cu2 ruling D3).
+# shellcheck disable=SC2034
+KM_PROG="app-layer"
+# shellcheck source=host/usr/lib/katmate/katmate-lib.sh
+source "$ROOT_DIR/host/usr/lib/katmate/katmate-lib.sh"
 
 require_root
 
-TYPE="${1:?usage: app-layer.sh <type>  (manifest: manifests/<type>.list)}"
-MANIFEST="$MANIFESTS/$TYPE.list"
+TYPE="${1:?usage: app-layer.sh <type>  (manifest: manifests/<type>.toml)}"
+
+# The repo's manifests/ is the T3 source. No T1 tier here: the host never
+# builds a user layer (ADR-043 §1).
+km_manifest_read "$TYPE" "$MANIFESTS" ""
+PKGS=("${KM_MF_PACKAGES[@]}")
+
+# The one canonical RUN list. The guest's /etc/katmate/run-whitelist (one name
+# per line) and the meta's RUN= (space-separated) are both written from it, in
+# the manifest's order (cu2 ruling D5).
+RUN_LIST=("${KM_MF_RUN[@]}")
+RUN_WHITELIST_BYTES="$(printf '%s\n' "${RUN_LIST[@]}")"$'\n'
+RUN_META="${RUN_LIST[*]}"
+
 APP_LV="${APP_LV_PREFIX}${TYPE}"          # e.g. vm_app_web
 MNT="$(mktemp -d)"
 trap 'cleanup; rmdir "$MNT" 2>/dev/null || true' EXIT
-
-[[ -f "$MANIFEST" ]] || die "Missing manifest: $MANIFEST"
 
 # foundation must exist and be frozen RO (built by: sudo make foundation)
 lvs "$VG/$FOUNDATION_LV" >/dev/null 2>&1 \
@@ -42,10 +57,6 @@ lvs "$VG/$FOUNDATION_LV" >/dev/null 2>&1 \
 if lvs "$VG/$APP_LV" >/dev/null 2>&1; then
   die "App-layer $VG/$APP_LV already exists. Remove it first: sudo lvremove -f $VG/$APP_LV"
 fi
-
-# package list = non-empty, non-comment lines
-mapfile -t PKGS < <(grep -vE '^[[:space:]]*(#|$)' "$MANIFEST")
-[[ ${#PKGS[@]} -gt 0 ]] || die "Manifest $MANIFEST lists no packages"
 
 log "Snapshot $FOUNDATION_LV -> $APP_LV (thin, writable until freeze)"
 lv_snapshot_create "$APP_LV" "$FOUNDATION_LV"
@@ -71,6 +82,19 @@ chroot_run "$MNT" apt-get clean
 resolv_link_install "$MNT"
 resolv_link_check "$MNT"
 rm -rf "$MNT"/var/lib/apt/lists/* 2>/dev/null || true
+
+# vm-agent reads this once at start and refuses every RUN without it (ADR-043 §5).
+log "Write /etc/katmate/run-whitelist: $RUN_META"
+[[ ! -L "$MNT/etc/katmate" && ! -L "$MNT/etc/katmate/run-whitelist" ]] \
+  || die "the image carries a symlink at /etc/katmate or /etc/katmate/run-whitelist"
+WL_TMP="$(mktemp)"
+printf '%s' "$RUN_WHITELIST_BYTES" >"$WL_TMP"
+install -D -m 0644 -o root -g root "$WL_TMP" "$MNT/etc/katmate/run-whitelist"
+rm -f -- "$WL_TMP"
+cmp -s <(printf '%s' "$RUN_WHITELIST_BYTES") "$MNT/etc/katmate/run-whitelist" \
+  || die "read-back: /etc/katmate/run-whitelist in the image differs from the manifest's run list"
+[[ "$(stat -c '%u:%g %a' "$MNT/etc/katmate/run-whitelist")" == "0:0 644" ]] \
+  || die "read-back: /etc/katmate/run-whitelist in the image is not root:root 0644"
 
 log "Unmount + deactivate, then RO-freeze"
 umount_root
@@ -98,6 +122,10 @@ rmdir "$MNT" 2>/dev/null || true
 # the single source for the version-lock gate, and copying the tag into every
 # app-layer meta would be a second record of the fact the gate reads. Provenance
 # needs to identify the generation, not restate its contents.
+#
+# KIND and RUN are the manifest's, never the layer's (ADR-043 §2, §5). The
+# layer's foundation is BASE_BUILT; there is no separate FOUNDATION key (cu2
+# ruling D1).
 #
 # KERNEL_VERSION is the kernel this image REQUIRES, not where it lies
 # (ADR-032 §5). Today every image records the same one.
@@ -131,6 +159,8 @@ APP_ROOTFSTYPE=ext4
 BASE_LV=$VG/$FOUNDATION_LV
 BASE_BUILT=$BASE_BUILT
 KERNEL_VERSION=$KERNEL_VERSION
+KIND=$KM_MF_KIND
+RUN=$RUN_META
 EOF
 chmod 0644 "$APP_META_TMP"
 mv -f -- "$APP_META_TMP" "$APP_META"   # atomic: mktemp created it on the same fs

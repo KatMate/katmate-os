@@ -61,7 +61,10 @@ HOST_WAYPIPE="/opt/katmate/bin/waypipe"
 HOST_PING_CLIENT="/usr/lib/katmate/ping-client"
 T1_TEMPLATES="$ROOT_DIR/installer/t1"
 VALIDATOR="$ROOT_DIR/tools/validate-properties.fish"
-APP_TYPES=(web office vault)       # the three layers; app_personal and app_sandbox use web
+# The release's shipped set of layers (prebuilt until ADR-043 gate B1), not a
+# rule about which layers may exist; installer/install.sh carries the same set.
+# app_personal and app_sandbox use web.
+APP_TYPES=(web office vault)
 
 usage() {
   echo "usage: $0 --tag <tag> --out <empty dir> --built-after <YYYY-MM-DDTHH:MM:SSZ>" >&2
@@ -140,6 +143,8 @@ for t in "${APP_TYPES[@]}"; do
   [[ "$(meta_req "$m" BASE_BUILT)" == "$F_BUILT" ]] \
     || die "$m was built on foundation $(meta_get "$m" BASE_BUILT), not on the current one ($F_BUILT): rebuild the layer"
   [[ "$(meta_req "$m" KERNEL_VERSION)" == "$KVER" ]] || die "$m requires kernel $(meta_get "$m" KERNEL_VERSION), the foundation records $KVER"
+  [[ "$(meta_req "$m" KIND)" == debian-manifest ]] || die "$m records KIND=$(meta_get "$m" KIND), not debian-manifest (ADR-043 §8)"
+  meta_req "$m" RUN >/dev/null   # without RUN, katmate-launch refuses every app (ADR-043 §5)
   STAMP[app-$t]="$(meta_req "$m" APP_BUILT)"
   LVOF[app-$t]="$APP_LV_PREFIX$t"
   fresh "app-$t" "${STAMP[app-$t]}"

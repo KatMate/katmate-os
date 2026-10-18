@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Katmate OS — app layer built inside a builder VM (spike cu1; dev scaffolding)
 # Usage: KMB_WORK=<dir> app-layer-vm.sh <type> <suffix> [<manifest>]
-#        (manifest defaults to manifests/<type>.list; LV vm_app_<type><suffix>)
+#        (manifest defaults to manifests/<type>.toml; LV vm_app_<type><suffix>)
 #
 # The host snapshots the foundation, hands the snapshot to a short-lived
 # builder VM that reaches the network through netVM like any AppVM, and
@@ -16,12 +16,16 @@ set -euo pipefail
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 source "$HERE/config.sh"
 source "$HERE/lib.sh"
+# shellcheck disable=SC2034
+KM_PROG="app-layer-vm"
+# shellcheck source=host/usr/lib/katmate/katmate-lib.sh
+source "$ROOT_DIR/host/usr/lib/katmate/katmate-lib.sh"
 
 require_root
 
 TYPE="${1:?usage: KMB_WORK=<dir> app-layer-vm.sh <type> <suffix> [<manifest>]}"
 SUFFIX="${2:?usage: KMB_WORK=<dir> app-layer-vm.sh <type> <suffix> [<manifest>]}"
-MANIFEST="${3:-$MANIFESTS/$TYPE.list}"
+MANIFEST="${3:-$MANIFESTS/$TYPE.toml}"
 WORK="${KMB_WORK:?set KMB_WORK to the dev work directory}"
 [[ "$TYPE" =~ ^[a-z][a-z0-9]*$ ]] || die "type '$TYPE' must match ^[a-z][a-z0-9]*$"
 [[ "$SUFFIX" =~ ^_[a-z0-9]+$ ]] || die "suffix '$SUFFIX' must match ^_[a-z0-9]+$"
@@ -40,7 +44,6 @@ BUILDER_NAME=cu1_builder
 MEM=2G
 VCPUS=2
 TIMEOUT_S=3600
-PKG_RE='^[a-z0-9][a-z0-9+.-]*$'
 
 SLOT_DIR="/run/katmate/link/$NETVM/$SLOT"
 OWNER="$SLOT_DIR/owner"
@@ -120,12 +123,8 @@ if [[ -n "$(systemctl list-units --no-legend --state=active,activating 'km-cu1-b
 fi
 
 # --- manifest: validated here, before any snapshot (operator ruling 3) --------
-[[ -f "$MANIFEST" ]] || die "Missing manifest: $MANIFEST"
-mapfile -t PKGS < <(grep -vE '^[[:space:]]*(#|$)' "$MANIFEST")
-(( ${#PKGS[@]} > 0 )) || die "Manifest $MANIFEST lists no packages"
-for p in "${PKGS[@]}"; do
-  [[ "$p" =~ $PKG_RE ]] || die "Manifest $MANIFEST: '$p' does not match $PKG_RE; refused before any snapshot"
-done
+km_manifest_parse "$MANIFEST"
+PKGS=("${KM_MF_PACKAGES[@]}")
 log "manifest $MANIFEST: ${#PKGS[@]} packages: ${PKGS[*]}"
 
 # --- payloads ---------------------------------------------------------------

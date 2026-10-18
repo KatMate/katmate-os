@@ -87,6 +87,14 @@ app)
     activate "foundation LV" "$BASE_LV" -K
     activate "app layer LV"  "$APP_LV"  -K
 
+    # The instance must start on a frozen layer (ADR-043 §7): lv_attr's second
+    # character is the permission, `r` once lv_freeze has run.
+    attr="$(lvs --noheadings -o lv_attr "$APP_LV" | tr -d ' ')" \
+        || km_die "app layer LV: cannot read lv_attr of $APP_LV"
+    [[ "${attr:1:1}" == r ]] \
+        || km_die "app layer LV: $APP_LV has lv_attr '$attr', not read-only. A layer is started only once it is frozen (ADR-043 §7)."
+    km_log "  app layer LV is read-only (lv_attr $attr)"
+
     PERSISTENCE="$(km_t1_require persistence)"
     case "$PERSISTENCE" in
     persistent)

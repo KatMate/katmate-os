@@ -1,0 +1,22 @@
+# web domain (ADR-014)
+# Shared by: personal / untrusted / disposable — they differ only in
+# properties (network/persistence/identity), not in this package set.
+#
+# qtwayland5 onwards were added for app_sandbox (2026-10-06), which runs on
+# this layer: software the user brings from outside KatMate, from user space
+# only. It arrives as tarballs, extracted AppImages (--appimage-extract) and
+# static binaries, so the layer carries the extractors and the Wayland
+# platform plugins that such a Qt program needs. An AppVM's only display is
+# Wayland (waypipe), and without the plugin Qt falls back to xcb and aborts
+# (vault.toml, ai4). vm-agent sets QT_QPA_PLATFORM=wayland for every RUN child
+# (R146), and a program started from foot inherits it. These also reach
+# app_web and app_personal, which share the layer. No python3, no pip, no sudo
+# (ruling of 2026-10-06). xz-utils is listed even if the foundation already
+# carries it, so this layer does not depend on that.
+#
+# `run` is what this layer may RUN (ADR-043 §5): the host checks it against
+# the RUN line of app-web.meta, the guest against /etc/katmate/run-whitelist.
+
+kind = "debian-manifest"
+packages = ["firefox-esr", "foot", "pcmanfm", "qtwayland5", "qt6-wayland", "unzip", "xz-utils"]
+run = ["firefox-esr", "foot", "pcmanfm"]

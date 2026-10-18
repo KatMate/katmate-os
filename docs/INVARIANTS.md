@@ -171,6 +171,12 @@ that found nothing** — make the condition true on purpose and see it noticed.
   count decides. Source: `r8-impl-B-report.md`.
 - **A guard placed as a separate step is not a guard.** It gets skipped; put it
   inside the thing it guards.
+- **A `km_die` inside `$(…)` is lost unless its exit is taken.** `read -a x
+  <<<"$(km_meta_require …)"` reads an empty line and goes on; and inside a
+  function run as `v="$(f)"`, `set -e` does not hold, so a failed assignment
+  there continues. Assign first at top level, or `|| exit 1`. A meta without
+  `RUN` passed `katmate-generate-env` and `gen-desktop-entries` until the
+  fixture test made the condition true (cu2).
 - **`grep -F` on a phrase that wraps across a line is a false negative.** Splice
   the file before concluding absence (same class as `$` in a BRE).
 - **Vocabulary: abstract in ADR prose, machine names beside measurements.**

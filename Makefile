@@ -37,7 +37,7 @@ apps: $(APP_TARGETS)
 # app-<type> : RO-frozen thin snapshot vm_app_<type> of the foundation.
 # Needs only the foundation LV + its manifest — NOT the kernel or vm-agent
 # (those are baked into the foundation).
-$(APP_TARGETS): app-%: $(BUILD)/app-layer.sh manifests/%.list
+$(APP_TARGETS): app-%: $(BUILD)/app-layer.sh manifests/%.toml
 	$(BUILD)/app-layer.sh $*
 
 # clear, guided failure for the kernel hook (foundation step only)
