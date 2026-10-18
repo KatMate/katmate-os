@@ -90,7 +90,7 @@ sudo install -m 644 -D -t /etc/xdg/waybar/svg/ desktop/waybar/svg/no1-right.svg 
     desktop/waybar/svg/no1-cut-br.svg desktop/waybar/svg/katmate-mark.svg
 sudo install -m 644 -D desktop/fuzzel/fuzzel.ini /usr/share/katmate/fuzzel/fuzzel.ini
 sudo rm -rf /usr/share/katmate/applications
-sudo installer/gen-desktop-entries host/usr/lib/katmate/katmate-launch /usr/share/katmate/applications
+sudo installer/gen-desktop-entries /etc/katmate/vm /var/lib/katmate /usr/share/katmate/applications
 sudo install -m 755 -D -t /usr/local/bin/ desktop/bin/km-launch desktop/bin/km-menu desktop/bin/km-shot
 ```
 
@@ -113,15 +113,15 @@ is started with waybar's `-c`. The fuzzel package's
 - **`$mod+space`** (`km-menu apps`): fuzzel in desktop-entry mode with
   `XDG_DATA_DIRS` and `XDG_DATA_HOME` both `/usr/share/katmate`, so it lists
   the generated entries and no host application. There is one entry per
-  AppVM `katmate-launch` accepts (its `ALPHA_INSTANCES`, in that order) and
+  AppVM (each T1 file with `class = app`, in name order) and
   per app on the `RUN` line of that AppVM's layer meta, named `[web] Firefox` and
   so on; each runs `/usr/local/bin/km-launch <instance> <app>`, which runs
   `sudo -n /usr/lib/katmate/katmate-launch …` and, on a non-zero exit, shows
   the last FATAL line as a critical notification (`notify-send`, so libnotify
   and swaync, as for `km-shot`). So it also needs that executable and its
   sudoers rule ([HOST-CONFIG.md](../docs/HOST-CONFIG.md) § 13). The entries
-  are generated at install; a rebuilt layer with another `run` list, or a
-  changed `ALPHA_INSTANCES`, needs them generated again. An app with no display
+  are generated at install; a rebuilt layer with another `run` list, or an
+  added or removed AppVM, needs them generated again. An app with no display
   name in the generator is listed by its binary name.
 - **The launcher's *KatMate: AppVMs* entry** (`km-menu vms`): the AppVMs with their state
   (`systemctl is-active` on both AppVM unit templates) and *Stop all

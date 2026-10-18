@@ -14,8 +14,10 @@
 #   katmate-launch --stop <instance>    SHUTDOWN, wait for the unit to leave
 #                                       active, then (routed) NETCFG REMOVE
 #                                       and remove the owner
-#   katmate-launch --stop-all           --stop for every alpha AppVM that is
+#   katmate-launch --stop-all           --stop for every AppVM in T1 that is
 #                                       running or still holds a link
+#   katmate-launch --cid-check          #58's CID uniqueness over the T1 tree,
+#                                       which every launch also runs
 #
 # Exit status, katmate-lib.sh's convention and not a new one:
 #   0  done
@@ -27,8 +29,8 @@
 # through one sudoers rule, NOPASSWD for exactly this path (R151), which is a
 # dev/alpha shortcut that the launch daemon replaces (SECURITY-MODEL gap 17).
 # So everything it takes from the caller is checked before it is used: the
-# instance name by km_check_instance and against the alpha table, and the app
-# name against the RUN line of the instance's layer meta (ADR-043 §5).
+# instance name by km_check_instance and by its T1 file, and the app name
+# against the RUN line of the instance's layer meta (ADR-043 §5).
 #
 # The menu starts it with no terminal, through desktop/bin/km-launch, which on a
 # non-zero exit shows the last FATAL line (else the last stderr line) as a
@@ -77,29 +79,24 @@ km_log()   { printf '[%s] %s\n' "$KM_PROG" "$*"; jlog "$*"; }
 km_die()   { printf '[%s] FATAL: %s\n' "$KM_PROG" "$*" >&2; jlog "FATAL: $*"; exit 1; }
 km_usage() { printf '[%s] USAGE: %s\n' "$KM_PROG" "$*" >&2; jlog "USAGE: $*"; exit 2; }
 
-USAGE="katmate-launch <instance> <app> | --stop <instance> | --stop-all"
+USAGE="katmate-launch <instance> <app> | --stop <instance> | --stop-all | --cid-check"
 
-# --- the static tables (alpha only) -----------------------------------------
-# What an instance may run is not here: it is the RUN line of its layer's T2
-# meta, which the build wrote from the manifest's `run` (ADR-043 §5). vm-agent
-# checks the same list from the layer's /etc/katmate/run-whitelist.
-ALPHA_INSTANCES=(app_web app_personal app_work app_vault app_sandbox)
-
-# The alpha's links, one row per routed instance: slot, LINK_ID, netVM's slot
-# MAC and the guest's address. Literals copied from docs/PARAMETERS.md (rows
-# *Slot* and *LINK_ID*, and the NETCFG ADD form in the LINK_ID row), which are
-# frozen for the alpha (R150, R156). There is no arithmetic here on purpose:
-# the address layout is computed only in katmate-generate-env, and after every
-# start this script compares its literal with the generator's KM_GUEST_ADDR and
-# KM_SLOT and refuses on a difference. The launch daemon replaces this table.
-LINK_NETVM=netvm
+# --- the instance set and the link -------------------------------------------
+# The instance set is the T1 tree: an AppVM is admitted when its T1 file reads
+# as class = app and the tree's CIDs are unique (#58). What it may run is the
+# RUN line of its layer's T2 meta (ADR-043 §5); vm-agent checks the same list
+# from the layer's /etc/katmate/run-whitelist.
+#
+# A routed AppVM's slot is claimed per run from its netVM's pool, with an
+# opaque LINK_ID, by katmate-alloc (ADR-035 §5–6; ADR-037 R62, R63). netVM's
+# slot MAC and the guest address come from katmate-generate-env --faces, the
+# one place that layout is computed; after every start this script compares
+# them with the projection's KM_GUEST_ADDR and KM_SLOT and refuses on a
+# difference. Both helpers are T4 beside this script, never a build tree
+# (R155).
+ALLOC=/usr/lib/katmate/katmate-alloc
+GENERATE_ENV=/usr/lib/katmate/katmate-generate-env
 NETCFG_METRIC=100
-declare -A LINK=(
-    [app_web]="01 201 52:54:01:00:00:01 10.100.1.17"
-    [app_personal]="02 202 52:54:01:00:00:02 10.100.1.18"
-    [app_work]="03 203 52:54:01:00:00:03 10.100.1.19"
-    [app_sandbox]="04 204 52:54:01:00:00:04 10.100.1.20"
-)
 
 PING_TIMEOUT=30   # seconds; PING answers ~4.5 s after start (ai5: try 3 of 2 s)
 STOP_TIMEOUT=30   # seconds from SHUTDOWN to the unit leaving `active`
@@ -121,16 +118,45 @@ show_journal() {
     journalctl -u "$1" -n 20 --no-pager -o short-precise >&2 || true
 }
 
+strip_fatal() { local s="${1//\[katmate-alloc\] FATAL: /}"; oneline "${s//\[katmate-generate-env\] FATAL: /}"; }
+
 # --- the instance --------------------------------------------------------------
-check_alpha_instance() {
-    km_check_instance "$1"
-    in_list "$1" "${ALPHA_INSTANCES[@]}" \
-        || km_die "instance '$1' is not one of the alpha's AppVMs (${ALPHA_INSTANCES[*]}); katmate-launch carries static tables for those only (R150)"
+# t1_instances: the name of every T1 file, sorted.
+t1_instances() {
+    local f
+    for f in "$KM_ETC_VM"/*.toml; do
+        [[ -e "$f" ]] || continue
+        f="${f##*/}"
+        printf '%s\n' "${f%.toml}"
+    done
+}
+
+# cid_pairs: "<instance> <cid>" for every T1 file, read with km_t1_read (R150).
+# Run in $(…): every failure exits explicitly.
+cid_pairs() {
+    local inst cid
+    while read -r inst; do
+        km_t1_read "$inst"
+        cid="$(km_t1_require cid)" || exit 1
+        printf '%s %s\n' "$inst" "$cid"
+    done < <(t1_instances)
+}
+
+# check_cids: a CID is unique across all T1 files and the reserved rows of
+# docs/PARAMETERS.md (#58); katmate-alloc decides, T1 is read here.
+check_cids() {
+    local pairs out
+    pairs="$(cid_pairs)" \
+        || km_die "the T1 tree $KM_ETC_VM could not be read for the CID check (line above)"
+    out="$("$ALLOC" cid check <<<"$pairs" 2>&1)" \
+        || km_die "the CID check over $KM_ETC_VM refused: $(strip_fatal "$out")"
+    [[ -z "$out" ]] || km_log "$(oneline "$out")"
+    km_log "CID check: $(wc -l <<<"$pairs") T1 files, every CID unique"
 }
 
 # read_instance <instance>: T1 through katmate-lib.sh's reader, never a parser
 # of its own (R150). Sets CID, NETVM, MANIFEST, UNIT and, for a routed
-# instance, SLOT, LINK_ID, SLOT_MAC, PEER and NETVM_CID.
+# instance, NETVM_CID; SLOT, LINK_ID, SLOT_MAC and PEER start empty.
 read_instance() {
     local inst="$1" class nclass
     km_t1_read "$inst"
@@ -140,8 +166,9 @@ read_instance() {
     MANIFEST="$(km_t1_require manifest)"
     CID="$(km_t1_require cid)"
     [[ "$CID" =~ ^[0-9]+$ ]] \
-        || km_die "$KM_T1_FILE: cid='$CID' is not a fixed integer; the launcher has no allocator"
+        || km_die "$KM_T1_FILE: cid='$CID' is not a fixed integer; a disposable's \"auto\" is ADR-017's, which katmate-launch does not run"
     NETVM="$(km_t1_require netvm)"
+    SLOT="" LINK_ID="" SLOT_MAC="" PEER=""
 
     # The unit is SELECTED here and VERIFIED by katmate-generate-env, which is
     # the profile's one authority (ADR-032 §2, §6; R154). The unit name asserts
@@ -151,67 +178,94 @@ read_instance() {
     # what a profile contains.
     if [[ -n "$NETVM" ]]; then
         UNIT="katmate-app-routed@$inst.service"
-    else
-        UNIT="katmate-app-offline@$inst.service"
-    fi
-
-    # T1 and the static link table must agree about whether there is a link.
-    # A disagreement is a T1 edited after the table was written, or a table
-    # that is wrong, and either way the start would use the wrong half.
-    if [[ -n "$NETVM" ]]; then
-        [[ -v LINK[$inst] ]] \
-            || km_die "$KM_T1_FILE: netvm='$NETVM', but katmate-launch's link table has no row for '$inst' (R156)"
-        [[ "$NETVM" == "$LINK_NETVM" ]] \
-            || km_die "$KM_T1_FILE: netvm='$NETVM'; the link table's literals belong to netVM '$LINK_NETVM' only (R156)"
-        read -r SLOT LINK_ID SLOT_MAC PEER <<<"${LINK[$inst]}"
-
         # netVM's CID from its own T1 file, through the same reader.
-        km_t1_read "$LINK_NETVM"
+        km_t1_read "$NETVM"
         nclass="$(km_t1_require class)"
         [[ "$nclass" == sys ]] \
-            || km_die "$KM_T1_FILE: class='$nclass'; netVM '$LINK_NETVM' must be class = sys"
+            || km_die "$KM_T1_FILE: class='$nclass'; netVM '$NETVM' of $inst must be class = sys"
         NETVM_CID="$(km_t1_require cid)"
         [[ "$NETVM_CID" =~ ^[0-9]+$ ]] \
             || km_die "$KM_T1_FILE: cid='$NETVM_CID' is not an integer"
     else
-        [[ ! -v LINK[$inst] ]] \
-            || km_die "$KM_T1_FILE: netvm = \"\" (offline), but katmate-launch's link table has a row for '$inst' (R156)"
+        UNIT="katmate-app-offline@$inst.service"
     fi
 }
 
 routed() { [[ -n "$NETVM" ]]; }
 
-owner_path() { printf '%s/link/%s/%s/owner' "$KM_RUN_DIR" "$LINK_NETVM" "$SLOT"; }
-owner_text() { printf 'KATMATE_OWNER_VERSION=1\nINSTANCE=%s\nLINK_ID=%s\n' "$1" "$LINK_ID"; }
+owner_path() { printf '%s/link/%s/%s/owner' "$KM_RUN_DIR" "$NETVM" "$SLOT"; }
 
-# --- the link: owner and NETCFG ----------------------------------------------
-# The owner in the form of record (s4-gates p1.sh; ai5 net.sh): three lines,
-# installed root:root 0644, never edited in place.
-claim_owner() {
-    local inst="$1" o dir tmp
-    o="$(owner_path)"
-    dir="${o%/owner}"
-    [[ -d "$dir" ]] \
-        || km_die "netVM '$LINK_NETVM' is still starting, or is not running: its slot directory $dir is absent on this boot (systemctl status katmate-sys-driver@$LINK_NETVM)"
-    [[ ! -L "$o" ]] || km_die "$o is a symlink; refusing to write through it"
-    if [[ -e "$o" ]]; then
-        # A leftover of this instance's own earlier start (a crash, a --stop
-        # that never ran) is kept, because it says exactly what would be
-        # written. Anything else is somebody's assignment.
-        if [[ "$(cat -- "$o")" == "$(owner_text "$inst")" ]]; then
-            km_log "owner $o already names $inst with LINK_ID $LINK_ID; kept"
+# --- the link: slot, faces, NETCFG -------------------------------------------
+# claim_slot <instance>: sets SLOT and LINK_ID. katmate-alloc takes the lowest
+# slot that is free or stale under the pool's lock; an owner this instance
+# already holds (a crash, a --stop that never ran) is kept. A stale owner, one
+# whose unit is not running, has its link withdrawn in netVM first and is then
+# reclaimed, so its LINK_ID cannot outlive it there.
+claim_slot() {
+    local inst="$1" out state slot id who try
+    for (( try = 1; try <= 16; try++ )); do
+        out="$("$ALLOC" slot claim "$NETVM" "$inst" 2>&1)" \
+            || km_die "no slot for $inst in netVM '$NETVM': $(strip_fatal "$out")"
+        read -r state slot id who <<<"$out"
+        case "$state" in
+        claimed|kept)
+            SLOT="$slot" LINK_ID="$id"
+            km_log "slot $SLOT of $NETVM $state for $inst, LINK_ID $LINK_ID: $(owner_path)"
             return 0
-        fi
-        km_die "$o exists and is not $inst's: '$(oneline "$(cat -- "$o")")'. Refusing to take slot $SLOT."
+            ;;
+        stale)
+            km_log "slot $slot of $NETVM holds a stale owner: $who, LINK_ID $id, whose unit is not running"
+            netcfg_remove "$id" \
+                || km_die "NETCFG REMOVE $id for $who, the stale owner of slot $slot, failed; the slot is not reclaimed"
+            out="$("$ALLOC" slot reclaim "$NETVM" "$slot" "$who" "$id" 2>&1)" \
+                || km_die "slot $slot was not reclaimed from $who: $(strip_fatal "$out")"
+            km_log "slot $slot reclaimed from $who"
+            ;;
+        *)
+            km_die "katmate-alloc slot claim answered '$(oneline "$out")'"
+            ;;
+        esac
+    done
+    km_die "no slot for $inst after 16 stale reclaims in netVM '$NETVM'"
+}
+
+# find_slot <instance>: SLOT and LINK_ID of the owner naming the instance, or
+# both empty.
+find_slot() {
+    local inst="$1" out
+    out="$("$ALLOC" slot find "$NETVM" "$inst" 2>&1)" \
+        || km_die "cannot read the slot pool of netVM '$NETVM': $(strip_fatal "$out")"
+    read -r SLOT LINK_ID <<<"$out" || true
+}
+
+# slot_faces: SLOT_MAC and PEER for SLOT, from the generator (R156: no
+# arithmetic here). Returns 1, after a log line, so the caller can withdraw
+# the claim first.
+slot_faces() {
+    local out k v
+    if ! out="$("$GENERATE_ENV" --faces "$NETVM" "$SLOT" 2>&1)"; then
+        km_log "katmate-generate-env --faces $NETVM $SLOT failed: $(strip_fatal "$out")"
+        return 1
     fi
-    tmp="$(mktemp "$LOCK_DIR/.owner.XXXXXX")"
-    owner_text "$inst" >"$tmp"
-    if ! install -o root -g root -m 0644 "$tmp" "$o"; then
-        rm -f -- "$tmp"
-        km_die "cannot install the owner $o"
+    while IFS='=' read -r k v; do
+        case "$k" in
+        KM_SLOT_MAC)   SLOT_MAC="$v" ;;
+        KM_GUEST_ADDR) PEER="$v" ;;
+        esac
+    done <<<"$out"
+    [[ -n "$SLOT_MAC" && -n "$PEER" ]] && return 0
+    km_log "katmate-generate-env --faces $NETVM $SLOT answered '$(oneline "$out")'"
+    return 1
+}
+
+netcfg_remove() {
+    local id="$1" out
+    if out="$("$PING_CLIENT" netcfg-remove "$NETVM_CID" "$id" 2>&1)"; then
+        km_log "NETCFG REMOVE $id to CID $NETVM_CID: OK"
+        return 0
     fi
-    rm -f -- "$tmp"
-    km_log "owner written: $o (INSTANCE=$inst LINK_ID=$LINK_ID)"
+    km_log "NETCFG REMOVE $id to CID $NETVM_CID failed: $(oneline "$out")"
+    return 1
 }
 
 netcfg_add() {
@@ -224,37 +278,31 @@ netcfg_add() {
     return 1
 }
 
-# withdraw_link <instance>: NETCFG REMOVE and the owner, each only if it is
-# there to withdraw. REMOVE of an unknown id is OK at the agent, so it is
-# idempotent. Returns 1 if anything could not be withdrawn, after trying both.
+# withdraw_link <instance>: NETCFG REMOVE and the owner, for the slot in SLOT
+# and LINK_ID. REMOVE of an unknown id is OK at the agent, so it is idempotent;
+# katmate-alloc releases only an owner naming this instance with this LINK_ID.
+# Returns 1 if anything could not be withdrawn, after trying both.
 withdraw_link() {
-    local inst="$1" o ns out rc=0
-    ns="$(unit_state "katmate-sys-driver@$LINK_NETVM.service")"
+    local inst="$1" ns out rc=0
+    if [[ -z "$LINK_ID" ]]; then
+        km_log "$inst holds no slot of netVM '$NETVM'; nothing to withdraw"
+        return 0
+    fi
+    ns="$(unit_state "katmate-sys-driver@$NETVM.service")"
     if [[ "$ns" == active ]]; then
-        if out="$("$PING_CLIENT" netcfg-remove "$NETVM_CID" "$LINK_ID" 2>&1)"; then
-            km_log "NETCFG REMOVE $LINK_ID to CID $NETVM_CID: OK"
-        else
-            km_log "NETCFG REMOVE $LINK_ID to CID $NETVM_CID failed: $(oneline "$out")"
-            rc=1
-        fi
+        netcfg_remove "$LINK_ID" || rc=1
     else
-        km_log "netVM '$LINK_NETVM' is '$ns': NETCFG REMOVE $LINK_ID skipped (a netVM that is not running holds no link)"
+        km_log "netVM '$NETVM' is '$ns': NETCFG REMOVE $LINK_ID skipped (a netVM that is not running holds no link)"
     fi
 
-    o="$(owner_path)"
-    if [[ -L "$o" ]]; then
-        km_log "$o is a symlink; not removed"
-        rc=1
-    elif [[ -e "$o" ]]; then
-        if [[ "$(cat -- "$o")" == "$(owner_text "$inst")" ]]; then
-            rm -f -- "$o"
-            km_log "owner removed: $o"
-        else
-            km_log "$o does not name $inst with LINK_ID $LINK_ID ('$(oneline "$(cat -- "$o")")'); not removed"
-            rc=1
-        fi
+    if out="$("$ALLOC" slot release "$NETVM" "$inst" "$LINK_ID" 2>&1)"; then
+        case "$out" in
+        removed*) km_log "owner removed: $(owner_path)" ;;
+        *)        km_log "no owner names $inst in netVM '$NETVM'; nothing to remove" ;;
+        esac
     else
-        km_log "no owner on slot $SLOT; nothing to remove"
+        km_log "owner of slot $SLOT not released: $(strip_fatal "$out")"
+        rc=1
     fi
     return "$rc"
 }
@@ -271,10 +319,10 @@ readback() {
         got_slot="$(km_meta_get "$env" KM_SLOT)"
     fi
     if [[ "$got_addr" == "$PEER" && "$got_slot" == "$SLOT" ]]; then
-        km_log "read-back: $env has KM_GUEST_ADDR=$got_addr KM_SLOT=$got_slot, as the link table says"
+        km_log "read-back: $env has KM_GUEST_ADDR=$got_addr KM_SLOT=$got_slot, as claimed"
         return 0
     fi
-    km_log "read-back MISMATCH: $env has KM_GUEST_ADDR='$got_addr' KM_SLOT='$got_slot'; the link table says $PEER, slot $SLOT. Stopping $UNIT."
+    km_log "read-back MISMATCH: $env has KM_GUEST_ADDR='$got_addr' KM_SLOT='$got_slot'; claimed was $PEER, slot $SLOT. Stopping $UNIT."
     systemctl stop "$UNIT" || km_log "systemctl stop $UNIT failed"
     withdraw_link "$inst" || true
     km_die "the generator placed $inst at '$got_addr' (slot '$got_slot'), and NETCFG was issued for $PEER (slot $SLOT). $UNIT is stopped and the link withdrawn (R156)."
@@ -283,10 +331,14 @@ readback() {
 cold_start() {
     local inst="$1" ns
     if routed; then
-        ns="$(unit_state "katmate-sys-driver@$LINK_NETVM.service")"
+        ns="$(unit_state "katmate-sys-driver@$NETVM.service")"
         [[ "$ns" == active ]] \
-            || km_die "netVM '$LINK_NETVM' is '$ns', not active. katmate-launch does not start netVM in the alpha (R150): start katmate-sys-driver@$LINK_NETVM.service first."
-        claim_owner "$inst"
+            || km_die "netVM '$NETVM' is '$ns', not active. katmate-launch does not start netVM in the alpha (R150): start katmate-sys-driver@$NETVM.service first."
+        claim_slot "$inst"
+        if ! slot_faces; then
+            withdraw_link "$inst" || true
+            km_die "no slot faces for $inst on slot $SLOT; the owner is withdrawn and $UNIT was not started"
+        fi
         if ! netcfg_add; then
             withdraw_link "$inst" || true
             km_die "NETCFG ADD for $inst failed; the owner is withdrawn and $UNIT was not started"
@@ -346,11 +398,12 @@ run_app() {
 
 launch() {
     local inst="$1" app="$2" st
-    check_alpha_instance "$inst"
+    km_check_instance "$inst"
     [[ "$app" =~ $KM_PKG_NAME_RE ]] \
         || km_die "app '$app' does not match $KM_PKG_NAME_RE"
     read_instance "$inst"
     check_run "$inst" "$app"
+    check_cids
 
     km_log "launch $inst $app (unit $UNIT, CID $CID, invoked by ${SUDO_USER:-<no SUDO_USER>})"
     st="$(unit_state "$UNIT")"
@@ -366,8 +419,9 @@ launch() {
 # --- stop ----------------------------------------------------------------------
 stop_instance() {
     local inst="$1" st out deadline
-    check_alpha_instance "$inst"
+    km_check_instance "$inst"
     read_instance "$inst"
+    if routed; then find_slot "$inst"; fi
     km_log "stop $inst (unit $UNIT, CID $CID, invoked by ${SUDO_USER:-<no SUDO_USER>})"
     st="$(unit_state "$UNIT")"
     if [[ "$st" == active ]]; then
@@ -397,23 +451,26 @@ stop_instance() {
     fi
 }
 
-# --stop-all: every alpha instance whose unit is active, or which still holds an
+# --stop-all: every AppVM in T1 whose unit is active, or which still holds an
 # owner (a routed instance that crashed). One failure does not stop the others;
 # the exit is 1 if any failed.
 stop_all() {
     local inst st fails=0
     km_log "stop-all (invoked by ${SUDO_USER:-<no SUDO_USER>})"
-    for inst in "${ALPHA_INSTANCES[@]}"; do
+    while read -r inst <&3; do
         (
+            km_t1_read "$inst"
+            [[ "${KM_T1[class]}" == app ]] || exit 0
             read_instance "$inst"
+            if routed; then find_slot "$inst"; fi
             st="$(unit_state "$UNIT")"
-            if [[ "$st" != active ]] && { ! routed || [[ ! -e "$(owner_path)" ]]; }; then
+            if [[ "$st" != active && -z "$LINK_ID" ]]; then
                 km_log "stop-all: $inst is '$st' and holds no link; skipped"
                 exit 0
             fi
             stop_instance "$inst"
         ) || fails=$(( fails + 1 ))
-    done
+    done 3< <(t1_instances)
     (( fails == 0 )) || km_die "stop-all: $fails instance(s) failed to stop cleanly (lines above)"
     km_log "stop-all: done"
 }
@@ -434,6 +491,10 @@ case "${1-}" in
 --stop-all)
     (( $# == 1 )) || km_usage "$USAGE"
     stop_all
+    ;;
+--cid-check)
+    (( $# == 1 )) || km_usage "$USAGE"
+    check_cids
     ;;
 -*|"")
     km_usage "$USAGE"

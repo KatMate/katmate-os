@@ -14,9 +14,10 @@
 # What a release is (operator rulings R1-R4, R20, U1; 2026-10-05): prebuilt,
 # zstd-compressed guest images (foundation, the app layers web/office/vault,
 # netVM), their T2 metadata, the MicroVM kernel and its provenance sidecar,
-# netVM's kernel and initrd, the host binaries (host waypipe, ping-client),
-# and a `git archive` of the release tag. One SHA256SUMS lists every file and
-# is signed detached by the release key. The installer builds nothing.
+# netVM's kernel and initrd, the host binaries (host waypipe, ping-client,
+# katmate-alloc), and a `git archive` of the release tag. One SHA256SUMS lists
+# every file and is signed detached by the release key. The installer builds
+# nothing.
 #
 # This script writes everything but the tree archive, and a PARTIAL
 # SHA256SUMS. It stops before signing: git and the signing key live on the
@@ -26,7 +27,8 @@
 # What it reads, and what it never reads:
 #   - reads: the image LVs named below, /var/lib/katmate/*.meta, the shared
 #     kernel directory, /var/lib/katmate/netvm/, /opt/katmate/bin/waypipe,
-#     /usr/lib/katmate/ping-client, installer/t1/ in this tree.
+#     /usr/lib/katmate/ping-client, /usr/lib/katmate/katmate-alloc,
+#     installer/t1/ in this tree.
 #   - NEVER reads the operator's per-instance state: no home LV
 #     (vm_<instance>_home), no qcow2 delta under /var/lib/katmate/instances/
 #     (R20). The LV list is a literal below, never a glob over vg0.
@@ -59,6 +61,7 @@ NETVM_LV="vm_sys_netvm"            # build/netvm.sh's default NETVM_LV
 NETVM_RUNTIME_DIR="$KATMATE_STATE_DIR/netvm"
 HOST_WAYPIPE="/opt/katmate/bin/waypipe"
 HOST_PING_CLIENT="/usr/lib/katmate/ping-client"
+HOST_ALLOC="/usr/lib/katmate/katmate-alloc"
 T1_TEMPLATES="$ROOT_DIR/installer/t1"
 VALIDATOR="$ROOT_DIR/tools/validate-properties.fish"
 # The release's shipped set of layers (prebuilt until ADR-043 gate B1), not a
@@ -287,7 +290,7 @@ install -m 0644 "$KERNEL" "$OUTDIR/$(basename "$KERNEL")"
 [[ "$KPROV" == recorded ]] && install -m 0644 "$KERNEL.provenance" "$OUTDIR/$(basename "$KERNEL").provenance"
 log "  MicroVM kernel $(basename "$KERNEL"), provenance $KPROV"
 
-for b in "$HOST_WAYPIPE" "$HOST_PING_CLIENT"; do
+for b in "$HOST_WAYPIPE" "$HOST_PING_CLIENT" "$HOST_ALLOC"; do
   [[ -x "$b" ]] || die "missing host binary $b"
   file -b "$b" | grep -q '^ELF ' || die "$b is not an ELF binary: $(file -b "$b")"
 done
@@ -297,6 +300,7 @@ wp_have="$("$HOST_WAYPIPE" --version 2>&1 | head -n1 | awk '{print $2}')"
 [[ "$wp_have" == "${WP_TAG#v}" ]] || die "host waypipe reports '$wp_have', foundation.meta WAYPIPE_TAG=$WP_TAG"
 install -m 0755 "$HOST_WAYPIPE" "$OUTDIR/waypipe"
 install -m 0755 "$HOST_PING_CLIENT" "$OUTDIR/ping-client"
+install -m 0755 "$HOST_ALLOC" "$OUTDIR/katmate-alloc"
 
 cat > "$OUTDIR/release.env" <<EOF
 KATMATE_RELEASE_VERSION=1

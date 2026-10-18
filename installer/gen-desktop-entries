@@ -2,10 +2,10 @@
 # gen-desktop-entries — the launcher's desktop entries, one per (AppVM, app),
 # and one that opens the AppVM list
 #
-# Usage: gen-desktop-entries <katmate-launch> <t1-vm-dir> <t2-dir> <outdir>
+# Usage: gen-desktop-entries <t1-vm-dir> <t2-dir> <outdir>
 #
-# The instances are those katmate-launch accepts (its ALPHA_INSTANCES), in that
-# order. What each may run is the RUN line of its layer's T2 meta, the list
+# The instances are the T1 files with class = app, in name order: the set
+# katmate-launch admits. What each may run is the RUN line of its layer's T2 meta, the list
 # katmate-launch enforces (ADR-043 §5): each instance's T1 file names the
 # layer, and <t2-dir>/app-<layer>.meta carries RUN. km-menu shows <outdir> to
 # fuzzel as the only applications directory, and reads X-KatMate-Instance for
@@ -17,35 +17,30 @@ set -euo pipefail
 
 die() { printf '[gen-desktop-entries] FATAL: %s\n' "$*" >&2; exit 1; }
 
-(( $# == 4 )) || { echo "usage: gen-desktop-entries <katmate-launch> <t1-vm-dir> <t2-dir> <outdir>" >&2; exit 2; }
-LAUNCH="$1"
-T1_DIR="$2"
-T2_DIR="$3"
-OUT="$4"
+(( $# == 3 )) || { echo "usage: gen-desktop-entries <t1-vm-dir> <t2-dir> <outdir>" >&2; exit 2; }
+T1_DIR="$1"
+T2_DIR="$2"
+OUT="$3"
+export LC_COLLATE=C
 
-[[ -r "$LAUNCH" ]] || die "$LAUNCH is not readable"
-LIB="$(dirname -- "$LAUNCH")/katmate-lib.sh"
+LIB="$(dirname -- "$0")/../host/usr/lib/katmate/katmate-lib.sh"
 [[ -r "$LIB" ]] || die "$LIB is not readable"
 # shellcheck disable=SC2034
 KM_PROG="gen-desktop-entries"
 # shellcheck source=host/usr/lib/katmate/katmate-lib.sh
 source "$LIB"
 
-# Prints "<instance> <app>" lines, in ALPHA_INSTANCES order and RUN order.
+# Prints "<instance> <app>" lines, in instance name order and RUN order.
 read_apps() {
-    local line inst layer meta app n=0
-    local -a insts=() run=()
+    local f line inst layer meta app n=0
+    local -a run=()
     local -A t1=()
-    line="$(grep -E '^ALPHA_INSTANCES=\(' "$LAUNCH")" \
-        || die "$LAUNCH: no 'ALPHA_INSTANCES=(…)' line"
-    [[ "$(grep -c -E '^ALPHA_INSTANCES=\(' "$LAUNCH")" == 1 ]] \
-        || die "$LAUNCH: more than one 'ALPHA_INSTANCES=(…)' line"
-    [[ "$line" =~ ^ALPHA_INSTANCES=\(([a-z0-9_ ]+)\)$ ]] \
-        || die "$LAUNCH: unexpected ALPHA_INSTANCES line: '$line'"
-    read -r -a insts <<<"${BASH_REMATCH[1]}"
-    for inst in "${insts[@]}"; do
-        km_flat_read "$T1_DIR/$inst.toml" t1
-        [[ "${t1[class]-}" == app ]] || die "$T1_DIR/$inst.toml: class='${t1[class]-}', not app"
+    for f in "$T1_DIR"/*.toml; do
+        [[ -e "$f" ]] || continue
+        inst="${f##*/}"
+        inst="${inst%.toml}"
+        km_flat_read "$f" t1
+        [[ "${t1[class]-}" == app ]] || continue
         layer="${t1[manifest]-}"
         [[ "$layer" =~ $KM_LAYER_NAME_RE ]] \
             || die "$T1_DIR/$inst.toml: manifest='$layer' does not match $KM_LAYER_NAME_RE"
@@ -60,7 +55,7 @@ read_apps() {
         done
         n=$(( n + 1 ))
     done
-    (( n > 0 )) || die "$LAUNCH: ALPHA_INSTANCES lists no instance"
+    (( n > 0 )) || die "$T1_DIR holds no T1 file with class = app"
 }
 
 # Cosmetic only: the RUN list is the authority, so a binary without a display
@@ -83,7 +78,7 @@ fi
 pairs="$(read_apps)"
 install -d -m 0755 "$OUT"
 
-# The file name's index keeps ALPHA_INSTANCES order for km-menu's list.
+# The file name's index keeps the instance order for km-menu's list.
 declare -A idx=()
 count=0
 while read -r inst app; do

@@ -1,13 +1,15 @@
 #!/usr/bin/env bash
 # KatMate OS — tests for the layer-manifest data model (ADR-043 §5–7): the
-# manifest reader in katmate-lib.sh, the RUN check in katmate-launch, the layer
-# checks in katmate-generate-env, katmate-check-image and katmate-activate-lvs,
-# and installer/gen-desktop-entries. Needs no root, no LVM and no VM.
+# manifest reader in katmate-lib.sh, the RUN and CID checks in katmate-launch,
+# the layer checks and --faces in katmate-generate-env, the layer checks in
+# katmate-check-image and katmate-activate-lvs, and
+# installer/gen-desktop-entries. Needs no root, no LVM and no VM.
 #
 # The T4 executables run from copies whose path constants (and the uid guards)
 # are rewritten to a fixture tree; every rewrite must match, or the harness
-# stops. What this cannot reach: app-layer.sh (root, LVM, mount) and vm-agent
-# (cargo test, agent/).
+# stops. What this cannot reach: app-layer.sh (root, LVM, mount), vm-agent and
+# katmate-alloc's pool (cargo test, agent/), and katmate-launch's routed start
+# (root, /run/katmate, a netVM).
 #
 # Usage: host/tests/test-layer-run.sh      exit 0 = every case passed
 
@@ -54,6 +56,10 @@ rw() {
   ! grep -qF -- "$2" "$f" || die "rewrite left a match in $f: $2"
 }
 
+# katmate-launch's CID check runs the real allocator.
+cargo build -q -p katmate-alloc --manifest-path "$ROOT/agent/Cargo.toml" || die "cargo build -p katmate-alloc failed"
+ALLOC_BIN="$ROOT/agent/target/debug/katmate-alloc"
+
 # --- the fixture tree --------------------------------------------------------
 mkdir -p "$T/etc/katmate/vm" "$T/etc/katmate/layer" "$T/usr/lib/katmate/layer" \
          "$T/var/lib/katmate/kernels" "$T/var/lib/katmate/instances" \
@@ -72,6 +78,8 @@ rw "$T/lib/katmate-launch" 'if (( EUID != 0 )); then' 'if false; then'
 rw "$T/lib/katmate-launch" 'logger -t katmate-launch' 'true'
 rw "$T/lib/katmate-launch" 'export PATH=/usr/bin' "export PATH=$T/bin:/usr/bin"
 rw "$T/lib/katmate-launch" 'PING_CLIENT=/usr/lib/katmate/ping-client' "PING_CLIENT=$T/bin/ping-client"
+rw "$T/lib/katmate-launch" 'ALLOC=/usr/lib/katmate/katmate-alloc' "ALLOC=$ALLOC_BIN"
+rw "$T/lib/katmate-launch" 'GENERATE_ENV=/usr/lib/katmate/katmate-generate-env' "GENERATE_ENV=$T/lib/katmate-generate-env"
 rw "$T/lib/katmate-generate-env" '(( EUID == 0 ))' '(( 1 ))'
 rw "$T/lib/katmate-activate-lvs" '(( EUID == 0 ))' '(( 1 ))'
 # shellcheck disable=SC2016  # literal source text
@@ -194,7 +202,16 @@ expect_fail "launch: a listed app passes the RUN check" 1 "refusing to act on a 
 expect_fail "launch: an unlisted app is refused with a reason" 1 "app 'libreoffice' is not in the RUN list of layer 'web'" L app_web libreoffice
 expect_fail "launch: offline instance, unlisted app refused" 1 "app 'firefox-esr' is not in the RUN list of layer 'vault'" L app_vault firefox-esr
 expect_fail "launch: app name outside the pattern refused" 1 "does not match" L app_web 'foot;id'
-expect_fail "launch: instance outside ALPHA_INSTANCES refused" 1 "is not one of the alpha's AppVMs" L app_other foot
+expect_fail "launch: instance without a T1 file refused" 1 "no T1 properties for instance 'app_other'" L app_other foot
+expect_ok "launch --cid-check: the shipped T1 set passes" "6 T1 files, every CID unique" L --cid-check
+cp "$T/etc/katmate/vm/app_web.toml" "$T/etc/katmate/vm/app_dup.toml"
+expect_fail "launch: a duplicate CID in the T1 tree refuses every launch" 1 "cid 21 is carried by more than one T1 file: app_dup app_web" L app_personal foot
+expect_fail "launch --cid-check: the duplicate is named" 1 "cid 21 is carried by more than one T1 file" L --cid-check
+rm "$T/etc/katmate/vm/app_dup.toml"
+sed -i "s/^cid = 25\$/cid = 30/" "$T/etc/katmate/vm/app_sandbox.toml"
+expect_fail "launch: a reserved CID in T1 is refused" 1 "app_sandbox: cid 30 is reserved for gw_w2" L app_web foot
+sed -i "s/^cid = 30\$/cid = 25/" "$T/etc/katmate/vm/app_sandbox.toml"
+expect_ok "launch --cid-check: restored" "every CID unique" L --cid-check
 app_meta web ""
 expect_fail "launch: a meta without RUN refuses every app" 1 "records no RUN" L app_web foot
 std_metas
@@ -225,6 +242,15 @@ app_meta vault "keepassxc ../x"
 expect_fail "generate-env: RUN entry outside the pattern refused" 1 "RUN entry '../x'" G
 std_metas
 
+F() { "$T/lib/katmate-generate-env" --faces "$@"; }
+expect_ok "generate-env --faces: slot 03" "KM_SLOT_MAC=52:54:01:00:00:03
+KM_GUEST_ADDR=10.100.1.19" F netvm 03
+expect_ok "generate-env --faces: slot 0f" "KM_SLOT_MAC=52:54:01:00:00:0f
+KM_GUEST_ADDR=10.100.1.31" F netvm 0f
+expect_fail "generate-env --faces: a slot outside the pool refused" 1 "slot '10' is not one of" F netvm 10
+expect_fail "generate-env --faces: a bad netVM name refused" 1 "is not [a-z]" F ../x 01
+expect_fail "generate-env --faces: usage" 2 "--faces <netvm> <slot>" F netvm
+
 # --- 4. katmate-check-image: the stale layer ---------------------------------
 C() { "$T/lib/katmate-check-image" app_vault; }
 expect_ok "check-image: current layer" "the layer's BASE_BUILT matches" C
@@ -246,17 +272,18 @@ expect_fail "activate-lvs: writable foundation refused" 1 "foundation LV: vg0/vm
 echo 'Vri-a-tz--' >"$T/attr/vg0_vm_tpl_foundation"
 
 # --- 6. installer/gen-desktop-entries ----------------------------------------
-D() { rm -rf "$T/apps"; "$ROOT/installer/gen-desktop-entries" "$K/katmate-launch" "$T/etc/katmate/vm" "$T/var/lib/katmate" "$T/apps"; }
+D() { rm -rf "$T/apps"; "$ROOT/installer/gen-desktop-entries" "$T/etc/katmate/vm" "$T/var/lib/katmate" "$T/apps"; }
 expect_ok "gen-desktop-entries: 15 entries for 5 instances" "15 entries for 5 instances" D
-# The set the APPS-based generator wrote on MINIS (cu2 Phase A listing).
-want="km-00-app_web-firefox-esr km-00-app_web-foot km-00-app_web-pcmanfm km-01-app_personal-firefox-esr km-01-app_personal-foot km-01-app_personal-pcmanfm km-02-app_work-foot km-02-app_work-libreoffice km-02-app_work-pcmanfm km-03-app_vault-foot km-03-app_vault-keepassxc km-03-app_vault-pcmanfm km-04-app_sandbox-firefox-esr km-04-app_sandbox-foot km-04-app_sandbox-pcmanfm km-99-appvms"
-have="$(cd "$T/apps" && ls | sed 's/\.desktop$//' | sort | tr '\n' ' ')"
+# cu2's sixteen files, indexed in instance name order since cu3 (the T1 tree,
+# not a list in katmate-launch).
+want="km-00-app_personal-firefox-esr km-00-app_personal-foot km-00-app_personal-pcmanfm km-01-app_sandbox-firefox-esr km-01-app_sandbox-foot km-01-app_sandbox-pcmanfm km-02-app_vault-foot km-02-app_vault-keepassxc km-02-app_vault-pcmanfm km-03-app_web-firefox-esr km-03-app_web-foot km-03-app_web-pcmanfm km-04-app_work-foot km-04-app_work-libreoffice km-04-app_work-pcmanfm km-99-appvms"
+have="$(cd "$T/apps" && ls | sed 's/\.desktop$//' | LC_ALL=C sort | tr '\n' ' ')"
 n=$((n + 1))
-if [[ "${have% }" == "$want" ]]; then pass "gen-desktop-entries: the same 16 files as before (cardinality 16)"; else fail "gen-desktop-entries: the same 16 files as before" "$have"; fi
+if [[ "${have% }" == "$want" ]]; then pass "gen-desktop-entries: 16 files in instance name order (cardinality 16)"; else fail "gen-desktop-entries: 16 files in instance name order" "$have"; fi
 app_meta web "firefox-esr gimp"
 D >/dev/null
 n=$((n + 1))
-if grep -qx 'Name=\[web\] gimp' "$T/apps/km-00-app_web-gimp.desktop" 2>/dev/null; then pass "gen-desktop-entries: unlabelled binary shown by its name"; else fail "gen-desktop-entries: unlabelled binary shown by its name"; fi
+if grep -qx 'Name=\[web\] gimp' "$T/apps/km-03-app_web-gimp.desktop" 2>/dev/null; then pass "gen-desktop-entries: unlabelled binary shown by its name"; else fail "gen-desktop-entries: unlabelled binary shown by its name"; fi
 app_meta web ""
 expect_fail "gen-desktop-entries: meta without RUN refused" 1 "records no RUN" D
 std_metas

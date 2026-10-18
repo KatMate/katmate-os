@@ -980,8 +980,10 @@ done
 echo "  $LAYERN T3 layer manifests in /usr/lib/katmate/layer, root:root 0644"
 
 rel_check ping-client
+rel_check katmate-alloc
 rel_check waypipe
 install -D -m 0755 "$(rel_path ping-client)" /mnt/usr/lib/katmate/ping-client
+install -D -m 0755 "$(rel_path katmate-alloc)" /mnt/usr/lib/katmate/katmate-alloc
 install -D -m 0755 "$(rel_path waypipe)" /mnt/opt/katmate/bin/waypipe
 
 # netVM's card: bound to vfio-pci at every boot, before its own driver.
@@ -1041,7 +1043,7 @@ install -m 0644 -D -t /mnt/etc/xdg/waybar/ \
 install -m 0644 -D -t /mnt/etc/xdg/waybar/svg/ "$DT/waybar/svg/no1-right.svg" \
   "$DT/waybar/svg/no1-cut-br.svg" "$DT/waybar/svg/katmate-mark.svg"
 install -m 0644 -D "$DT/fuzzel/fuzzel.ini" /mnt/usr/share/katmate/fuzzel/fuzzel.ini
-"$TREE/installer/gen-desktop-entries" "$TREE/host/usr/lib/katmate/katmate-launch" \
+"$TREE/installer/gen-desktop-entries" \
   /mnt/etc/katmate/vm /mnt/var/lib/katmate \
   /mnt/usr/share/katmate/applications || die "the launcher's desktop entries were not generated"
 install -m 0755 -D -t /mnt/usr/local/bin/ \
@@ -1179,7 +1181,8 @@ for f in /mnt/etc/katmate/vm/{netvm,app_web,app_personal,app_work,app_vault,app_
          /mnt/var/lib/katmate/netvm/{netvm.meta,vmlinuz,initrd.img} \
          "/mnt/var/lib/katmate/kernels/$KERNEL_FILE" \
          /mnt/var/lib/katmate/instances/{app_web,app_personal,app_work,app_vault,app_sandbox}.qcow2 \
-         /mnt/usr/lib/katmate/ping-client /mnt/opt/katmate/bin/waypipe \
+         /mnt/usr/lib/katmate/ping-client /mnt/usr/lib/katmate/katmate-alloc \
+         /mnt/opt/katmate/bin/waypipe \
          /mnt/etc/sudoers.d/katmate-launch /mnt/etc/modprobe.d/katmate-vfio.conf \
          /mnt/etc/sway/config /mnt/etc/sway/outputs.conf /mnt/etc/sway/config.d/10-keyboard.conf \
          /mnt/etc/greetd/config.toml /mnt/etc/greetd/sessions/sway.desktop \

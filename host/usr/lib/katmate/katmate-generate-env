@@ -33,7 +33,27 @@ KM_PROG="katmate-generate-env"
 # shellcheck source=host/usr/lib/katmate/katmate-lib.sh
 source /usr/lib/katmate/katmate-lib.sh
 
-(( $# == 2 )) || km_usage "katmate-generate-env <unit-prefix> <instance>   (in a unit: %p %i)"
+# --- a slot's faces ------------------------------------------------------------
+# Slot k's peer is 10.100.1.(16 + k) (ADR-035 §4), and netVM's side of slot k
+# carries 52:54:01:00:00:kk (§2). This is the only place either is written: the
+# image never learns the layout (ADR-038 §3, R65), and katmate-launch asks
+# --faces for the NETCFG ADD it issues before the unit's start.
+SLOTS=(00 01 02 03 04 05 06 07 08 09 0a 0b 0c 0d 0e 0f)
+slot_guest_addr() { printf '10.100.1.%d' "$(( 16 + 16#$1 ))"; }
+slot_mac()        { printf '52:54:01:00:00:%s' "$1"; }
+
+# --faces <netvm> <kk>: read-only. Writes no projection and reads no T1 file,
+# so it needs no root.
+if [[ "${1-}" == --faces ]]; then
+    (( $# == 3 )) || km_usage "katmate-generate-env --faces <netvm> <slot>"
+    km_check_instance "$2"
+    [[ " ${SLOTS[*]} " == *" $3 "* ]] \
+        || km_die "slot '$3' is not one of ${SLOTS[*]}"
+    printf 'KM_SLOT_MAC=%s\nKM_GUEST_ADDR=%s\n' "$(slot_mac "$3")" "$(slot_guest_addr "$3")"
+    exit 0
+fi
+
+(( $# == 2 )) || km_usage "katmate-generate-env <unit-prefix> <instance> | --faces <netvm> <slot>   (in a unit: %p %i)"
 UNIT_PREFIX="$1"
 INSTANCE="$2"
 
@@ -311,8 +331,8 @@ fi
 # --- app-routed: the slot ----------------------------------------------------
 # An AppVM attached to a netVM takes the slot of that netVM's pool whose `owner`
 # names this instance (ADR-035 §5; ADR-037 R62, R63). No T1 key carries a slot:
-# `owner` is the assignment, written by the launch daemon once it exists and by
-# the operator by hand until then (R63), and it decides which address this VM
+# `owner` is the assignment, claimed per run by katmate-launch through
+# katmate-alloc (the launch daemon later), and it decides which address this VM
 # gets, so it is read as a trust input (R78). It lives on tmpfs, so a host
 # reboot loses it and the next start fails closed here.
 KM_NETVM="" KM_SLOT="" KM_GUEST_ADDR=""
@@ -342,7 +362,7 @@ if [[ "$DERIVED" == app-routed ]]; then
     # owner anywhere in the pool is a pool nobody should trust to assign an
     # address (R78).
     mine=()
-    for kk in 00 01 02 03 04 05 06 07 08 09 0a 0b 0c 0d 0e 0f; do
+    for kk in "${SLOTS[@]}"; do
         owner="$POOL/$kk/owner"
         # -L before -e: a dangling symlink fails -e and would otherwise read as
         # a free slot.
@@ -393,18 +413,16 @@ if [[ "$DERIVED" == app-routed ]]; then
         KM_SLOT="${mine[0]}"
         ;;
     0)
-        km_die "no slot in $POOL has an owner naming instance '$INSTANCE'. Until the launch daemon exists the operator writes owner by hand (ADR-037 R63); an owner does not survive a host reboot, and the start then fails closed here."
+        km_die "no slot in $POOL has an owner naming instance '$INSTANCE'. katmate-launch claims the slot before the start (ADR-037 R63); an owner does not survive a host reboot, and the start then fails closed here."
         ;;
     *)
         km_die "instance '$INSTANCE' is named by the owner of more than one slot in $POOL: ${mine[*]}. An instance holds one link; refusing rather than choosing one."
         ;;
     esac
 
-    # Slot k's peer is 10.100.1.(16 + k) (ADR-035 §4). This is the only place
-    # that layout is computed: the image never learns it (ADR-038 §3, R65), and
-    # the template carries the result as km.ip= with the gateway and resolver
+    # The template carries the address as km.ip= with the gateway and resolver
     # written literally beside it (ADR-038 §10).
-    KM_GUEST_ADDR="10.100.1.$(( 16 + 16#$KM_SLOT ))"
+    KM_GUEST_ADDR="$(slot_guest_addr "$KM_SLOT")"
 fi
 
 # --- the nic label, resolved for this boot -----------------------------------
