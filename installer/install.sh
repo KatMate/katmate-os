@@ -1019,11 +1019,11 @@ chmod 0644 /mnt/etc/sway/config.d/10-keyboard.conf
 
 install -m 0644 -D -t /mnt/etc/xdg/waybar/ \
   "$DT/waybar/config-sway.jsonc" "$DT/waybar/modules-cybrbar.jsonc" \
-  "$DT/waybar/modules-sway.jsonc" "$DT/waybar/modules-katmate.jsonc" \
+  "$DT/waybar/modules-sway.jsonc" \
   "$DT/waybar/style-cybrbar.css" "$DT/waybar/style-sway.css"
 install -m 0644 -D -t /mnt/etc/xdg/waybar/svg/ "$DT/waybar/svg/no1-right.svg" \
   "$DT/waybar/svg/no1-cut-br.svg" "$DT/waybar/svg/katmate-mark.svg"
-install -m 0644 -D "$DT/fuzzel/fuzzel.ini" /mnt/etc/xdg/fuzzel/fuzzel.ini
+install -m 0644 -D "$DT/fuzzel/fuzzel.ini" /mnt/usr/share/katmate/fuzzel/fuzzel.ini
 "$TREE/installer/gen-desktop-entries" "$TREE/host/usr/lib/katmate/katmate-launch" \
   /mnt/usr/share/katmate/applications || die "the launcher's desktop entries were not generated"
 install -m 0755 -D -t /mnt/usr/local/bin/ \
@@ -1164,7 +1164,7 @@ for f in /mnt/etc/katmate/vm/{netvm,app_web,app_personal,app_work,app_vault,app_
          /mnt/etc/sudoers.d/katmate-launch /mnt/etc/modprobe.d/katmate-vfio.conf \
          /mnt/etc/sway/config /mnt/etc/sway/outputs.conf /mnt/etc/sway/config.d/10-keyboard.conf \
          /mnt/etc/greetd/config.toml /mnt/etc/greetd/sessions/sway.desktop \
-         /mnt/etc/xdg/fuzzel/fuzzel.ini /mnt/usr/local/bin/km-menu \
+         /mnt/usr/share/katmate/fuzzel/fuzzel.ini /mnt/usr/local/bin/km-menu \
          /mnt/usr/share/plymouth/themes/katmate/katmate.plymouth; do
   [[ -f "$f" ]] || die "missing on the target: ${f#/mnt}"
 done

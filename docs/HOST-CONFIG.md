@@ -393,12 +393,13 @@ MINIS.**]**
 
 **[Note 2026-10-18 (fz1): the menu files are gone.** `katmate-menu.xml` and
 `power-menu.xml` are replaced by fuzzel, run by `/usr/local/bin/km-menu`,
-with `/etc/xdg/fuzzel/fuzzel.ini` and the desktop entries that
+with `/usr/share/katmate/fuzzel/fuzzel.ini` and the desktop entries that
 `installer/gen-desktop-entries` writes into
 `/usr/share/katmate/applications/` from `katmate-launch`'s `APPS` table.
-`/usr/share/katmate/waybar/` is no longer read. A missing `km-menu` is as
-silent as a missing menu file was: waybar's exec fails and shows
-nothing.**]**
+`/usr/share/katmate/waybar/` is no longer read, and the bar has no launcher
+module (`modules-katmate.jsonc` is gone; the launcher is `$mod+space`). A
+missing `km-menu` is as silent as a missing menu file was: sway's or waybar's
+exec fails and shows nothing.**]**
 
 ## 13. `/etc/sudoers.d/katmate-launch` — the menu's one sudo rule
 

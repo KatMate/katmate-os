@@ -31,14 +31,6 @@
 	color: @re0;
 }
 
-/* The KatMate menu button (custom/katmate, modules-katmate.jsonc) carries no
-   background in the imported stylesheet and shows as transparent. Give it the
-   background the bar's modules use, @no1 from style-cybrbar.css (operator
-   ruling 2026-10-05, superseding the #030408 literal of D5). */
-#custom-katmate {
-	background-color: @no1;
-}
-
 /* The power-menu button (custom/arch) shows the KatMate mark in place of the
    Arch glyph (operator ruling 2026-10-09, 1). The module's text is three
    spaces; the mark, svg/katmate-mark.svg, is its background image. The

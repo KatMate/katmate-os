@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
-# km-menu — the fuzzel menus of the bar's two KatMate buttons and of $mod+d.
+# km-menu — the fuzzel menus of $mod+space and of the bar's mark button.
 # Requires: fuzzel swaylock sway systemd
 #
-#   km-menu apps    the generated (AppVM, app) entries, and nothing else
+#   km-menu apps    the generated (AppVM, app) entries and the AppVMs entry
 #   km-menu vms     the AppVMs with their unit state; stop one, or all
 #   km-menu power   Lock, Logout, Reboot, Shutdown
 #
@@ -16,11 +16,14 @@ set -u
 
 DATA=/usr/share/katmate          # applications/: installer/gen-desktop-entries
 KM_LAUNCH=/usr/local/bin/km-launch
+# KatMate system UI, so an explicit config, as waybar's -c: a user's own
+# fuzzel config is left to the user's own fuzzel use.
+CONFIG=/usr/share/katmate/fuzzel/fuzzel.ini
 
 # Prints the chosen line, or nothing. Lines on stdin.
 pick() {
     local prompt="$1" n="$2"
-    fuzzel --dmenu --prompt="$prompt " --lines="$n"
+    fuzzel --config="$CONFIG" --dmenu --prompt="$prompt " --lines="$n"
 }
 
 confirm() {
@@ -39,7 +42,7 @@ state_of() {
 
 apps() {
     # XDG_DATA_HOME too, or ~/.local/share/applications would be listed.
-    XDG_DATA_DIRS="$DATA" XDG_DATA_HOME="$DATA" exec fuzzel
+    XDG_DATA_DIRS="$DATA" XDG_DATA_HOME="$DATA" exec fuzzel --config="$CONFIG"
 }
 
 vms() {

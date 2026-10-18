@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
-# gen-desktop-entries — the launcher's desktop entries, one per (AppVM, app)
+# gen-desktop-entries — the launcher's desktop entries, one per (AppVM, app),
+# and one that opens the AppVM list
 #
 # Usage: gen-desktop-entries <katmate-launch> <outdir>
 #
@@ -78,4 +79,14 @@ while read -r inst app; do
     count=$(( count + 1 ))
 done <<<"$pairs"
 
-echo "[gen-desktop-entries] $count entries for ${#idx[@]} instances in $OUT"
+# The AppVM list (state, stop) is reached from the launcher, not from the bar.
+f="$OUT/km-99-appvms.desktop"
+printf '%s\n' \
+    '[Desktop Entry]' \
+    'Type=Application' \
+    'Name=KatMate: AppVMs' \
+    'Exec=/usr/local/bin/km-menu vms' \
+    'Terminal=false' >"$f"
+chmod 0644 "$f"
+
+echo "[gen-desktop-entries] $count entries for ${#idx[@]} instances, and the AppVMs entry, in $OUT"

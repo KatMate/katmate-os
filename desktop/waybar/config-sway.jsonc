@@ -12,8 +12,7 @@
 	{
 		"include": [
 			"/etc/xdg/waybar/modules-cybrbar.jsonc",
-			"/etc/xdg/waybar/modules-sway.jsonc",
-			"/etc/xdg/waybar/modules-katmate.jsonc"
+			"/etc/xdg/waybar/modules-sway.jsonc"
 		],
 		"height": 31,
 		"layer": "top",
@@ -28,7 +27,6 @@
 		"on-scroll-threshold": 1,
 
 		"modules-left": [
-			"custom/katmate",
 			"custom/arch",
 			"sway/workspaces",
 			"custom/cut-left-end"

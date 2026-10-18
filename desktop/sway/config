@@ -16,7 +16,7 @@
     set $right l
 
     # The host terminal. Applications run in AppVMs and are launched from
-    # the waybar KatMate menu (custom/katmate); the host binds no application
+    # km-menu ($mod+space); the host binds no application
     # but this one (operator rulings 2026-10-05: rule 4, D3).
     set $term        foot
 
@@ -126,9 +126,9 @@
 
 ### KEYBINDINGS — LAUNCHERS ######################################
 
-    # The launcher is km-menu over fuzzel, the same as the bar's KatMate
-    # button; the power menu is on custom/arch.
-    bindsym $mod+d       exec /usr/local/bin/km-menu apps
+    # The launcher is km-menu over fuzzel; its AppVMs entry opens the AppVM
+    # list. The power menu is on custom/arch.
+    bindsym $mod+space   exec /usr/local/bin/km-menu apps
 
     bindsym $mod+n       exec swaync-client -t -sw
     bindsym $mod+Shift+r exec swaync-client -R && swaync-client -rs

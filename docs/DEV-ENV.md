@@ -194,10 +194,10 @@ netVM) · `20–99` fixed persistent AppVMs · `≥100` disposable pool. Applied
     in the Acer's ignored `local/etc/sudoers.d/` (HOST-CONFIG § 13).
     SECURITY-MODEL gap 17. Sufficiency **UNVERIFIED** while `katmate-dev`
     exists (R158).
-  - **The launcher:** `custom/katmate`, first in `modules-left` of the
-    tracked `config-sway.jsonc`, runs `km-menu` (fuzzel); deployed at the
-    system paths of `desktop/README.md` § *Deployment* (HOST-CONFIG § 14).
-    Reload waybar with SIGUSR2.
+  - **The launcher:** `km-menu` (fuzzel) on `$mod+space`; the power menu on
+    the bar's `custom/arch`. Deployed at the system paths of
+    `desktop/README.md` § *Deployment* (HOST-CONFIG § 14). Reload sway with
+    `swaymsg reload`, waybar with SIGUSR2.
   - **Locks and owners:** `/run/katmate/launch/` (`root:root 0700`, `flock`);
     owners are written and removed by the launcher.
 
