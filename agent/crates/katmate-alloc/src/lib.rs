@@ -399,12 +399,27 @@ impl Locked<'_> {
     }
 }
 
+/// The stale-owner rule, and `katmate-vm delete`'s: a unit is live while it is
+/// active, activating, deactivating or reloading. Anything else, including a
+/// systemctl that answers with nothing, is not live.
+pub fn unit_live(systemctl: &Path, unit: &str) -> Result<bool> {
+    Ok(matches!(unit_state(systemctl, unit)?.as_str(), "active" | "activating" | "deactivating" | "reloading"))
+}
+
+/// `systemctl is-active <unit>`'s answer, whatever its exit status.
+pub fn unit_state(systemctl: &Path, unit: &str) -> Result<String> {
+    match std::process::Command::new(systemctl).args(["is-active", unit]).output() {
+        Ok(o) => Ok(String::from_utf8_lossy(&o.stdout).trim().to_string()),
+        Err(e) => io_fail("cannot run", systemctl, e),
+    }
+}
+
 static TMP_SEQ: AtomicU64 = AtomicU64::new(0);
 
 /// Writes `text` to `path` mode 0644 through a temporary file in the same
 /// directory and `rename(2)`. With `replace` false the rename is
 /// `RENAME_NOREPLACE`, so an existing file is never overwritten.
-fn write_file(path: &Path, text: &str, replace: bool) -> Result<()> {
+pub fn write_file(path: &Path, text: &str, replace: bool) -> Result<()> {
     let dir = path.parent().unwrap_or(Path::new("."));
     let name = path.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default();
     let tmp = dir.join(format!(".{name}.{}.{}", std::process::id(), TMP_SEQ.fetch_add(1, Ordering::Relaxed)));

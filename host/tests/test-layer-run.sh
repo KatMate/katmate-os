@@ -70,7 +70,7 @@ rw "$T/lib/katmate-lib.sh" 'KM_ETC_VM="/etc/katmate/vm"' "KM_ETC_VM=\"$T/etc/kat
 rw "$T/lib/katmate-lib.sh" 'KM_STATE_DIR="/var/lib/katmate"' "KM_STATE_DIR=\"$T/var/lib/katmate\""
 rw "$T/lib/katmate-lib.sh" 'KM_RUN_DIR="/run/katmate"' "KM_RUN_DIR=\"$T/run/katmate\""
 
-for x in katmate-launch katmate-generate-env katmate-check-image katmate-activate-lvs; do
+for x in katmate-launch katmate-generate-env katmate-check-image katmate-activate-lvs katmate-t1-read; do
   cp "$K/$x" "$T/lib/$x"
   rw "$T/lib/$x" 'source /usr/lib/katmate/katmate-lib.sh' "source $T/lib/katmate-lib.sh"
 done
@@ -292,6 +292,59 @@ expect_fail "gen-desktop-entries: unknown layer refused, no partial set" 1 "T2 i
 n=$((n + 1))
 if [[ ! -e "$T/apps" ]]; then pass "gen-desktop-entries: nothing written on refusal"; else fail "gen-desktop-entries: nothing written on refusal"; fi
 set_manifest app_work office
+
+# --- 7. cu4: katmate-t1-read and the --layer modes ----------------------------
+R() { "$T/lib/katmate-t1-read" "$@"; }
+expect_ok "t1-read: app_vault, nine keys sorted" "cid=24
+class=app
+disposable=false
+identity=false
+manifest=vault
+mem=2G
+netvm=
+persistence=persistent
+vcpus=2" R app_vault
+n=$((n + 1))
+if [[ "$(R app_vault | wc -l)" == 9 ]]; then pass "t1-read: app_vault prints exactly 9 lines"; else fail "t1-read: app_vault prints exactly 9 lines" "$(R app_vault 2>&1)"; fi
+expect_ok "t1-read --pairs: six T1 files" "app_personal 22
+app_sandbox 25
+app_vault 24
+app_web 21
+app_work 23
+netvm 3" R --pairs
+expect_fail "t1-read: absent instance refused" 1 "no T1 properties for instance 'nosuch'" R nosuch
+expect_fail "t1-read: bad name refused" 1 "is not [a-z]" R ../x
+expect_fail "t1-read: usage" 2 "USAGE" R
+expect_fail "t1-read: two arguments" 2 "USAGE" R app_web app_vault
+printf 'class = "app"\nclass = "app"\n' >"$T/etc/katmate/vm/dup.toml"
+expect_fail "t1-read --pairs: an unreadable T1 file stops the list" 1 "duplicate key 'class'" R --pairs
+rm "$T/etc/katmate/vm/dup.toml"
+
+CL() { "$T/lib/katmate-check-image" --layer "$@"; }
+out="$(CL vault 2>&1)" || true
+n=$((n + 1))
+if [[ "$(tail -n 1 <<<"$out")" == "APP_LV=vg0/vm_app_vault" ]]; then pass "check-image --layer: last line APP_LV"; else fail "check-image --layer: last line APP_LV" "$(tail -n 2 <<<"$out")"; fi
+app_meta vault "keepassxc foot pcmanfm" "" 2026-09-01T00:00:00Z
+expect_fail "check-image --layer: stale layer refused" 1 "layer 'vault' is stale" CL vault
+std_metas
+expect_fail "check-image --layer: unknown layer refused" 1 "layer 'nosuch' names no built layer" CL nosuch
+expect_fail "check-image --layer: bad layer name refused" 1 "layer '../x' does not match" CL ../x
+expect_fail "check-image --layer: usage" 2 "USAGE" CL
+mv "$T/var/lib/katmate/kernels/vmlinuz-katmate-microvm-amd64-6.12.87" "$T/k.away"
+expect_fail "check-image --layer: missing kernel refused" 1 "kernel not found" CL web
+mv "$T/k.away" "$T/var/lib/katmate/kernels/vmlinuz-katmate-microvm-amd64-6.12.87"
+# The instance mode still checks the delta, now after the layer.
+mv "$T/var/lib/katmate/instances/app_vault.qcow2" "$T/d.away"
+expect_fail "check-image: missing delta refused" 1 "instance delta not found" C
+mv "$T/d.away" "$T/var/lib/katmate/instances/app_vault.qcow2"
+
+AL() { PATH="$T/bin:$PATH" "$T/lib/katmate-activate-lvs" --layer "$@"; }
+expect_ok "activate-lvs --layer: frozen chain" "block devices ready for layer 'vault'" AL vault
+echo 'Vwi-a-tz--' >"$T/attr/vg0_vm_app_vault"
+expect_fail "activate-lvs --layer: writable layer refused" 1 "app layer LV: vg0/vm_app_vault has lv_attr 'Vwi-a-tz--', not read-only" AL vault
+echo 'Vri-a-tz-k' >"$T/attr/vg0_vm_app_vault"
+expect_fail "activate-lvs --layer: bad layer name refused" 1 "does not match the layer-name pattern" AL ../x
+expect_fail "activate-lvs --layer: usage" 2 "USAGE" AL
 
 echo "$((n - fails))/$n passed"
 (( fails == 0 ))

@@ -1,0 +1,8 @@
+[package]
+name = "katmate-vm"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+libc = { workspace = true }
+katmate-alloc = { path = "../katmate-alloc" }

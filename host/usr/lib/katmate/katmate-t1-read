@@ -1,0 +1,44 @@
+#!/usr/bin/env bash
+# katmate-t1-read — T1 for a reader that is not bash (cu4: katmate-vm)
+#
+# T4 (ADR-032 §2): reads T1, writes nothing. T1 has one parser, km_flat_read
+# in katmate-lib.sh (R150); a program that needs T1 values asks this rather
+# than carry a TOML parser of its own.
+#
+# Usage:
+#   katmate-t1-read <instance>   km_t1_read, then "key=value" per key, sorted
+#   katmate-t1-read --pairs      "<instance> <cid>" per T1 file, sorted
+#
+# A value never contains a newline (the reader takes lines) and a key never
+# contains '=', so a consumer splits each line at its first '='.
+#
+# Exit: 0 read, 1 refused (the message says why), 2 usage.
+
+set -euo pipefail
+export LC_ALL=C
+
+# KM_PROG is the diagnostic prefix; it is read by katmate-lib.sh after the
+# source below, which shellcheck cannot see across an absolute path.
+# shellcheck disable=SC2034
+KM_PROG="katmate-t1-read"
+# shellcheck source=host/usr/lib/katmate/katmate-lib.sh
+source /usr/lib/katmate/katmate-lib.sh
+
+USAGE="katmate-t1-read <instance> | --pairs"
+
+case "${1-}" in
+--pairs)
+    (( $# == 1 )) || km_usage "$USAGE"
+    km_t1_cid_pairs
+    ;;
+-*|"")
+    km_usage "$USAGE"
+    ;;
+*)
+    (( $# == 1 )) || km_usage "$USAGE"
+    km_t1_read "$1"
+    while read -r key; do
+        printf '%s=%s\n' "$key" "${KM_T1[$key]}"
+    done < <(printf '%s\n' "${!KM_T1[@]}" | sort)
+    ;;
+esac

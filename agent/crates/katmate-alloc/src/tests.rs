@@ -250,6 +250,20 @@ fn concurrent_claims_never_share_a_slot() {
     }
 }
 
+#[test]
+fn unit_live_states() {
+    let f = Fixture::new();
+    let stub = f.root.join("systemctl");
+    for (answer, want) in [("active", true), ("activating", true), ("deactivating", true), ("reloading", true), ("inactive", false), ("failed", false), ("", false)] {
+        let tmp = f.root.join("systemctl.new");
+        fs::write(&tmp, format!("#!/bin/sh\necho '{answer}'\nexit 3\n")).unwrap();
+        fs::set_permissions(&tmp, fs::Permissions::from_mode(0o755)).unwrap();
+        fs::rename(&tmp, &stub).unwrap();
+        assert_eq!(unit_live(&stub, "x.service").unwrap(), want, "answer '{answer}'");
+    }
+    assert!(unit_live(&f.root.join("absent"), "x.service").unwrap_err().0.contains("cannot run"));
+}
+
 mod cids {
     use crate::cid::*;
 

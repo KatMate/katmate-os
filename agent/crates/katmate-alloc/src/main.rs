@@ -15,10 +15,10 @@
 //! `pairs` is `<instance> <cid>` per line, read from T1 by the caller with
 //! `km_t1_read` (R150). Exit: 0 done, 1 refused, 2 usage.
 
-use katmate_alloc::{cid, is_reserved, Claim, Pool, Released};
+use katmate_alloc::{cid, is_reserved, unit_live, Claim, Pool, Released};
 use std::io::Read;
 use std::path::Path;
-use std::process::{exit, Command};
+use std::process::exit;
 
 const RUN_DIR: &str = "/run/katmate";
 const SYSTEMCTL: &str = "/usr/bin/systemctl";
@@ -37,15 +37,9 @@ fn die(msg: impl std::fmt::Display) -> ! {
     exit(1)
 }
 
-/// The stale-owner rule: an owner is live while its instance's routed unit
-/// is active, activating, deactivating or reloading. Anything else,
-/// including a systemctl that cannot answer, is not live.
+/// An owner is live while its instance's routed unit is ([`unit_live`]).
 fn is_live(instance: &str) -> bool {
-    let unit = format!("katmate-app-routed@{instance}.service");
-    match Command::new(SYSTEMCTL).args(["is-active", &unit]).output() {
-        Ok(o) => matches!(String::from_utf8_lossy(&o.stdout).trim(), "active" | "activating" | "deactivating" | "reloading"),
-        Err(e) => die(format!("cannot run {SYSTEMCTL}: {e}")),
-    }
+    unit_live(Path::new(SYSTEMCTL), &format!("katmate-app-routed@{instance}.service")).unwrap_or_else(|e| die(e))
 }
 
 fn link_id(s: &str) -> u32 {

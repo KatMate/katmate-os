@@ -172,6 +172,28 @@ km_t1_require() {
     printf '%s' "${KM_T1[$key]}"
 }
 
+# km_t1_instances: the name of every T1 file, sorted.
+km_t1_instances() {
+    local f
+    for f in "$KM_ETC_VM"/*.toml; do
+        [[ -e "$f" ]] || continue
+        f="${f##*/}"
+        printf '%s\n' "${f%.toml}"
+    done
+}
+
+# km_t1_cid_pairs: "<instance> <cid>" for every T1 file, read with km_t1_read
+# (R150); katmate-alloc's `cid check` and `cid next` take this as input. Run
+# in $(…), every failure exits explicitly.
+km_t1_cid_pairs() {
+    local inst cid
+    while read -r inst; do
+        km_t1_read "$inst"
+        cid="$(km_t1_require cid)" || exit 1
+        printf '%s %s\n' "$inst" "$cid"
+    done < <(km_t1_instances)
+}
+
 # --- layer manifests (ADR-043 §6) ---------------------------------------------
 # One schema, two tiers, and the path is the tier. Flat TOML with exactly three
 # keys, all required, none empty: kind (a string), packages and run (arrays of

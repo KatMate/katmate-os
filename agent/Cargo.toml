@@ -6,6 +6,7 @@ members = [
     "crates/netvm-agent",
     "crates/ping-client",
     "crates/katmate-alloc",
+    "crates/katmate-vm",
 ]
 
 # Single source of truth for shared dependency versions. Members refer to these

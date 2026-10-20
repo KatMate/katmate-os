@@ -5,6 +5,9 @@
 # Runs as uid 0, from `ExecStartPre=+`.
 #
 # Usage: katmate-activate-lvs <instance>         (from the unit: %i)
+#        katmate-activate-lvs --layer <layer>    the app layer's chain alone,
+#            activated and checked frozen, before an instance exists
+#            (katmate-vm create: qemu-img opens the layer as the backing file)
 #
 # Two jobs, and the second is a consequence of the ADR-032 §2 revision note of
 # 2026-08-11: this is where LV EXISTENCE is checked, because `lvchange -K -ay`
@@ -28,8 +31,12 @@ KM_PROG="katmate-activate-lvs"
 # shellcheck source=host/usr/lib/katmate/katmate-lib.sh
 source /usr/lib/katmate/katmate-lib.sh
 
-(( $# == 1 )) || km_usage "katmate-activate-lvs <instance>"
-INSTANCE="$1"
+USAGE="katmate-activate-lvs <instance> | --layer <layer>"
+case "${1-}" in
+--layer) (( $# == 2 )) || km_usage "$USAGE" ;;
+-*|"")   km_usage "$USAGE" ;;
+*)       (( $# == 1 )) || km_usage "$USAGE" ;;
+esac
 
 # Stated as a check rather than assumed: under `ExecStartPre=` without the `+`
 # this would fail deep inside LVM with a permission error about
@@ -39,10 +46,6 @@ INSTANCE="$1"
 
 command -v lvchange >/dev/null \
     || km_die "lvchange not found in PATH ($PATH) — the launch path requires LVM tooling"
-
-km_t1_read "$INSTANCE"
-CLASS="$(km_t1_require class)"
-MANIFEST="$(km_t1_require manifest)"
 
 # `-K` lifts the skip-activation flag and is passed ONLY where that flag can
 # exist: on the RO-frozen thin layers. On a plain linear LV it would be accepted
@@ -72,6 +75,42 @@ require_ro() {
     km_log "  $kind is read-only (lv_attr $attr)"
 }
 
+# activate_layer <layer>: the app layer's chain, for an instance and for
+# --layer alike. Sets APP_LV.
+activate_layer() {
+    local layer="$1" meta base_lv
+    [[ "$layer" =~ $KM_LAYER_NAME_RE ]] \
+        || km_die "layer '$layer' does not match the layer-name pattern $KM_LAYER_NAME_RE (ADR-043 §7)"
+    meta="$KM_STATE_DIR/app-$layer.meta"
+    km_meta_open "$meta"
+
+    base_lv="$(km_meta_require "$meta" BASE_LV)"
+    APP_LV="$(km_meta_require "$meta" APP_LV)"
+
+    # The whole backing chain, bottom up: foundation (thin, RO-frozen) then the
+    # app layer (thin snapshot, RO-frozen). Both carry the 'k' flag, both need
+    # -K, on every boot.
+    activate "foundation LV" "$base_lv" -K
+    activate "app layer LV"  "$APP_LV"  -K
+
+    # The instance must start on a frozen chain (ADR-043 §7; cu2 ruling on
+    # the Phase B report, item 10): lv_attr's second character is the
+    # permission, `r` once lv_freeze has run.
+    require_ro "foundation LV" "$base_lv"
+    require_ro "app layer LV"  "$APP_LV"
+}
+
+if [[ "$1" == --layer ]]; then
+    activate_layer "$2"
+    km_log "block devices ready for layer '$2'"
+    exit 0
+fi
+INSTANCE="$1"
+
+km_t1_read "$INSTANCE"
+CLASS="$(km_t1_require class)"
+MANIFEST="$(km_t1_require manifest)"
+
 case "$CLASS" in
 sys)
     META="$KM_STATE_DIR/$MANIFEST/$MANIFEST.meta"
@@ -84,23 +123,7 @@ sys)
     activate "rootfs LV" "$(km_meta_require "$META" "${PREFIX}_LV")"
     ;;
 app)
-    META="$KM_STATE_DIR/app-$MANIFEST.meta"
-    km_meta_open "$META"
-
-    BASE_LV="$(km_meta_require "$META" BASE_LV)"
-    APP_LV="$(km_meta_require "$META" APP_LV)"
-
-    # The whole backing chain, bottom up: foundation (thin, RO-frozen) then the
-    # app layer (thin snapshot, RO-frozen). Both carry the 'k' flag, both need
-    # -K, on every boot.
-    activate "foundation LV" "$BASE_LV" -K
-    activate "app layer LV"  "$APP_LV"  -K
-
-    # The instance must start on a frozen chain (ADR-043 §7; cu2 ruling on
-    # the Phase B report, item 10): lv_attr's second character is the
-    # permission, `r` once lv_freeze has run.
-    require_ro "foundation LV" "$BASE_LV"
-    require_ro "app layer LV"  "$APP_LV"
+    activate_layer "$MANIFEST"
 
     PERSISTENCE="$(km_t1_require persistence)"
     case "$PERSISTENCE" in

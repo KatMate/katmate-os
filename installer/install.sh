@@ -981,9 +981,11 @@ echo "  $LAYERN T3 layer manifests in /usr/lib/katmate/layer, root:root 0644"
 
 rel_check ping-client
 rel_check katmate-alloc
+rel_check katmate-vm
 rel_check waypipe
 install -D -m 0755 "$(rel_path ping-client)" /mnt/usr/lib/katmate/ping-client
 install -D -m 0755 "$(rel_path katmate-alloc)" /mnt/usr/lib/katmate/katmate-alloc
+install -D -m 0755 "$(rel_path katmate-vm)" /mnt/usr/lib/katmate/katmate-vm
 install -D -m 0755 "$(rel_path waypipe)" /mnt/opt/katmate/bin/waypipe
 
 # netVM's card: bound to vfio-pci at every boot, before its own driver.
@@ -1181,7 +1183,7 @@ for f in /mnt/etc/katmate/vm/{netvm,app_web,app_personal,app_work,app_vault,app_
          /mnt/var/lib/katmate/netvm/{netvm.meta,vmlinuz,initrd.img} \
          "/mnt/var/lib/katmate/kernels/$KERNEL_FILE" \
          /mnt/var/lib/katmate/instances/{app_web,app_personal,app_work,app_vault,app_sandbox}.qcow2 \
-         /mnt/usr/lib/katmate/ping-client /mnt/usr/lib/katmate/katmate-alloc \
+         /mnt/usr/lib/katmate/ping-client /mnt/usr/lib/katmate/katmate-alloc /mnt/usr/lib/katmate/katmate-vm \
          /mnt/opt/katmate/bin/waypipe \
          /mnt/etc/sudoers.d/katmate-launch /mnt/etc/modprobe.d/katmate-vfio.conf \
          /mnt/etc/sway/config /mnt/etc/sway/outputs.conf /mnt/etc/sway/config.d/10-keyboard.conf \
