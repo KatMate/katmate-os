@@ -305,13 +305,6 @@ repository.
    backing file (R149). ai4's entry is in the archived
    [`docs/SESSIONS.md`](https://github.com/KatMate/katmate-os/blob/v0.2.0-alpha2/docs/SESSIONS.md).
 
-58. **`tools/validate-properties.fish` has no CID uniqueness rule.** Two T1
-   files with one `cid` (22) pass `--strict` with 0 errors; `cid = 5` is
-   refused (sysVM band). Neither the validator nor the generator checks
-   uniqueness (`docs/PARAMETERS.md`, row *CID*). Shown on the six templates as
-   `tools/make-release.sh` copies them, fish 3.7.0, cloud container. The
-   alpha's CIDs (3, 21–25) are unique by reading. Planned post-alpha.
-
 59. **Why the Windows guest rebooted itself overnight in w2 is not known.**
    Windows ended the RAIL session at 00:11:07 (report time, zone not
    stated), *"initiated by an administrative tool on the server"*, and

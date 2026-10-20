@@ -184,15 +184,17 @@ netVM) · `20–99` fixed persistent AppVMs · `≥100` disposable pool. Applied
   remain (#42). Requirement: `docs/HOST-CONFIG.md` § 11.
 
 - **The launcher and the menu (from 2026-10-03, `ai6`; R150–R158).**
-  - **`/usr/lib/katmate/katmate-launch`** `root:root 0755`, `7938f47a…` (T4,
-    the launch daemon's alpha precursor; ADR-029's note of 2026-10-03).
-    `katmate-launch <instance> <app>` | `--stop <instance>` | `--stop-all`, as
-    root only. Exit 0 done, 1 refused or failed, 2 usage. Journal:
+  - **`/usr/lib/katmate/katmate-launch`** `root:root 0755` (T4, the launch
+    daemon's alpha precursor; ADR-029's notes of 2026-10-03 and 2026-10-18).
+    `katmate-launch <instance> <app>` | `--stop <instance>` | `--stop-all` |
+    `--cid-check`, as root only. Exit 0 done, 1 refused or failed, 2 usage. Journal:
     `journalctl -t katmate-launch`. It does not start netVM.
   - **`/usr/lib/katmate/ping-client`** `root:root 0755`, `bbeeddf2…` (R155), a
-    copy of `~/katmate-build/agent/target/release/ping-client`. **The installed
-    set is 13 files:** the tree's eleven, `katmate-launch` (against the tree)
-    and `ping-client` (against that build output).
+    copy of `~/katmate-build/agent/target/release/ping-client`.
+  - **`/usr/lib/katmate/katmate-alloc`** `root:root 0755` (cu3), a copy of
+    `~/katmate-build/agent/target/release/katmate-alloc`. **The installed set
+    is 14 files:** the tree's eleven, `katmate-launch` (against the tree),
+    `ping-client` and `katmate-alloc` (against that build output).
   - **`/etc/sudoers.d/katmate-launch`** `root:root 0440`, `ebfb91fe…`, staged
     in the Acer's ignored `local/etc/sudoers.d/` (HOST-CONFIG § 13).
     SECURITY-MODEL gap 17. Sufficiency **UNVERIFIED** while `katmate-dev`
@@ -200,9 +202,12 @@ netVM) · `20–99` fixed persistent AppVMs · `≥100` disposable pool. Applied
   - **The launcher:** `km-menu` (fuzzel) on `$mod+space`; the power menu on
     the bar's `custom/arch`. Deployed at the system paths of
     `desktop/README.md` § *Deployment* (HOST-CONFIG § 14). Reload sway with
-    `swaymsg reload`, waybar with SIGUSR2.
-  - **Locks and owners:** `/run/katmate/launch/` (`root:root 0700`, `flock`);
-    owners are written and removed by the launcher.
+    `swaymsg reload`, waybar with SIGUSR2. After a layer rebuild or a T1
+    change, regenerate the desktop entries with the `rm -rf` and
+    `gen-desktop-entries` lines of `desktop/README.md` § *Deployment*.
+  - **Locks and owners:** `/run/katmate/launch/` (`root:root 0700`, `flock`)
+    serialises the launcher; slot owners, `alloc.lock` and `link-id` are in
+    `/run/katmate/link/<netvm>/`, written and removed by `katmate-alloc`.
 
 - **Disk chain**: three-level LVM-thin chain proven live through a full
   boot/render/shutdown cycle.

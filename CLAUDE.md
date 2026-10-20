@@ -54,16 +54,13 @@ must say so in those words.
 
 ## Where the instance set is listed
 
-Adding, removing or renaming an instance touches more than its T1
-template. `host/usr/lib/katmate/katmate-launch` holds static
-per-instance tables (`ALPHA_INSTANCES`, `LINK`); `installer/install.sh`
-and `tools/make-release.sh` carry counts and lists. What an instance may
-run is its layer's `run` (`manifests/<layer>.toml`), recorded as `RUN=`
-in the layer's T2 meta at build; the launcher's desktop entries are
-generated from `ALPHA_INSTANCES` and those `RUN` lines at install
-(`installer/gen-desktop-entries`) and must be regenerated on a dev host
-after a layer rebuild. The validator does not check CID uniqueness.
-Find every place with `git grep` before the first change.
+`host/usr/lib/katmate/katmate-launch` holds no per-instance table since cu3:
+an AppVM is admitted by its T1 file, its slot is claimed per run by
+`katmate-alloc`, and the launcher's desktop entries are generated from the T1
+files with `class = app` and their layers' `RUN` lines
+(`installer/gen-desktop-entries`). `installer/install.sh` and
+`tools/make-release.sh` carry counts and lists. `katmate-launch` checks CID
+uniqueness at every launch (`--cid-check`); the validator does not.
 
 ## Cloud sessions
 
