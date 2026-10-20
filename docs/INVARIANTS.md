@@ -363,6 +363,16 @@ that found nothing** — make the condition true on purpose and see it noticed.
 - **In a netVM build chroot, dnsmasq's postinst starts nothing on the host**
   (*"Running in chroot, ignoring request."*). Check by watching the host, not by
   predicting the maintainer script.
+- **`arch-chroot` shares the host's `/run`:** inside it `udevadm settle` is a
+  no-op (*"Running in chroot, ignoring request."*) and `/dev/log` writes to the
+  host's journal; `lvcreate` still gets its node through the host's udev.
+  Source: `cu4-report.md` D.3.
+- **MINIS's host resolver hangs (no answer, no error) while its VPN tunnel is
+  down;** `pacman -Sy` then sleeps in `poll` and ignores SIGTERM. Packages on
+  MINIS come from the iso1 offline repository; wrap `pacstrap` in `timeout`.
+  Source: `cu4-report.md` D.2.
+- **A gate script that runs two windowed steps back to back leaves no time for
+  an in-window check:** one window per script. Source: `cu4-report.md` C.5.
 - **A negative inside a natural expiry window is not a measurement** (conntrack
   empty 39 s after the last flow). Time reads inside the window (ADR-035's
   2026-09-12 note, finding 2). Source: `g3-g4-console-report.md` § 5.3.

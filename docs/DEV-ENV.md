@@ -192,9 +192,18 @@ netVM) · `20–99` fixed persistent AppVMs · `≥100` disposable pool. Applied
   - **`/usr/lib/katmate/ping-client`** `root:root 0755`, `bbeeddf2…` (R155), a
     copy of `~/katmate-build/agent/target/release/ping-client`.
   - **`/usr/lib/katmate/katmate-alloc`** `root:root 0755` (cu3), a copy of
-    `~/katmate-build/agent/target/release/katmate-alloc`. **The installed set
-    is 14 files:** the tree's eleven, `katmate-launch` (against the tree),
-    `ping-client` and `katmate-alloc` (against that build output).
+    `~/katmate-build/agent/target/release/katmate-alloc`.
+  - **`/usr/lib/katmate/katmate-vm`** `root:root 0755` (cu4), a copy of
+    `~/katmate-build/agent/target/release/katmate-vm`. `create <name> --layer
+    <layer>` | `status [<name>]` | `delete <name> [--purge]` | `provision
+    <name>`, as root only; `class = app` names are `app_*`. Homes and deltas
+    are made with `katmate-vm create`, not by hand. Journal:
+    `journalctl -t katmate-vm`.
+  - **`/usr/lib/katmate/katmate-t1-read`** `root:root 0755` (cu4, in the
+    tree): `<instance>` → `key=value` through `km_t1_read`; `--pairs`.
+  - **The tree's installed set is 16 files:** `host/usr`'s thirteen (nine in
+    `lib/katmate`, four units; `cp -a`, `installer/install.sh`) and
+    `ping-client`, `katmate-alloc`, `katmate-vm` (against that build output).
   - **`/etc/sudoers.d/katmate-launch`** `root:root 0440`, `ebfb91fe…`, staged
     in the Acer's ignored `local/etc/sudoers.d/` (HOST-CONFIG § 13).
     SECURITY-MODEL gap 17. Sufficiency **UNVERIFIED** while `katmate-dev`

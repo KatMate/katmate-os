@@ -54,12 +54,14 @@ must say so in those words.
 
 ## Where the instance set is listed
 
-`host/usr/lib/katmate/katmate-launch` holds no per-instance table since cu3:
-an AppVM is admitted by its T1 file, its slot is claimed per run by
-`katmate-alloc`, and the launcher's desktop entries are generated from the T1
-files with `class = app` and their layers' `RUN` lines
-(`installer/gen-desktop-entries`). `installer/install.sh` and
-`tools/make-release.sh` carry counts and lists. `katmate-launch` checks CID
+`host/usr/lib/katmate/katmate-launch` holds no per-instance table: an AppVM
+is admitted by its T1 file, its slot is claimed per run by `katmate-alloc`, and
+the launcher's desktop entries are generated from the T1 files with
+`class = app` and their layers' `RUN` lines (`installer/gen-desktop-entries`).
+`class = app` instances are named `app_*`. `katmate-vm` creates, provisions and
+deletes instances; the installer's instance set is `installer/t1/*.toml.in`,
+from which every count and list in `installer/install.sh` derives.
+`tools/make-release.sh` carries its own lists. `katmate-launch` checks CID
 uniqueness at every launch (`--cid-check`); the validator does not.
 
 ## Cloud sessions
