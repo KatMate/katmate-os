@@ -663,6 +663,85 @@ fn purge_of_a_kept_home_without_t1() {
     assert!(h.lvs.borrow().contains("vg0/vm_gw_w2_home"));
 }
 
+// --- provision ----------------------------------------------------------------
+
+#[test]
+fn provision_makes_home_and_delta_and_never_touches_t1() {
+    let f = Fixture::new();
+    let h = Fake::new();
+    let t1p = f.env.t1_path("app_sandbox");
+    let before = fs::read(&t1p).unwrap();
+    vm::provision(&f.env, &h, "app_sandbox").unwrap();
+    assert_eq!(fs::read(&t1p).unwrap(), before);
+    assert_eq!(mode(&f.env.delta_path("app_sandbox")), 0o644);
+    assert!(h.lvs.borrow().contains("vg0/vm_app_sandbox_home"));
+    assert!(h.called("lvcreate -q -V 10G -T vg0/vm_pool -n vm_app_sandbox_home"));
+    assert!(h.called("katmate-check-image --layer web") && h.called("katmate-activate-lvs --layer web"));
+    let by = std::env::var("SUDO_USER").unwrap_or_else(|_| "<no SUDO_USER>".into());
+    let j: Vec<String> = h.calls().into_iter().filter(|c| c.starts_with("logger")).collect();
+    assert_eq!(j, [format!("logger -t katmate-vm -- provision app_sandbox (CID 25, invoked by {by}): provisioned")]);
+}
+
+#[test]
+fn provision_refusals() {
+    let f = Fixture::new();
+    let e = |name: &str, h: &Fake| {
+        let e = vm::provision(&f.env, h, name).unwrap_err();
+        assert!(!h.called("lvcreate") && !h.called("qemu-img"), "{e}");
+        e
+    };
+    assert!(e("netvm", &Fake::new()).contains("does not begin with app_"));
+    assert!(e("app_none", &Fake::new()).contains("no T1 file"));
+    assert!(e("app_web", &Fake::new()).contains("vg0/vm_app_web_home exists"));
+    fs::write(f.env.t1_path("app_sys"), "class = \"sys\"\ncid = 9\n").unwrap();
+    assert!(e("app_sys", &Fake::new()).contains("class = 'sys'"));
+    fs::remove_file(f.env.t1_path("app_sys")).unwrap();
+    fs::write(f.env.t1_path("app_eph"), "class = \"app\"\ncid = 40\nmanifest = \"web\"\npersistence = \"ephemeral\"\n").unwrap();
+    assert!(e("app_eph", &Fake::new()).contains("persistence = 'ephemeral'"));
+    fs::remove_file(f.env.t1_path("app_eph")).unwrap();
+    fs::create_dir(f.env.d_path("app_sandbox")).unwrap();
+    assert!(e("app_sandbox", &Fake::new()).contains("app_sandbox.d exists"));
+    fs::remove_dir(f.env.d_path("app_sandbox")).unwrap();
+    fs::write(f.env.delta_path("app_sandbox"), b"").unwrap();
+    assert!(e("app_sandbox", &Fake::new()).contains("overwrites none"));
+    fs::remove_file(f.env.delta_path("app_sandbox")).unwrap();
+    fs::write(f.env.t1_path("app_dup"), "class = \"app\"\ncid = 25\n").unwrap();
+    assert!(e("app_sandbox", &Fake::new()).contains("cid 25 is carried by more than one T1 file"));
+    fs::remove_file(f.env.t1_path("app_dup")).unwrap();
+    let mut h = Fake::new();
+    h.check_image = Err("katmate-check-image --layer web exited 1: [katmate-check-image] FATAL: layer 'web' is stale".into());
+    assert!(e("app_sandbox", &h).contains("layer 'web' refused"));
+}
+
+#[test]
+fn provision_undoes_only_what_it_made() {
+    for (step, want_lvremove) in [("mkfs.ext4", true), ("qemu-img", true), ("lvcreate", false)] {
+        let f = Fixture::new();
+        let mut h = Fake::new();
+        h.fail_on = Some(step.into());
+        let before = fs::read(f.env.t1_path("app_sandbox")).unwrap();
+        let e = vm::provision(&f.env, &h, "app_sandbox").unwrap_err();
+        assert!(e.contains("Undone, in reverse"), "{step}: {e}");
+        assert_eq!(h.called("lvremove -q -y vg0/vm_app_sandbox_home"), want_lvremove, "{step}: {e}");
+        assert!(!h.lvs.borrow().contains("vg0/vm_app_sandbox_home"), "{step}");
+        assert!(!f.env.delta_path("app_sandbox").exists(), "{step}");
+        assert_eq!(fs::read(f.env.t1_path("app_sandbox")).unwrap(), before, "{step}: T1 changed");
+        let j: Vec<String> = h.calls().into_iter().filter(|c| c.starts_with("logger")).collect();
+        assert!(j.len() == 1 && j[0].contains("provision app_sandbox (CID 25, ") && j[0].contains("): undone: "), "{j:?}");
+    }
+}
+
+#[test]
+fn a_failing_logger_fails_nothing() {
+    let f = Fixture::new();
+    let mut h = Fake::new();
+    h.fail_on = Some("logger".into());
+    vm::create(&f.env, &h, &opts("app_nolog")).unwrap();
+    vm::provision(&f.env, &h, "app_sandbox").unwrap();
+    vm::delete(&f.env, &h, "app_nolog", false).unwrap();
+    assert_eq!(h.calls().iter().filter(|c| c.starts_with("logger")).count(), 3);
+}
+
 // --- status -------------------------------------------------------------------
 
 #[test]

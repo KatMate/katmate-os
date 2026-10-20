@@ -5,6 +5,7 @@
 //!   katmate-vm create <name> --layer <layer> [--mem 2G] [--vcpus 2] [--offline] [--reuse-home]
 //!   katmate-vm status [<name>]
 //!   katmate-vm delete <name> [--purge]
+//!   katmate-vm provision <name>      home and delta for a seeded T1 (installer, in arch-chroot)
 //!
 //! Runs as uid 0 and refuses otherwise. T1 is read only through
 //! `katmate-t1-read` (R150); the layer is checked by `katmate-check-image
@@ -18,7 +19,7 @@ mod vm;
 use std::process::exit;
 
 const USAGE: &str = "usage: katmate-vm create <name> --layer <layer> [--mem <n>M|G] [--vcpus <n>] [--offline] [--reuse-home] | \
-                     katmate-vm status [<name>] | katmate-vm delete <name> [--purge]";
+                     katmate-vm status [<name>] | katmate-vm delete <name> [--purge] | katmate-vm provision <name>";
 
 fn usage(why: &str) -> ! {
     eprintln!("[katmate-vm] USAGE: {why}\n{USAGE}");
@@ -77,6 +78,10 @@ fn main() {
             let o = parse_create(rest);
             vm::create(&env, &host, &o).unwrap_or_else(|e| die(e));
         }
+        "provision" => match rest {
+            [n] => vm::provision(&env, &host, n).unwrap_or_else(|e| die(e)),
+            _ => usage("provision <name>"),
+        },
         "delete" => {
             let (name, purge) = match rest {
                 [n] => (n, false),

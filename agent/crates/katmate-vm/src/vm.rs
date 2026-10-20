@@ -177,10 +177,13 @@ impl Drop for SignalBlock {
     }
 }
 
-/// One journal line per outcome, `katmate-launch`'s form (cu4 H2 ruling 4).
+/// One journal line per outcome, `katmate-launch`'s form (cu4 H2 ruling 4),
+/// also on stdout: in a chroot there is no journal, and the installer's log
+/// must carry it (ruling after C6, 3). A failing logger fails nothing.
 fn journal(env: &Env, host: &dyn Host, line: &str) {
+    log(line);
     if let Err(e) = host.run(&[&env.bin("logger"), "-t", "katmate-vm", "--", line]) {
-        eprintln!("[katmate-vm] WARNING: logger failed ({e}); this outcome is not in the journal: {line}");
+        eprintln!("[katmate-vm] WARNING: logger failed ({e}); this outcome is not in the journal");
     }
 }
 
@@ -397,21 +400,33 @@ fn create_steps(env: &Env, host: &dyn Host, o: &CreateOpts, p: &Props, home: &st
     if o.reuse_home {
         log(format!("home {home}: kept, attached as it is (no mkfs)"));
     } else {
-        let (vg, lv) = home.split_once('/').unwrap_or_default();
-        host.run(&[&env.bin("lvcreate"), "-q", "-V", HOME_LV_SIZE, "-T", &format!("{vg}/{POOL}"), "-n", lv])?;
-        done.push(Undo::Home(home.to_string()));
-        host.run(&[&env.bin("udevadm"), "settle"])?;
-        let attr = host.run(&[&env.bin("lvs"), "--noheadings", "-o", "lv_attr", home])?.trim().to_string();
-        let a = attr.as_bytes();
-        if a.len() < 10 || a[4] != b'a' || a[9] == b'k' {
-            return Err(format!("{home} has lv_attr '{attr}' after lvcreate: not active, or skip-activation set"));
-        }
-        host.run(&[&env.bin("mkfs.ext4"), "-q", &format!("/dev/{home}")])?;
-        make_user_dir(env, host, &o.name, home)?;
-        log(format!("home {home}: {HOME_LV_SIZE} thin in {POOL}, ext4, user/ 1000:1000 0700 (lv_attr {attr})"));
+        make_home(env, host, &o.name, home, done)?;
     }
+    make_delta(env, host, &o.name, app_lv, done)
+}
 
-    let delta = env.delta_path(&o.name);
+/// The home LV in the form of record (docs/DEV-ENV.md); undone by `lvremove`
+/// once `lvcreate` has succeeded.
+fn make_home(env: &Env, host: &dyn Host, name: &str, home: &str, done: &mut Vec<Undo>) -> Result<()> {
+    let (vg, lv) = home.split_once('/').unwrap_or_default();
+    host.run(&[&env.bin("lvcreate"), "-q", "-V", HOME_LV_SIZE, "-T", &format!("{vg}/{POOL}"), "-n", lv])?;
+    done.push(Undo::Home(home.to_string()));
+    host.run(&[&env.bin("udevadm"), "settle"])?;
+    let attr = host.run(&[&env.bin("lvs"), "--noheadings", "-o", "lv_attr", home])?.trim().to_string();
+    let a = attr.as_bytes();
+    if a.len() < 10 || a[4] != b'a' || a[9] == b'k' {
+        return Err(format!("{home} has lv_attr '{attr}' after lvcreate: not active, or skip-activation set"));
+    }
+    host.run(&[&env.bin("mkfs.ext4"), "-q", &format!("/dev/{home}")])?;
+    make_user_dir(env, host, name, home)?;
+    log(format!("home {home}: {HOME_LV_SIZE} thin in {POOL}, ext4, user/ 1000:1000 0700 (lv_attr {attr})"));
+    Ok(())
+}
+
+/// The instance delta over the layer; undone by removal (it did not exist:
+/// every caller refuses an existing one first).
+fn make_delta(env: &Env, host: &dyn Host, name: &str, app_lv: &str, done: &mut Vec<Undo>) -> Result<()> {
+    let delta = env.delta_path(name);
     let delta_s = delta.to_string_lossy().into_owned();
     done.push(Undo::Delta(delta.clone()));
     host.run(&[&env.bin("qemu-img"), "create", "-q", "-f", "qcow2", "-F", "raw", "-b", &format!("/dev/{app_lv}"), &delta_s, DELTA_SIZE])?;
@@ -450,6 +465,79 @@ fn make_user_dir(env: &Env, host: &dyn Host, name: &str, home: &str) -> Result<(
         return Err(format!("{}cannot remove the mount point {m}: {e}", r.err().map(|x| format!("{x}; ")).unwrap_or_default()));
     }
     r
+}
+
+// --- provision ----------------------------------------------------------------
+
+/// Home and delta for an instance whose T1 file exists (the installer seeds
+/// it, then calls this inside `arch-chroot`; cu4 ruling 9). The T1 file is
+/// never written or removed here; the undo removes only what this run made.
+pub fn provision(env: &Env, host: &dyn Host, name: &str) -> Result<()> {
+    let (mut cid, mut window, mut undone) = (None, None, false);
+    let r = provision_inner(env, host, name, &mut cid, &mut window, &mut undone);
+    let result = match &r {
+        Ok(()) => "provisioned".to_string(),
+        Err(e) if undone => format!("undone: {e}"),
+        Err(e) => format!("refused: {e}"),
+    };
+    let cid = cid.unwrap_or_else(|| "-".to_string());
+    journal(env, host, &format!("provision {name} (CID {cid}, invoked by {}): {result}", invoked_by()));
+    drop(window);
+    r
+}
+
+fn provision_inner(env: &Env, host: &dyn Host, name: &str, cid_out: &mut Option<String>, window: &mut Option<SignalBlock>, undone: &mut bool) -> Result<()> {
+    check_app_name(name)?;
+    let _lock = launch_lock(env)?;
+
+    let t1_path = env.t1_path(name);
+    if !exists(&t1_path)? {
+        return Err(format!("no T1 file {}: provision sets up an instance that has one; 'katmate-vm create' writes one", t1_path.display()));
+    }
+    let kv = t1::parse_kv(&host.run(&[&env.lib("katmate-t1-read"), name])?)?;
+    *cid_out = kv.get("cid").cloned();
+    let get = |k: &str| kv.get(k).map(String::as_str).unwrap_or("");
+    if get("class") != "app" {
+        return Err(format!("{}: class = '{}'; katmate-vm provisions AppVMs (class = app) only", t1_path.display(), get("class")));
+    }
+    if get("persistence") != "persistent" {
+        return Err(format!("{}: persistence = '{}'; only a persistent home is provisioned (ADR-030 §7)", t1_path.display(), get("persistence")));
+    }
+    let layer = get("manifest").to_string();
+    let d = env.d_path(name);
+    if exists(&d)? {
+        return Err(format!("{} exists beside the T1 file; not provisioned", d.display()));
+    }
+    let entries = cid::parse_pairs(&host.run(&[&env.lib("katmate-t1-read"), "--pairs"])?).map_err(|e| e.0)?;
+    let report = cid::check(&entries);
+    if !report.errors.is_empty() {
+        return Err(format!("the CID set is not valid: {}", report.errors.join("; ")));
+    }
+    let delta = env.delta_path(name);
+    if exists(&delta)? {
+        return Err(format!("{} exists; provision makes a new delta and overwrites none", delta.display()));
+    }
+
+    let out = host.run(&[&env.lib("katmate-check-image"), "--layer", &layer]).map_err(|e| format!("layer '{layer}' refused: {e}"))?;
+    let (vg, app_lv) = parse_app_lv(&out)?;
+    log(format!("layer '{layer}': payload present, not stale, APP_LV={vg}/{app_lv}"));
+    if let Some(h) = find_home(&list_lvs(env, host)?, name)? {
+        return Err(format!("{h} exists; provision makes a new home and attaches none"));
+    }
+    host.run(&[&env.lib("katmate-activate-lvs"), "--layer", &layer]).map_err(|e| format!("layer '{layer}' refused: {e}"))?;
+    log(format!("layer '{layer}': chain active and frozen"));
+
+    let home = format!("{vg}/{}", home_lv(name));
+    let mut done = Vec::new();
+    *window = Some(SignalBlock::new()?);
+    match make_home(env, host, name, &home, &mut done).and_then(|_| make_delta(env, host, name, &format!("{vg}/{app_lv}"), &mut done)) {
+        Ok(()) => Ok(()),
+        Err(e) => {
+            *undone = true;
+            let steps = undo(env, host, done);
+            Err(format!("{e}. Undone, in reverse: {}", if steps.is_empty() { "nothing".to_string() } else { steps.join("; ") }))
+        }
+    }
 }
 
 // --- delete -------------------------------------------------------------------

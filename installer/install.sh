@@ -38,11 +38,8 @@ MIN_RAM_KB=$(( 14 * 1024 * 1024 ))
 
 VG=vg0
 POOL=vm_pool            # build/config.sh POOL (operator ruling R5)
-HOME_LV_SIZE=10G        # PARAMETERS.md, Home LV (docs/DEV-ENV.md form of record)
-DELTA_SIZE=10G          # PARAMETERS.md, Instance delta
 NETVM_MARGIN_MB=1024    # free extents left in vg0 beside netVM's linear LV (R6)
 POOL_SLACK_MB=8192      # pool room above the images' allocated size
-ALPHA_INSTANCES=(app_web app_personal app_work app_vault app_sandbox)
 
 # ---------------------------------------------------------------------------
 
@@ -327,6 +324,24 @@ KERNEL_PROV="$(rel_env_get "$REL_ENV" KERNEL_PROVENANCE)"
 echo "Release: $RELEASE_TAG"
 
 rel_check_tree "$ARCHIVE" "katmate-os-$RELEASE_TAG" "$TREE"
+
+# The instance set this installer seeds is installer/t1/*.toml.in, read with
+# katmate-lib.sh's T1 reader (R150); every instance list below derives from it.
+# shellcheck disable=SC2034  # read by katmate-lib.sh
+KM_PROG="install.sh"
+# shellcheck source=host/usr/lib/katmate/katmate-lib.sh
+source "$TREE/host/usr/lib/katmate/katmate-lib.sh"
+T1_ALL=()
+T1_APP=()
+declare -A TPL=()
+for f in "$TREE"/installer/t1/*.toml.in; do
+  [[ -f "$f" ]] || die "no installer/t1/*.toml.in in $TREE"
+  km_flat_read "$f" TPL
+  T1_ALL+=("$(basename "$f" .toml.in)")
+  if [[ "${TPL[class]-}" == app ]]; then T1_APP+=("$(basename "$f" .toml.in)"); fi
+done
+(( ${#T1_APP[@]} > 0 )) || die "installer/t1 holds no template with class = app."
+echo "T1 templates: ${T1_ALL[*]}; class = app: ${T1_APP[*]}"
 
 # netVM's image must be the release-clean one (operator ruling R18): its
 # metadata, shipped beside the image and covered by the signature, says so.
@@ -635,7 +650,7 @@ echo "Layout:"
 echo "  EFI:        512M"
 echo "  vg0/root:   ${ROOT_GB}G"
 echo "  vg0/swap:   ${SWAP_GB}G"
-echo "  vg0/${POOL}: ~$(( POOL_EST_MB / 1024 ))G thin pool (metadata ${TMETA_MB}M): images ${THIN_ALLOC_MB}M, ${#ALPHA_INSTANCES[@]} 10G home LVs"
+echo "  vg0/${POOL}: ~$(( POOL_EST_MB / 1024 ))G thin pool (metadata ${TMETA_MB}M): images ${THIN_ALLOC_MB}M, ${#T1_APP[@]} home LVs (katmate-vm provision)"
 echo "  vg0/vm_sys_netvm: ${NETVM_MB}M linear, plus ${NETVM_MARGIN_MB}M left free"
 echo ""
 read -rp "WIPE $DISK and apply this layout — everything on it will be erased (yes/no): " CONFIRM
@@ -909,42 +924,8 @@ for tpl in "$TREE"/installer/t1/*.toml.in; do
   install -m 0644 -o root -g root "$tpl" "$dst"
   T1_CREATED+=("$name")
 done
-(( ${#T1_CREATED[@]} == 6 )) || die "Created ${#T1_CREATED[@]} T1 files, expected 6."
+(( ${#T1_CREATED[@]} == ${#T1_ALL[@]} )) || die "Created ${#T1_CREATED[@]} T1 files, expected ${#T1_ALL[@]}."
 echo "  created: ${T1_CREATED[*]}"
-
-# The manifest of each alpha instance, from its own T1 file: one source.
-t1_manifest() { sed -n 's/^manifest[[:space:]]*=[[:space:]]*"\([a-z]*\)".*/\1/p' "/mnt/etc/katmate/vm/$1.toml"; }
-
-# ---------------------------------------------------------------------------
-# Home LVs and instance deltas (operator ruling R7)
-# ---------------------------------------------------------------------------
-# The docs/DEV-ENV.md form of record: vm_<instance>_home, 10G thin in vm_pool,
-# ext4 with default options, user/ 1000:1000 0700. The delta is a qcow2 over
-# the instance's app layer, as PARAMETERS.md records it, root:root 0644
-# (QEMU runs as root; on MINIS they were made as `host`).
-
-log "Home LVs and instance deltas"
-
-HM="$(mktemp -d)"
-for inst in "${ALPHA_INSTANCES[@]}"; do
-  lv="vm_${inst}_home"
-  lvcreate -q -V "$HOME_LV_SIZE" -T "$VG/$POOL" -n "$lv"
-  udevadm settle
-  attr="$(lvs --noheadings -o lv_attr "$VG/$lv" | tr -d ' ')"
-  [[ "${attr:4:1}" == a ]] || die "$VG/$lv is not active after creation (lv_attr $attr)."
-  mkfs.ext4 -q "/dev/$VG/$lv"
-  mount "/dev/$VG/$lv" "$HM"
-  install -d -o 1000 -g 1000 -m 0700 "$HM/user"
-  umount "$HM"
-
-  manifest="$(t1_manifest "$inst")"
-  [[ -n "$manifest" && -f "$KS/app-$manifest.meta" ]] || die "/etc/katmate/vm/$inst.toml: manifest '$manifest' has no app layer: app-$manifest.meta was not installed."
-  arch-chroot /mnt qemu-img create -q -f qcow2 -F raw -b "/dev/$VG/vm_app_$manifest" \
-    "/var/lib/katmate/instances/$inst.qcow2" "$DELTA_SIZE"
-  chmod 0644 "/mnt/var/lib/katmate/instances/$inst.qcow2"
-  echo "  $inst: $VG/$lv (ext4, user/ 1000:1000 0700), delta over $VG/vm_app_$manifest"
-done
-rmdir "$HM"
 
 # ---------------------------------------------------------------------------
 # KatMate host parts (T4) and host binaries
@@ -1016,6 +997,21 @@ chmod 0440 /mnt/etc/sudoers.d/katmate-launch
 
 # The GUI path's host end, for every user's manager (R12; HOST-CONFIG §11).
 install -D -m 0644 "$TREE/installer/files/waypipe-client.service" /mnt/etc/systemd/user/waypipe-client.service
+
+# ---------------------------------------------------------------------------
+# Home LVs and instance deltas (operator ruling R7; cu4 ruling 9)
+# ---------------------------------------------------------------------------
+# katmate-vm provision makes each class = app instance's home LV and delta in
+# the form of record (docs/DEV-ENV.md) from the T1 file seeded above, and never
+# writes T1. It runs in the target, where its helpers, T1 and T2 are at their
+# own paths; vg0 and its pool are the same inside and out.
+
+log "Home LVs and instance deltas"
+
+for inst in "${T1_APP[@]}"; do
+  arch-chroot /mnt /usr/lib/katmate/katmate-vm provision "$inst" \
+    || die "katmate-vm provision $inst failed (lines above)."
+done
 
 # ---------------------------------------------------------------------------
 # Desktop (desktop/README.md, Deployment; operator rulings R13, R14)
@@ -1171,18 +1167,22 @@ fi
 # No network profile on the host (R11).
 [[ -z "$(ls -A /mnt/etc/systemd/network 2>/dev/null)" ]] || die "/etc/systemd/network on the target is not empty: the host keeps no network profile"
 
-# The alpha's KatMate set.
-for lv in vm_tpl_foundation vm_app_web vm_app_office vm_app_vault vm_sys_netvm \
-          vm_app_web_home vm_app_personal_home vm_app_work_home vm_app_vault_home \
-          vm_app_sandbox_home; do
+# The alpha's KatMate set; the instance lists from installer/t1 (cu4 ruling 9).
+CHECK_LVS=(vm_tpl_foundation vm_app_web vm_app_office vm_app_vault vm_sys_netvm)
+CHECK_FILES=()
+for i in "${T1_ALL[@]}"; do CHECK_FILES+=("/mnt/etc/katmate/vm/$i.toml"); done
+for i in "${T1_APP[@]}"; do
+  CHECK_LVS+=("vm_${i}_home")
+  CHECK_FILES+=("/mnt/var/lib/katmate/instances/$i.qcow2")
+done
+for lv in "${CHECK_LVS[@]}"; do
   lvs "$VG/$lv" >/dev/null 2>&1 || die "LV $VG/$lv missing"
 done
-for f in /mnt/etc/katmate/vm/{netvm,app_web,app_personal,app_work,app_vault,app_sandbox}.toml \
+for f in "${CHECK_FILES[@]}" \
          /mnt/var/lib/katmate/{foundation,app-web,app-office,app-vault}.meta \
          /mnt/usr/lib/katmate/layer/{web,office,vault}.toml \
          /mnt/var/lib/katmate/netvm/{netvm.meta,vmlinuz,initrd.img} \
          "/mnt/var/lib/katmate/kernels/$KERNEL_FILE" \
-         /mnt/var/lib/katmate/instances/{app_web,app_personal,app_work,app_vault,app_sandbox}.qcow2 \
          /mnt/usr/lib/katmate/ping-client /mnt/usr/lib/katmate/katmate-alloc /mnt/usr/lib/katmate/katmate-vm \
          /mnt/opt/katmate/bin/waypipe \
          /mnt/etc/sudoers.d/katmate-launch /mnt/etc/modprobe.d/katmate-vfio.conf \
