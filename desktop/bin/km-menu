@@ -14,7 +14,7 @@
 
 set -u
 
-DATA=/usr/share/katmate          # applications/: installer/gen-desktop-entries
+DATA=/var/lib/katmate/desktop    # applications/: katmate-vm menu (state, not /usr)
 KM_LAUNCH=/usr/local/bin/km-launch
 # KatMate system UI, so an explicit config, as waybar's -c: a user's own
 # fuzzel config is left to the user's own fuzzel use.
@@ -46,7 +46,8 @@ apps() {
 }
 
 vms() {
-    local -a insts lines states
+    # Assigned empty: with no AppVM left, set -u stops at an unset array.
+    local -a insts=() lines=() states=()
     local inst st i choice all="Stop all AppVMs"
     shopt -s nullglob
     local files=("$DATA"/applications/km-*.desktop)

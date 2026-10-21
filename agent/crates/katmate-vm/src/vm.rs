@@ -1,12 +1,14 @@
-//! `create`, `delete` and `status` (cu4 rulings 1–7).
+//! `create`, `delete` and `status` (cu4 rulings 1–7); `menu` (cu5).
 
 use crate::host::Host;
 use crate::t1::{self, Props};
 use katmate_alloc::{check_name, cid, unit_live, unit_state, write_file, Pool};
 use std::collections::BTreeSet;
+use std::ffi::CString;
 use std::fs::{self, File, OpenOptions};
 use std::io;
 use std::os::fd::AsRawFd;
+use std::os::unix::ffi::OsStrExt;
 use std::os::unix::fs::{MetadataExt, OpenOptionsExt, PermissionsExt};
 use std::path::{Path, PathBuf};
 use std::time::{Duration, Instant};
@@ -26,6 +28,11 @@ pub struct Env {
     pub etc_vm: PathBuf,
     pub instances: PathBuf,
     pub run_dir: PathBuf,
+    /// T2: the layer metas the menu reads.
+    pub t2: PathBuf,
+    /// The launcher's entries are `<desktop>/applications` (state, not `/usr`;
+    /// cu5 ruling 1): km-menu's `DATA`.
+    pub desktop: PathBuf,
     /// System binaries: LVM, mkfs, mount, qemu-img, systemctl.
     pub bin: PathBuf,
     /// T4 helpers beside this binary (R155: never a build tree).
@@ -39,6 +46,8 @@ impl Env {
             etc_vm: "/etc/katmate/vm".into(),
             instances: "/var/lib/katmate/instances".into(),
             run_dir: "/run/katmate".into(),
+            t2: "/var/lib/katmate".into(),
+            desktop: "/var/lib/katmate/desktop".into(),
             bin: "/usr/bin".into(),
             lib: "/usr/lib/katmate".into(),
             lock_timeout: Duration::from_secs(90),
@@ -291,25 +300,42 @@ fn undo(env: &Env, host: &dyn Host, done: Vec<Undo>) -> Vec<String> {
         .collect()
 }
 
-pub fn create(env: &Env, host: &dyn Host, o: &CreateOpts) -> Result<()> {
-    let (mut cid, mut window, mut undone) = (None, None, false);
-    let r = create_inner(env, host, o, &mut cid, &mut window, &mut undone);
+/// `Ok(Some(reason))`: created, but the menu was not updated (exit 3; cu5
+/// ruling 5). The instance stays.
+pub fn create(env: &Env, host: &dyn Host, o: &CreateOpts) -> Result<Option<String>> {
+    let (mut cid, mut window, mut undone, mut lock) = (None, None, false, None);
+    let r = create_inner(env, host, o, &mut lock, &mut cid, &mut window, &mut undone);
+    let menu = r.is_ok().then(|| menu_update(env, host).err()).flatten();
     let result = match &r {
-        Ok(()) => "created".to_string(),
+        Ok(()) => format!("created{}", not_updated(&menu)),
         Err(e) if undone => format!("undone: {e}"),
         Err(e) => format!("refused: {e}"),
     };
     let cid = cid.map_or_else(|| "-".to_string(), |c: u32| c.to_string());
     journal(env, host, &format!("create {} (CID {cid}, invoked by {}): {result}", o.name, invoked_by()));
     drop(window);
-    r
+    drop(lock);
+    r.map(|()| menu)
 }
 
-fn create_inner(env: &Env, host: &dyn Host, o: &CreateOpts, cid_out: &mut Option<u32>, window: &mut Option<SignalBlock>, undone: &mut bool) -> Result<()> {
+fn not_updated(menu: &Option<String>) -> String {
+    menu.as_ref().map(|e| format!("; menu not updated: {e}")).unwrap_or_default()
+}
+
+#[allow(clippy::too_many_arguments)]
+fn create_inner(
+    env: &Env,
+    host: &dyn Host,
+    o: &CreateOpts,
+    lock: &mut Option<LaunchLock>,
+    cid_out: &mut Option<u32>,
+    window: &mut Option<SignalBlock>,
+    undone: &mut bool,
+) -> Result<()> {
     check_app_name(&o.name)?;
     t1::check_mem(&o.mem)?;
     t1::check_vcpus(&o.vcpus)?;
-    let _lock = launch_lock(env)?;
+    *lock = Some(launch_lock(env)?);
 
     let t1_path = env.t1_path(&o.name);
     if exists(&t1_path)? {
@@ -542,24 +568,40 @@ fn provision_inner(env: &Env, host: &dyn Host, name: &str, cid_out: &mut Option<
 
 // --- delete -------------------------------------------------------------------
 
-pub fn delete(env: &Env, host: &dyn Host, name: &str, purge: bool) -> Result<()> {
-    let (mut cid, mut window, mut removing) = (None, None, false);
-    let r = delete_inner(env, host, name, purge, &mut cid, &mut window, &mut removing);
+/// As [`create`]: `Ok(Some(reason))` is deleted, menu not updated. The menu
+/// is rewritten whenever the T1 file is gone at the end, a delete that failed
+/// after its first removal included (cu5 ruling 4).
+pub fn delete(env: &Env, host: &dyn Host, name: &str, purge: bool) -> Result<Option<String>> {
+    let (mut cid, mut window, mut removing, mut lock) = (None, None, false, None);
+    let r = delete_inner(env, host, name, purge, &mut lock, &mut cid, &mut window, &mut removing);
+    let gone = removing && matches!(exists(&env.t1_path(name)), Ok(false));
+    let menu = gone.then(|| menu_update(env, host).err()).flatten();
     let result = match &r {
-        Ok(()) if purge => "purged".to_string(),
-        Ok(()) => "deleted".to_string(),
-        Err(e) if removing => format!("failed after the first removal: {e}"),
+        Ok(()) if purge => format!("purged{}", not_updated(&menu)),
+        Ok(()) => format!("deleted{}", not_updated(&menu)),
+        Err(e) if removing => format!("failed after the first removal: {e}{}", not_updated(&menu)),
         Err(e) => format!("refused: {e}"),
     };
     let cid = cid.unwrap_or_else(|| "-".to_string());
     journal(env, host, &format!("delete {name} (CID {cid}, invoked by {}): {result}", invoked_by()));
     drop(window);
-    r
+    drop(lock);
+    r.map(|()| menu)
 }
 
-fn delete_inner(env: &Env, host: &dyn Host, name: &str, purge: bool, cid_out: &mut Option<String>, window: &mut Option<SignalBlock>, removing: &mut bool) -> Result<()> {
+#[allow(clippy::too_many_arguments)]
+fn delete_inner(
+    env: &Env,
+    host: &dyn Host,
+    name: &str,
+    purge: bool,
+    lock: &mut Option<LaunchLock>,
+    cid_out: &mut Option<String>,
+    window: &mut Option<SignalBlock>,
+    removing: &mut bool,
+) -> Result<()> {
     check_app_name(name)?;
-    let _lock = launch_lock(env)?;
+    *lock = Some(launch_lock(env)?);
 
     let t1_path = env.t1_path(name);
     let has_t1 = exists(&t1_path)?;
@@ -631,6 +673,95 @@ fn delete_inner(env: &Env, host: &dyn Host, name: &str, purge: bool, cid_out: &m
         (None, _) => log(format!("no home LV {}", home_lv(name))),
     }
     Ok(())
+}
+
+// --- menu ---------------------------------------------------------------------
+
+/// `katmate-vm menu`: the entries regenerated under the launch lock, for
+/// recovery after a create or delete that exited 3.
+pub fn menu(env: &Env, host: &dyn Host) -> Result<()> {
+    let r = launch_lock(env).and_then(|_lock| menu_update(env, host));
+    let result = match &r {
+        Ok(summary) => format!("updated: {summary}"),
+        Err(e) => format!("not updated: {e}"),
+    };
+    journal(env, host, &format!("menu (invoked by {}): {result}", invoked_by()));
+    r.map(|_| ())
+}
+
+fn rename_exchange(a: &Path, b: &Path) -> io::Result<()> {
+    let a = CString::new(a.as_os_str().as_bytes())?;
+    let b = CString::new(b.as_os_str().as_bytes())?;
+    // SAFETY: two NUL-terminated paths that outlive the call.
+    if unsafe { libc::renameat2(libc::AT_FDCWD, a.as_ptr(), libc::AT_FDCWD, b.as_ptr(), libc::RENAME_EXCHANGE) } == 0 {
+        Ok(())
+    } else {
+        Err(io::Error::last_os_error())
+    }
+}
+
+/// Generates `<desktop>/applications.new` and swaps it with the live
+/// directory in one `renameat2(RENAME_EXCHANGE)` (cu5 ruling 3), so a path
+/// lookup finds the old set or the new one, never a missing or partial
+/// directory; a failure before the swap leaves the live set as it was. The
+/// old set is kept as `applications.old` until the next update, so a reader
+/// that opened it before the swap reads it whole (H2 ruling 1). The caller
+/// holds the launch lock. Answers the generator's summary line.
+pub fn menu_update(env: &Env, host: &dyn Host) -> Result<String> {
+    let base = &env.desktop;
+    fs::create_dir_all(base).map_err(|e| format!("cannot create {}: {e}", base.display()))?;
+    let m = fs::symlink_metadata(base).map_err(|e| format!("cannot stat {}: {e}", base.display()))?;
+    if !m.is_dir() {
+        return Err(format!("{} is not a directory", base.display()));
+    }
+    fs::set_permissions(base, fs::Permissions::from_mode(0o755)).map_err(|e| format!("cannot chmod {}: {e}", base.display()))?;
+    let live = base.join("applications");
+    let new = base.join("applications.new");
+    let old = base.join("applications.old");
+    let remove = |p: &Path| match fs::remove_dir_all(p) {
+        Ok(()) => Ok(()),
+        Err(e) if e.kind() == io::ErrorKind::NotFound => Ok(()),
+        Err(e) => Err(format!("cannot remove {}: {e}", p.display())),
+    };
+    if exists(&new)? {
+        remove(&new)?;
+        log(format!("removed {}, left by an interrupted run", new.display()));
+    }
+    remove(&old)?;
+
+    let gen = host.run(&[
+        &env.lib("katmate-generate-menu"),
+        &env.etc_vm.to_string_lossy(),
+        &env.t2.to_string_lossy(),
+        &new.to_string_lossy(),
+    ]);
+    let swapped = gen.and_then(|out| {
+        let exchanged = match fs::symlink_metadata(&live) {
+            Ok(m) if m.is_dir() => {
+                rename_exchange(&new, &live).map_err(|e| format!("cannot exchange {} with {}: {e}", new.display(), live.display()))?;
+                true
+            }
+            Ok(_) => return Err(format!("{} is not a directory; not replaced", live.display())),
+            Err(e) if e.kind() == io::ErrorKind::NotFound => {
+                fs::rename(&new, &live).map_err(|e| format!("cannot rename {} to {}: {e}", new.display(), live.display()))?;
+                false
+            }
+            Err(e) => return Err(format!("cannot stat {}: {e}", live.display())),
+        };
+        Ok((exchanged, out.lines().rev().find(|l| !l.trim().is_empty()).unwrap_or("").trim().to_string()))
+    });
+    // The live set is right from here on, so what is left beside it is only
+    // a warning; the next update removes it.
+    let leftover = match &swapped {
+        Ok((true, _)) => fs::rename(&new, &old).map_err(|e| format!("cannot rename {} to {}: {e}", new.display(), old.display())),
+        _ => remove(&new),
+    };
+    if let Err(e) = leftover {
+        eprintln!("[katmate-vm] WARNING: {e}; the next menu update removes it");
+    }
+    let (_, summary) = swapped?;
+    log(format!("menu: {summary}; swapped in as {}", live.display()));
+    Ok(summary)
 }
 
 // --- status -------------------------------------------------------------------

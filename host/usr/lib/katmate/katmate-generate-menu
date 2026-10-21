@@ -1,38 +1,41 @@
 #!/usr/bin/env bash
-# gen-desktop-entries — the launcher's desktop entries, one per (AppVM, app),
-# and one that opens the AppVM list
+# katmate-generate-menu — the launcher's desktop entries, one per (AppVM, app),
+# and one that opens the AppVM list (T4; cu5)
 #
-# Usage: gen-desktop-entries <t1-vm-dir> <t2-dir> <outdir>
+# Usage: katmate-generate-menu <t1-vm-dir> <t2-dir> <outdir>
 #
 # The instances are the T1 files with class = app, in name order: the set
 # katmate-launch admits. What each may run is the RUN line of its layer's T2 meta, the list
 # katmate-launch enforces (ADR-043 §5): each instance's T1 file names the
-# layer, and <t2-dir>/app-<layer>.meta carries RUN. km-menu shows <outdir> to
-# fuzzel as the only applications directory, and reads X-KatMate-Instance for
-# its AppVM list.
+# layer, and <t2-dir>/app-<layer>.meta carries RUN. km-menu shows <outdir>'s
+# parent to fuzzel as the only data directory, and reads X-KatMate-Instance
+# for its AppVM list. No class = app instance is a valid set: only the AppVMs
+# entry is written.
 #
-# Exit: 0 written, 1 refused (the message says why), 2 usage.
+# Run by katmate-vm menu into a fresh directory that it then swaps in, and by
+# the installer into the target. Exit: 0 written, 1 refused (the message says
+# why), 2 usage.
 
 set -euo pipefail
 
-die() { printf '[gen-desktop-entries] FATAL: %s\n' "$*" >&2; exit 1; }
+die() { printf '[katmate-generate-menu] FATAL: %s\n' "$*" >&2; exit 1; }
 
-(( $# == 3 )) || { echo "usage: gen-desktop-entries <t1-vm-dir> <t2-dir> <outdir>" >&2; exit 2; }
+(( $# == 3 )) || { echo "usage: katmate-generate-menu <t1-vm-dir> <t2-dir> <outdir>" >&2; exit 2; }
 T1_DIR="$1"
 T2_DIR="$2"
 OUT="$3"
 export LC_COLLATE=C
 
-LIB="$(dirname -- "$0")/../host/usr/lib/katmate/katmate-lib.sh"
+LIB="$(dirname -- "$0")/katmate-lib.sh"
 [[ -r "$LIB" ]] || die "$LIB is not readable"
 # shellcheck disable=SC2034
-KM_PROG="gen-desktop-entries"
+KM_PROG="katmate-generate-menu"
 # shellcheck source=host/usr/lib/katmate/katmate-lib.sh
 source "$LIB"
 
 # Prints "<instance> <app>" lines, in instance name order and RUN order.
 read_apps() {
-    local f line inst layer meta app n=0
+    local f line inst layer meta app
     local -a run=()
     local -A t1=()
     for f in "$T1_DIR"/*.toml; do
@@ -53,9 +56,7 @@ read_apps() {
             [[ "$app" =~ $KM_PKG_NAME_RE ]] || die "$meta: RUN entry '$app' does not match $KM_PKG_NAME_RE"
             printf '%s %s\n' "$inst" "$app"
         done
-        n=$(( n + 1 ))
     done
-    (( n > 0 )) || die "$T1_DIR holds no T1 file with class = app"
 }
 
 # Cosmetic only: the RUN list is the authority, so a binary without a display
@@ -71,6 +72,7 @@ label() {
     esac
 }
 
+[[ -d "$T1_DIR" ]] || die "$T1_DIR is not a directory"
 if [[ -e "$OUT" ]]; then
     [[ -d "$OUT" && -z "$(ls -A "$OUT")" ]] || die "$OUT exists and is not an empty directory"
 fi
@@ -95,7 +97,7 @@ while read -r inst app; do
         "X-KatMate-Instance=$inst" >"$f"
     chmod 0644 "$f"
     count=$(( count + 1 ))
-done <<<"$pairs"
+done < <([[ -z "$pairs" ]] || printf '%s\n' "$pairs")
 
 # The AppVM list (state, stop) is reached from the launcher, not from the bar.
 f="$OUT/km-99-appvms.desktop"
@@ -107,4 +109,4 @@ printf '%s\n' \
     'Terminal=false' >"$f"
 chmod 0644 "$f"
 
-echo "[gen-desktop-entries] $count entries for ${#idx[@]} instances, and the AppVMs entry, in $OUT"
+echo "[katmate-generate-menu] $count entries for ${#idx[@]} instances, and the AppVMs entry, in $OUT"

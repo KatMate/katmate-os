@@ -3,7 +3,7 @@
 # manifest reader in katmate-lib.sh, the RUN and CID checks in katmate-launch,
 # the layer checks and --faces in katmate-generate-env, the layer checks in
 # katmate-check-image and katmate-activate-lvs, and
-# installer/gen-desktop-entries. Needs no root, no LVM and no VM.
+# katmate-generate-menu. Needs no root, no LVM and no VM.
 #
 # The T4 executables run from copies whose path constants (and the uid guards)
 # are rewritten to a fixture tree; every rewrite must match, or the harness
@@ -271,27 +271,72 @@ echo 'Vwi-a-tz--' >"$T/attr/vg0_vm_tpl_foundation"
 expect_fail "activate-lvs: writable foundation refused" 1 "foundation LV: vg0/vm_tpl_foundation has lv_attr 'Vwi-a-tz--', not read-only" A
 echo 'Vri-a-tz--' >"$T/attr/vg0_vm_tpl_foundation"
 
-# --- 6. installer/gen-desktop-entries ----------------------------------------
-D() { rm -rf "$T/apps"; "$ROOT/installer/gen-desktop-entries" "$T/etc/katmate/vm" "$T/var/lib/katmate" "$T/apps"; }
-expect_ok "gen-desktop-entries: 15 entries for 5 instances" "15 entries for 5 instances" D
+# --- 6. katmate-generate-menu -------------------------------------------------
+# Run from the tree: it sources katmate-lib.sh as its sibling, as installed.
+D() { rm -rf "$T/apps"; "$K/katmate-generate-menu" "${T1D:-$T/etc/katmate/vm}" "$T/var/lib/katmate" "$T/apps"; }
+expect_ok "generate-menu: 15 entries for 5 instances" "15 entries for 5 instances" D
 # cu2's sixteen files, indexed in instance name order since cu3 (the T1 tree,
 # not a list in katmate-launch).
 want="km-00-app_personal-firefox-esr km-00-app_personal-foot km-00-app_personal-pcmanfm km-01-app_sandbox-firefox-esr km-01-app_sandbox-foot km-01-app_sandbox-pcmanfm km-02-app_vault-foot km-02-app_vault-keepassxc km-02-app_vault-pcmanfm km-03-app_web-firefox-esr km-03-app_web-foot km-03-app_web-pcmanfm km-04-app_work-foot km-04-app_work-libreoffice km-04-app_work-pcmanfm km-99-appvms"
 have="$(cd "$T/apps" && ls | sed 's/\.desktop$//' | LC_ALL=C sort | tr '\n' ' ')"
 n=$((n + 1))
-if [[ "${have% }" == "$want" ]]; then pass "gen-desktop-entries: 16 files in instance name order (cardinality 16)"; else fail "gen-desktop-entries: 16 files in instance name order" "$have"; fi
+if [[ "${have% }" == "$want" ]]; then pass "generate-menu: 16 files in instance name order (cardinality 16)"; else fail "generate-menu: 16 files in instance name order" "$have"; fi
 app_meta web "firefox-esr gimp"
 D >/dev/null
 n=$((n + 1))
-if grep -qx 'Name=\[web\] gimp' "$T/apps/km-03-app_web-gimp.desktop" 2>/dev/null; then pass "gen-desktop-entries: unlabelled binary shown by its name"; else fail "gen-desktop-entries: unlabelled binary shown by its name"; fi
+if grep -qx 'Name=\[web\] gimp' "$T/apps/km-03-app_web-gimp.desktop" 2>/dev/null; then pass "generate-menu: unlabelled binary shown by its name"; else fail "generate-menu: unlabelled binary shown by its name"; fi
 app_meta web ""
-expect_fail "gen-desktop-entries: meta without RUN refused" 1 "records no RUN" D
+expect_fail "generate-menu: meta without RUN refused" 1 "records no RUN" D
 std_metas
 set_manifest app_work nosuch
-expect_fail "gen-desktop-entries: unknown layer refused, no partial set" 1 "T2 image metadata not found" D
+expect_fail "generate-menu: unknown layer refused, no partial set" 1 "T2 image metadata not found" D
 n=$((n + 1))
-if [[ ! -e "$T/apps" ]]; then pass "gen-desktop-entries: nothing written on refusal"; else fail "gen-desktop-entries: nothing written on refusal"; fi
+if [[ ! -e "$T/apps" ]]; then pass "generate-menu: nothing written on refusal"; else fail "generate-menu: nothing written on refusal"; fi
 set_manifest app_work office
+# cu5 ruling 2: no class = app instance is a valid set (every AppVM deleted).
+mkdir -p "$T/t1-none"
+cp "$T/etc/katmate/vm/netvm.toml" "$T/t1-none/"
+T1D="$T/t1-none" expect_ok "generate-menu: no AppVM, only the AppVMs entry" "0 entries for 0 instances" D
+have="$(cd "$T/apps" && printf '%s ' *)"
+n=$((n + 1))
+if [[ "${have% }" == "km-99-appvms.desktop" ]]; then pass "generate-menu: no AppVM, one file (cardinality 1)"; else fail "generate-menu: no AppVM, one file" "$have"; fi
+rm "$T/t1-none/netvm.toml"
+T1D="$T/t1-none" expect_ok "generate-menu: empty T1 directory, only the AppVMs entry" "0 entries for 0 instances" D
+T1D="$T/nosuch" expect_fail "generate-menu: missing T1 directory refused" 1 "is not a directory" D
+mkdir -p "$T/apps-full"; touch "$T/apps-full/x"
+expect_fail "generate-menu: non-empty outdir refused" 1 "is not an empty directory" \
+  "$K/katmate-generate-menu" "$T/etc/katmate/vm" "$T/var/lib/katmate" "$T/apps-full"
+
+# --- 6b. km-menu vms over the generated set ------------------------------------
+# fuzzel is a stub that records its arguments and the lines offered, and picks
+# nothing; systemctl answers `activating` for every unit (above).
+cp "$ROOT/desktop/bin/km-menu" "$T/lib/km-menu"
+rw "$T/lib/km-menu" 'DATA=/var/lib/katmate/desktop' "DATA=$T/menu"
+# shellcheck disable=SC2016  # the stubs' own text
+printf '#!/bin/bash\necho "$*" >%q\ncat >%q\n' "$T/fuzzel.args" "$T/fuzzel.in" >"$T/bin/fuzzel"
+# shellcheck disable=SC2016
+printf '#!/bin/bash\necho "$*" >>%q\n' "$T/notify.log" >"$T/bin/notify-send"
+chmod +x "$T/bin/fuzzel" "$T/bin/notify-send"
+# M <t1-dir|-> : the menu set from that T1 directory (- for an empty one), then km-menu vms.
+M() {
+  rm -rf "$T/menu" "$T/fuzzel.args" "$T/fuzzel.in" "$T/notify.log"
+  if [[ "$1" == - ]]; then mkdir -p "$T/menu/applications"
+  else "$K/katmate-generate-menu" "$1" "$T/var/lib/katmate" "$T/menu/applications" >/dev/null; fi
+  PATH="$T/bin:$PATH" "$T/lib/km-menu" vms
+}
+expect_ok "km-menu vms: five AppVMs" "" M "$T/etc/katmate/vm"
+want="[personal]  activating|[sandbox]  activating|[vault]  activating|[web]  activating|[work]  activating|Stop all AppVMs"
+have="$(paste -sd '|' "$T/fuzzel.in" 2>&1 || true)"
+n=$((n + 1))
+if [[ "$have" == "$want" && "$(cat "$T/fuzzel.args")" == *"--lines=6" ]]; then pass "km-menu vms: five AppVMs and Stop all, 6 lines"; else fail "km-menu vms: five AppVMs" "$have / $(cat "$T/fuzzel.args")"; fi
+# B.5/2 of cu5: no AppVM left, only the AppVMs entry in the set.
+expect_ok "km-menu vms: no AppVM" "" M "$T/t1-none"
+have="$(paste -sd '|' "$T/fuzzel.in" 2>&1 || true)"
+n=$((n + 1))
+if [[ "$have" == "Stop all AppVMs" && "$(cat "$T/fuzzel.args")" == *"--lines=1" ]]; then pass "km-menu vms: no AppVM, only Stop all, 1 line"; else fail "km-menu vms: no AppVM" "$have / $(cat "$T/fuzzel.args" 2>&1)"; fi
+expect_fail "km-menu vms: no entries at all" 1 "" M -
+n=$((n + 1))
+if [[ ! -e "$T/fuzzel.in" ]] && grep -q "no entries in $T/menu/applications" "$T/notify.log" 2>/dev/null; then pass "km-menu vms: no entries, notified, no menu"; else fail "km-menu vms: no entries, notified, no menu"; fi
 
 # --- 7. cu4: katmate-t1-read and the --layer modes ----------------------------
 R() { "$T/lib/katmate-t1-read" "$@"; }

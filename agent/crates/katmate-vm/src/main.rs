@@ -6,11 +6,15 @@
 //!   katmate-vm status [<name>]
 //!   katmate-vm delete <name> [--purge]
 //!   katmate-vm provision <name>      home and delta for a seeded T1 (installer, in arch-chroot)
+//!   katmate-vm menu                  the launcher's entries, regenerated from T1 and T2
 //!
 //! Runs as uid 0 and refuses otherwise. T1 is read only through
 //! `katmate-t1-read` (R150); the layer is checked by `katmate-check-image
-//! --layer` and `katmate-activate-lvs --layer`. Exit: 0 done, 1 refused or
-//! failed, 2 usage.
+//! --layer` and `katmate-activate-lvs --layer`; the entries are written by
+//! `katmate-generate-menu`. `create` and `delete` rewrite the entries too.
+//! Exit: 0 done, 1 refused or failed, 2 usage, 3 created or deleted but the
+//! entries not updated (the instance is not undone; `katmate-vm menu`
+//! recovers).
 
 mod host;
 mod t1;
@@ -19,7 +23,9 @@ mod vm;
 use std::process::exit;
 
 const USAGE: &str = "usage: katmate-vm create <name> --layer <layer> [--mem <n>M|G] [--vcpus <n>] [--offline] [--reuse-home] | \
-                     katmate-vm status [<name>] | katmate-vm delete <name> [--purge] | katmate-vm provision <name>";
+                     katmate-vm status [<name>] | katmate-vm delete <name> [--purge] | katmate-vm provision <name> | katmate-vm menu\n\
+                     exit: 0 done, 1 refused or failed, 2 usage, 3 created or deleted but the launcher's entries not updated: \
+                     the instance stays as it is, and 'katmate-vm menu' recovers";
 
 fn usage(why: &str) -> ! {
     eprintln!("[katmate-vm] USAGE: {why}\n{USAGE}");
@@ -29,6 +35,18 @@ fn usage(why: &str) -> ! {
 fn die(msg: impl std::fmt::Display) -> ! {
     eprintln!("[katmate-vm] FATAL: {msg}");
     exit(1)
+}
+
+/// `create`'s and `delete`'s ending: a menu failure is exit 3 (cu5 ruling 5).
+fn done(r: vm::Result<Option<String>>) {
+    match r {
+        Ok(None) => {}
+        Ok(Some(why)) => {
+            eprintln!("[katmate-vm] MENU: the launcher's entries were not updated: {why}. The instance stays as it is; recover with 'katmate-vm menu'");
+            exit(3)
+        }
+        Err(e) => die(e),
+    }
 }
 
 /// `create`'s arguments; every option once at most, in any order after the name.
@@ -76,7 +94,7 @@ fn main() {
     match cmd.as_str() {
         "create" => {
             let o = parse_create(rest);
-            vm::create(&env, &host, &o).unwrap_or_else(|e| die(e));
+            done(vm::create(&env, &host, &o));
         }
         "provision" => match rest {
             [n] => vm::provision(&env, &host, n).unwrap_or_else(|e| die(e)),
@@ -88,8 +106,12 @@ fn main() {
                 [n, p] if p == "--purge" => (n, true),
                 _ => usage("delete <name> [--purge]"),
             };
-            vm::delete(&env, &host, name, purge).unwrap_or_else(|e| die(e));
+            done(vm::delete(&env, &host, name, purge));
         }
+        "menu" => match rest {
+            [] => vm::menu(&env, &host).unwrap_or_else(|e| die(e)),
+            _ => usage("menu takes no argument"),
+        },
         "status" => {
             let name = match rest {
                 [] => None,

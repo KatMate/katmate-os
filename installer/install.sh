@@ -1041,9 +1041,12 @@ install -m 0644 -D -t /mnt/etc/xdg/waybar/ \
 install -m 0644 -D -t /mnt/etc/xdg/waybar/svg/ "$DT/waybar/svg/no1-right.svg" \
   "$DT/waybar/svg/no1-cut-br.svg" "$DT/waybar/svg/katmate-mark.svg"
 install -m 0644 -D "$DT/fuzzel/fuzzel.ini" /mnt/usr/share/katmate/fuzzel/fuzzel.ini
-"$TREE/installer/gen-desktop-entries" \
+# The entries are state (katmate-vm menu rewrites them on every create and
+# delete); generated once here, after every provision.
+install -d -m 0755 /mnt/var/lib/katmate/desktop
+"$TREE/host/usr/lib/katmate/katmate-generate-menu" \
   /mnt/etc/katmate/vm /mnt/var/lib/katmate \
-  /mnt/usr/share/katmate/applications || die "the launcher's desktop entries were not generated"
+  /mnt/var/lib/katmate/desktop/applications || die "the launcher's desktop entries were not generated"
 install -m 0755 -D -t /mnt/usr/local/bin/ \
   "$DT/bin/km-launch" "$DT/bin/km-menu" "$DT/bin/km-shot" "$DT/bin/sway-session" "$DT/bin/sway-quiet"
 install -m 0644 -D -t /mnt/usr/share/backgrounds/katmate/ "$DT"/wallpapers/*.jpg

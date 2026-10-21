@@ -1,7 +1,8 @@
 //! Fixtures: a temp tree with the alpha's T1 templates, the real
 //! `katmate-lib.sh` and `katmate-t1-read` with their path constants rewritten
-//! into it (the method of host/tests/test-layer-run.sh), a stub `systemctl`,
-//! and a recording [`Fake`] host for LVM, mkfs, mount and qemu-img.
+//! into it (the method of host/tests/test-layer-run.sh), the real
+//! `katmate-generate-menu` beside them with three layer metas, a stub
+//! `systemctl`, and a recording [`Fake`] host for LVM, mkfs, mount and qemu-img.
 
 use crate::host::{reason, Host, RealHost};
 use crate::t1::{self, Props};
@@ -10,7 +11,7 @@ use katmate_alloc::{write_file, Owner};
 use std::cell::RefCell;
 use std::collections::BTreeSet;
 use std::fs;
-use std::os::unix::fs::PermissionsExt;
+use std::os::unix::fs::{MetadataExt, PermissionsExt};
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::Duration;
@@ -51,6 +52,10 @@ impl Fixture {
         let reader = fs::read_to_string(k.join("katmate-t1-read")).unwrap();
         let reader = rw(&reader, "source /usr/lib/katmate/katmate-lib.sh", &format!("source {}", root.join("lib/katmate-lib.sh").display()));
         exe(&root.join("lib/katmate-t1-read"), &reader);
+        exe(&root.join("lib/katmate-generate-menu"), &fs::read_to_string(k.join("katmate-generate-menu")).unwrap());
+        for (layer, run) in [("web", "firefox-esr foot pcmanfm"), ("office", "libreoffice foot pcmanfm"), ("vault", "keepassxc foot pcmanfm")] {
+            fs::write(root.join(format!("var/lib/katmate/app-{layer}.meta")), format!("KATMATE_META_VERSION=1\nRUN={run}\n")).unwrap();
+        }
         exe(
             &root.join("bin/systemctl"),
             &format!("#!/bin/sh\nf='{}'/\"$2\"\nif [ -f \"$f\" ]; then cat \"$f\"; else echo inactive; fi\nexit 3\n", root.join("units").display()),
@@ -64,6 +69,8 @@ impl Fixture {
             etc_vm: root.join("etc/katmate/vm"),
             instances: root.join("var/lib/katmate/instances"),
             run_dir: root.join("run/katmate"),
+            t2: root.join("var/lib/katmate"),
+            desktop: root.join("var/lib/katmate/desktop"),
             bin: root.join("bin"),
             lib: root.join("lib"),
             lock_timeout: Duration::from_millis(300),
@@ -159,6 +166,7 @@ impl Host for Fake {
                 _ => RealHost.run(argv),
             },
             "katmate-check-image" => self.check_image.clone(),
+            "katmate-generate-menu" => RealHost.run(argv),
             "lvs" if argv.contains(&"vg_name,lv_name") => Ok(self.lvs.borrow().iter().map(|l| format!("  {l}\n")).collect()),
             "lvs" => Ok("  Vwi-a-tz--\n".into()),
             "lvcreate" => {
@@ -301,9 +309,12 @@ fn create_writes_t1_home_and_delta_in_order() {
         order,
         [
             "katmate-check-image", "katmate-activate-lvs", "katmate-t1-read", "katmate-t1-read", "lvcreate", "udevadm", "mkfs.ext4",
-            "mount", "install", "stat", "umount", "qemu-img"
+            "mount", "install", "stat", "umount", "qemu-img", "katmate-generate-menu"
         ]
     );
+    // The menu is rewritten under the lock, before the outcome line.
+    let pos = |p: &str| calls.iter().position(|c| c.starts_with(p)).unwrap();
+    assert!(pos("qemu-img") < pos("katmate-generate-menu") && pos("katmate-generate-menu") < pos("logger"));
     assert!(h.called("lvcreate -q -V 10G -T vg0/vm_pool -n vm_app_cu4a_home"));
     assert!(h.called("katmate-t1-read app_cu4a"));
     assert!(h.called(&format!("qemu-img create -q -f qcow2 -F raw -b /dev/vg0/vm_app_web {} 10G", delta.display())));
@@ -779,4 +790,259 @@ fn status_rows() {
     let (rows, errors) = vm::status(&f.env, &h, None).unwrap();
     assert_eq!(rows.len(), 7);
     assert!(errors.len() == 1 && errors[0].contains("duplicate key 'class'"), "{errors:?}");
+}
+
+// --- menu (cu5) ---------------------------------------------------------------
+
+fn apps(f: &Fixture) -> PathBuf {
+    f.env.desktop.join("applications")
+}
+
+/// Each file of `d` as (name, mode, bytes), sorted.
+fn snapshot(d: &Path) -> Vec<(String, u32, Vec<u8>)> {
+    let mut v: Vec<_> = fs::read_dir(d)
+        .unwrap()
+        .map(|e| {
+            let p = e.unwrap().path();
+            (p.file_name().unwrap().to_string_lossy().into_owned(), mode(&p), fs::read(&p).unwrap())
+        })
+        .collect();
+    v.sort();
+    v
+}
+
+fn listing(d: &Path) -> Vec<String> {
+    snapshot(d).into_iter().map(|(n, _, _)| n).collect()
+}
+
+fn journal_lines(h: &Fake) -> Vec<String> {
+    h.calls().into_iter().filter(|c| c.starts_with("logger")).collect()
+}
+
+#[test]
+fn menu_on_a_missing_directory_is_the_generator_set() {
+    let f = Fixture::new();
+    let h = Fake::new();
+    assert!(!f.env.desktop.exists());
+    vm::menu(&f.env, &h).unwrap();
+    let d = apps(&f);
+    assert_eq!((mode(&f.env.desktop), mode(&d)), (0o755, 0o755));
+    let got = snapshot(&d);
+    assert_eq!(got.len(), 16);
+    assert!(got.iter().all(|(_, m, _)| *m == 0o644));
+    assert!(!f.env.desktop.join("applications.new").exists());
+    // The set the generator writes by hand, byte for byte.
+    let by_hand = f.root.join("by-hand");
+    let gen = f.env.lib.join("katmate-generate-menu");
+    RealHost.run(&[gen.to_str().unwrap(), f.env.etc_vm.to_str().unwrap(), f.env.t2.to_str().unwrap(), by_hand.to_str().unwrap()]).unwrap();
+    assert_eq!(got, snapshot(&by_hand));
+    let j = journal_lines(&h);
+    assert!(j.len() == 1 && j[0].contains("-- menu (invoked by ") && j[0].contains("): updated: [katmate-generate-menu] 15 entries for 5 instances"), "{j:?}");
+}
+
+#[test]
+fn menu_replaces_an_existing_directory_whole() {
+    let f = Fixture::new();
+    let h = Fake::new();
+    vm::menu(&f.env, &h).unwrap();
+    let first = snapshot(&apps(&f));
+    let ino = fs::metadata(apps(&f)).unwrap().ino();
+    let old = f.env.desktop.join("applications.old");
+    assert!(!old.exists(), "no swap yet, so no old set");
+    // A reader that opened the live directory before the swap.
+    let opened = fs::read_dir(apps(&f)).unwrap();
+    fs::remove_file(f.env.t1_path("app_work")).unwrap();
+    vm::menu(&f.env, &h).unwrap();
+    let names = listing(&apps(&f));
+    assert_eq!(names.len(), 13);
+    assert!(!names.iter().any(|n| n.contains("app_work")), "{names:?}");
+    assert_ne!(fs::metadata(apps(&f)).unwrap().ino(), ino, "not a new directory");
+    assert!(!f.env.desktop.join("applications.new").exists());
+    // H2 ruling 1: the old set stays whole as applications.old until the next update.
+    assert_eq!(fs::metadata(&old).unwrap().ino(), ino);
+    assert_eq!(snapshot(&old), first);
+    assert_eq!(opened.count(), 16, "the reader's directory was emptied under it");
+
+    fs::remove_file(f.env.t1_path("app_vault")).unwrap();
+    vm::menu(&f.env, &h).unwrap();
+    assert_eq!(listing(&apps(&f)).len(), 10);
+    assert_eq!(listing(&old).len(), 13, "the previous .old was not replaced");
+    let base: Vec<String> = fs::read_dir(&f.env.desktop).unwrap().map(|e| e.unwrap().file_name().to_string_lossy().into_owned()).collect();
+    assert_eq!(base.len(), 2, "{base:?}");
+}
+
+#[test]
+fn menu_removes_a_stale_new_directory() {
+    for live_first in [false, true] {
+        let f = Fixture::new();
+        let h = Fake::new();
+        if live_first {
+            vm::menu(&f.env, &h).unwrap();
+        }
+        let stale = f.env.desktop.join("applications.new");
+        fs::create_dir_all(stale.join("sub")).unwrap();
+        fs::write(stale.join("km-00-app_old-foot.desktop"), b"stale").unwrap();
+        vm::menu(&f.env, &h).unwrap();
+        assert!(!stale.exists(), "live_first={live_first}");
+        let names = listing(&apps(&f));
+        assert!(names.len() == 16 && !names.iter().any(|n| n.contains("app_old")), "live_first={live_first}: {names:?}");
+    }
+}
+
+/// A generation that fails before or after writing its first file, a live
+/// path that is not a directory, a held lock: the live set stays as it was,
+/// and no applications.new is left.
+#[test]
+fn menu_failures_leave_the_live_set() {
+    let f = Fixture::new();
+    let h = Fake::new();
+    vm::menu(&f.env, &h).unwrap();
+    let before = snapshot(&apps(&f));
+    let new = f.env.desktop.join("applications.new");
+
+    fs::rename(f.env.t2.join("app-office.meta"), f.root.join("office.meta")).unwrap();
+    let e = vm::menu(&f.env, &h).unwrap_err();
+    assert!(e.contains("T2 image metadata not found"), "{e}");
+    assert!(snapshot(&apps(&f)) == before && !new.exists());
+    fs::rename(f.root.join("office.meta"), f.env.t2.join("app-office.meta")).unwrap();
+
+    // Not app_*: the generator stops inside its write loop, a partial set.
+    fs::write(f.env.t1_path("zz"), "class = \"app\"\ncid = 90\nmanifest = \"web\"\n").unwrap();
+    let e = vm::menu(&f.env, &h).unwrap_err();
+    assert!(e.contains("instance 'zz' does not begin with app_"), "{e}");
+    assert!(snapshot(&apps(&f)) == before && !new.exists());
+    fs::remove_file(f.env.t1_path("zz")).unwrap();
+
+    let held = vm::launch_lock(&f.env).unwrap();
+    assert!(vm::menu(&f.env, &h).unwrap_err().contains("has held"));
+    drop(held);
+    assert_eq!(snapshot(&apps(&f)), before);
+
+    fs::remove_dir_all(apps(&f)).unwrap();
+    fs::write(apps(&f), b"not a directory").unwrap();
+    let e = vm::menu(&f.env, &h).unwrap_err();
+    assert!(e.contains("is not a directory; not replaced"), "{e}");
+    assert!(fs::read(apps(&f)).unwrap() == b"not a directory" && !new.exists());
+    let j = journal_lines(&h);
+    assert!(j.len() == 5 && j[1..].iter().all(|l| l.contains("): not updated: ")), "{j:?}");
+}
+
+#[test]
+fn create_and_delete_rewrite_the_menu() {
+    let f = Fixture::new();
+    let h = Fake::new();
+    vm::menu(&f.env, &h).unwrap();
+    assert_eq!(vm::create(&f.env, &h, &opts("app_m")).unwrap(), None);
+    let names = listing(&apps(&f));
+    for want in ["km-00-app_m-firefox-esr.desktop", "km-00-app_m-foot.desktop", "km-00-app_m-pcmanfm.desktop", "km-99-appvms.desktop"] {
+        assert!(names.contains(&want.to_string()), "{want}: {names:?}");
+    }
+    assert_eq!(names.len(), 19);
+    assert_eq!(vm::delete(&f.env, &h, "app_m", false).unwrap(), None);
+    assert_eq!(listing(&apps(&f)).len(), 16);
+    assert!(!listing(&apps(&f)).iter().any(|n| n.contains("app_m-")));
+
+    // --reuse-home, then --purge.
+    let mut o = opts("app_m");
+    o.reuse_home = true;
+    assert_eq!(vm::create(&f.env, &h, &o).unwrap(), None);
+    assert_eq!(listing(&apps(&f)).len(), 19);
+    let mut h2 = Fake::new();
+    h2.lvs = h.lvs;
+    h2.answer = "app_m".into();
+    assert_eq!(vm::delete(&f.env, &h2, "app_m", true).unwrap(), None);
+    assert_eq!(listing(&apps(&f)).len(), 16);
+}
+
+#[test]
+fn refusals_and_provision_do_not_touch_the_menu() {
+    let f = Fixture::new();
+    let h = Fake::new();
+    vm::create(&f.env, &h, &opts("app_web")).unwrap_err();
+    vm::delete(&f.env, &h, "app_none", false).unwrap_err();
+    vm::delete(&f.env, &h, "app_none", true).unwrap_err();
+    let mut u = Fake::new();
+    u.fail_on = Some("mkfs.ext4".into());
+    vm::create(&f.env, &u, &opts("app_u")).unwrap_err();
+    vm::provision(&f.env, &h, "app_sandbox").unwrap();
+    assert!(!h.called("katmate-generate-menu") && !u.called("katmate-generate-menu"));
+    assert!(!f.env.desktop.exists());
+}
+
+#[test]
+fn a_failed_menu_update_keeps_the_instance_and_the_live_set() {
+    let f = Fixture::new();
+    let h = Fake::new();
+    vm::menu(&f.env, &h).unwrap();
+    let before = snapshot(&apps(&f));
+    // app_work's layer meta gone: every generation fails, create's own layer is fine.
+    fs::rename(f.env.t2.join("app-office.meta"), f.root.join("office.meta")).unwrap();
+
+    let why = vm::create(&f.env, &h, &opts("app_m")).unwrap().expect("a menu failure");
+    assert!(why.contains("T2 image metadata not found"), "{why}");
+    assert!(f.env.t1_path("app_m").exists() && f.env.delta_path("app_m").exists() && h.lvs.borrow().contains("vg0/vm_app_m_home"));
+    assert_eq!(snapshot(&apps(&f)), before);
+    assert!(!f.env.desktop.join("applications.new").exists());
+    let j = journal_lines(&h);
+    assert!(j.last().unwrap().contains("create app_m (CID 32, ") && j.last().unwrap().contains("): created; menu not updated: katmate-generate-menu "), "{j:?}");
+
+    let why = vm::delete(&f.env, &h, "app_m", false).unwrap().expect("a menu failure");
+    assert!(why.contains("T2 image metadata not found"), "{why}");
+    assert!(!f.env.t1_path("app_m").exists() && !f.env.delta_path("app_m").exists());
+    assert_eq!(snapshot(&apps(&f)), before);
+    let j = journal_lines(&h);
+    assert!(j.last().unwrap().contains("): deleted; menu not updated: "), "{j:?}");
+
+    fs::rename(f.root.join("office.meta"), f.env.t2.join("app-office.meta")).unwrap();
+    vm::menu(&f.env, &h).unwrap();
+    assert_eq!(snapshot(&apps(&f)), before);
+}
+
+#[test]
+fn a_delete_failing_after_the_first_removal_rewrites_the_menu() {
+    let f = Fixture::new();
+    let mut h = Fake::new();
+    vm::create(&f.env, &h, &opts("app_p")).unwrap();
+    assert_eq!(listing(&apps(&f)).len(), 19);
+    h.fail_on = Some("lvremove".into());
+    h.answer = "app_p".into();
+    let e = vm::delete(&f.env, &h, "app_p", true).unwrap_err();
+    assert!(e.contains("injected failure"), "{e}");
+    assert!(!f.env.t1_path("app_p").exists());
+    assert_eq!(listing(&apps(&f)).len(), 16);
+    let j = journal_lines(&h);
+    let last = j.last().unwrap();
+    assert!(last.contains("): failed after the first removal: ") && !last.contains("menu not updated"), "{j:?}");
+}
+
+/// While `menu` runs repeatedly, a reader looking the live path up never
+/// finds it missing. Only the lookup is checked: a reader that opened the old
+/// directory before a swap can see it emptied (cu5 report, § 5).
+#[test]
+fn the_live_path_is_never_missing_during_a_swap() {
+    use std::sync::atomic::AtomicBool;
+    use std::sync::Arc;
+    let f = Fixture::new();
+    let h = Fake::new();
+    vm::menu(&f.env, &h).unwrap();
+    let (stop, live) = (Arc::new(AtomicBool::new(false)), apps(&f));
+    let reader = {
+        let stop = stop.clone();
+        std::thread::spawn(move || {
+            let (mut looks, mut missing) = (0u64, 0u64);
+            while !stop.load(Ordering::Relaxed) {
+                looks += 1;
+                if !fs::symlink_metadata(&live).map(|m| m.is_dir()).unwrap_or(false) {
+                    missing += 1;
+                }
+            }
+            (looks, missing)
+        })
+    };
+    for _ in 0..30 {
+        vm::menu(&f.env, &h).unwrap();
+    }
+    stop.store(true, Ordering::Relaxed);
+    let (looks, missing) = reader.join().unwrap();
+    assert!(looks > 1000 && missing == 0, "looks {looks}, missing {missing}");
 }
