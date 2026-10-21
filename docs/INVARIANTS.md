@@ -373,6 +373,18 @@ that found nothing** — make the condition true on purpose and see it noticed.
   Source: `cu4-report.md` D.2.
 - **A gate script that runs two windowed steps back to back leaves no time for
   an in-window check:** one window per script. Source: `cu4-report.md` C.5.
+- **`applications.old` is load-bearing; do not "simplify" it away.** A reader
+  that opened the live directory before a swap (fuzzel lists it, then opens
+  each file) loses its files if the old tree is removed at once, so
+  `katmate-vm menu` keeps the previous set beside the live one until the next
+  update. Measured by an Acer unit test holding a `ReadDir` across the swap,
+  not on MINIS. A delay before removal was rejected: a delay is not a
+  guarantee (operator ruling, cu5). Source: `cu5-report.md`.
+- **Root reads a mode-000 file** (`CAP_DAC_OVERRIDE`), so `chmod 000` cannot
+  make a file unreadable for a gate run as root: move it aside. Source:
+  `cu5-report.md`.
+- **An entry's `km-NN-` prefix is the generator's order, not a stable id:** a
+  new instance shifts every later prefix. Source: `cu5-report.md`.
 - **A negative inside a natural expiry window is not a measurement** (conntrack
   empty 39 s after the last flow). Time reads inside the window (ADR-035's
   2026-09-12 note, finding 2). Source: `g3-g4-console-report.md` § 5.3.

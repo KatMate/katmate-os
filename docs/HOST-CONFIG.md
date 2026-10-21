@@ -403,6 +403,15 @@ module (`modules-katmate.jsonc` is gone; the launcher is `$mod+space`). A
 missing `km-menu` is as silent as a missing menu file was: sway's or waybar's
 exec fails and shows nothing.**]**
 
+**[Note 2026-10-21 (cu5): the entries are state.** They are written by
+`/usr/lib/katmate/katmate-generate-menu` (was `installer/gen-desktop-entries`)
+into `/var/lib/katmate/desktop/applications/`, swapped in whole by
+`katmate-vm menu` and rewritten by `katmate-vm create` and `delete`; the
+installer writes the first set into the target. `/usr` does not change at
+runtime: `/usr/share/katmate/applications/` is no longer read, and
+`/usr/share/katmate/` holds `fuzzel/` only. `km-menu`'s data directory is
+`/var/lib/katmate/desktop`.**]**
+
 ## 13. `/etc/sudoers.d/katmate-launch` — the menu's one sudo rule
 
 **Note 2026-10-05 (operator ruling R12): installer-provisioned.** The

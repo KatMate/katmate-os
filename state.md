@@ -3,7 +3,7 @@
 Early days (everything up to the first public release, session records
 included): <https://github.com/KatMate/katmate-os/tree/v0.2.0-alpha2>
 
-**Last updated:** 2026-10-20 · **Milestone:** v0.2 — `v0.2.0-alpha2` published
+**Last updated:** 2026-10-21 · **Milestone:** v0.2 — `v0.2.0-alpha2` published
 
 This file is rewritten, not appended, at the end of every session, and stays
 under ~50 lines. Permanent material lives in [docs/INVARIANTS.md](docs/INVARIANTS.md),
@@ -12,22 +12,19 @@ and [docs/DECISIONS.md](docs/DECISIONS.md).
 
 ## Current focus
 
-- cu4 done (2026-10-20, `d23cbe5`), step 3 of user-created AppVMs:
-  `katmate-vm` `create`/`status`/`delete`/`provision` (T4, root only,
-  `app_*` names; ADR-043's note of 2026-10-20) and `katmate-t1-read`. The
-  installer seeds `installer/t1/*.toml.in` and provisions through
-  `katmate-vm` in `arch-chroot`, not yet in a real install. C1–C6 and D.2
-  observed on MINIS; not claimed: netVM's LINK_ID records, `--offline`,
-  non-default `--mem`/`--vcpus`, lock contention, a wrong purge name.
-- cu3 done (2026-10-18): `katmate-alloc`, per-run slots, opaque LINK_ID, CID
-  uniqueness at every launch (#58 closed). cu2: ADR-043 §5–7, step 1.
+- cu5 done (2026-10-21, `7636b6e`), step 4: the launcher's entries are state
+  in `/var/lib/katmate/desktop/applications`, swapped in whole by
+  `katmate-vm menu` (`katmate-generate-menu`, T4) and rewritten by `create`
+  and `delete` (exit 3: menu not updated; ADR-043's note of 2026-10-21).
+  M1–M5 observed on MINIS; not claimed: lock contention, the installer path,
+  a reader across a swap, zero instances on a desktop, exit 3 from `create`.
+- cu4 done (2026-10-20): `katmate-vm` `create`/`status`/`delete`/`provision`.
+  cu3 (2026-10-18): `katmate-alloc`, per-run slots (#58 closed).
 - ADR-043 stays **Proposed**, gates B1–B4. iso1: [ADR-042](docs/adr/ADR-042.md)
   (**Proposed**). w2: [ADR-041](docs/adr/ADR-041.md). fz1 done.
-- MINIS: `7.2.10-hardened1-3` since 2026-10-18; `/var/lib/katmate/instances`
-  and its deltas `root:root` since 2026-10-20 (were `host:host`). Four TPM
-  units fail at boot, cause unread.
-- MINIS: two units drift from the tree by one comment line; reinstalled at
-  the next netVM restart.
+- MINIS: `7.2.10-hardened1-3` since 2026-10-18; instance deltas `root:root`
+  since 2026-10-20. Four TPM units fail at boot, cause unread. Two units drift
+  from the tree by one comment line; reinstalled at the next netVM restart.
 
 ## Active open problems
 
@@ -43,14 +40,14 @@ Full list: [docs/OPEN-PROBLEMS.md](docs/OPEN-PROBLEMS.md).
 
 ## Next steps
 
-1. Step 4 of user-created AppVMs: T1 menu entries (a `katmate-vm create`
-   instance appears in the launcher); then the builder as T3 and
-   `create --from <T1 manifest>` (#70, gate B3).
-2. fz1 on the Cubi install: a real launch, a stop with Yes, Lock (swaylock).
-3. Gate B1 on the Cubi; then the Windows class ADR (`class = win`).
-4. A tagged release from `main` with its medium (before ~2026-11-01, #66),
-   then the Cubi install gate (#68): the first real run of `katmate-vm
-   provision` in the installer.
+1. cu5f (in progress, code client): `--purge` prompt typeahead and
+   empty-answer re-ask; the `..` of the exit-3 message.
+2. A tagged release from `main` with its medium, before ~2026-11-01 (#66);
+   then the Cubi install gate (#68), the first real `katmate-vm provision`
+   and installer-written menu, and in the same Cubi session fz1 (a real
+   launch, a stop with Yes, Lock) and gate B1.
+3. cu6: the builder as T3 and `create --from <T1 manifest>` (#70, gate B3).
+4. The Windows class ADR (`class = win`), after B1.
 5. Launch daemon (step 3b); `validate-properties.fish`, `katmate-cid` to en_US.
 6. Next Windows boot: `ev2.ps1` read-only (#59); then the `vm_win_w1` leftovers.
 
@@ -61,6 +58,7 @@ Full list: [docs/OPEN-PROBLEMS.md](docs/OPEN-PROBLEMS.md).
 - **MINIS, kept by ruling:** w2's gateway LVs, home, deltas, FreeRDP chroot
   and `~/katmate-dev/w2/`; `~/katmate-iso/dev/`; fz1's leftovers
   (`~/.local/bin/menu-power`, `~/.config/waybar/config.disabled`,
-  `~/katmate-dev/fz1/`).
+  `~/katmate-dev/fz1/`); cu5's `~/katmate-dev/cu5-prev/` (the previous
+  `katmate-vm`, `km-menu` and `/usr/share/katmate/applications` set).
 - **Operator:** ISO signing (#67); the post-release backlog;
   ROADMAP candidates; GitHub issues for alpha feedback.

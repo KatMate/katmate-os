@@ -196,12 +196,18 @@ netVM) · `20–99` fixed persistent AppVMs · `≥100` disposable pool. Applied
   - **`/usr/lib/katmate/katmate-vm`** `root:root 0755` (cu4), a copy of
     `~/katmate-build/agent/target/release/katmate-vm`. `create <name> --layer
     <layer>` | `status [<name>]` | `delete <name> [--purge]` | `provision
-    <name>`, as root only; `class = app` names are `app_*`. Homes and deltas
-    are made with `katmate-vm create`, not by hand. Journal:
-    `journalctl -t katmate-vm`.
+    <name>` | `menu`, as root only; `class = app` names are `app_*`. Homes and deltas
+    are made with `katmate-vm create`, not by hand. `menu` (cu5) regenerates
+    the launcher's entries; `create` and `delete` do it themselves, under the
+    launch lock, `provision` does not. Exit 3: created or deleted, entries not
+    updated; the instance is not undone, and `katmate-vm menu` recovers.
+    Journal: `journalctl -t katmate-vm`.
   - **`/usr/lib/katmate/katmate-t1-read`** `root:root 0755` (cu4, in the
     tree): `<instance>` → `key=value` through `km_t1_read`; `--pairs`.
-  - **The tree's installed set is 16 files:** `host/usr`'s thirteen (nine in
+  - **`/usr/lib/katmate/katmate-generate-menu`** `root:root 0755` (cu5, in
+    the tree; was `installer/gen-desktop-entries`): `<t1-vm-dir> <t2-dir>
+    <outdir>`, run by `katmate-vm menu` and once by the installer.
+  - **The tree's installed set is 17 files:** `host/usr`'s fourteen (ten in
     `lib/katmate`, four units; `cp -a`, `installer/install.sh`) and
     `ping-client`, `katmate-alloc`, `katmate-vm` (against that build output).
   - **`/etc/sudoers.d/katmate-launch`** `root:root 0440`, `ebfb91fe…`, staged
@@ -211,9 +217,10 @@ netVM) · `20–99` fixed persistent AppVMs · `≥100` disposable pool. Applied
   - **The launcher:** `km-menu` (fuzzel) on `$mod+space`; the power menu on
     the bar's `custom/arch`. Deployed at the system paths of
     `desktop/README.md` § *Deployment* (HOST-CONFIG § 14). Reload sway with
-    `swaymsg reload`, waybar with SIGUSR2. After a layer rebuild or a T1
-    change, regenerate the desktop entries with the `rm -rf` and
-    `gen-desktop-entries` lines of `desktop/README.md` § *Deployment*.
+    `swaymsg reload`, waybar with SIGUSR2. The desktop entries are state in
+    `/var/lib/katmate/desktop/applications/`; `katmate-vm create` and
+    `delete` rewrite them, and after a layer rebuild or a hand-edited T1
+    `sudo /usr/lib/katmate/katmate-vm menu` does.
   - **Locks and owners:** `/run/katmate/launch/` (`root:root 0700`, `flock`)
     serialises the launcher; slot owners, `alloc.lock` and `link-id` are in
     `/run/katmate/link/<netvm>/`, written and removed by `katmate-alloc`.

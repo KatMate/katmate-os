@@ -57,7 +57,9 @@ must say so in those words.
 `host/usr/lib/katmate/katmate-launch` holds no per-instance table: an AppVM
 is admitted by its T1 file, its slot is claimed per run by `katmate-alloc`, and
 the launcher's desktop entries are generated from the T1 files with
-`class = app` and their layers' `RUN` lines (`installer/gen-desktop-entries`).
+`class = app` and their layers' `RUN` lines by `katmate-generate-menu`, and
+rewritten by `katmate-vm create`, `delete` and `menu` into
+`/var/lib/katmate/desktop/applications`.
 `class = app` instances are named `app_*`. `katmate-vm` creates, provisions and
 deletes instances; the installer's instance set is `installer/t1/*.toml.in`,
 from which every count and list in `installer/install.sh` derives.
@@ -324,6 +326,8 @@ roughly twenty more. It is not background reading.
   build script the brief names.
 - Starting or stopping netVM (CID 3), or anything holding a passed-through NIC.
 - `git push`, `git rebase`, `git reset --hard`, or any force operation.
+- `git stash`, `reset`, `checkout`, `clean` or `restore` on the operator's
+  working tree. Never silence a git command (`2>/dev/null; true`, `|| true`).
 - Writing under `/etc/katmate/`, `/var/lib/katmate/`, `/opt/katmate/`,
   `/usr/lib/katmate/`. These are the tier directories: what is written there is
   a claim about tier, and the installer may create a T1 file but may never
