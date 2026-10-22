@@ -9,7 +9,7 @@ use crate::t1::{self, Props};
 use crate::vm::{self, CreateOpts, Env};
 use katmate_alloc::{write_file, Owner};
 use std::cell::RefCell;
-use std::collections::BTreeSet;
+use std::collections::{BTreeSet, VecDeque};
 use std::fs;
 use std::os::unix::fs::{MetadataExt, PermissionsExt};
 use std::path::{Path, PathBuf};
@@ -106,7 +106,10 @@ struct Fake {
     check_image: Result<String, String>,
     blkid: String,
     tty: bool,
-    answer: String,
+    /// One per prompt, in order; a prompt beyond them is a test failure.
+    answers: RefCell<VecDeque<String>>,
+    /// The errno `flush_input` fails with.
+    flush_errno: Option<i32>,
     /// Rewrites one instance read's output: what a parser disagreeing with
     /// the writer would answer.
     tamper: Option<(&'static str, &'static str)>,
@@ -131,7 +134,8 @@ impl Fake {
             check_image: Ok("[katmate-check-image] layer 'web' OK\nAPP_LV=vg0/vm_app_web\n".into()),
             blkid: "ext4\n".into(),
             tty: true,
-            answer: String::new(),
+            answers: RefCell::new(VecDeque::new()),
+            flush_errno: None,
             tamper: None,
             hup_at: None,
             hups_seen_at_raise: RefCell::new(None),
@@ -193,9 +197,19 @@ impl Host for Fake {
         self.tty
     }
 
-    fn ask(&self, _prompt: &str) -> Result<String, String> {
-        Ok(self.answer.clone())
+    fn flush_input(&self) -> std::io::Result<()> {
+        self.calls.borrow_mut().push("flush".into());
+        self.flush_errno.map_or(Ok(()), |e| Err(std::io::Error::from_raw_os_error(e)))
     }
+
+    fn ask(&self, prompt: &str) -> Result<String, String> {
+        self.calls.borrow_mut().push(format!("ask {prompt}"));
+        Ok(self.answers.borrow_mut().pop_front().unwrap_or_else(|| panic!("a prompt with no answer scripted: {prompt}")))
+    }
+}
+
+fn answers(a: &[&str]) -> RefCell<VecDeque<String>> {
+    RefCell::new(a.iter().map(|s| s.to_string()).collect())
 }
 
 fn opts(name: &str) -> CreateOpts {
@@ -506,7 +520,7 @@ fn signals_inside_the_window_are_deferred() {
         let mut h = Fake::new();
         h.hup_at = Some(at);
         h.fail_on = fail.map(String::from);
-        h.answer = "app_s".into();
+        h.answers = answers(&["app_s"]);
         let before = HUPS.load(Ordering::SeqCst);
         let _ = if del { vm::delete(&f.env, &h, "app_s", true) } else { vm::create(&f.env, &h, &opts("app_s")) };
         let seen = h.hups_seen_at_raise.borrow().unwrap_or_else(|| panic!("{at}: never raised"));
@@ -529,7 +543,7 @@ fn signals_inside_the_window_are_deferred() {
     let mut h = Fake::new();
     h.lvs.borrow_mut().insert("vg0/vm_app_s_home".into());
     h.hup_at = Some("lvremove");
-    h.answer = "app_s".into();
+    h.answers = answers(&["app_s"]);
     let before = HUPS.load(Ordering::SeqCst);
     vm::delete(&f.env, &h, "app_s", true).unwrap();
     assert_eq!((h.hups_seen_at_raise.borrow().unwrap() - before, HUPS.load(Ordering::SeqCst) - before), (0, 1), "delete: deferred");
@@ -562,7 +576,7 @@ fn one_journal_line_per_outcome() {
 
     let mut h = Fake::new();
     h.lvs.borrow_mut().insert("vg0/vm_app_j_home".into());
-    h.answer = "app_j".into();
+    h.answers = answers(&["app_j"]);
     vm::delete(&f.env, &h, "app_j", true).unwrap();
     assert_eq!(journal(&h), [format!("logger -t katmate-vm -- delete app_j (CID -, invoked by {by}): purged")]);
 
@@ -594,7 +608,7 @@ fn delete_keeps_the_home_by_default() {
     vm::create(&f.env, &h, &o).unwrap();
     let mut h2 = Fake::new();
     h2.lvs = h.lvs;
-    h2.answer = "app_d".into();
+    h2.answers = answers(&["app_d"]);
     vm::delete(&f.env, &h2, "app_d", true).unwrap();
     assert!(!h2.lvs.borrow().contains("vg0/vm_app_d_home"));
     assert!(h2.called("lvremove -q -y vg0/vm_app_d_home"));
@@ -651,7 +665,7 @@ fn delete_refusals() {
     h.tty = false;
     assert!(e("app_web", true, &h).contains("stdin is not one"));
     h.tty = true;
-    h.answer = "app_we".into();
+    h.answers = answers(&["app_we"]);
     assert!(e("app_web", true, &h).contains("'app_we' is not 'app_web'"));
     assert!(f.env.t1_path("app_web").exists());
     assert!(h.lvs.borrow().contains("vg0/vm_app_web_home") && !h.called("lvremove"));
@@ -668,10 +682,83 @@ fn purge_of_a_kept_home_without_t1() {
     let mut h = Fake::new();
     h.lvs.borrow_mut().insert("vg0/vm_app_kept_home".into());
     h.lvs.borrow_mut().insert("vg0/vm_gw_w2_home".into());
-    h.answer = "app_kept".into();
+    h.answers = answers(&["app_kept"]);
     vm::delete(&f.env, &h, "app_kept", true).unwrap();
     assert!(!h.lvs.borrow().contains("vg0/vm_app_kept_home"));
     assert!(h.lvs.borrow().contains("vg0/vm_gw_w2_home"));
+}
+
+#[test]
+fn purge_flushes_before_every_prompt_and_asks_again_on_empty() {
+    let f = Fixture::new();
+    let by = std::env::var("SUDO_USER").unwrap_or_else(|_| "<no SUDO_USER>".into());
+    let prompt = "ask This removes vg0/vm_app_q_home, the /home of app_q, for good. Type the instance name to confirm: ";
+    let tty = |h: &Fake| -> Vec<String> { h.calls().into_iter().filter(|c| c == "flush" || c.starts_with("ask ")).collect() };
+    let fp = |n: usize| -> Vec<String> { (0..n).flat_map(|_| ["flush".to_string(), prompt.to_string()]).collect() };
+    let journal = |h: &Fake| -> Vec<String> { h.calls().into_iter().filter(|c| c.starts_with("logger")).collect() };
+    let purge = |script: &[&str], errno: Option<i32>| {
+        let mut h = Fake::new();
+        vm::create(&f.env, &h, &opts("app_q")).unwrap();
+        h.calls.borrow_mut().clear();
+        h.answers = answers(script);
+        h.flush_errno = errno;
+        let r = vm::delete(&f.env, &h, "app_q", true);
+        (h, r)
+    };
+    let intact = |h: &Fake| {
+        assert!(f.env.t1_path("app_q").exists() && f.env.delta_path("app_q").exists());
+        assert!(h.lvs.borrow().contains("vg0/vm_app_q_home") && !h.called("lvremove"));
+        vm::delete(&f.env, &Fake::new(), "app_q", false).unwrap();
+    };
+
+    let (h, r) = purge(&["app_q"], None);
+    r.unwrap();
+    assert_eq!(tty(&h), fp(1));
+    assert!(h.called("lvremove -q -y vg0/vm_app_q_home") && !f.env.t1_path("app_q").exists());
+
+    let (h, r) = purge(&["", "", "app_q"], None);
+    r.unwrap();
+    assert_eq!(tty(&h), fp(3));
+    assert!(h.called("lvremove -q -y vg0/vm_app_q_home"));
+
+    let (h, r) = purge(&["", "", ""], None);
+    let e = r.unwrap_err();
+    assert_eq!(e, "3 empty answers to the prompt; nothing was removed");
+    assert_eq!(tty(&h), fp(3));
+    assert_eq!(journal(&h), [format!("logger -t katmate-vm -- delete app_q (CID 32, invoked by {by}): refused: {e}")]);
+    intact(&h);
+
+    let (h, r) = purge(&["app_x"], None);
+    assert_eq!(r.unwrap_err(), "'app_x' is not 'app_q'; nothing was removed");
+    assert_eq!(tty(&h), fp(1));
+    intact(&h);
+
+    let (h, r) = purge(&["", "app_x"], None);
+    assert!(r.unwrap_err().contains("'app_x' is not 'app_q'"));
+    assert_eq!(tty(&h), fp(2));
+    intact(&h);
+
+    // A failing flush never blocks the delete; only ENOTTY is silent.
+    for errno in [libc::ENOTTY, libc::EIO] {
+        let (h, r) = purge(&["", "app_q"], Some(errno));
+        r.unwrap();
+        assert_eq!(tty(&h), fp(2), "errno {errno}");
+        assert!(h.called("lvremove -q -y vg0/vm_app_q_home"));
+    }
+    assert_eq!(vm::flush_warning(Ok(())), None);
+    assert_eq!(vm::flush_warning(Err(std::io::Error::from_raw_os_error(libc::ENOTTY))), None);
+    let w = vm::flush_warning(Err(std::io::Error::from_raw_os_error(libc::EIO))).unwrap();
+    assert!(w.starts_with("cannot discard typeahead before the prompt (") && w.ends_with("); asking anyway"), "{w}");
+}
+
+#[test]
+fn exit_3_message_has_one_full_stop() {
+    let tail = ". The instance stays as it is; recover with 'katmate-vm menu'";
+    for why in ["katmate-generate-menu exited 1: no meta.", "katmate-generate-menu exited 1: no meta"] {
+        let m = crate::menu_not_updated(why);
+        assert_eq!(m, format!("[katmate-vm] MENU: the launcher's entries were not updated: katmate-generate-menu exited 1: no meta{tail}"));
+        assert!(!m.contains(".."), "{m}");
+    }
 }
 
 // --- provision ----------------------------------------------------------------
@@ -949,7 +1036,7 @@ fn create_and_delete_rewrite_the_menu() {
     assert_eq!(listing(&apps(&f)).len(), 19);
     let mut h2 = Fake::new();
     h2.lvs = h.lvs;
-    h2.answer = "app_m".into();
+    h2.answers = answers(&["app_m"]);
     assert_eq!(vm::delete(&f.env, &h2, "app_m", true).unwrap(), None);
     assert_eq!(listing(&apps(&f)).len(), 16);
 }
@@ -1005,7 +1092,7 @@ fn a_delete_failing_after_the_first_removal_rewrites_the_menu() {
     vm::create(&f.env, &h, &opts("app_p")).unwrap();
     assert_eq!(listing(&apps(&f)).len(), 19);
     h.fail_on = Some("lvremove".into());
-    h.answer = "app_p".into();
+    h.answers = answers(&["app_p"]);
     let e = vm::delete(&f.env, &h, "app_p", true).unwrap_err();
     assert!(e.contains("injected failure"), "{e}");
     assert!(!f.env.t1_path("app_p").exists());

@@ -11,6 +11,9 @@ pub trait Host {
     /// exit 0, otherwise a one-line reason.
     fn run(&self, argv: &[&str]) -> Result<String, String>;
     fn stdin_is_tty(&self) -> bool;
+    /// Discards what the terminal on stdin has received and not yet been
+    /// read (`tcflush(0, TCIFLUSH)`): typeahead is not an answer.
+    fn flush_input(&self) -> std::io::Result<()>;
     /// Prints `prompt` on stderr and reads one line from stdin, without its
     /// newline.
     fn ask(&self, prompt: &str) -> Result<String, String>;
@@ -50,6 +53,15 @@ impl Host for RealHost {
     fn stdin_is_tty(&self) -> bool {
         // SAFETY: isatty on fd 0 has no memory effects.
         unsafe { libc::isatty(0) == 1 }
+    }
+
+    fn flush_input(&self) -> std::io::Result<()> {
+        // SAFETY: tcflush on fd 0 has no memory effects.
+        if unsafe { libc::tcflush(0, libc::TCIFLUSH) } == 0 {
+            Ok(())
+        } else {
+            Err(std::io::Error::last_os_error())
+        }
     }
 
     fn ask(&self, prompt: &str) -> Result<String, String> {

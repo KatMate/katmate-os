@@ -42,11 +42,18 @@ fn done(r: vm::Result<Option<String>>) {
     match r {
         Ok(None) => {}
         Ok(Some(why)) => {
-            eprintln!("[katmate-vm] MENU: the launcher's entries were not updated: {why}. The instance stays as it is; recover with 'katmate-vm menu'");
+            eprintln!("{}", menu_not_updated(&why));
             exit(3)
         }
         Err(e) => die(e),
     }
+}
+
+fn menu_not_updated(why: &str) -> String {
+    format!(
+        "[katmate-vm] MENU: the launcher's entries were not updated: {}. The instance stays as it is; recover with 'katmate-vm menu'",
+        why.trim_end_matches('.')
+    )
 }
 
 /// `create`'s arguments; every option once at most, in any order after the name.

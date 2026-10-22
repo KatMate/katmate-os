@@ -644,10 +644,7 @@ fn delete_inner(
         if !host.stdin_is_tty() {
             return Err("--purge asks for the instance name on a terminal, and stdin is not one; nothing was removed".to_string());
         }
-        let answer = host.ask(&format!("This removes {h}, the /home of {name}, for good. Type the instance name to confirm: "))?;
-        if answer != name {
-            return Err(format!("'{answer}' is not '{name}'; nothing was removed"));
-        }
+        confirm_purge(host, name, h)?;
     }
 
     *window = Some(SignalBlock::new()?);
@@ -673,6 +670,36 @@ fn delete_inner(
         (None, _) => log(format!("no home LV {}", home_lv(name))),
     }
     Ok(())
+}
+
+const PURGE_PROMPTS: usize = 3;
+
+/// `--purge`'s confirmation (cu5f rulings 1, 2, 4): typeahead discarded
+/// before every prompt; an empty answer asks again, up to [`PURGE_PROMPTS`]
+/// prompts in all; a non-empty mismatch is refused at once.
+fn confirm_purge(host: &dyn Host, name: &str, home: &str) -> Result<()> {
+    for _ in 0..PURGE_PROMPTS {
+        if let Some(w) = flush_warning(host.flush_input()) {
+            eprintln!("[katmate-vm] WARNING: {w}");
+        }
+        let answer = host.ask(&format!("This removes {home}, the /home of {name}, for good. Type the instance name to confirm: "))?;
+        if answer == name {
+            return Ok(());
+        }
+        if !answer.is_empty() {
+            return Err(format!("'{answer}' is not '{name}'; nothing was removed"));
+        }
+    }
+    Err(format!("{PURGE_PROMPTS} empty answers to the prompt; nothing was removed"))
+}
+
+/// A flush never blocks a delete: `ENOTTY` is silent, any other error one
+/// warning (cu5f ruling 5).
+pub fn flush_warning(r: io::Result<()>) -> Option<String> {
+    match r {
+        Err(e) if e.raw_os_error() != Some(libc::ENOTTY) => Some(format!("cannot discard typeahead before the prompt ({e}); asking anyway")),
+        _ => None,
+    }
 }
 
 // --- menu ---------------------------------------------------------------------
