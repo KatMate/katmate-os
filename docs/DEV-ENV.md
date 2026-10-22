@@ -201,6 +201,10 @@ netVM) · `20–99` fixed persistent AppVMs · `≥100` disposable pool. Applied
     the launcher's entries; `create` and `delete` do it themselves, under the
     launch lock, `provision` does not. Exit 3: created or deleted, entries not
     updated; the instance is not undone, and `katmate-vm menu` recovers.
+    `delete --purge` asks for the instance name on a terminal only (a
+    non-terminal stdin is refused) and discards typeahead before each prompt;
+    an empty answer re-asks, up to three prompts, and a mismatch refuses at
+    once. A refusal removes nothing (cu5f).
     Journal: `journalctl -t katmate-vm`.
   - **`/usr/lib/katmate/katmate-t1-read`** `root:root 0755` (cu4, in the
     tree): `<instance>` → `key=value` through `km_t1_read`; `--pairs`.

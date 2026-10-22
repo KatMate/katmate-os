@@ -385,6 +385,16 @@ that found nothing** — make the condition true on purpose and see it noticed.
   `cu5-report.md`.
 - **An entry's `km-NN-` prefix is the generator's order, not a stable id:** a
   new instance shifts every later prefix. Source: `cu5-report.md`.
+- **Under `sudo`, the command reads from sudo's own pty** (`use_pty` is on by
+  default on MINIS, sudo's built-in default), and keys typed before `sudo`
+  started still reach it: the pre-cu5f `katmate-vm` read two Enters typed
+  during `sleep 3` as its answer (C.6). A gate that claims typeahead is
+  discarded needs a control run with a binary that does not discard it.
+  Source: `cu5f-report.md`.
+- **Terminal layout is not evidence of what was typed:** a consumed typeahead
+  newline still put the next output on a new line (C.6), and Run 1 showed four
+  blank lines for two Enters, unexplained. Count outcomes (prompts, refusals,
+  journal lines), not lines on the screen. Source: `cu5f-report.md`.
 - **A negative inside a natural expiry window is not a measurement** (conntrack
   empty 39 s after the last flow). Time reads inside the window (ADR-035's
   2026-09-12 note, finding 2). Source: `g3-g4-console-report.md` § 5.3.

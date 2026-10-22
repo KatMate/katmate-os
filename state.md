@@ -3,7 +3,7 @@
 Early days (everything up to the first public release, session records
 included): <https://github.com/KatMate/katmate-os/tree/v0.2.0-alpha2>
 
-**Last updated:** 2026-10-21 · **Milestone:** v0.2 — `v0.2.0-alpha2` published
+**Last updated:** 2026-10-22 · **Milestone:** v0.2 — `v0.2.0-alpha2` published
 
 This file is rewritten, not appended, at the end of every session, and stays
 under ~50 lines. Permanent material lives in [docs/INVARIANTS.md](docs/INVARIANTS.md),
@@ -12,10 +12,12 @@ and [docs/DECISIONS.md](docs/DECISIONS.md).
 
 ## Current focus
 
-- cu5 done (2026-10-21, `7636b6e`), step 4: the launcher's entries are state
-  in `/var/lib/katmate/desktop/applications`, swapped in whole by
-  `katmate-vm menu` (`katmate-generate-menu`, T4) and rewritten by `create`
-  and `delete` (exit 3: menu not updated; ADR-043's note of 2026-10-21).
+- cu5f done (2026-10-22, `46f6591`): `delete --purge` discards typeahead
+  before each prompt, re-asks on an empty answer (three prompts at most), and
+  refuses a mismatch at once. P1, P2 and a pre-cu5f control observed on MINIS.
+- cu5 done (2026-10-21, `7636b6e`): launcher entries are state in
+  `/var/lib/katmate/desktop/applications`, swapped in whole by `katmate-vm
+  menu` and rewritten by `create`/`delete` (exit 3; ADR-043's note).
   M1–M5 observed on MINIS; not claimed: lock contention, the installer path,
   a reader across a swap, zero instances on a desktop, exit 3 from `create`.
 - cu4 done (2026-10-20): `katmate-vm` `create`/`status`/`delete`/`provision`.
@@ -40,16 +42,14 @@ Full list: [docs/OPEN-PROBLEMS.md](docs/OPEN-PROBLEMS.md).
 
 ## Next steps
 
-1. cu5f (in progress, code client): `--purge` prompt typeahead and
-   empty-answer re-ask; the `..` of the exit-3 message.
-2. A tagged release from `main` with its medium, before ~2026-11-01 (#66);
+1. A tagged release from `main` with its medium, before ~2026-11-01 (#66);
    then the Cubi install gate (#68), the first real `katmate-vm provision`
    and installer-written menu, and in the same Cubi session fz1 (a real
    launch, a stop with Yes, Lock) and gate B1.
-3. cu6: the builder as T3 and `create --from <T1 manifest>` (#70, gate B3).
-4. The Windows class ADR (`class = win`), after B1.
-5. Launch daemon (step 3b); `validate-properties.fish`, `katmate-cid` to en_US.
-6. Next Windows boot: `ev2.ps1` read-only (#59); then the `vm_win_w1` leftovers.
+2. cu6: the builder as T3 and `create --from <T1 manifest>` (#70, gate B3).
+3. The Windows class ADR (`class = win`), after B1.
+4. Launch daemon (step 3b); `validate-properties.fish`, `katmate-cid` to en_US.
+5. Next Windows boot: `ev2.ps1` read-only (#59); then the `vm_win_w1` leftovers.
 
 ## Leftovers and waits on the operator
 
@@ -58,7 +58,7 @@ Full list: [docs/OPEN-PROBLEMS.md](docs/OPEN-PROBLEMS.md).
 - **MINIS, kept by ruling:** w2's gateway LVs, home, deltas, FreeRDP chroot
   and `~/katmate-dev/w2/`; `~/katmate-iso/dev/`; fz1's leftovers
   (`~/.local/bin/menu-power`, `~/.config/waybar/config.disabled`,
-  `~/katmate-dev/fz1/`); cu5's `~/katmate-dev/cu5-prev/` (the previous
-  `katmate-vm`, `km-menu` and `/usr/share/katmate/applications` set).
+  `~/katmate-dev/fz1/`); cu5f's `~/katmate-dev/cu5f-prev/katmate-vm` (the
+  pre-cu5f binary).
 - **Operator:** ISO signing (#67); the post-release backlog;
   ROADMAP candidates; GitHub issues for alpha feedback.
