@@ -234,6 +234,11 @@ remove dev sshd (#4); ~~remove the `usermod -p` dev-root line from `netvm.sh`
 - [ ] Policy engine
 - [ ] GUI management tools
 - [ ] Base image signing & verification (ADR-013)
+- [ ] Instance parameters beyond creation (operator ruling, 2026-10-22): changing
+      an existing instance's `mem`, `vcpus` and growing its home; limits against
+      the host; dynamic RAM (min/max; `CONFIG_VIRTIO_BALLOON` is off in the guest
+      kernel today); root size. Until then: `--mem`, `--vcpus` and `--home-size`
+      at creation only
 
 ## Boot chain hardening (backlog — from the 2026-07-23 host boot pipeline work)
 

@@ -139,7 +139,8 @@ netVM) · `20–99` fixed persistent AppVMs · `≥100` disposable pool. Applied
     as `host`: `qemu-img create -f qcow2 -F raw -b /dev/vg0/vm_app_web <delta>
     10G`, then `chmod 0644`.
   - **Home LV, the form of record** (ruling of 2026-10-02):
-    `lvcreate -V 10G -T vg0/vm_pool -n vm_<instance>_home`; read
+    `lvcreate -V 10G -T vg0/vm_pool -n vm_<instance>_home` (`10G` is the
+    default; `katmate-vm create --home-size` chooses another size); read
     `lvs -o lv_name,lv_attr,pool_lv` (active, no `k`); `mkfs.ext4` with
     defaults; mount; `install -d -o 1000 -g 1000 -m 0700 <mnt>/user`; umount.
   - Booted by `katmate-app-routed@app_personal` (`km.ip=10.100.1.18`). The
@@ -195,7 +196,7 @@ netVM) · `20–99` fixed persistent AppVMs · `≥100` disposable pool. Applied
     `~/katmate-build/agent/target/release/katmate-alloc`.
   - **`/usr/lib/katmate/katmate-vm`** `root:root 0755` (cu4), a copy of
     `~/katmate-build/agent/target/release/katmate-vm`. `create <name> --layer
-    <layer>` | `status [<name>]` | `delete <name> [--purge]` | `provision
+    <layer> [--home-size <n>G]` | `status [<name>]` | `delete <name> [--purge]` | `provision
     <name>` | `menu`, as root only; `class = app` names are `app_*`. Homes and deltas
     are made with `katmate-vm create`, not by hand. `menu` (cu5) regenerates
     the launcher's entries; `create` and `delete` do it themselves, under the
@@ -204,7 +205,10 @@ netVM) · `20–99` fixed persistent AppVMs · `≥100` disposable pool. Applied
     `delete --purge` asks for the instance name on a terminal only (a
     non-terminal stdin is refused) and discards typeahead before each prompt;
     an empty answer re-asks, up to three prompts, and a mismatch refuses at
-    once. A refusal removes nothing (cu5f).
+    once. A refusal removes nothing (cu5f). `--home-size` is the new home
+    LV's size: default 10G, a whole number of GiB, refused above the thin
+    pool's size and with `--reuse-home`, held by the LV and not by T1;
+    `provision` always makes 10G (hs1).
     Journal: `journalctl -t katmate-vm`.
   - **`/usr/lib/katmate/katmate-t1-read`** `root:root 0755` (cu4, in the
     tree): `<instance>` → `key=value` through `km_t1_read`; `--pairs`.

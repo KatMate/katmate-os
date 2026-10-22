@@ -12,14 +12,11 @@ and [docs/DECISIONS.md](docs/DECISIONS.md).
 
 ## Current focus
 
-- cu5f done (2026-10-22, `46f6591`): `delete --purge` discards typeahead
-  before each prompt, re-asks on an empty answer (three prompts at most), and
-  refuses a mismatch at once. P1, P2 and a pre-cu5f control observed on MINIS.
-- cu5 done (2026-10-21, `7636b6e`): launcher entries are state in
-  `/var/lib/katmate/desktop/applications`, swapped in whole by `katmate-vm
-  menu` and rewritten by `create`/`delete` (exit 3; ADR-043's note).
-  M1–M5 observed on MINIS; not claimed: lock contention, the installer path,
-  a reader across a swap, zero instances on a desktop, exit 3 from `create`.
+- hs1 done (2026-10-22, `be44e55`): `katmate-vm create --home-size <n>G`, the
+  home LV's size at creation (default 10G, no T1 key); G1–G3 observed on MINIS.
+- cu5f done (2026-10-22, `46f6591`): `delete --purge` prompt hardening, observed on MINIS.
+- cu5 done (2026-10-21, `7636b6e`): launcher entries as state, rewritten by
+  `create`/`delete`/`menu` (exit 3; ADR-043's note); M1–M5 observed on MINIS.
 - cu4 done (2026-10-20): `katmate-vm` `create`/`status`/`delete`/`provision`.
   cu3 (2026-10-18): `katmate-alloc`, per-run slots (#58 closed).
 - ADR-043 stays **Proposed**, gates B1–B4. iso1: [ADR-042](docs/adr/ADR-042.md)
@@ -58,7 +55,7 @@ Full list: [docs/OPEN-PROBLEMS.md](docs/OPEN-PROBLEMS.md).
 - **MINIS, kept by ruling:** w2's gateway LVs, home, deltas, FreeRDP chroot
   and `~/katmate-dev/w2/`; `~/katmate-iso/dev/`; fz1's leftovers
   (`~/.local/bin/menu-power`, `~/.config/waybar/config.disabled`,
-  `~/katmate-dev/fz1/`); cu5f's `~/katmate-dev/cu5f-prev/katmate-vm` (the
-  pre-cu5f binary).
+  `~/katmate-dev/fz1/`); hs1's `~/katmate-dev/hs1-prev/katmate-vm` (the
+  pre-hs1 binary).
 - **Operator:** ISO signing (#67); the post-release backlog;
   ROADMAP candidates; GitHub issues for alpha feedback.

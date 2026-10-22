@@ -242,7 +242,11 @@ on `claude/…` branches that the operator squash-merges to `main` at any time.
 An Acer session therefore assumes `main` may move under it: before its first
 commit and before every push it runs `git fetch origin` and, if `origin/main`
 is ahead, `git pull --ff-only origin main`. If that is not a fast-forward, it
-stops and reports — no rebase, no merge.
+stops and reports — no rebase, no merge. When the session cannot fetch (the
+GitHub key needs the operator's passphrase or agent), it asks the operator to
+fetch and report `git rev-parse HEAD origin/main`, or takes `origin/main` from
+the orchestrator's check of the server; it never commits on an unconfirmed
+`origin/main`.
 
 ## Language
 
