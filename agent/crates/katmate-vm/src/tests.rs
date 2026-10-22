@@ -117,6 +117,8 @@ struct Fake {
     /// SIGHUPs had been handled right after the raise.
     hup_at: Option<&'static str>,
     hups_seen_at_raise: RefCell<Option<usize>>,
+    /// What `lvs -o lv_size` answers for the pool.
+    pool_size: String,
 }
 
 static HUPS: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);
@@ -139,6 +141,8 @@ impl Fake {
             tamper: None,
             hup_at: None,
             hups_seen_at_raise: RefCell::new(None),
+            // MINIS's vm_pool, 700 GiB (hs1 A.2).
+            pool_size: "  751619276800\n".into(),
         }
     }
 
@@ -172,6 +176,7 @@ impl Host for Fake {
             "katmate-check-image" => self.check_image.clone(),
             "katmate-generate-menu" => RealHost.run(argv),
             "lvs" if argv.contains(&"vg_name,lv_name") => Ok(self.lvs.borrow().iter().map(|l| format!("  {l}\n")).collect()),
+            "lvs" if argv.contains(&"lv_size") => Ok(self.pool_size.clone()),
             "lvs" => Ok("  Vwi-a-tz--\n".into()),
             "lvcreate" => {
                 let vg = argv[argv.iter().position(|a| *a == "-T").unwrap() + 1].split('/').next().unwrap();
@@ -218,6 +223,7 @@ fn opts(name: &str) -> CreateOpts {
         layer: "web".into(),
         mem: t1::MEM_DEFAULT.into(),
         vcpus: t1::VCPUS_DEFAULT.into(),
+        home_size: vm::HOME_LV_SIZE.into(),
         offline: false,
         reuse_home: false,
     }
@@ -496,6 +502,150 @@ fn reuse_home_attaches_and_never_removes_it() {
     vm::create(&f.env, &h, &o).unwrap();
     assert!(h.called("blkid -o value -s TYPE /dev/vg0/vm_app_k_home"));
     assert!(!h.called("lvcreate") && !h.called("mkfs.ext4") && !h.called("mount"));
+}
+
+// --- --home-size (hs1) --------------------------------------------------------
+
+fn args(a: &[&str]) -> Vec<String> {
+    a.iter().map(|s| s.to_string()).collect()
+}
+
+fn home_line(name: &str) -> Vec<String> {
+    let want = format!("[katmate-vm] home vg0/vm_{name}_home: ");
+    vm::LOGGED.with(|l| l.borrow().iter().filter(|x| x.starts_with(&want)).cloned().collect())
+}
+
+#[test]
+fn home_size_pattern() {
+    for (ok, n) in [("1G", 1), ("3G", 3), ("40G", 40), ("700G", 700)] {
+        assert_eq!(vm::check_home_size(ok), Ok(n), "{ok}");
+    }
+    for bad in ["0G", "1.5G", "512M", "3", "-1G", "", "G", "03G", "3g", "3 G", "+3G", "3GG", "99999999999999999999G"] {
+        let e = vm::check_home_size(bad).unwrap_err();
+        assert!(e.starts_with(&format!("--home-size '{bad}' must be")), "{bad}: {e}");
+    }
+}
+
+#[test]
+fn home_size_parsing() {
+    let o = crate::parse_create(&args(&["app_a", "--layer", "web"])).unwrap();
+    assert_eq!(o.home_size, "10G");
+    let o = crate::parse_create(&args(&["app_a", "--home-size", "3G", "--layer", "web"])).unwrap();
+    assert_eq!(o.home_size, "3G");
+    // The value is passed on as given; create checks it, as it checks --mem.
+    let o = crate::parse_create(&args(&["app_a", "--layer", "web", "--home-size", "1.5G"])).unwrap();
+    assert_eq!(o.home_size, "1.5G");
+    for (a, want) in [
+        (&["app_a", "--layer", "web", "--reuse-home", "--home-size", "3G"][..], "--home-size with --reuse-home"),
+        (&["app_a", "--home-size", "3G", "--layer", "web", "--reuse-home"][..], "--home-size with --reuse-home"),
+        (&["app_a", "--layer", "web", "--reuse-home", "--home-size", "10G"][..], "--home-size with --reuse-home"),
+        (&["app_a", "--layer", "web", "--home-size", "3G", "--home-size", "4G"][..], "--home-size given twice"),
+        (&["app_a", "--layer", "web", "--home-size"][..], "--home-size needs a value"),
+    ] {
+        let e = crate::parse_create(&args(a)).err().unwrap_or_else(|| panic!("{a:?} accepted"));
+        assert!(e.starts_with(want), "{a:?}: {e}");
+    }
+    assert!(crate::parse_create(&args(&["app_a", "--layer", "web", "--reuse-home"])).unwrap().reuse_home);
+}
+
+#[test]
+fn home_size_default_and_chosen() {
+    let f = Fixture::new();
+    let h = Fake::new();
+    vm::create(&f.env, &h, &opts("app_d")).unwrap();
+    assert!(h.called("lvcreate -q -V 10G -T vg0/vm_pool -n vm_app_d_home"));
+    assert!(h.called("lvs --noheadings --units b --nosuffix -o lv_size vg0/vm_pool"));
+    let l = home_line("app_d");
+    assert!(l.len() == 1 && l[0].starts_with("[katmate-vm] home vg0/vm_app_d_home: 10G thin in vm_pool, "), "{l:?}");
+
+    let h = Fake::new();
+    let mut o = opts("app_s");
+    o.home_size = "3G".into();
+    vm::create(&f.env, &h, &o).unwrap();
+    assert!(h.called("lvcreate -q -V 3G -T vg0/vm_pool -n vm_app_s_home"));
+    let l = home_line("app_s");
+    assert!(l.len() == 1 && l[0].starts_with("[katmate-vm] home vg0/vm_app_s_home: 3G thin in vm_pool, "), "{l:?}");
+    // The pool is read before anything is written; no T1 key carries the size.
+    let calls = h.calls();
+    let pos = |p: &str| calls.iter().position(|c| c.starts_with(p)).unwrap();
+    assert!(pos("lvs --noheadings --units b") < pos("katmate-activate-lvs"));
+    assert!(!fs::read_to_string(f.env.t1_path("app_s")).unwrap().contains("3G"));
+    let by = std::env::var("SUDO_USER").unwrap_or_else(|_| "<no SUDO_USER>".into());
+    assert_eq!(journal_lines(&h), [format!("logger -t katmate-vm -- create app_s (CID 33, invoked by {by}): created")]);
+}
+
+/// A bad value is refused as a bad --mem is: an error before the lock, one
+/// `refused` journal line, nothing written.
+#[test]
+fn home_size_refusals_leave_nothing() {
+    let f = Fixture::new();
+    let before = fs::read_dir(&f.env.etc_vm).unwrap().count();
+    let by = std::env::var("SUDO_USER").unwrap_or_else(|_| "<no SUDO_USER>".into());
+    let refused = |o: &CreateOpts, h: &Fake| -> String {
+        let e = vm::create(&f.env, h, o).unwrap_err();
+        assert!(!f.env.t1_path(&o.name).exists(), "{e}");
+        assert!(!h.called("lvcreate") && !h.called("mkfs.ext4") && !h.called("qemu-img") && !h.called("katmate-generate-menu"), "{e}");
+        assert_eq!(journal_lines(h), [format!("logger -t katmate-vm -- create {} (CID -, invoked by {by}): refused: {e}", o.name)]);
+        e
+    };
+    let mut m = opts("app_x");
+    m.mem = "2GB".into();
+    let h = Fake::new();
+    assert!(refused(&m, &h).starts_with("--mem '2GB'"));
+    let besides_journal = |h: &Fake| -> Vec<String> { h.calls().into_iter().filter(|c| !c.starts_with("logger")).collect() };
+    assert_eq!(besides_journal(&h), Vec::<String>::new());
+    assert!(!f.env.run_dir.join("launch").exists(), "--mem refused after the lock");
+    for bad in ["0G", "1.5G", "512M", "3", "-1G", ""] {
+        let mut o = opts("app_x");
+        o.home_size = bad.into();
+        let h = Fake::new();
+        assert!(refused(&o, &h).starts_with(&format!("--home-size '{bad}' must be")), "{bad}");
+        assert_eq!(besides_journal(&h), Vec::<String>::new(), "{bad}: not refused where --mem is");
+        assert!(!f.env.run_dir.join("launch").exists(), "{bad}: refused after the lock");
+    }
+
+    // Larger than the pool: refused after the pool is read, before the layer
+    // chain is activated. Equal to it is accepted (overcommit stays).
+    let mut o = opts("app_x");
+    o.home_size = "701G".into();
+    let h = Fake::new();
+    let e = refused(&o, &h);
+    assert_eq!(e, "home size 701G is larger than the thin pool vg0/vm_pool (751619276800 bytes)");
+    assert!(h.called("lvs --noheadings --units b --nosuffix -o lv_size vg0/vm_pool") && !h.called("katmate-activate-lvs"));
+    let mut h = Fake::new();
+    h.pool_size = "  5368709120\n".into();
+    let e = refused(&opts("app_x"), &h);
+    assert!(e.starts_with("home size 10G is larger than the thin pool"), "{e}");
+    h = Fake::new();
+    h.pool_size = "  700.00g\n".into();
+    assert!(refused(&opts("app_x"), &h).contains("not a number of bytes"));
+
+    assert_eq!(fs::read_dir(&f.env.etc_vm).unwrap().count(), before);
+    assert_eq!(fs::read_dir(&f.env.instances).unwrap().count(), 0);
+
+    let mut o = opts("app_eq");
+    o.home_size = "700G".into();
+    let h = Fake::new();
+    vm::create(&f.env, &h, &o).unwrap();
+    assert!(h.called("lvcreate -q -V 700G -T vg0/vm_pool -n vm_app_eq_home"));
+}
+
+#[test]
+fn reuse_home_and_provision_do_not_read_the_pool() {
+    let f = Fixture::new();
+    let h = Fake::new();
+    h.lvs.borrow_mut().insert("vg0/vm_app_k_home".into());
+    let mut o = opts("app_k");
+    o.reuse_home = true;
+    vm::create(&f.env, &h, &o).unwrap();
+    assert!(!h.called("lvs --noheadings --units b") && !h.called("lvcreate"));
+
+    let h = Fake::new();
+    vm::provision(&f.env, &h, "app_sandbox").unwrap();
+    assert!(h.called("lvcreate -q -V 10G -T vg0/vm_pool -n vm_app_sandbox_home"));
+    assert!(!h.called("lvs --noheadings --units b"));
+    let l = home_line("app_sandbox");
+    assert!(l.len() == 1 && l[0].starts_with("[katmate-vm] home vg0/vm_app_sandbox_home: 10G thin in vm_pool, "), "{l:?}");
 }
 
 #[test]

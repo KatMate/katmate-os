@@ -2,7 +2,7 @@
 //! (T4, `/usr/lib/katmate/katmate-vm`; cu4, step 3 of user-created AppVMs).
 //!
 //! Usage:
-//!   katmate-vm create <name> --layer <layer> [--mem 2G] [--vcpus 2] [--offline] [--reuse-home]
+//!   katmate-vm create <name> --layer <layer> [--mem 2G] [--vcpus 2] [--home-size 10G] [--offline] [--reuse-home]
 //!   katmate-vm status [<name>]
 //!   katmate-vm delete <name> [--purge]
 //!   katmate-vm provision <name>      home and delta for a seeded T1 (installer, in arch-chroot)
@@ -22,7 +22,7 @@ mod vm;
 
 use std::process::exit;
 
-const USAGE: &str = "usage: katmate-vm create <name> --layer <layer> [--mem <n>M|G] [--vcpus <n>] [--offline] [--reuse-home] | \
+const USAGE: &str = "usage: katmate-vm create <name> --layer <layer> [--mem <n>M|G] [--vcpus <n>] [--home-size <n>G] [--offline] [--reuse-home] | \
                      katmate-vm status [<name>] | katmate-vm delete <name> [--purge] | katmate-vm provision <name> | katmate-vm menu\n\
                      exit: 0 done, 1 refused or failed, 2 usage, 3 created or deleted but the launcher's entries not updated: \
                      the instance stays as it is, and 'katmate-vm menu' recovers";
@@ -57,36 +57,44 @@ fn menu_not_updated(why: &str) -> String {
 }
 
 /// `create`'s arguments; every option once at most, in any order after the name.
-fn parse_create(args: &[String]) -> vm::CreateOpts {
-    let Some((name, rest)) = args.split_first() else { usage("create needs a name") };
-    let (mut layer, mut mem, mut vcpus) = (None, None, None);
+/// An `Err` is a usage error.
+fn parse_create(args: &[String]) -> Result<vm::CreateOpts, String> {
+    let Some((name, rest)) = args.split_first() else { return Err("create needs a name".into()) };
+    let (mut layer, mut mem, mut vcpus, mut home_size) = (None, None, None, None);
     let (mut offline, mut reuse_home) = (false, false);
     let mut it = rest.iter();
     while let Some(a) = it.next() {
         let mut value = |slot: &mut Option<String>| {
-            let Some(v) = it.next() else { usage(&format!("{a} needs a value")) };
-            if slot.replace(v.clone()).is_some() {
-                usage(&format!("{a} given twice"));
+            let v = it.next().ok_or_else(|| format!("{a} needs a value"))?;
+            match slot.replace(v.clone()) {
+                Some(_) => Err(format!("{a} given twice")),
+                None => Ok(()),
             }
         };
         match a.as_str() {
-            "--layer" => value(&mut layer),
-            "--mem" => value(&mut mem),
-            "--vcpus" => value(&mut vcpus),
+            "--layer" => value(&mut layer)?,
+            "--mem" => value(&mut mem)?,
+            "--vcpus" => value(&mut vcpus)?,
+            "--home-size" => value(&mut home_size)?,
             "--offline" if !offline => offline = true,
             "--reuse-home" if !reuse_home => reuse_home = true,
-            "--offline" | "--reuse-home" => usage(&format!("{a} given twice")),
-            _ => usage(&format!("unknown argument '{a}'")),
+            "--offline" | "--reuse-home" => return Err(format!("{a} given twice")),
+            _ => return Err(format!("unknown argument '{a}'")),
         }
     }
-    vm::CreateOpts {
+    // hs1 ruling 4.
+    if reuse_home && home_size.is_some() {
+        return Err("--home-size with --reuse-home: a kept home is attached as it is, never resized".into());
+    }
+    Ok(vm::CreateOpts {
         name: name.clone(),
-        layer: layer.unwrap_or_else(|| usage("create needs --layer <layer>")),
+        layer: layer.ok_or("create needs --layer <layer>")?,
         mem: mem.unwrap_or_else(|| t1::MEM_DEFAULT.to_string()),
         vcpus: vcpus.unwrap_or_else(|| t1::VCPUS_DEFAULT.to_string()),
+        home_size: home_size.unwrap_or_else(|| vm::HOME_LV_SIZE.to_string()),
         offline,
         reuse_home,
-    }
+    })
 }
 
 fn main() {
@@ -100,7 +108,7 @@ fn main() {
     let Some((cmd, rest)) = args.split_first() else { usage("no subcommand") };
     match cmd.as_str() {
         "create" => {
-            let o = parse_create(rest);
+            let o = parse_create(rest).unwrap_or_else(|e| usage(&e));
             done(vm::create(&env, &host, &o));
         }
         "provision" => match rest {

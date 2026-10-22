@@ -81,7 +81,16 @@ impl Env {
 }
 
 pub fn log(msg: impl std::fmt::Display) {
-    println!("[katmate-vm] {msg}");
+    let line = format!("[katmate-vm] {msg}");
+    #[cfg(test)]
+    LOGGED.with(|l| l.borrow_mut().push(line.clone()));
+    println!("{line}");
+}
+
+#[cfg(test)]
+thread_local! {
+    /// What [`log`] printed on this thread.
+    pub static LOGGED: std::cell::RefCell<Vec<String>> = const { std::cell::RefCell::new(Vec::new()) };
 }
 
 pub fn check_app_name(name: &str) -> Result<()> {
@@ -271,8 +280,30 @@ pub struct CreateOpts {
     pub layer: String,
     pub mem: String,
     pub vcpus: String,
+    /// The home LV's size; the LV's own, not a T1 key (hs1 ruling 5).
+    pub home_size: String,
     pub offline: bool,
     pub reuse_home: bool,
+}
+
+/// `--home-size`: whole GiB, `<n>G` with n ≥ 1 (hs1 ruling 2). Answers n.
+pub fn check_home_size(s: &str) -> Result<u64> {
+    s.strip_suffix('G')
+        .filter(|n| !n.is_empty() && !n.starts_with('0') && n.bytes().all(|c| c.is_ascii_digit()))
+        .and_then(|n| n.parse().ok())
+        .ok_or_else(|| format!("--home-size '{s}' must be a whole number of GiB with a G suffix (3G, 40G)"))
+}
+
+/// A home larger than its thin pool is refused (hs1 ruling 3); overcommit
+/// across instances is not checked.
+fn check_pool(env: &Env, host: &dyn Host, vg: &str, size: &str, gib: u64) -> Result<()> {
+    let pool = format!("{vg}/{POOL}");
+    let out = host.run(&[&env.bin("lvs"), "--noheadings", "--units", "b", "--nosuffix", "-o", "lv_size", &pool])?;
+    let bytes: u64 = out.trim().parse().map_err(|_| format!("lvs answered '{}' for the size of {pool}, not a number of bytes", out.trim()))?;
+    if gib.checked_mul(1 << 30).is_none_or(|b| b > bytes) {
+        return Err(format!("home size {size} is larger than the thin pool {pool} ({bytes} bytes)"));
+    }
+    Ok(())
 }
 
 enum Undo {
@@ -335,6 +366,7 @@ fn create_inner(
     check_app_name(&o.name)?;
     t1::check_mem(&o.mem)?;
     t1::check_vcpus(&o.vcpus)?;
+    let home_gib = check_home_size(&o.home_size)?;
     *lock = Some(launch_lock(env)?);
 
     let t1_path = env.t1_path(&o.name);
@@ -372,7 +404,7 @@ fn create_inner(
             }
             log(format!("home {home}: present, ext4"));
         }
-        (None, false) => {}
+        (None, false) => check_pool(env, host, &vg, &o.home_size, home_gib)?,
     }
 
     host.run(&[&env.lib("katmate-activate-lvs"), "--layer", &o.layer]).map_err(|e| format!("layer '{}' refused: {e}", o.layer))?;
@@ -426,16 +458,16 @@ fn create_steps(env: &Env, host: &dyn Host, o: &CreateOpts, p: &Props, home: &st
     if o.reuse_home {
         log(format!("home {home}: kept, attached as it is (no mkfs)"));
     } else {
-        make_home(env, host, &o.name, home, done)?;
+        make_home(env, host, &o.name, home, &o.home_size, done)?;
     }
     make_delta(env, host, &o.name, app_lv, done)
 }
 
 /// The home LV in the form of record (docs/DEV-ENV.md); undone by `lvremove`
 /// once `lvcreate` has succeeded.
-fn make_home(env: &Env, host: &dyn Host, name: &str, home: &str, done: &mut Vec<Undo>) -> Result<()> {
+fn make_home(env: &Env, host: &dyn Host, name: &str, home: &str, size: &str, done: &mut Vec<Undo>) -> Result<()> {
     let (vg, lv) = home.split_once('/').unwrap_or_default();
-    host.run(&[&env.bin("lvcreate"), "-q", "-V", HOME_LV_SIZE, "-T", &format!("{vg}/{POOL}"), "-n", lv])?;
+    host.run(&[&env.bin("lvcreate"), "-q", "-V", size, "-T", &format!("{vg}/{POOL}"), "-n", lv])?;
     done.push(Undo::Home(home.to_string()));
     host.run(&[&env.bin("udevadm"), "settle"])?;
     let attr = host.run(&[&env.bin("lvs"), "--noheadings", "-o", "lv_attr", home])?.trim().to_string();
@@ -445,7 +477,7 @@ fn make_home(env: &Env, host: &dyn Host, name: &str, home: &str, done: &mut Vec<
     }
     host.run(&[&env.bin("mkfs.ext4"), "-q", &format!("/dev/{home}")])?;
     make_user_dir(env, host, name, home)?;
-    log(format!("home {home}: {HOME_LV_SIZE} thin in {POOL}, ext4, user/ 1000:1000 0700 (lv_attr {attr})"));
+    log(format!("home {home}: {size} thin in {POOL}, ext4, user/ 1000:1000 0700 (lv_attr {attr})"));
     Ok(())
 }
 
@@ -556,7 +588,7 @@ fn provision_inner(env: &Env, host: &dyn Host, name: &str, cid_out: &mut Option<
     let home = format!("{vg}/{}", home_lv(name));
     let mut done = Vec::new();
     *window = Some(SignalBlock::new()?);
-    match make_home(env, host, name, &home, &mut done).and_then(|_| make_delta(env, host, name, &format!("{vg}/{app_lv}"), &mut done)) {
+    match make_home(env, host, name, &home, HOME_LV_SIZE, &mut done).and_then(|_| make_delta(env, host, name, &format!("{vg}/{app_lv}"), &mut done)) {
         Ok(()) => Ok(()),
         Err(e) => {
             *undone = true;
