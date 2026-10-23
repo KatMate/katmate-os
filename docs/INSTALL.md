@@ -16,7 +16,7 @@
   the disk and refuses a disk that is too small.
 - **One PCI Ethernet card for netVM.** It is passed through to netVM and the
   host keeps no network of its own after installation. A wireless card cannot
-  be assigned in the alpha.
+  be assigned in this release.
 - The **KatMate install medium** of the release's tag on a USB stick
   (*The install medium*, below). It installs offline. The fallback is the
   stock Arch Linux live ISO, which needs a network for pacstrap
@@ -34,8 +34,9 @@
 
 A release is a flat set of files: `katmate-os-<tag>.tar.gz` (a `git archive`
 of the release tag, which holds the installer), the guest images
-(`*.img.zst`), their metadata, the kernels, the host binaries, `release.env`
-and `images.list`. **`SHA256SUMS`** lists every file, and **`SHA256SUMS.asc`**
+(`*.img.zst`), their metadata, the kernels, the host binaries, `release.env`,
+`images.list` and the install medium `katmate-install-<tag>-x86_64.iso`.
+**`SHA256SUMS`** lists every file, and **`SHA256SUMS.asc`**
 is its detached signature by the KatMate release key, fingerprint
 
 ```
@@ -52,7 +53,7 @@ in the directory holding the release files:
 gpg --import katmate-release.asc
 gpg --fingerprint 3F49AE514562ACD3FF9D6049F8841B7B3D3AB436   # compare with the line above
 gpg --verify SHA256SUMS.asc SHA256SUMS                         # "Good signature from KatMate"
-sha256sum -c --ignore-missing SHA256SUMS                       # the archive: OK
+sha256sum -c --ignore-missing SHA256SUMS                       # the archive (and the ISO, if here): OK
 tar -xzf katmate-os-<tag>.tar.gz -C /root
 cd /root/katmate-os-<tag>
 ```
@@ -69,16 +70,18 @@ The decision and its measurements: [ADR-042](adr/ADR-042.md). The medium is
 UEFI only. It carries the installer (the tag's archive) and an offline
 package repository, and no guest images: those stay in the release files.
 
-**Where it comes from.** `build/iso.sh`, run as root on an Arch host from the
-release tag's archive:
+**Where it comes from.** It is a release file, verified with the rest by the
+two commands above when it sits in the same directory. It is built by
+`build/iso.sh`, run as root on an Arch host from the release tag's archive:
 
 ```
 sudo build/iso.sh --archive <dir>/katmate-os-<tag>.tar.gz --out <empty dir>
 ```
 
-It writes `katmate-install-<tag>-x86_64.iso` and its `.sha256`. The ISO's
-detached signature by the release key is **not yet part of the release**
-([open problem #67](OPEN-PROBLEMS.md)).
+It writes `katmate-install-<tag>-x86_64.iso` and its `.sha256`. In a release
+the ISO has no signature of its own: it is listed in the signed `SHA256SUMS`,
+and the `.sha256` is not a release file ([ADR-042](adr/ADR-042.md), revision
+note of 2026-10-23).
 
 **Write it to a stick** (this erases the stick; check the device name with
 `lsblk` first):
@@ -88,7 +91,8 @@ dd if=katmate-install-<tag>-x86_64.iso of=/dev/sdX bs=4M conv=fsync oflag=direct
 ```
 
 **Put the release files on a `KMRELEASE` filesystem**, all of them at its
-root (`SHA256SUMS`, `SHA256SUMS.asc`, the archive, the images and the rest).
+root (`SHA256SUMS`, `SHA256SUMS.asc`, the archive, the images and the rest;
+the ISO is not needed there).
 A second stick:
 
 ```
@@ -364,16 +368,16 @@ even on failure. Downloaded release files are removed either way.
 | Dell Latitude 3120 | Pentium N6000 | 8 GB | live install test target (VT-d) |
 | Acer ES1-633 | Pentium N4200 | 8 GB | dev scratch |
 
-**netVM's NIC: PCI passthrough only in the alpha.** The installer offers PCI
+**netVM's NIC: PCI passthrough only in this release.** The installer offers PCI
 Ethernet controllers (class `0x0200`) and nothing else; a USB NIC (such as
 the r8152 used on development hosts) cannot be assigned to netVM and is not
 supported (README, *Known limitations*). PCI passthrough is problematic on
 some 2.5 GbE adapters: run `installer/preflight.sh` and check the card's
 IOMMU group before installing. *(Until 2026-10-05 this paragraph named USB-NIC
 passthrough as the working alternative; that was development practice, and
-the alpha installer does not provide it.)*
+the installer does not provide it.)*
 
-The Dell Latitude 3120 (8 GB) is below the alpha's 16 GB minimum, and the
+The Dell Latitude 3120 (8 GB) is below the 16 GB minimum, and the
 installer refuses it.
 
 ## Caveats (current installer state)
@@ -389,6 +393,6 @@ installer refuses it.
   on 32 GB machines this is currently dead disk space.
 - **App layers are full copies** — each app layer is installed as its own
   thin LV holding the foundation's blocks too (about 2–3 GB more on disk than
-  thin snapshots would take). Importing them as snapshots is post-alpha.
+  thin snapshots would take). Importing them as snapshots is later work.
 - **Version header** — aligned 2026-10-04: the script header names the
   milestone (v0.2), not a script iteration counter.

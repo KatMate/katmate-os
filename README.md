@@ -4,7 +4,7 @@ A security- and privacy-oriented desktop operating system built on compartmental
 Application workloads run in isolated QEMU/KVM MicroVMs; the host remains a minimal,
 auditable trusted computing base.
 
-**Status:** alpha · first public prerelease [`v0.2.0-alpha2`](https://github.com/KatMate/katmate-os/releases/tag/v0.2.0-alpha2) (milestone **v0.2**) · single developer · not ready for production use
+**Status:** beta · prerelease [`v0.2.0-beta`](https://github.com/KatMate/katmate-os/releases/tag/v0.2.0-beta) (milestone **v0.2**) · single developer · not ready for production use
 
 ## Why
 
@@ -26,14 +26,14 @@ templates, kernels, or forwarding layers. See [ADR-001](docs/adr/ADR-001.md).
 - **GUI forwarding:** Waypipe over VSOCK into the host Wayland compositor (Sway by default, Hyprland optional — [ADR-016](docs/adr/ADR-016.md))
 - **Template model:** versioned immutable base images + per-AppVM overlays; updates handled by `katmate-update`, transparent to the user
 
-## Known limitations (alpha)
+## Known limitations (beta)
 
-- **The clipboard is shared across all VMs and the host.** There is one compositor, and every AppVM's waypipe is one of its clients, so whatever is copied in one domain can be pasted in any other. Do not copy secrets between domains. KeePassXC clears the clipboard 10 s after a copy by default. Per-domain clipboard isolation is planned for the next release.
+- **The clipboard is shared across all VMs and the host.** There is one compositor, and every AppVM's waypipe is one of its clients, so whatever is copied in one domain can be pasted in any other. Do not copy secrets between domains. KeePassXC clears the clipboard 10 s after a copy by default. Per-domain clipboard isolation is planned for a later release.
 - **The sandbox VM has no root: software installs into the home directory only.** `app_sandbox` is for trying software KatMate does not ship, from tarballs, extracted AppImages and static binaries unpacked into its persistent home. There is no `sudo` and no package manager access in it, as in every AppVM.
-- **Any VM can open windows on the desktop.** The host's GUI listener (waypipe on vsock port 1024) accepts a connection from any VM, netVM included, with no check of which VM is calling, before it parses that VM's Wayland stream (trust-boundary audit of 2026-09-18, finding 7). It is the same boundary as the shared clipboard above, and the fix ships with it in the next release.
-- **netVM needs a wired PCI Ethernet card.** The installer offers PCI Ethernet controllers only; a wireless card cannot be assigned to netVM in the alpha. Two cards with the same vendor and device id cannot be told apart and are refused.
-- **USB network adapters are not supported.** netVM takes its card by PCI passthrough only. A USB NIC (for example the RTL8153/r8152 used on development hosts) cannot be assigned to netVM in the alpha.
-- **Window labels are guest-set, so a VM can spoof them.** An AppVM window's title starts with `[<instance>]`, for example `[app_web] …`. The guest's own waypipe adds that prefix, so a compromised VM can show any label it likes. It is a hint, not a security boundary. Labels the host assigns are planned for the next release.
+- **Any VM can open windows on the desktop.** The host's GUI listener (waypipe on vsock port 1024) accepts a connection from any VM, netVM included, with no check of which VM is calling, before it parses that VM's Wayland stream (trust-boundary audit of 2026-09-18, finding 7). It is the same boundary as the shared clipboard above, and the fix ships with it in a later release.
+- **netVM needs a wired PCI Ethernet card.** The installer offers PCI Ethernet controllers only; a wireless card cannot be assigned to netVM in this release. Two cards with the same vendor and device id cannot be told apart and are refused.
+- **USB network adapters are not supported.** netVM takes its card by PCI passthrough only. A USB NIC (for example the RTL8153/r8152 used on development hosts) cannot be assigned to netVM in this release.
+- **Window labels are guest-set, so a VM can spoof them.** An AppVM window's title starts with `[<instance>]`, for example `[app_web] …`. The guest's own waypipe adds that prefix, so a compromised VM can show any label it likes. It is a hint, not a security boundary. Labels the host assigns are planned for a later release.
 - **KeePassXC starts in the light theme on a fresh install.** It reads no system-wide setting, so the guests' dark GTK theme does not reach it. Set the theme to dark once in KeePassXC's settings in the vault; the choice persists.
 - **No Wi-Fi UI.** The network uplink is a physical NIC passed through to netVM. The host has no network of its own to configure, and there is no Wi-Fi settings panel.
 - **No idle lock, no suspend.** The power menu's Lock runs swaylock; nothing locks the screen on idle. The power menu offers no suspend: suspend with the network card passed through to netVM has not been tested.

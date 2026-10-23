@@ -5,9 +5,10 @@
 #
 # A release (ADR-020; operator rulings R2, R3, U1, 2026-10-05) is a flat set
 # of files: a `git archive` of the release tag, the guest images (zstd), their
-# T2 metadata, kernels, host binaries, release.env and images.list. One
-# SHA256SUMS lists them all and SHA256SUMS.asc signs it, detached, with the
-# release key.
+# T2 metadata, kernels, host binaries, release.env, images.list and the
+# install medium (ADR-042). One SHA256SUMS lists them all and SHA256SUMS.asc
+# signs it, detached, with the release key. The installer checks files by
+# name only and never fetches the medium.
 #
 # Two sources, verified identically: a local directory (USB), or a base URL
 # whose files are fetched into a staging directory first (GitHub Releases).

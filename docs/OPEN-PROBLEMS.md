@@ -352,31 +352,31 @@ repository.
    smaller than its layer. Recorded, not fixed ([ADR-041](adr/ADR-041.md)
    item 4). Source: `w2-report.md` H4, S3.3.
 
-65. **install.sh's IOMMU-group listing for netVM's card has an unguarded
-   glob.** *netVM's card* sets
-   `GRP_DIR="/sys/bus/pci/devices/$NIC_BDF/iommu_group/devices"` and loops
-   over `"$GRP_DIR"/*` without `nullglob`. With no IOMMU group (no IOMMU, or a
-   VM without a vIOMMU) the loop sees the literal `…/devices/*`, `OTHERS`
-   becomes ` *`, and the user is asked `Continue with this card anyway
-   (yes/no)` for a group that does not exist. Read, not run. Recorded, not
-   fixed. Source: `iso1-report.md` H2.7, H3.6.
-
-66. **Install-medium builds are refused from about 2026-11-01 until
+66. **Install media and release runs are refused from about 2026-11-01 until
    `archlinux-keyring` extends two packager keys.** With today's keyring the
    earliest expiry among the keys that sign the offline repository is
-   2026-12-31 (`A85E811EB4CA2E08`, `539DFD48135182EF`), and `build/iso.sh`
-   refuses a medium with fewer than 60 days left
-   ([ADR-042](adr/ADR-042.md) Decision 5). A constraint on the release date,
-   not a defect: a release medium planned for November or December depends on
-   a newer keyring that extends or replaces those keys. Source:
-   `iso1-report.md` H3.7.
+   2026-12-31 (`A85E811EB4CA2E08`, `539DFD48135182EF`). `build/iso.sh`
+   refuses to build a medium with fewer than 60 days left
+   ([ADR-042](adr/ADR-042.md) Decision 5), and since `3c32a76`
+   `tools/make-release.sh` refuses to release one (`ISO_MIN_DAYS=60`, counted
+   to 00:00 UTC of `ISO_VALID_UNTIL`). The last day either accepts this
+   keyring's medium is **2026-10-31 (UTC)**: the build host's half of a
+   release run has to finish by then. A constraint on the release date, not a
+   defect. The 60 is duplicated in the two scripts by operator ruling
+   (2026-10-23); it moves to `build/lib.sh` with the next change to
+   `build/iso.sh`. Source: `iso1-report.md` H3.7, `rel1-report.md` §5.
 
-67. **The install medium's signature is not part of the release process.**
-   [ADR-042](adr/ADR-042.md) Decision 7: the ISO is covered by the release
-   key ([ADR-020](adr/ADR-020.md)) as a detached signature, listed in
-   `SHA256SUMS`. `tools/make-release.sh` neither takes nor lists an ISO
-   today, and `build/iso.sh` writes an unsigned `.sha256` only. **Open:** add
-   the ISO to the release set and its signing on the Acer.
+67. **The install medium in the signed release: steps 5 and 6 of
+   `make-release.sh` have not run.** Since `3c32a76` the script requires
+   `--archive` and `--iso` and binds the ISO to the release in step 0
+   ([ADR-042](adr/ADR-042.md), revision note of 2026-10-23); its refusals were
+   observed on MINIS (rel1 G1–G7, every run stopped in step 0 or 1).
+   UNVERIFIED: the copy of both into `--out`, the complete `SHA256SUMS` and
+   its two binding lines, the 2 GiB asset check on a real ISO, and the printed
+   Acer chain with the real `git tag -v`, `scp` and `gpg` (rel1 G8 ran it with
+   stubs). **Closes with** the `v0.2.0-beta` release run: its Acer chain
+   printing `katmate-os-v0.2.0-beta.tar.gz: OK` and a good signature over a
+   `SHA256SUMS` that lists the ISO. Source: `rel1-report.md` §6.
 
 68. **The install medium's unexecuted branches.** Written in `01026ac`, not
    run in iso1 (UNVERIFIED): install.sh's own offline pacstrap line

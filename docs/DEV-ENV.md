@@ -235,3 +235,71 @@ netVM) · `20–99` fixed persistent AppVMs · `≥100` disposable pool. Applied
 
 - **Disk chain**: three-level LVM-thin chain proven live through a full
   boot/render/shutdown cycle.
+
+## Release run
+
+Written for `v0.2.0-beta` (rel1, 2026-10-23); for another tag, replace the
+tag throughout. The release set and its signing: [ADR-020](adr/ADR-020.md)
+and [ADR-042](adr/ADR-042.md), revision notes of 2026-10-23.
+`tools/make-release.sh` prints step 3 itself, for the paths of its run. The
+MINIS address is the one under *Dev access to MINIS* above (volatile); the
+script's `BUILD_HOST_SSH` changes with it.
+
+**1. Acer: tag, archive, copy.** From a clean tree at `main`; the rsync dry
+run (`-an --itemize-changes`) first. The tag is pushed only at publish.
+
+```
+cd ~/katmate-os
+git fetch origin && git status --short && git rev-parse HEAD origin/main
+git tag -s -u 3F49AE514562ACD3FF9D6049F8841B7B3D3AB436 -m "KatMate OS v0.2.0-beta" v0.2.0-beta
+git tag -v v0.2.0-beta
+mkdir -p ~/release-v0.2.0-beta
+git -c tar.umask=0022 archive --format=tar.gz --prefix=katmate-os-v0.2.0-beta/ -o ~/release-v0.2.0-beta/katmate-os-v0.2.0-beta.tar.gz v0.2.0-beta
+rsync -a --delete --exclude=.git/ --exclude=trixie-build/ --exclude=out/ --exclude=agent/target/ --exclude=git-cli.txt ~/katmate-os/ host@10.3.1.3:/home/host/katmate-build/
+ssh host@10.3.1.3 mkdir -p /home/host/release-v0.2.0-beta/in
+scp ~/release-v0.2.0-beta/katmate-os-v0.2.0-beta.tar.gz host@10.3.1.3:/home/host/release-v0.2.0-beta/in/
+```
+
+**2. MINIS: medium, images, release set.** The medium first: it needs only
+the archive and the host's own network, which is up before any reboot, and it
+is the step the keyring deadline binds
+([open problem #66](OPEN-PROBLEMS.md)). Then the `--built-after` stamp, then
+the image builds (`build/`: foundation, the web, office and vault layers,
+the host binaries) under CLAUDE.md's reboot procedure, netVM last (`systemctl disable katmate-sys-driver@netvm` → reboot →
+`build/netvm.sh`); netVM stays disabled and unbooted until
+`make-release.sh` has run.
+
+```
+sudo /home/host/katmate-build/build/iso.sh --archive /home/host/release-v0.2.0-beta/in/katmate-os-v0.2.0-beta.tar.gz --out /home/host/release-v0.2.0-beta/iso
+date -u +%Y-%m-%dT%H:%M:%SZ > /home/host/release-v0.2.0-beta/built-after
+```
+
+After the image builds:
+
+```
+sudo /home/host/katmate-build/tools/make-release.sh --tag v0.2.0-beta --archive /home/host/release-v0.2.0-beta/in/katmate-os-v0.2.0-beta.tar.gz --iso /home/host/release-v0.2.0-beta/iso/katmate-install-v0.2.0-beta-x86_64.iso --out /home/host/release-v0.2.0-beta/out --built-after (cat /home/host/release-v0.2.0-beta/built-after)
+sudo systemctl enable --now katmate-sys-driver@netvm
+```
+
+With today's keyring `make-release.sh` refuses the medium from
+2026-11-01T00:00Z.
+
+**3. Acer: check, sign, verify.** One chain: nothing is signed after a failed
+step.
+
+```
+cd ~/katmate-os && git tag -v v0.2.0-beta \
+  && scp host@10.3.1.3:/home/host/release-v0.2.0-beta/out/SHA256SUMS ~/release-v0.2.0-beta/SHA256SUMS \
+  && cd ~/release-v0.2.0-beta && sha256sum -c --ignore-missing SHA256SUMS \
+  && gpg --local-user 3F49AE514562ACD3FF9D6049F8841B7B3D3AB436 --armor --detach-sign --output SHA256SUMS.asc SHA256SUMS \
+  && gpg --verify SHA256SUMS.asc SHA256SUMS
+```
+
+Expected: `katmate-os-v0.2.0-beta.tar.gz: OK`, then a good signature from
+KatMate.
+
+**4. Publish, after the Cubi gate passes.** Upload every file in MINIS's
+`/home/host/release-v0.2.0-beta/out/` and the Acer's
+`~/release-v0.2.0-beta/SHA256SUMS.asc`; not `iso.sh`'s `.sha256` or its
+`work/`. Then `git push origin v0.2.0-beta` and create the GitHub release as
+a prerelease. Only the current release is kept.
