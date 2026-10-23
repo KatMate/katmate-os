@@ -2,10 +2,15 @@
 # make-release.sh — assemble the unsigned half of a KatMate release (ADR-020)
 #
 # Usage (on the build host, as root, from the synced tree):
-#   sudo tools/make-release.sh --tag <tag> --out <empty dir> --built-after <UTC>
+#   sudo tools/make-release.sh --tag <tag> --archive <dir>/katmate-os-<tag>.tar.gz \
+#        --iso <dir>/katmate-install-<tag>-x86_64.iso --out <empty dir> --built-after <UTC>
 #
-#   --tag          the release tag the Acer will archive (e.g. v0.2.0-alpha1);
-#                  names the tree archive in release.env, nothing else
+#   --tag          the release tag (e.g. v0.2.0-beta)
+#   --archive      the Acer's archive of the tag, copied here. Made with
+#                    git -c tar.umask=0022 archive --format=tar.gz \
+#                      --prefix=katmate-os-<tag>/ -o katmate-os-<tag>.tar.gz <tag>
+#   --iso          the install medium build/iso.sh built from that archive, with
+#                  its .sha256 beside it
 #   --out          a directory that does not exist yet, or is empty
 #   --built-after  ISO-8601 UTC time (2026-10-05T08:00:00Z). Every image must
 #                  have been built after it: "built fresh for this release"
@@ -15,20 +20,27 @@
 # zstd-compressed guest images (foundation, the app layers web/office/vault,
 # netVM), their T2 metadata, the MicroVM kernel and its provenance sidecar,
 # netVM's kernel and initrd, the host binaries (host waypipe, ping-client,
-# katmate-alloc, katmate-vm), and a `git archive` of the release tag. One SHA256SUMS lists
-# every file and is signed detached by the release key. The installer builds
-# nothing.
+# katmate-alloc, katmate-vm), a `git archive` of the release tag, and the
+# install medium (ADR-042). One SHA256SUMS lists every file and is signed
+# detached by the release key; the ISO is covered by that one signature, with
+# no signature of its own. The installer builds nothing.
 #
-# This script writes everything but the tree archive, and a PARTIAL
-# SHA256SUMS. It stops before signing: git and the signing key live on the
-# Acer only (CLAUDE.md, *The two machines*). The commands for the Acer half
-# are printed at the end.
+# This script writes every release file and the complete SHA256SUMS. It stops
+# before signing: git and the signing key live on the Acer only (CLAUDE.md,
+# *The two machines*). The commands for the Acer half are printed at the end:
+# check the Acer's own archive against SHA256SUMS, sign, verify.
+#
+# Step 0 binds the medium to the archive before anything is exported: the ISO
+# embeds the archive, so the release must ship the very archive its ISO
+# carries. Both are read from the ISO itself (its airootfs), not from a
+# sidecar.
 #
 # What it reads, and what it never reads:
-#   - reads: the image LVs named below, /var/lib/katmate/*.meta, the shared
-#     kernel directory, /var/lib/katmate/netvm/, /opt/katmate/bin/waypipe,
+#   - reads: --archive and --iso, the image LVs named below,
+#     /var/lib/katmate/*.meta, the shared kernel directory,
+#     /var/lib/katmate/netvm/, /opt/katmate/bin/waypipe,
 #     /usr/lib/katmate/ping-client, /usr/lib/katmate/katmate-alloc,
-#     /usr/lib/katmate/katmate-vm, installer/t1/ in this tree.
+#     /usr/lib/katmate/katmate-vm.
 #   - NEVER reads the operator's per-instance state: no home LV
 #     (vm_<instance>_home), no qcow2 delta under /var/lib/katmate/instances/
 #     (R20). The LV list is a literal below, never a glob over vg0.
@@ -42,10 +54,10 @@
 #
 # Validation of the T1 templates (R10): fish is not installed on a KatMate
 # host, so tools/validate-properties.fish runs HERE, at release time, over the
-# templates the installer will instantiate.
+# templates the installer will instantiate: those in --archive.
 #
-# UNVERIFIED: written in a cloud session without LVM, zstd or an image; only
-# `bash -n` and shellcheck were run. It first executes on MINIS.
+# UNVERIFIED: copying --archive and --iso into --out and the complete
+# SHA256SUMS (steps 5 and 6) first execute in the v0.2.0-beta release run.
 
 set -euo pipefail
 
@@ -63,34 +75,40 @@ HOST_WAYPIPE="/opt/katmate/bin/waypipe"
 HOST_PING_CLIENT="/usr/lib/katmate/ping-client"
 HOST_ALLOC="/usr/lib/katmate/katmate-alloc"
 HOST_VM="/usr/lib/katmate/katmate-vm"
-T1_TEMPLATES="$ROOT_DIR/installer/t1"
 VALIDATOR="$ROOT_DIR/tools/validate-properties.fish"
 # The release's shipped set of layers (prebuilt until ADR-043 gate B1), not a
 # rule about which layers may exist; installer/install.sh carries the same set.
 # app_personal and app_sandbox use web.
 APP_TYPES=(web office vault)
+# A second copy of build/iso.sh's `(( DAYS_LEFT >= 60 ))` (ADR-042 Decision 5):
+# iso.sh holds it as a literal, so the two are kept equal by hand.
+ISO_MIN_DAYS=60
+# docs/DEV-ENV.md, *Dev access to MINIS*; only printed, for the Acer's scp.
+BUILD_HOST_SSH="host@10.3.1.3"
 
 usage() {
-  echo "usage: $0 --tag <tag> --out <empty dir> --built-after <YYYY-MM-DDTHH:MM:SSZ>" >&2
+  echo "usage: $0 --tag <tag> --archive <katmate-os-<tag>.tar.gz> --iso <katmate-install-<tag>-x86_64.iso> --out <empty dir> --built-after <YYYY-MM-DDTHH:MM:SSZ>" >&2
   exit 2
 }
 
-TAG="" OUTDIR="" BUILT_AFTER=""
+TAG="" OUTDIR="" BUILT_AFTER="" ARCHIVE_SRC="" ISO_SRC=""
 while (( $# )); do
   case "$1" in
     --tag)         TAG="${2-}"; shift 2 || usage ;;
+    --archive)     ARCHIVE_SRC="${2-}"; shift 2 || usage ;;
+    --iso)         ISO_SRC="${2-}"; shift 2 || usage ;;
     --out)         OUTDIR="${2-}"; shift 2 || usage ;;
     --built-after) BUILT_AFTER="${2-}"; shift 2 || usage ;;
     *) usage ;;
   esac
 done
-[[ -n "$TAG" && -n "$OUTDIR" && -n "$BUILT_AFTER" ]] || usage
+[[ -n "$TAG" && -n "$ARCHIVE_SRC" && -n "$ISO_SRC" && -n "$OUTDIR" && -n "$BUILT_AFTER" ]] || usage
 [[ "$TAG" =~ ^[A-Za-z0-9][A-Za-z0-9._-]*$ ]] || die "--tag '$TAG': letters, digits, '.', '_' and '-' only (it becomes a file name)"
 [[ "$BUILT_AFTER" =~ ^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}Z$ ]] \
   || die "--built-after '$BUILT_AFTER' is not YYYY-MM-DDTHH:MM:SSZ (UTC, the format every meta's stamp uses)"
 
 require_root
-for c in lvs lvchange blockdev dd zstd sha256sum mount umount findmnt find cmp file fish systemctl stat; do
+for c in lvs lvchange blockdev dd zstd sha256sum mount umount findmnt losetup unsquashfs tar find cmp file fish systemctl stat; do
   command -v "$c" >/dev/null || die "missing command: $c"
 done
 
@@ -100,14 +118,27 @@ else
   mkdir -p "$OUTDIR"
 fi
 OUTDIR="$(cd "$OUTDIR" && pwd)"
+# The printed Acer half carries this path into fish and scp unescaped.
+[[ "$OUTDIR" =~ ^[A-Za-z0-9/._+-]+$ ]] || die "--out $OUTDIR: letters, digits and . _ + - / only (the printed Acer commands use it as is)"
 ARCHIVE="katmate-os-$TAG.tar.gz"
+ISO="katmate-install-$TAG-x86_64.iso"   # mkarchiso: iso_name-iso_version-arch (iso/profiledef.sh)
 
 # --- cleanup: unmount and deactivate only what this script activated ---------
 MNT="$(mktemp -d)"
+ISO_MNT="$(mktemp -d)"
+ISO_LOOP=""
+X=""
 ACTIVATED=()
+iso_release() {
+  if findmnt "$ISO_MNT" >/dev/null 2>&1; then umount "$ISO_MNT" || echo "cleanup: cannot unmount $ISO_MNT" >&2; fi
+  if [[ -n "$ISO_LOOP" ]]; then losetup -d "$ISO_LOOP" || echo "cleanup: cannot detach $ISO_LOOP" >&2; fi
+  ISO_LOOP=""
+}
 cleanup() {
+  iso_release
   findmnt "$MNT" >/dev/null 2>&1 && umount "$MNT" 2>/dev/null
-  rmdir "$MNT" 2>/dev/null || true
+  rmdir "$MNT" "$ISO_MNT" 2>/dev/null || true
+  [[ -z "$X" ]] || rm -rf -- "$X"
   local lv
   for lv in "${ACTIVATED[@]}"; do lvchange -an "$VG/$lv" 2>/dev/null || true; done
 }
@@ -127,6 +158,76 @@ fresh() {
   [[ "$stamp" > "$BUILT_AFTER" ]] \
     || die "$what was built at $stamp, not after --built-after $BUILT_AFTER: only images built fresh for this release are exported (R20)"
 }
+
+# --- 0. archive, install medium, T1 templates: the cheap checks first -------
+# Nothing here writes into --out; the archive and the ISO are copied in step 5.
+log "Step 0: the archive, the install medium and the T1 templates"
+[[ "$(basename -- "$ARCHIVE_SRC")" == "$ARCHIVE" ]] || die "--archive $ARCHIVE_SRC is not named $ARCHIVE"
+[[ "$(basename -- "$ISO_SRC")" == "$ISO" ]] || die "--iso $ISO_SRC is not named $ISO"
+[[ -f "$ARCHIVE_SRC" ]] || die "No such archive: $ARCHIVE_SRC"
+[[ -f "$ISO_SRC" ]] || die "No such ISO: $ISO_SRC"
+log "  names: OK ($ARCHIVE, $ISO)"
+
+X="$(mktemp -d)"
+tar -xzf "$ARCHIVE_SRC" -C "$X" || die "Cannot unpack $ARCHIVE"
+top="$(ls -A "$X")"
+[[ "$top" == "katmate-os-$TAG" && -d "$X/$top" ]] \
+  || die "$ARCHIVE does not unpack to katmate-os-$TAG/ alone (top level: ${top//$'\n'/ })"
+# Git's default tar.umask is 0002, which archives directories 775 and files
+# 664; extracted as root, as on the live ISO, the tree keeps those modes, and
+# the installer's host-parts step refuses group-writable paths (install.sh,
+# the 8#022 check). Found 2026-10-09 by the first alpha2 install on the Cubi.
+writable="$(find "$X" -mindepth 1 ! -type l -perm /022 -printf '%P\n')"
+[[ -z "$writable" ]] || { printf '%s\n' "$writable" | head -n 20 >&2
+  die "$ARCHIVE: $(wc -l <<<"$writable") paths are group- or world-writable (first 20 above): it was archived without -c tar.umask=0022. Make it again."; }
+ARCHIVE_SUM="$(sha256sum -- "$ARCHIVE_SRC" | awk '{print $1}')" || die "Cannot hash $ARCHIVE_SRC"
+log "  archive: OK (unpacks to katmate-os-$TAG/, nothing group- or world-writable; sha256 $ARCHIVE_SUM)"
+
+# fish is not installed on a KatMate host, so tools/validate-properties.fish
+# (R10) runs here, over the templates of the archive being released.
+T1_TMP="$X/t1"
+mkdir "$T1_TMP"
+n=0
+for f in "$X/katmate-os-$TAG/installer/t1"/*.toml.in; do
+  [[ -e "$f" ]] || continue
+  cp -- "$f" "$T1_TMP/$(basename "$f" .in)"; n=$((n + 1))
+done
+(( n == 6 )) || die "$ARCHIVE holds $n installer/t1/*.toml.in templates, expected 6 (netvm and the five alpha AppVMs)"
+fish "$VALIDATOR" --strict "$T1_TMP" || die "tools/validate-properties.fish --strict refused the templates of $ARCHIVE (above)"
+log "  T1: OK ($n templates from $ARCHIVE validated with --strict, cross-file rules included)"
+
+ISO_LOOP="$(losetup --find --show --read-only "$ISO_SRC")" || die "Cannot attach $ISO_SRC to a loop device"
+mount -o ro "$ISO_LOOP" "$ISO_MNT" || die "Cannot mount $ISO_SRC"
+SFS="$ISO_MNT/arch/x86_64/airootfs.sfs"
+[[ -f "$SFS" ]] || die "$ISO has no arch/x86_64/airootfs.sfs: not a build/iso.sh medium"
+ISO_ENV="$(unsquashfs -cat "$SFS" etc/katmate-iso/iso.env)" || die "$ISO: no etc/katmate-iso/iso.env in its airootfs"
+iso_env_get() { sed -n "s/^$1=//p" <<<"$ISO_ENV" | head -n1; }
+ISO_TAG="$(iso_env_get ISO_RELEASE_TAG)"
+[[ "$ISO_TAG" == "$TAG" ]] || die "$ISO: its iso.env records ISO_RELEASE_TAG=$ISO_TAG, not --tag $TAG"
+log "  tag: OK (iso.env ISO_RELEASE_TAG=$ISO_TAG)"
+
+VALID_UNTIL="$(iso_env_get ISO_VALID_UNTIL)"
+[[ "$VALID_UNTIL" =~ ^[0-9]{4}-[0-9]{2}-[0-9]{2}$ ]] \
+  || die "$ISO: its iso.env records no ISO_VALID_UNTIL date (got '$VALID_UNTIL'): built before build/iso.sh wrote one. Rebuild it."
+# Midnight UTC of the expiry date: never later than iso.sh's own reckoning.
+DAYS_LEFT=$(( ($(date -u -d "$VALID_UNTIL" +%s) - $(date -u +%s)) / 86400 ))
+(( DAYS_LEFT >= ISO_MIN_DAYS )) \
+  || die "$ISO is valid until $VALID_UNTIL, $DAYS_LEFT days from now: under $ISO_MIN_DAYS (ADR-042 Decision 5). Rebuild the medium with a newer archlinux-keyring."
+log "  validity: OK (ISO_VALID_UNTIL=$VALID_UNTIL, $DAYS_LEFT days left, at least $ISO_MIN_DAYS required)"
+
+unsquashfs -cat "$SFS" "usr/share/katmate-iso/$ARCHIVE" | cmp -s - "$ARCHIVE_SRC" \
+  || die "$ISO: its usr/share/katmate-iso/$ARCHIVE is missing or not byte-identical to --archive $ARCHIVE_SRC: the medium was not built from this archive"
+log "  embedded archive: OK (usr/share/katmate-iso/$ARCHIVE is byte-identical to --archive)"
+iso_release
+
+[[ -r "$ISO_SRC.sha256" ]] || die "No $ISO_SRC.sha256 beside the ISO (build/iso.sh writes one)"
+sha_line="$(cat -- "$ISO_SRC.sha256")"
+[[ "$sha_line" =~ ^([0-9a-f]{64})\ \ (.+)$ ]] || die "$ISO_SRC.sha256 is not a sha256sum line: $sha_line"
+ISO_SUM_WANT="${BASH_REMATCH[1]}"
+[[ "${BASH_REMATCH[2]}" == "$ISO" ]] || die "$ISO_SRC.sha256 names '${BASH_REMATCH[2]}', not $ISO"
+ISO_SUM="$(sha256sum -- "$ISO_SRC" | awk '{print $1}')" || die "Cannot hash $ISO_SRC"
+[[ "$ISO_SUM" == "$ISO_SUM_WANT" ]] || die "$ISO: sha256 $ISO_SUM does not match its .sha256 ($ISO_SUM_WANT)"
+log "  .sha256: OK ($ISO_SUM)"
 
 # --- 1. metadata: what each image is, and that it is this release's ---------
 log "Metadata (T2) and freshness against --built-after $BUILT_AFTER"
@@ -232,19 +333,7 @@ hostkeys="$(find "$MNT/etc/ssh" -name 'ssh_host_*' -print 2>/dev/null || true)"
 umount "$MNT"
 log "  netvm: marker matches NETVM_BUILT=${STAMP[netvm]}; nothing newer; no journal, no dhcpcd state, no host key"
 
-# --- 4. T1 templates validate (R10) ------------------------------------------
-log "Validate the T1 templates the installer instantiates"
-T1_TMP="$(mktemp -d)"
-n=0
-for f in "$T1_TEMPLATES"/*.toml.in; do
-  cp -- "$f" "$T1_TMP/$(basename "$f" .in)"; n=$((n + 1))
-done
-(( n == 6 )) || die "$T1_TEMPLATES holds $n *.toml.in templates, expected 6 (netvm and the five alpha AppVMs)"
-fish "$VALIDATOR" --strict "$T1_TMP" || die "tools/validate-properties.fish --strict refused the templates in $T1_TEMPLATES (above)"
-rm -rf "$T1_TMP"
-log "  $n templates validated with --strict, cross-file rules included"
-
-# --- 5. export the images ----------------------------------------------------
+# --- 4. export the images ----------------------------------------------------
 # images.list, one line per image:
 #   <file> <lv> <thin|linear> <bytes> <ro|rw> <allocated bytes>
 log "Export images (zstd), each read back against its LV"
@@ -276,8 +365,8 @@ for img in "${IMAGES[@]}"; do
   printf '%s %s %s %s %s %s\n' "$img.img.zst" "$lv" "$kind" "$bytes" "$mode" "$alloc" >> "$OUTDIR/images.list"
 done
 
-# --- 6. T2 metadata, kernels, host binaries ----------------------------------
-log "T2 metadata, kernels and host binaries"
+# --- 5. T2 metadata, kernels, host binaries, archive, ISO --------------------
+log "T2 metadata, kernels, host binaries, the archive and the ISO"
 install -m 0644 "$FOUNDATION_META" "$OUTDIR/foundation.meta"
 for t in "${APP_TYPES[@]}"; do install -m 0644 "$KATMATE_STATE_DIR/app-$t.meta" "$OUTDIR/app-$t.meta"; done
 install -m 0644 "$NETVM_META" "$OUTDIR/netvm.meta"
@@ -303,6 +392,8 @@ install -m 0755 "$HOST_WAYPIPE" "$OUTDIR/waypipe"
 install -m 0755 "$HOST_PING_CLIENT" "$OUTDIR/ping-client"
 install -m 0755 "$HOST_ALLOC" "$OUTDIR/katmate-alloc"
 install -m 0755 "$HOST_VM" "$OUTDIR/katmate-vm"
+install -m 0644 "$ARCHIVE_SRC" "$OUTDIR/$ARCHIVE"
+install -m 0644 "$ISO_SRC" "$OUTDIR/$ISO"
 
 cat > "$OUTDIR/release.env" <<EOF
 KATMATE_RELEASE_VERSION=1
@@ -314,7 +405,7 @@ WAYPIPE_TAG=$WP_TAG
 ASSEMBLED=$(date -u +%Y-%m-%dT%H:%M:%SZ)
 EOF
 
-# --- 7. size limit and the partial SHA256SUMS --------------------------------
+# --- 6. size limit and SHA256SUMS --------------------------------------------
 log "Asset sizes (GitHub limit: < 2 GiB each, R3)"
 too_big=0
 for f in "$OUTDIR"/*; do
@@ -324,30 +415,28 @@ for f in "$OUTDIR"/*; do
 done
 (( ! too_big )) || die "at least one asset is 2 GiB or larger (above): GitHub refuses it"
 
-(cd "$OUTDIR" && find . -maxdepth 1 -type f ! -name 'SHA256SUMS*' -printf '%P\n' | LC_ALL=C sort | xargs -d '\n' sha256sum) > "$OUTDIR/SHA256SUMS.partial"
-mv "$OUTDIR/SHA256SUMS.partial" "$OUTDIR/SHA256SUMS"
-log "SHA256SUMS: $(wc -l < "$OUTDIR/SHA256SUMS") files (partial: the tree archive is added on the Acer)"
+(cd "$OUTDIR" && find . -maxdepth 1 -type f ! -name 'SHA256SUMS*' -printf '%P\n' | LC_ALL=C sort | xargs -d '\n' sha256sum) > "$OUTDIR/SHA256SUMS.new"
+mv "$OUTDIR/SHA256SUMS.new" "$OUTDIR/SHA256SUMS"
+# The copies in --out are the bytes step 0 checked.
+grep -qxF "$ARCHIVE_SUM  $ARCHIVE" "$OUTDIR/SHA256SUMS" || die "SHA256SUMS: $ARCHIVE is not the archive step 0 checked ($ARCHIVE_SUM)"
+grep -qxF "$ISO_SUM  $ISO" "$OUTDIR/SHA256SUMS" || die "SHA256SUMS: $ISO is not the ISO step 0 checked ($ISO_SUM)"
+log "SHA256SUMS: $(wc -l < "$OUTDIR/SHA256SUMS") files, the archive and the ISO included"
 
-# The archive is made with tar.umask=0022. Git's default is 0002, which
-# archives directories 775 and files 664; extracted as root, as on the Arch
-# live ISO, the tree keeps those modes, and the installer's KatMate host parts
-# step then refuses host/usr as group-writable (install.sh, the 8#022 check).
-# Found 2026-10-09 by the first alpha2 install on the Cubi.
+# Fish, the operator's shell: no placeholders, no subshells, and one && chain
+# so that nothing is signed after a failed check.
 cat <<EOF
 
-==> Done on this host. The release is NOT complete and NOT signed.
-    Copy $OUTDIR/SHA256SUMS to the Acer, then on the Acer:
+==> Done on this host. SHA256SUMS lists every file in $OUTDIR; it is NOT
+    signed. On the Acer, in fish, with ~/release-$TAG/$ARCHIVE the archive
+    this run was given:
 
-    cd ~/katmate-os
-    git fetch origin && git tag -v $TAG
-    mkdir -p ~/release-$TAG && cp <the copied SHA256SUMS> ~/release-$TAG/SHA256SUMS
-    git -c tar.umask=0022 archive --format=tar.gz --prefix=katmate-os-$TAG/ -o ~/release-$TAG/$ARCHIVE $TAG
-    (cd ~/release-$TAG && sha256sum $ARCHIVE >> SHA256SUMS && LC_ALL=C sort -k2 -o SHA256SUMS SHA256SUMS)
-    gpg --local-user 3F49AE514562ACD3FF9D6049F8841B7B3D3AB436 --armor --detach-sign \\
-        --output ~/release-$TAG/SHA256SUMS.asc ~/release-$TAG/SHA256SUMS
-    gpg --verify ~/release-$TAG/SHA256SUMS.asc ~/release-$TAG/SHA256SUMS
+    cd ~/katmate-os && git tag -v $TAG \\
+      && scp $BUILD_HOST_SSH:$OUTDIR/SHA256SUMS ~/release-$TAG/SHA256SUMS \\
+      && cd ~/release-$TAG && sha256sum -c --ignore-missing SHA256SUMS \\
+      && gpg --local-user 3F49AE514562ACD3FF9D6049F8841B7B3D3AB436 --armor --detach-sign --output SHA256SUMS.asc SHA256SUMS \\
+      && gpg --verify SHA256SUMS.asc SHA256SUMS
 
-    Upload as the assets of GitHub release $TAG: every file in $OUTDIR except
-    SHA256SUMS, plus ~/release-$TAG/{$ARCHIVE,SHA256SUMS,SHA256SUMS.asc}.
-    The SHA256SUMS uploaded must be the Acer's, the one the signature covers.
+    Upload as the assets of GitHub release $TAG: every file in $OUTDIR, plus
+    ~/release-$TAG/SHA256SUMS.asc. The SHA256SUMS in $OUTDIR is the file that
+    signature covers.
 EOF
