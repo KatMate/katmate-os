@@ -515,7 +515,8 @@ i=0
 for b in "${NIC_BDFS[@]}"; do
   i=$((i + 1))
   drv="$(basename "$(readlink -f "/sys/bus/pci/devices/$b/driver" 2>/dev/null)" 2>/dev/null || true)"
-  grp="$(basename "$(readlink -f "/sys/bus/pci/devices/$b/iommu_group" 2>/dev/null)" 2>/dev/null || echo '?')"
+  grp=none
+  [[ -e "/sys/bus/pci/devices/$b/iommu_group" ]] && grp="$(basename "$(readlink -f "/sys/bus/pci/devices/$b/iommu_group")")"
   name=""
   command -v lspci >/dev/null && name="$(lspci -s "$b" 2>/dev/null | cut -d' ' -f2- || true)"
   nets=""
@@ -547,11 +548,14 @@ NIC_D3=""
 if ! grep -qw flr "/sys/bus/pci/devices/$NIC_BDF/reset_method" 2>/dev/null; then
   NIC_D3=" disable_idle_d3=1"
 fi
+[[ -e "/sys/bus/pci/devices/$NIC_BDF/iommu_group" ]] \
+  || die "$NIC_BDF has no IOMMU group: without one vfio cannot take the card and netVM never starts. Enable VT-d (Intel) or AMD-Vi (AMD) in the firmware setup, then run preflight.sh."
 # The rest of the card's IOMMU group, bridges aside (they never disqualify
 # a group): preflight.sh rates isolation; this only shows it once more.
 GRP_DIR="/sys/bus/pci/devices/$NIC_BDF/iommu_group/devices"
 OTHERS=""
 for g in "$GRP_DIR"/*; do
+  [[ -e "$g" ]] || continue
   gb="$(basename "$g")"
   [[ "$gb" == "$NIC_BDF" ]] && continue
   [[ "$(cat "$g/class" 2>/dev/null)" == 0x0604* ]] && continue
