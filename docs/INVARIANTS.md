@@ -144,9 +144,11 @@ that found nothing** — make the condition true on purpose and see it noticed.
   identical gcc-14 warnings, exit 0) when host IPv6 is not held off. Count by
   pattern (`grep -c '^W:'`), never page it. Source: `s4b-impl-B-report.md` § P3.
 - **Image builds need host IPv6 off.** The pref-100 `unreachable` rule is
-  permanent since R97 (installed by `proton.conf`'s `PostUp`); a build checks
-  that `ip -6 rule list` shows `100: from all unreachable` and stops otherwise
-  — it neither adds nor removes it (R98, superseding R93). With the rule,
+  permanent since R97 (installed by `proton.conf`'s `PostUp`). No script
+  checks it: the session checks before every build that fetches (`iso.sh`,
+  foundation, layers, `netvm.sh`) that `ip -6 rule list` shows `100: from all
+  unreachable`, and stops otherwise — it neither adds nor removes it (R98,
+  superseding R93; rel2 D5). With the rule,
   `make foundation` took 5 min against 61 min. Source: `s4b2-impl-B-report.md`.
 - **`wg-quick down` runs the config file's current hooks**, so a `PreDown`
   added to a running tunnel must tolerate what `PostUp` never made:
@@ -216,8 +218,12 @@ that found nothing** — make the condition true on purpose and see it noticed.
   sound?".** `Open count` 0 (`dmsetup info`) and no `[jbd2/dm-N-8]` kthread →
   safe; else reboot, never force. `mount`, `lsof`, `fuser` cannot see it. Every
   `build/netvm.sh` run, successful or not, leaves the hold, so **reboot before
-  each build**; its preflight (`build/netvm.sh:122`) suggests `lvremove -f`.
-  Source: `netvm-rebuild-3-report.md` § 13.
+  each build**; its preflight (`build/netvm.sh:155`) refuses an existing LV
+  and suggests `lvremove -f`: use `lvchange -an` and `lvremove` without `-f`
+  after the test. **A release build reboots again after the build:**
+  `tools/make-release.sh` refuses an open image LV, and its message ("a VM
+  holds it") is wrong for this cause. Sources: `netvm-rebuild-3-report.md`
+  § 13, `rel2-report.md` D1, D6.
 - **Map an LV to `dm-N` from `ls -l /dev/<vg>/<lv>`, not by parsing `dmsetup
   info`** (an `awk` read the major, 254, and the guard could not fire). Print the
   raw listing beside any verdict.
@@ -371,6 +377,16 @@ that found nothing** — make the condition true on purpose and see it noticed.
   down;** `pacman -Sy` then sleeps in `poll` and ignores SIGTERM. Packages on
   MINIS come from the iso1 offline repository; wrap `pacstrap` in `timeout`.
   Source: `cu4-report.md` D.2.
+- **After a `dd` to a whole disk, `lsblk` on the writing host may show the
+  previous image** (label and partition table from a stale udev database).
+  Check a written medium with `cmp` or `blkid -p`, never `lsblk`. Source:
+  `rel3-media-report.md` § 5.3.
+- **A copy checked on the mount that wrote it reads the page cache.** Unmount,
+  mount read-only, then `sha256sum -c` and `gpg --verify` on the medium.
+  Source: `rel3-media-report.md` § 1.
+- **`wipefs --no-act` on a whole disk still re-reads its partition table**
+  (`calling ioctl to re-read partition table`, util-linux 2.42.4). Source:
+  `rel3-media-report.md` § 5.2.
 - **A gate script that runs two windowed steps back to back leaves no time for
   an in-window check:** one window per script. Source: `cu4-report.md` C.5.
 - **`applications.old` is load-bearing; do not "simplify" it away.** A reader

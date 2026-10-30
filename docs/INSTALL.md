@@ -83,8 +83,9 @@ the ISO has no signature of its own: it is listed in the signed `SHA256SUMS`,
 and the `.sha256` is not a release file ([ADR-042](adr/ADR-042.md), revision
 note of 2026-10-23).
 
-**Write it to a stick** (this erases the stick; check the device name with
-`lsblk` first):
+**Write it to a stick** of 4 GB or more (this erases the stick; check the
+device name with `lsblk` first, and check the written stick with `cmp`, not
+with `lsblk`, which may still show the stick's previous content):
 
 ```
 dd if=katmate-install-<tag>-x86_64.iso of=/dev/sdX bs=4M conv=fsync oflag=direct status=progress
@@ -92,14 +93,26 @@ dd if=katmate-install-<tag>-x86_64.iso of=/dev/sdX bs=4M conv=fsync oflag=direct
 
 **Put the release files on a `KMRELEASE` filesystem**, all of them at its
 root (`SHA256SUMS`, `SHA256SUMS.asc`, the archive, the images and the rest;
-the ISO is not needed there).
-A second stick:
+the ISO is not needed there). They take about 4.2 GB, so a second stick of
+8 GB or more (`<release dir>` holds the downloaded release, `SHA256SUMS.asc`
+included):
 
 ```
 parted -s /dev/sdY mklabel gpt mkpart KMRELEASE fat32 1MiB 100%
 mkfs.fat -F 32 -n KMRELEASE /dev/sdY1
 mkdir -p /tmp/kmrel && mount /dev/sdY1 /tmp/kmrel
-cp <release dir>/* /tmp/kmrel/ && umount /tmp/kmrel
+cp <release dir>/* /tmp/kmrel/ && rm -f /tmp/kmrel/*.iso && umount /tmp/kmrel
+```
+
+Check the stick itself, not the copy in memory: mount it again read-only,
+then run the two commands of *The release, and the first verification*
+there.
+
+```
+mount -o ro /dev/sdY1 /tmp/kmrel && cd /tmp/kmrel
+gpg --verify SHA256SUMS.asc SHA256SUMS
+sha256sum -c --ignore-missing SHA256SUMS
+cd / && umount /tmp/kmrel
 ```
 
 or a third partition in the free space behind the ISO on the medium's own
@@ -364,7 +377,7 @@ even on failure. Downloaded release files are removed either way.
 | Machine | CPU | RAM | Role |
 |---|---|---|---|
 | MINISFORUM UM870 | Ryzen 7 8745H | 32 GB DDR5 | main development system (VT-d) |
-| MSI Cubi N6000 | Pentium N6000 | 32 GB DDR4 | bare-metal install test target (VT-d) |
+| MSI Cubi N6000 | Pentium N6000 | 32 GB DDR4 | bare-metal install test target (VT-d); `v0.2.0-beta` installed from its medium on 2026-10-30 |
 | Dell Latitude 3120 | Pentium N6000 | 8 GB | live install test target (VT-d) |
 | Acer ES1-633 | Pentium N4200 | 8 GB | dev scratch |
 

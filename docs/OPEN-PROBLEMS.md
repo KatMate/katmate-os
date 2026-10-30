@@ -353,42 +353,34 @@ repository.
    item 4). Source: `w2-report.md` H4, S3.3.
 
 66. **Install media and release runs are refused from about 2026-11-01 until
-   `archlinux-keyring` extends two packager keys.** With today's keyring the
-   earliest expiry among the keys that sign the offline repository is
-   2026-12-31 (`A85E811EB4CA2E08`, `539DFD48135182EF`). `build/iso.sh`
-   refuses to build a medium with fewer than 60 days left
-   ([ADR-042](adr/ADR-042.md) Decision 5), and since `3c32a76`
-   `tools/make-release.sh` refuses to release one (`ISO_MIN_DAYS=60`, counted
-   to 00:00 UTC of `ISO_VALID_UNTIL`). The last day either accepts this
-   keyring's medium is **2026-10-31 (UTC)**: the build host's half of a
-   release run has to finish by then. A constraint on the release date, not a
-   defect. The 60 is duplicated in the two scripts by operator ruling
-   (2026-10-23); it moves to `build/lib.sh` with the next change to
-   `build/iso.sh`. Source: `iso1-report.md` H3.7, `rel1-report.md` §5.
+   `archlinux-keyring` extends two packager keys.** With the keyring of
+   October 2026 the earliest expiry among the keys that sign the offline
+   repository is 2026-12-31 (`A85E811EB4CA2E08`, `539DFD48135182EF`).
+   `build/iso.sh` refuses to build a medium with fewer than 60 days left
+   ([ADR-042](adr/ADR-042.md) Decision 5), and `tools/make-release.sh`
+   refuses to release one (`ISO_MIN_DAYS=60`, counted to 00:00 UTC of
+   `ISO_VALID_UNTIL`). The `v0.2.0-beta` run met the window: its medium was
+   built 2026-10-23 and released 2026-10-24 (68 and 67 days left). The next
+   release run needs a keyring in which those keys reach past its date plus
+   60 days. A constraint on the release date, not a defect. The 60 is
+   duplicated in the two scripts by operator ruling (2026-10-23); it moves to
+   `build/lib.sh` with the next change to `build/iso.sh`. Source:
+   `iso1-report.md` H3.7, `rel1-report.md` §5, `rel2-report.md`.
 
-67. **The install medium in the signed release: steps 5 and 6 of
-   `make-release.sh` have not run.** Since `3c32a76` the script requires
-   `--archive` and `--iso` and binds the ISO to the release in step 0
-   ([ADR-042](adr/ADR-042.md), revision note of 2026-10-23); its refusals were
-   observed on MINIS (rel1 G1–G7, every run stopped in step 0 or 1).
-   UNVERIFIED: the copy of both into `--out`, the complete `SHA256SUMS` and
-   its two binding lines, the 2 GiB asset check on a real ISO, and the printed
-   Acer chain with the real `git tag -v`, `scp` and `gpg` (rel1 G8 ran it with
-   stubs). **Closes with** the `v0.2.0-beta` release run: its Acer chain
-   printing `katmate-os-v0.2.0-beta.tar.gz: OK` and a good signature over a
-   `SHA256SUMS` that lists the ISO. Source: `rel1-report.md` §6.
-
-68. **The install medium's unexecuted branches.** Written in `01026ac`, not
-   run in iso1 (UNVERIFIED): install.sh's own offline pacstrap line
-   (`PACSTRAP_OPTS`; iso1 ran the same arguments by hand); the URL path on
-   the medium (tag-pinned default URL, the network step for a URL, Wi-Fi via
-   iwd, the live network firmware); the refusals for more than one
-   `KMRELEASE` filesystem, for a release disk chosen as target, and for a
-   `KMRELEASE` filesystem that resolves to no disk; preflight's
-   `release-medium` record and exclusion; real hardware, and whether the five
-   live firmware subpackages cover the Cubi's NIC and Wi-Fi. **Closes with**
-   the Cubi gate: an end-to-end install from the next tagged release
-   ([ADR-042](adr/ADR-042.md)). Source: `iso1-report.md` H2.6, H3.5.
+68. **The install medium's remaining unexecuted branches.** Observed on the
+   Cubi (2026-10-30, `v0.2.0-beta`, operator): an end-to-end install from the
+   medium with a `KMRELEASE` disk; install.sh's own offline pacstrap line
+   (`PACSTRAP_OPTS`); preflight's `release-medium` record and exclusion (the
+   release disk listed as `(release medium)`); the wired NIC on real hardware;
+   and, on a first attempt with the release disk badly seated, the
+   tag-pinned default URL and the network step for a URL (online via
+   `enp3s0`, then `curl: (22) … 404` because the release was not yet
+   published). Still UNVERIFIED: a download of the release from that URL; an
+   install with no network at all (the UTP cable stayed in); Wi-Fi via iwd
+   and the live Wi-Fi firmware; the refusals for more than one `KMRELEASE`
+   filesystem, for a release disk chosen as target, and for a `KMRELEASE`
+   filesystem that resolves to no disk. Source: `iso1-report.md` H2.6, H3.5;
+   the Cubi gate of 2026-10-30.
 
 69. **The canonical `MANIFEST_SHA256` path has not run.** cu1 changed
     `build/app-layer-vm.sh` after its last build so that the meta records the
@@ -402,3 +394,16 @@ repository.
     slot 06's values as static constants and `KMB_WORK` required. ADR-043's
     decision 3 — a T3 unit template, a T4 program, slot 06 reserved — is not
     implemented.
+
+71. **A layer rebuild leaves no supported way to renew the instances on it.**
+    An instance's qcow2 delta backs onto its layer LV, so rebuilding the layer
+    invalidates every delta over it. `katmate-vm` has no operation that renews
+    a delta and keeps the instance: `create` assigns the lowest free CID from
+    32 and writes `identity = false`, so it cannot reproduce the installer's
+    T1 files (CIDs 21–25, `identity = true` on `app_personal` and
+    `app_work`), and `provision` refuses an instance whose home exists.
+    `build/katmate-update.sh` recreates deltas but knows only the web and
+    vault layers. In the `v0.2.0-beta` run the five deltas on MINIS were
+    removed before the layers and made again by hand in `make_delta`'s form,
+    T1 files and homes kept (operator ruling, rel2 D2). Source:
+    `rel2-report.md` D2.

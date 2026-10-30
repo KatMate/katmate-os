@@ -316,10 +316,13 @@ of empirics-before-commitment, is the expensive thing.
 | Leaving a kernel upgrade unbooted | the running kernel's `/usr/lib/modules` tree is gone; the next module load (e.g. `dm-snapshot` at `lvcreate`) fails and costs a host reboot mid-session. Reboot right after the upgrade, or hold the kernel package until a planned reboot |
 
 **Reboot procedure for a netVM build:** `systemctl disable
-katmate-sys-driver@netvm` → reboot → `build/netvm.sh` → `systemctl enable --now
-katmate-sys-driver@netvm`. **For a release build**, `tools/make-release.sh` runs
-between the build and the enable: it refuses a netVM image that has been booted
-since its build.
+katmate-sys-driver@netvm` → reboot → stuck-`jbd2` test → `lvchange -an` and
+`lvremove vg0/vm_sys_netvm` (no `-f`) → `build/netvm.sh` → `systemctl enable
+--now katmate-sys-driver@netvm`. **For a release build**, a second reboot follows
+the build, because the build leaves the `jbd2` hold and `tools/make-release.sh`
+refuses an open LV; then the stuck-`jbd2` test, `make-release.sh`, and only then
+the enable: it refuses a netVM image that has been booted since its build
+(`docs/DEV-ENV.md`, *Release run*).
 
 `docs/INVARIANTS.md` carries these with their diagnoses, and
 roughly twenty more. It is not background reading.

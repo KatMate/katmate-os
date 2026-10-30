@@ -10,12 +10,13 @@ configuration.
 netVM) · `20–99` fixed persistent AppVMs · `≥100` disposable pool. Applied
 2026-08-02 in `app_web.con` (5 → 21), ADR-015, ADR-017 and
 `tools/validate-properties.fish`. Allocated: netVM 3, `app_web` 21,
-`app_personal` 22, `app_work` 23, `app_vault` 24.
+`app_personal` 22, `app_work` 23, `app_vault` 24, `app_sandbox` 25.
 
 - **Host** (Arch): Ryzen 7 8745H, AMD-Vi + vfio. `vg0`: `root` 100G, `swap` 12G,
-  `vm_pool` thin pool. Kernel `7.2.10-hardened1-1-hardened`, booted 2026-10-14
-  10:43:16 (the w2 spike's reboot); a stock Arch kernel is also installed
-  (`7.2.9-arch1-1` tree in `/usr/lib/modules` on 2026-10-14). Guest microVM kernel
+  `vm_pool` thin pool. Kernel `7.2.10-hardened1-3-hardened`, booted 2026-10-24
+  14:33:42 CEST (the `v0.2.0-beta` release run's second reboot); a stock Arch
+  kernel is also installed (`7.2.9-arch1-1` tree in `/usr/lib/modules` on
+  2026-10-14). Guest microVM kernel
   `6.12.87` at `/home/host/katmate-kernels/` (monolithic, `-kernel`). nft input
   drop; SSH open (open problem #4).
   - **NICs:** the RTL8125 (`01:00.0`) is bound to `vfio-pci` at boot and belongs
@@ -25,9 +26,12 @@ netVM) · `20–99` fixed persistent AppVMs · `≥100` disposable pool. Applied
   - **Egress:** wg-quick policy routing (table 51820) sends the host's own
     traffic, IPv4 and IPv6, into `proton`, not the main table and not netVM.
     Host IPv6 is off permanently (R97): `proton.conf`'s `PostUp` adds `ip -6
-    rule add pref 100 unreachable`, `PreDown` removes it. `wg-quick@proton` is
-    `enabled`, `active`, the tunnel's one owner (#54 resolved). Removing the
-    `/etc/gai.conf` line is the operator's.
+    rule add pref 100 unreachable`, `PreDown` removes it. The unit
+    `wg-quick@proton` is `disabled` and `inactive` (read 2026-10-23, rel2):
+    after every reboot the operator brings the host network, the tunnel
+    (wg-quick's rules 32764/32765) and sshd up by hand, so nothing on MINIS is
+    reachable over ssh until he has. Removing the `/etc/gai.conf` line is the
+    operator's.
   - **Dev packages allowed** (R112): `conntrack-tools 1.4.9-1`, `strace 7.2-1`.
     `nf_conntrack_netlink` is loaded, cause unknown.
   - `host` is in `kvm`, `disk`, `hugepages`, `vfio`. Hugepages: see netVM,
@@ -71,15 +75,16 @@ netVM) · `20–99` fixed persistent AppVMs · `≥100` disposable pool. Applied
   folded in (`a36bdb2`, R9 comment `70b08c7`); `katmate-pool@netvm` is
   `not-found`, and the netinst pet and `net-sys.con` are retired. Control path
   live-gated (ADR-024, ADR-025).
-  - **Image:** `NETVM_BUILT=2026-09-30T14:37:22Z`, guest kernel
-    `6.12.111+deb13-amd64`, `UPLINK_PCI_ADDR=0000:00:04.0`, dev build (R27;
-    root unlocked, #11), `out/netvm-agent` `4a4e0715…` from `6023a86`. It has
-    been booted and carries no unbooted marker (`build/netvm.sh` step 9b), so
-    `tools/make-release.sh` refuses it: a release needs a fresh, unbooted build.
-  - **Running** (last read 2026-10-03, ai5): MainPID `22405`, invocation
-    `ca5f364e…`, `NRestarts=0`, since 2026-10-02 14:19:30. No `jbd2` hold on
-    `vm_sys_netvm` (no build this boot), so no reboot is due before the next
-    `netvm.sh` unless something mounts it.
+  - **Image:** the `v0.2.0-beta` release build (rel2):
+    `NETVM_BUILT=2026-10-23T18:41:15Z`, guest kernel `6.12.113+deb13-amd64`,
+    `NETVM_ROOT_UNLOCKED=no` (no `KATMATE_DEV_ROOT_HASH`), `out/netvm-agent`
+    `4777e63b…`. Exported unbooted; booted since by the enable, so
+    `tools/make-release.sh` now refuses it: a release needs a fresh, unbooted
+    build.
+  - **Running** (last read 2026-10-24, rel2): MainPID `5087`, `NRestarts=0`,
+    since 2026-10-24 14:39:28 CEST. No `jbd2` hold on `vm_sys_netvm` (no build
+    this boot), so no reboot is due before the next `netvm.sh` unless
+    something mounts it.
   - **Uplink:** `uplink0` by `60-katmate-uplink.link` on
     `Path=pci-0000:00:04.0` (R3, R6), MAC `38:05:25:34:7c:47`, static
     `10.3.1.172/24`, gateway and resolver `10.3.1.1`, from the T1
@@ -102,13 +107,15 @@ netVM) · `20–99` fixed persistent AppVMs · `≥100` disposable pool. Applied
   - **Console:** per session only, in `/run` (R1, R9): the drop-in
     `90-dev-monitor.conf` (`b44de3a9…`), the FIFO and `km-console-holder`; a
     reboot removes all three. Left logged out (R94).
-  - **Layers and LVs** (2026-10-03, ai5): `vm_tpl_foundation`
-    (`BUILD_DATE=2026-10-03T14:37:01Z`, from `77f1b72`, 216 packages) →
-    `vm_app_web` (237), `vm_app_office` (368), `vm_app_vault` (292). Every
-    layer carries `/sbin/init` `8163e103…` and vm-agent `5d35567f…` (from
-    `2a9e638`, R146). Nothing set aside (R132). LVs: `root`, `swap`, the four
-    layers, `vm_app_web_home` (linear), `vm_app_personal_home`,
-    `vm_app_work_home`, `vm_app_vault_home` (thin), `vm_sys_netvm`, `vm_pool`.
+  - **Layers and LVs** (2026-10-23, rel2, from `v0.2.0-beta` at `690c48d`):
+    `vm_tpl_foundation` (`BUILD_DATE=2026-10-23T17:45:41Z`) → `vm_app_web`
+    (`APP_BUILT=…17:48:31Z`), `vm_app_office` (`…17:51:53Z`), `vm_app_vault`
+    (`…17:53:09Z`); vm-agent `1d5d2bba…`. These are the images the release
+    ships. The five instance deltas were renewed over them on 2026-10-24
+    (`root:root 0644`, 10 GiB; #71). LVs: `root`, `swap`, the four layers,
+    `vm_app_web_home` (linear), `vm_app_personal_home`, `vm_app_work_home`,
+    `vm_app_vault_home`, `vm_app_sandbox_home` (thin), `vm_sys_netvm`,
+    `vm_pool`, and w2's `vm_app_gw_w2`, `vm_app_gw_w2b`, `vm_gw_w2_home`.
   - **Host configuration after the installer merge** (2026-10-05, `49a172d`;
     the operator's statement, not read on MINIS): `/etc/sysctl.d/hugepages.conf`
     (6144 pages, R126) is removed, as both AppVM templates use
@@ -190,8 +197,10 @@ netVM) · `20–99` fixed persistent AppVMs · `≥100` disposable pool. Applied
     `katmate-launch <instance> <app>` | `--stop <instance>` | `--stop-all` |
     `--cid-check`, as root only. Exit 0 done, 1 refused or failed, 2 usage. Journal:
     `journalctl -t katmate-launch`. It does not start netVM.
-  - **`/usr/lib/katmate/ping-client`** `root:root 0755`, `bbeeddf2…` (R155), a
-    copy of `~/katmate-build/agent/target/release/ping-client`.
+  - **`/usr/lib/katmate/ping-client`** `root:root 0755`, `c073dccf…` (rel2,
+    `v0.2.0-beta`), a copy of `~/katmate-build/agent/target/release/ping-client`.
+    `katmate-alloc` and `katmate-vm` below were rebuilt in the same run,
+    byte-identical to the ones installed before.
   - **`/usr/lib/katmate/katmate-alloc`** `root:root 0755` (cu3), a copy of
     `~/katmate-build/agent/target/release/katmate-alloc`.
   - **`/usr/lib/katmate/katmate-vm`** `root:root 0755` (cu4), a copy of
@@ -238,12 +247,15 @@ netVM) · `20–99` fixed persistent AppVMs · `≥100` disposable pool. Applied
 
 ## Release run
 
-Written for `v0.2.0-beta` (rel1, 2026-10-23); for another tag, replace the
-tag throughout. The release set and its signing: [ADR-020](adr/ADR-020.md)
-and [ADR-042](adr/ADR-042.md), revision notes of 2026-10-23.
+Written for `v0.2.0-beta` (rel1, 2026-10-23) and corrected by its run (rel2,
+rel3, 2026-10-23 to 2026-10-30); for another tag, replace the tag throughout.
+The release set and its signing: [ADR-020](adr/ADR-020.md) and
+[ADR-042](adr/ADR-042.md), revision notes of 2026-10-23.
 `tools/make-release.sh` prints step 3 itself, for the paths of its run. The
 MINIS address is the one under *Dev access to MINIS* above (volatile); the
-script's `BUILD_HOST_SSH` changes with it.
+script's `BUILD_HOST_SSH` changes with it. Every reboot below needs the
+operator at MINIS (LUKS passphrase, then the network, the tunnel and sshd by
+hand).
 
 **1. Acer: tag, archive, copy.** From a clean tree at `main`; the rsync dry
 run (`-an --itemize-changes`) first. The tag is pushed only at publish.
@@ -260,32 +272,53 @@ ssh host@10.3.1.3 mkdir -p /home/host/release-v0.2.0-beta/in
 scp ~/release-v0.2.0-beta/katmate-os-v0.2.0-beta.tar.gz host@10.3.1.3:/home/host/release-v0.2.0-beta/in/
 ```
 
-**2. MINIS: medium, images, release set.** The medium first: it needs only
-the archive and the host's own network, which is up before any reboot, and it
-is the step the keyring deadline binds
-([open problem #66](OPEN-PROBLEMS.md)). Then the `--built-after` stamp, then
-the image builds (`build/`: foundation, the web, office and vault layers,
-the host binaries) under CLAUDE.md's reboot procedure, netVM last (`systemctl disable katmate-sys-driver@netvm` → reboot →
-`build/netvm.sh`); netVM stays disabled and unbooted until
-`make-release.sh` has run.
+**2. MINIS: medium, images, release set.** In this order:
+
+1. **The medium.** It needs only the archive and the host's own network, and
+   it is the step the keyring deadline binds
+   ([open problem #66](OPEN-PROBLEMS.md)). `iso.sh` retries the offline
+   repository's download three times; a run that still fails on a download is
+   re-run in the same form after its `--out` is moved aside.
+2. **The `--built-after` stamp.**
+3. **The host binaries, clean:** in `agent/`, `cargo clean`, then
+   `cargo build --release --locked`; `vm-agent` and `netvm-agent` into
+   `out/`; `ping-client`, `katmate-alloc`, `katmate-vm` into
+   `/usr/lib/katmate/` (`root:root 0755`).
+4. **The foundation and the layers.** First remove every instance delta in
+   `/var/lib/katmate/instances/` whose backing file (`qemu-img info -U`) is
+   one of the layers, then `lvchange -an` and `lvremove` the foundation and
+   the three layers, each after the stuck-`jbd2` test (`docs/INVARIANTS.md`);
+   then `make foundation` and `make apps`.
+5. **netVM, with two reboots.** `systemctl disable katmate-sys-driver@netvm`
+   → reboot → stuck-`jbd2` test → `lvchange -an` and `lvremove
+   vg0/vm_sys_netvm` (no `-f`) → `build/netvm.sh` without
+   `KATMATE_DEV_ROOT_HASH` → **reboot** (the build leaves the `jbd2` hold, and
+   `make-release.sh` refuses an open LV) → stuck-`jbd2` test →
+   `make-release.sh` → `systemctl enable --now katmate-sys-driver@netvm`.
+   netVM is never booted between its build and `make-release.sh`.
+6. **The instance deltas again**, over the new layers, in `katmate-vm`'s
+   form: per instance `katmate-check-image --layer <layer>` for the LV,
+   `katmate-activate-lvs --layer <layer>`, `qemu-img create -q -f qcow2 -F raw
+   -b /dev/vg0/<layer LV> <delta> 10G`, mode `0644`; then `katmate-vm menu`.
+   T1 files and homes are kept ([open problem #71](OPEN-PROBLEMS.md)).
+
+Before every step that fetches from the network (1, 4, `build/netvm.sh`),
+`ip -6 rule list` must show `100: from all unreachable`; no script checks it.
 
 ```
 sudo /home/host/katmate-build/build/iso.sh --archive /home/host/release-v0.2.0-beta/in/katmate-os-v0.2.0-beta.tar.gz --out /home/host/release-v0.2.0-beta/iso
 date -u +%Y-%m-%dT%H:%M:%SZ > /home/host/release-v0.2.0-beta/built-after
 ```
 
-After the image builds:
+After the image builds and the second reboot:
 
 ```
 sudo /home/host/katmate-build/tools/make-release.sh --tag v0.2.0-beta --archive /home/host/release-v0.2.0-beta/in/katmate-os-v0.2.0-beta.tar.gz --iso /home/host/release-v0.2.0-beta/iso/katmate-install-v0.2.0-beta-x86_64.iso --out /home/host/release-v0.2.0-beta/out --built-after (cat /home/host/release-v0.2.0-beta/built-after)
 sudo systemctl enable --now katmate-sys-driver@netvm
 ```
 
-With today's keyring `make-release.sh` refuses the medium from
-2026-11-01T00:00Z.
-
-**3. Acer: check, sign, verify.** One chain: nothing is signed after a failed
-step.
+**3. Acer: check, sign, verify, copy the signature back.** One chain:
+nothing is signed after a failed step.
 
 ```
 cd ~/katmate-os && git tag -v v0.2.0-beta \
@@ -293,13 +326,35 @@ cd ~/katmate-os && git tag -v v0.2.0-beta \
   && cd ~/release-v0.2.0-beta && sha256sum -c --ignore-missing SHA256SUMS \
   && gpg --local-user 3F49AE514562ACD3FF9D6049F8841B7B3D3AB436 --armor --detach-sign --output SHA256SUMS.asc SHA256SUMS \
   && gpg --verify SHA256SUMS.asc SHA256SUMS
+scp ~/release-v0.2.0-beta/SHA256SUMS.asc host@10.3.1.3:/home/host/release-v0.2.0-beta/
 ```
 
 Expected: `katmate-os-v0.2.0-beta.tar.gz: OK`, then a good signature from
-KatMate.
+KatMate. The signature goes back to MINIS for the install media.
 
-**4. Publish, after the Cubi gate passes.** Upload every file in MINIS's
-`/home/host/release-v0.2.0-beta/out/` and the Acer's
-`~/release-v0.2.0-beta/SHA256SUMS.asc`; not `iso.sh`'s `.sha256` or its
-`work/`. Then `git push origin v0.2.0-beta` and create the GitHub release as
-a prerelease. Only the current release is kept.
+**4. MINIS: the media for the Cubi gate**, as in
+[`docs/INSTALL.md`](INSTALL.md): the ISO on one stick, every file of `out/`
+except the ISO plus `SHA256SUMS.asc` on a `KMRELEASE` disk, each checked
+after the write. The gate installs from them before anything is published.
+
+**5. Publish, after the Cubi gate passes** (Acer; `gh` logged in as KatMate).
+The upload took about two hours on the lab's LTE uplink.
+
+```
+rsync -a --partial --progress host@10.3.1.3:/home/host/release-v0.2.0-beta/out/ ~/release-v0.2.0-beta/out/
+cd ~/release-v0.2.0-beta/out && cmp SHA256SUMS ../SHA256SUMS && sha256sum -c SHA256SUMS && cp ../SHA256SUMS.asc . && gpg --verify SHA256SUMS.asc SHA256SUMS
+cd ~/katmate-os && git push origin v0.2.0-beta
+gh release create v0.2.0-beta --repo KatMate/katmate-os --verify-tag --draft --prerelease --title "KatMate OS v0.2.0-beta" --notes-file ~/Claude.assistent/beta-notes.md ~/release-v0.2.0-beta/out/*
+```
+
+Then compare each asset's `digest` with `SHA256SUMS` before publishing:
+
+```
+gh api repos/KatMate/katmate-os/releases --jq '.[] | select(.tag_name=="v0.2.0-beta") | "draft=\(.draft) assets=\(.assets|length)", (.assets[] | "\(.digest) \(.size) \(.name) \(.state)")'
+gh api -X PATCH repos/KatMate/katmate-os/releases/(gh api repos/KatMate/katmate-os/releases --jq '.[] | select(.tag_name=="v0.2.0-beta") | .id') -F draft=false
+```
+
+`gh release edit --draft=false` returned HTTP 500 for `v0.2.0-beta`; the
+minimal `PATCH` published it. Only the current release is kept: the previous
+one goes with `gh release delete` (for the beta: `v0.2.0-alpha2 --yes`), and
+its tag stays.

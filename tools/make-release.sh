@@ -55,9 +55,6 @@
 # Validation of the T1 templates (R10): fish is not installed on a KatMate
 # host, so tools/validate-properties.fish runs HERE, at release time, over the
 # templates the installer will instantiate: those in --archive.
-#
-# UNVERIFIED: copying --archive and --iso into --out and the complete
-# SHA256SUMS (steps 5 and 6) first execute in the v0.2.0-beta release run.
 
 set -euo pipefail
 
