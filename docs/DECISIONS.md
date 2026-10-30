@@ -55,3 +55,4 @@ of each ADR's **Status** line; the ADR file is the authority.
 | [ADR-041](adr/ADR-041.md) | Windows applications via an RDP RemoteApp gateway microVM | Accepted |
 | [ADR-042](adr/ADR-042.md) | KatMate install medium: own archiso profile, offline package repository, release kept separate | Proposed |
 | [ADR-043](adr/ADR-043.md) | App layers are built in a builder VM from a manifest; the manifest carries the RUN list | Proposed |
+| [ADR-044](adr/ADR-044.md) | Windows domains: `class = win`, a standalone WinVM and its RDP gateway as one instance, deployed unattended from the user's media | Proposed |

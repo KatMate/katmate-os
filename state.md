@@ -22,7 +22,8 @@ and [docs/DECISIONS.md](docs/DECISIONS.md).
   The procedure is [docs/DEV-ENV.md](docs/DEV-ENV.md), *Release run*.
 - Done before it: cu3–cu5f and hs1 (`katmate-alloc`, `katmate-vm`
   `create`/`status`/`delete`/`provision`/`menu`, `--home-size`), fz1, iso1.
-- ADR-043 **Proposed** (gates B1–B4); [ADR-042](docs/adr/ADR-042.md)
+- [ADR-044](docs/adr/ADR-044.md) **Proposed** 2026-10-30: `class = win`
+  (gates WG1–WG7). ADR-043 **Proposed** (gates B1–B4); [ADR-042](docs/adr/ADR-042.md)
   **Proposed**, its status the operator's; [ADR-041](docs/adr/ADR-041.md)
   (w2) Accepted.
 - MINIS: `7.2.10-hardened1-3`, booted 2026-10-24; netVM is the beta's release
@@ -44,8 +45,9 @@ Full list: [docs/OPEN-PROBLEMS.md](docs/OPEN-PROBLEMS.md).
 
 ## Next steps
 
-1. The Windows class ADR (`class = win`): the next major step (operator,
-   2026-10-30), on ADR-041's gateway path.
+1. Spike w3 for ADR-044 on MINIS: unattended deploy (the UEFI key prompt),
+   inbox devices, Secure Boot and swtpm, stop through the gateway, 3389
+   reachability (WG1, WG3–WG6).
 2. cu6: the builder as T3 and `create --from <T1 manifest>` (#70, gate B3);
    gates B1 and B2.
 3. Post-release backlog: #63, #64, #71, per-VM vCPU and memory limits, a

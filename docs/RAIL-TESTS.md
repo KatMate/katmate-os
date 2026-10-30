@@ -6,10 +6,10 @@ windows via RDP RemoteApp*. Newest first.
 
 ## RAIL test w2 — Word through the gateway microVM (2026-10-14/15)
 
-**Context:** First run of the target shape: a Windows 11 Pro AppVM (Office
-LTSC 2024) on the build/runtime host, an RDP gateway microVM, a 1:1 link
-between them, RemoteApp windows to the host through waypipe. Spike only; no
-repository change. Measurements, verdict and product items:
+**Context:** First run of the target shape: a Windows 11 IoT Enterprise LTSC
+AppVM (Office LTSC 2024) on the build/runtime host, an RDP gateway microVM, a
+1:1 link between them, RemoteApp windows to the host through waypipe. Spike
+only; no repository change. Measurements, verdict and product items:
 [ADR-041](adr/ADR-041.md).
 
 **Environment:** host kernel `7.2.10-hardened1-1`. Gateway: foundation

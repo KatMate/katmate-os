@@ -248,7 +248,7 @@ remove dev sshd (#4); ~~remove the `usermod -p` dev-root line from `netvm.sh`
 - [ ] Remove the leftover GRUB EFI entry
 - [ ] "Zero console" boot (no text frame between firmware and greeter)
 
-## Windows application windows via RDP RemoteApp (experimental backlog — user opt-in, [ADR-041](docs/adr/ADR-041.md))
+## Windows application windows via RDP RemoteApp (experimental backlog — user opt-in, [ADR-041](docs/adr/ADR-041.md), [ADR-044](docs/adr/ADR-044.md))
 
 Windows apps as ordinary per-window Wayland surfaces next to the other
 domains. KatMate ships the **client side only**; the RDP server is the
